@@ -205,13 +205,15 @@ func (a *Agent) requeues(ctx context.Context) <-chan struct{} {
 	return merged
 }
 
-// reconcile runs Stage on all simulators in parallel, waits for the barrier,
+// reconcile runs Stage in parallel against a source-built state, waits for the barrier,
 // starts (or reloads) the daemons, then runs Apply on all appliers in parallel.
 //
-// Only the Stage wave holds the staging lock: it rewrites the tree NRI injects,
+// Stage holds the staging lock while replacing the tree NRI injects,
 // while the daemons and Apply publish nothing NRI reads when it decides.
 func (a *Agent) reconcile(ctx context.Context, state *State) error {
-	if err := a.withStagingLock(ctx, func() error { return a.stage(ctx, state) }); err != nil {
+	if err := a.withStagingLock(ctx, func() error {
+		return a.stage(ctx, state)
+	}); err != nil {
 		return err
 	}
 	// Open the gate only after the lock is released, so NRI can always take its

@@ -11,8 +11,8 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/migcaps"
 )
 
-// State is the compiled desired simulation state the agent reconciles toward.
-// It maps 1:1 to what MEP-0001's Control Plane will emit.
+// State is the desired simulation state compiled by a source, including any
+// host-resolved topology simulators need before reconciliation.
 type State struct {
 	Generation int64
 	Node       NodeMeta
@@ -285,6 +285,21 @@ type NodeShape struct {
 	NumGPUs  int
 	Topology PCIeTopology
 	Network  NetworkShape
+	// NUMA is resolved by the source before simulators read this state.
+	NUMA *NUMATopology
+}
+
+// NUMATopology is the shared host-resolved layout. Simulators must treat it as
+// read-only; CPU IDs and memory amounts come from the node, not invented capacity.
+type NUMATopology struct {
+	Zones []NUMAZone `json:"zones"`
+}
+
+// NUMAZone describes one simulated zone using real online CPU IDs.
+type NUMAZone struct {
+	ID       int    `json:"id"`
+	CPUs     []int  `json:"cpus"`
+	MemoryKB uint64 `json:"memoryKB"`
 }
 
 // NetworkShape describes the simulated InfiniBand HCAs attached to the node.

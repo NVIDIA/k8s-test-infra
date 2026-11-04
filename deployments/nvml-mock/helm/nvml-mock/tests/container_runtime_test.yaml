@@ -41,14 +41,15 @@ tests:
           path: spec.template.spec.hostPID
           value: true
 
-  - it: should keep the pod's own PID namespace without restarts
+  - it: should retain host PID access for NUMA restoration without runtime restarts
     set:
       nodeAgent:
         containerRuntime:
           restartMode: none
     asserts:
-      - notExists:
+      - equal:
           path: spec.template.spec.hostPID
+          value: true
 
   - it: should mount the host for the setup
     asserts:
@@ -130,22 +131,23 @@ tests:
       - notContains:
           path: spec.template.spec.initContainers[0].command
           content: --host-fs=/host
-      - notContains:
+      - contains:
           path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: host-fs
             mountPath: /host
             readOnly: true
             mountPropagation: HostToContainer
-      - notContains:
+      - contains:
           path: spec.template.spec.volumes
           content:
             name: host-fs
             hostPath:
               path: /
               type: Directory
-      - notExists:
+      - equal:
           path: spec.template.spec.hostPID
+          value: true
       - equal:
           path: spec.template.spec.terminationGracePeriodSeconds
           value: 10
@@ -160,15 +162,16 @@ tests:
       - notContains:
           path: spec.template.spec.initContainers[0].command
           content: --host-fs=/host
-      - notContains:
+      - contains:
           path: spec.template.spec.volumes
           content:
             name: host-fs
             hostPath:
               path: /
               type: Directory
-      - notExists:
+      - equal:
           path: spec.template.spec.hostPID
+          value: true
 
   # The node agent is the native sidecar the NRI plugin runs beside by default,
   # and a plain container without the plugin.

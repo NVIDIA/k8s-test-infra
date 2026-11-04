@@ -1,0 +1,193 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+suite: Host NUMA simulation
+templates:
+  - templates/daemonset.yaml
+capabilities:
+  majorVersion: 1
+  minorVersion: 35
+tests:
+  - it: keeps propagated NUMA mounts available for setup and restore
+    set:
+      nodeAgent.containerRuntime.enabled: false
+      nodeAgent.numa.enabled: false
+      nodeAgent.numa.configureKubelet: false
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: node-sysfs
+            mountPath: /host/sys
+            mountPropagation: Bidirectional
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: numa-kubelet
+            mountPath: /host/var/lib/kubelet
+            mountPropagation: Bidirectional
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: numa-systemd
+            mountPath: /host/etc/systemd/system
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: numa-state
+            mountPath: /host/run/mokka
+  - it: is disabled by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-simulation
+  - it: retains host access to restore when all NUMA and runtime options are disabled
+    set:
+      nodeAgent.containerRuntime.enabled: false
+      nodeAgent.numa.enabled: false
+      nodeAgent.numa.configureKubelet: false
+    asserts:
+      - equal:
+          path: spec.template.spec.hostPID
+          value: true
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: host-fs
+            mountPath: /host
+            readOnly: true
+            mountPropagation: HostToContainer
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-fs
+            hostPath:
+              path: /
+              type: Directory
+  - it: exposes the explicit kubelet setup options
+    set:
+      nodeAgent.numa:
+        enabled: true
+        configureKubelet: true
+        topologyManagerPolicy: restricted
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-simulation
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-configure-kubelet
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-topology-manager-policy=restricted
+  - it: can configure NUMA without changing the container runtime
+    set:
+      nodeAgent.containerRuntime.enabled: false
+      nodeAgent.numa.enabled: true
+      nodeAgent.numa.configureKubelet: true
+    asserts:
+      - equal:
+          path: spec.template.spec.hostPID
+          value: true
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: host-fs
+            mountPath: /host
+            readOnly: true
+            mountPropagation: HostToContainer
+  - it: rejects an unknown topology policy
+    set:
+      nodeAgent.numa.topologyManagerPolicy: invalid
+    asserts:
+      - failedTemplate: {}
+  - it: refuses concurrent node setup during a surging rollout
+    set:
+      nodeAgent.containerRuntime.enabled: false
+      nodeAgent.numa.enabled: true
+      updateStrategy.rollingUpdate.maxSurge: 1
+    asserts:
+      - failedTemplate:
+          errorMessage: "updateStrategy.rollingUpdate.maxSurge cannot be used with nodeAgent.numa: only one pod may configure a node at a time"
+  - it: passes static CPU Manager settings
+    set:
+      nodeAgent.numa.enabled: true
+      nodeAgent.numa.configureKubelet: true
+      nodeAgent.numa.cpuManagerPolicy: static
+      nodeAgent.numa.reservedCPUs: "0,4"
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-cpu-manager-policy=static
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-reserved-cpus=0,4
+  - it: rejects an unknown CPU policy
+    set:
+      nodeAgent.numa.cpuManagerPolicy: invalid
+    asserts:
+      - failedTemplate: {}
+  - it: enables simulated memory handling in both kubelet and NRI
+    set:
+      nodeAgent.numa.enabled: true
+      nodeAgent.numa.configureKubelet: true
+      nodeAgent.numa.cpuManagerPolicy: static
+      nodeAgent.numa.memoryManagerPolicy: static
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-memory-manager-policy=static
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --numa-memory-simulation
+  - it: requires NRI when memory simulation is enabled
+    set:
+      nodeAgent.numa.enabled: true
+      nodeAgent.numa.memoryManagerPolicy: static
+      nri.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: static simulated Memory Manager requires nri.enabled
+  - it: allows a fractional shared CPU reservation
+    set:
+      nodeAgent.numa.enabled: true
+      nodeAgent.numa.configureKubelet: true
+      nodeAgent.numa.cpuManagerPolicy: static
+      nodeAgent.numa.systemReservedCPU: 100m
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-system-reserved-cpu=100m
+
+  - it: rejects the previous top-level NUMA settings instead of silently disabling simulation
+    set:
+      numaSimulation.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "numaSimulation has moved to nodeAgent.numa"
+  - it: rejects capitalized user memory policy values
+    set:
+      nodeAgent.numa.memoryManagerPolicy: Static
+    asserts:
+      - failedTemplate: {}
+
+  - it: passes the default system memory reservation from Helm values
+    set:
+      nodeAgent.numa.enabled: true
+      nodeAgent.numa.configureKubelet: true
+      nodeAgent.numa.cpuManagerPolicy: static
+      nodeAgent.numa.memoryManagerPolicy: static
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-system-reserved-memory=256Mi
+  - it: passes the configured system memory reservation
+    set:
+      nodeAgent.numa.enabled: true
+      nodeAgent.numa.configureKubelet: true
+      nodeAgent.numa.cpuManagerPolicy: static
+      nodeAgent.numa.memoryManagerPolicy: static
+      nodeAgent.numa.systemReservedMemory: 512Mi
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --numa-system-reserved-memory=512Mi

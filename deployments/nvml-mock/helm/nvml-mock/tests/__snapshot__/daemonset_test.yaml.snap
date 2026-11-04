@@ -218,8 +218,15 @@ should match snapshot with all overrides:
                 - mountPath: /host/var/lib/nvml-mock/fabric-state
                   name: fabric-state
                 - mountPath: /host/sys
+                  mountPropagation: Bidirectional
                   name: node-sysfs
-                  readOnly: true
+                - mountPath: /host/var/lib/kubelet
+                  mountPropagation: Bidirectional
+                  name: numa-kubelet
+                - mountPath: /host/etc/systemd/system
+                  name: numa-systemd
+                - mountPath: /host/run/mokka
+                  name: numa-state
                 - mountPath: /host
                   mountPropagation: HostToContainer
                   name: host-fs
@@ -272,6 +279,18 @@ should match snapshot with all overrides:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /var/lib/kubelet
+                type: DirectoryOrCreate
+              name: numa-kubelet
+            - hostPath:
+                path: /etc/systemd/system
+                type: DirectoryOrCreate
+              name: numa-systemd
+            - hostPath:
+                path: /run/mokka
+                type: DirectoryOrCreate
+              name: numa-state
             - hostPath:
                 path: /
                 type: Directory
@@ -519,8 +538,15 @@ should match snapshot with b200 profile:
                   name: mig-profiles
                   readOnly: true
                 - mountPath: /host/sys
+                  mountPropagation: Bidirectional
                   name: node-sysfs
-                  readOnly: true
+                - mountPath: /host/var/lib/kubelet
+                  mountPropagation: Bidirectional
+                  name: numa-kubelet
+                - mountPath: /host/etc/systemd/system
+                  name: numa-systemd
+                - mountPath: /host/run/mokka
+                  name: numa-state
                 - mountPath: /host
                   mountPropagation: HostToContainer
                   name: host-fs
@@ -569,6 +595,18 @@ should match snapshot with b200 profile:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /var/lib/kubelet
+                type: DirectoryOrCreate
+              name: numa-kubelet
+            - hostPath:
+                path: /etc/systemd/system
+                type: DirectoryOrCreate
+              name: numa-systemd
+            - hostPath:
+                path: /run/mokka
+                type: DirectoryOrCreate
+              name: numa-state
             - hostPath:
                 path: /
                 type: Directory
@@ -816,8 +854,15 @@ should match snapshot with default values:
                 - mountPath: /host/var/lib/nvml-mock/fabric-state
                   name: fabric-state
                 - mountPath: /host/sys
+                  mountPropagation: Bidirectional
                   name: node-sysfs
-                  readOnly: true
+                - mountPath: /host/var/lib/kubelet
+                  mountPropagation: Bidirectional
+                  name: numa-kubelet
+                - mountPath: /host/etc/systemd/system
+                  name: numa-systemd
+                - mountPath: /host/run/mokka
+                  name: numa-state
                 - mountPath: /host
                   mountPropagation: HostToContainer
                   name: host-fs
@@ -866,6 +911,18 @@ should match snapshot with default values:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /var/lib/kubelet
+                type: DirectoryOrCreate
+              name: numa-kubelet
+            - hostPath:
+                path: /etc/systemd/system
+                type: DirectoryOrCreate
+              name: numa-systemd
+            - hostPath:
+                path: /run/mokka
+                type: DirectoryOrCreate
+              name: numa-state
             - hostPath:
                 path: /
                 type: Directory
