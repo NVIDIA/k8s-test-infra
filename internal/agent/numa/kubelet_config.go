@@ -49,6 +49,8 @@ func decodeKubeletConfig(data []byte) (*kubeletDocument, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Keep the full document to preserve fields outside kubeletSettings when
+	// patching owned fields. The recovery backup is stored separately.
 	doc := &kubeletDocument{original: original}
 	if err := json.Unmarshal(original, &doc.Settings); err != nil {
 		return nil, err
