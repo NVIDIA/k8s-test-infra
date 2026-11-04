@@ -27,7 +27,6 @@ import (
 type Agent struct {
 	simulators      []Simulator
 	source          StateSource
-	preparer        StatePreparer
 	log             *zap.Logger
 	shutdownTimeout time.Duration
 	stagingLockPath string
@@ -46,7 +45,6 @@ type Agent struct {
 type Config struct {
 	Simulators      []Simulator
 	Source          StateSource
-	Preparer        StatePreparer
 	Log             *zap.Logger
 	ShutdownTimeout time.Duration
 	StagingLockPath string
@@ -60,7 +58,6 @@ func New(cfg Config) *Agent {
 	a := &Agent{
 		simulators:      cfg.Simulators,
 		source:          cfg.Source,
-		preparer:        cfg.Preparer,
 		log:             cfg.Log,
 		shutdownTimeout: cfg.ShutdownTimeout,
 		stagingLockPath: cfg.StagingLockPath,

@@ -7,22 +7,18 @@ import (
 	"context"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
-	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"go.uber.org/zap"
 )
 
-// Preparer resolves the layout shared by NUMA, PCI sysfs, and the NVML engine.
-type Preparer struct{ host *host.Host }
-
-// NewPreparer constructs a host-aware state preparer without changing the node.
-func NewPreparer(h *host.Host) *Preparer { return &Preparer{host: h} }
-
 // Prepare resolves CPU placement once and leaves the source observation intact.
-func (p *Preparer) Prepare(ctx context.Context, state *agent.State) (*agent.State, error) {
+func (s *Simulator) Prepare(ctx context.Context, state *agent.State) (*agent.State, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	plan, err := resolve(p.host, state)
+	if !s.opts.Enabled {
+		return state, nil
+	}
+	plan, err := resolve(s.host, state)
 	if err != nil {
 		return nil, err
 	}
@@ -35,4 +31,4 @@ func (p *Preparer) Prepare(ctx context.Context, state *agent.State) (*agent.Stat
 	return &prepared, nil
 }
 
-var _ agent.StatePreparer = (*Preparer)(nil)
+var _ agent.StatePreparer = (*Simulator)(nil)

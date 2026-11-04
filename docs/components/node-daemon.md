@@ -60,7 +60,11 @@ flowchart LR
     daemons --> apply[Apply<br/>appliers, in parallel]
 ```
 
-With NUMA simulation enabled, preparation reads the node's real CPUs and RAM,
+Simulators can implement the optional `StatePreparer` interface. The agent calls
+their `Prepare` methods in registration order, passing each result to the next
+preparer. All preparation completes before any `Stage` call.
+
+With NUMA simulation enabled, its `Prepare` method reads the node's real CPUs and RAM,
 resolves one layout, and stores it in `State.NodeShape.NUMA`. The same CPU
 placement is copied into the PCI topology and NVML engine configuration. The
 NUMA simulator consumes this prepared layout instead of calculating it again.
@@ -70,7 +74,8 @@ which the agent retains for later reconciles. Every simulator, daemon reload,
 and applier receives the prepared state and must treat it as read-only.
 Preparation and staging hold the same exclusive staging lock. A preparation
 failure closes the staging gate, fails liveness, and prevents the remaining
-waves. With no preparer configured, the agent passes the source state through.
+waves. Simulators without `StatePreparer` are skipped. With no preparation
+changes, the agent passes the source state through.
 
 The split between `Stage` and `Apply` is the important part. Staging is private:
 files exist but nothing outside the node is looking at them yet. Publishing is

@@ -50,9 +50,7 @@ func testState() *agent.State {
 func TestResolveSharesTopologyAndKeepsThreadsTogether(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
-	state := testState()
-	state, err := NewPreparer(h).Prepare(t.Context(), state)
-	require.NoError(t, err)
+	state := testPreparedState(t, h)
 	plan := state.NodeShape.NUMA
 	require.Len(t, plan.Zones, 2)
 	require.Equal(t, []int{0, 1, 4, 5}, plan.Zones[0].CPUs)
@@ -483,7 +481,9 @@ func TestDisableRecoversPendingSetupAndBootRegistration(t *testing.T) {
 
 func testPreparedState(t *testing.T, h *host.Host) *agent.State {
 	t.Helper()
-	state, err := NewPreparer(h).Prepare(t.Context(), testState())
+	sim, err := New(h, Options{Enabled: true})
+	require.NoError(t, err)
+	state, err := sim.Prepare(t.Context(), testState())
 	require.NoError(t, err)
 	return state
 }

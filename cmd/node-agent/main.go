@@ -299,11 +299,6 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	var preparer agent.StatePreparer
-	if cmd.Bool("numa-simulation") {
-		preparer = numa.NewPreparer(h)
-	}
-
 	a := agent.New(agent.Config{
 		Simulators: []agent.Simulator{
 			numaSimulator,
@@ -328,7 +323,6 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 			}),
 		},
 		Source:          source.NewFileSource(cmd.String("config"), cmd.String("topology"), cmd.Duration("resync-interval"), log),
-		Preparer:        preparer,
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,
 		StagingLockPath: cmd.String("staging-lock-path"),
