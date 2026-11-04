@@ -24,7 +24,9 @@ those as per-node fields in a profile. The node was idle when captured.
   device; `nvml-dump diff` reads it as it is; identifiers in it are redacted by
   field name), `proc-*` is `/proc/driver/nvidia`, `host-*` and `pci-*` are host
   topology and devices, `rdma-*` and `net-*` are NICs, `cdi-*` are CDI specs.
-- `cluster/`: the Kubernetes view. `nodes-labels-capacity.yaml` holds each node's
+- `cluster/`: the Kubernetes view of the whole cluster, so it still covers both
+  nodes (labels, capacity, a second DCGM exporter for GPUs 4-7, the compute domain); only
+  the node-level files in `node-a/` are limited to one tray. `nodes-labels-capacity.yaml` holds each node's
   labels, capacity and `nodeInfo` only; the full node objects, operator pod and
   ConfigMap listings and validator logs are left out.
 
@@ -47,8 +49,10 @@ those as per-node fields in a profile. The node was idle when captured.
 - **MIG enabled.** MIG was capable but disabled, so the profile tables are
   present and instance listings are empty.
 - **Load.** Readings are idle values.
-- **One driver branch.** Only 615.71.09; return codes and field IDs differ between
-  branches.
+- **One driver branch.** Only 615.71.09 was captured; return codes and field IDs differ
+  between branches. `node-a/kernel-log-nic-gpu.txt` shows an earlier load of 615.78.08
+  before the captured driver was installed, and the build host in its NVRM lines is
+  replaced with `build-host`.
 - **`nvidia-smi -gBwMode`**, which this driver does not recognise; the NVML
   bandwidth-mode getters are in `nvml-dump.json.gz`.
 - **`nvidia-ctk cdi generate`**, which is not in the driver container; the CDI

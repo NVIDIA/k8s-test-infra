@@ -1,2 +1,2 @@
-NVRM version: NVIDIA UNIX Open Kernel Module for aarch64  615.71.09  Release Build  (dvs-builder@U22-I3-AM23-26-3)  Fri Sep  4 22:30:06 UTC 2026
+NVRM version: NVIDIA UNIX Open Kernel Module for aarch64  615.71.09  Release Build  (dvs-builder@build-host)  Fri Sep  4 22:30:06 UTC 2026
 GCC version:  gcc version 15.2.0 (Ubuntu 15.2.0-16ubuntu1) 

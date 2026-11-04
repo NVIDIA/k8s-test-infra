@@ -163,8 +163,8 @@
 [  225.381833] nvidia: loading out-of-tree module taints kernel.
 [  225.381854] nvidia: module verification failed: signature and/or required key missing - tainting kernel
 [  225.400506] nvidia-nvlink: Nvlink Core is being initialized, major device number 499
-[  225.400541] NVRM: loading NVIDIA UNIX Open Kernel Module for aarch64  615.78.08  Release Build  (dvs-builder@U22-I3-B05-4-4)  Tue Oct  6 05:25:30 UTC 2026
-[  225.479253] nvidia-modeset: Loading NVIDIA UNIX Open Kernel Mode Setting Driver for aarch64  615.78.08  Release Build  (dvs-builder@U22-I3-B05-4-4)  Tue Oct  6 05:06:17 UTC 2026
+[  225.400541] NVRM: loading NVIDIA UNIX Open Kernel Module for aarch64  615.78.08  Release Build  (dvs-builder@build-host)  Tue Oct  6 05:25:30 UTC 2026
+[  225.479253] nvidia-modeset: Loading NVIDIA UNIX Open Kernel Mode Setting Driver for aarch64  615.78.08  Release Build  (dvs-builder@build-host)  Tue Oct  6 05:06:17 UTC 2026
 [  225.494331] [drm] [nvidia-drm] [GPU ID 0x0002c100] Loading driver
 [  225.494531] [drm] Initialized nvidia-drm 0.0.0 for 0002:c1:00.0 on minor 1
 [  225.494553] [drm] [nvidia-drm] [GPU ID 0x00028100] Loading driver
@@ -180,8 +180,8 @@
 [  225.532548] nvidia-modeset: Unloading
 [  225.789400] nvidia-nvlink: Unregistered Nvlink Core, major device number 499
 [  234.812090] nvidia-nvlink: Nvlink Core is being initialized, major device number 502
-[  234.812120] NVRM: loading NVIDIA UNIX Open Kernel Module for aarch64  615.78.08  Release Build  (dvs-builder@U22-I3-B05-4-4)  Tue Oct  6 05:25:30 UTC 2026
-[  238.581008] nvidia-modeset: Loading NVIDIA UNIX Open Kernel Mode Setting Driver for aarch64  615.78.08  Release Build  (dvs-builder@U22-I3-B05-4-4)  Tue Oct  6 05:06:17 UTC 2026
+[  234.812120] NVRM: loading NVIDIA UNIX Open Kernel Module for aarch64  615.78.08  Release Build  (dvs-builder@build-host)  Tue Oct  6 05:25:30 UTC 2026
+[  238.581008] nvidia-modeset: Loading NVIDIA UNIX Open Kernel Mode Setting Driver for aarch64  615.78.08  Release Build  (dvs-builder@build-host)  Tue Oct  6 05:06:17 UTC 2026
 [  238.597381] [drm] [nvidia-drm] [GPU ID 0x000a8100] Loading driver
 [  238.602284] [drm] Initialized nvidia-drm 0.0.0 for 000a:81:00.0 on minor 1
 [  238.602336] nvidia 000a:81:00.0: [drm] No compatible format found
@@ -208,8 +208,8 @@
 [ 3606.514259] nvidia: unknown parameter 'nvidia' ignored
 [ 3606.514282] nvidia: unknown parameter 'NVreg_GrdmaPciTopoCheckOverride' ignored
 [ 3606.514939] nvidia-nvlink: Nvlink Core is being initialized, major device number 502
-[ 3606.514966] NVRM: loading NVIDIA UNIX Open Kernel Module for aarch64  615.71.09  Release Build  (dvs-builder@U22-I3-AM23-26-3)  Fri Sep  4 22:30:06 UTC 2026
-[ 3610.346391] nvidia-modeset: Loading NVIDIA UNIX Open Kernel Mode Setting Driver for aarch64  615.71.09  Release Build  (dvs-builder@U22-I3-AM23-26-3)  Fri Sep  4 22:10:07 UTC 2026
+[ 3606.514966] NVRM: loading NVIDIA UNIX Open Kernel Module for aarch64  615.71.09  Release Build  (dvs-builder@build-host)  Fri Sep  4 22:30:06 UTC 2026
+[ 3610.346391] nvidia-modeset: Loading NVIDIA UNIX Open Kernel Mode Setting Driver for aarch64  615.71.09  Release Build  (dvs-builder@build-host)  Fri Sep  4 22:10:07 UTC 2026
 [ 3656.409889] gdrdrv:gdrdrv_init:loading gdrdrv version 2.6 built for opensource NVIDIA driver
 [ 5464.140643] mlx5_core 000c:03:00.0 enP12p3s0np0: Link up
 [ 5464.484517] mlx5_core 000c:03:00.0 enP12p3s0np0: Link up
