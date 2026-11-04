@@ -6,9 +6,6 @@ package numa
 import (
 	"context"
 	"errors"
-	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -258,33 +255,6 @@ func requireFileContent(t *testing.T, path, value string) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	require.NoError(t, err)
 	require.Equal(t, value, string(data))
-}
-
-func TestKubeletHealth(t *testing.T) {
-	t.Parallel()
-	for _, status := range []int{http.StatusOK, http.StatusServiceUnavailable} {
-		t.Run(http.StatusText(status), func(t *testing.T) {
-			t.Parallel()
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != "/healthz" {
-					w.WriteHeader(http.StatusNotFound)
-					return
-				}
-				w.WriteHeader(status)
-			}))
-			defer server.Close()
-			transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return (&net.Dialer{}).DialContext(ctx, "tcp", server.Listener.Addr().String())
-			}}
-			defer transport.CloseIdleConnections()
-			err := kubeletHealth(t.Context(), &http.Client{Transport: transport})
-			if status == http.StatusOK {
-				require.NoError(t, err)
-			} else {
-				require.ErrorContains(t, err, "503")
-			}
-		})
-	}
 }
 
 func TestWaitForKubeletHonorsCancellation(t *testing.T) {

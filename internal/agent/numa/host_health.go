@@ -7,21 +7,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"time"
+
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/allocwatch"
 )
 
 func (s *hostSetup) waitForKubelet(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	transport := &http.Transport{DialContext: s.host.DialContext}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Timeout: 2 * time.Second, Transport: transport}
 	var lastErr error
 	for {
 		lastErr = s.systemctl(ctx, "is-active", "--quiet", "kubelet")
 		if lastErr == nil {
-			lastErr = kubeletHealth(ctx, client)
+			lastErr = kubeletHealth(ctx, s.host.HostPath(allocwatch.DefaultSocketPath))
 		}
 		if lastErr == nil {
 			return nil
@@ -34,18 +32,15 @@ func (s *hostSetup) waitForKubelet(ctx context.Context) error {
 	}
 }
 
-func kubeletHealth(ctx context.Context, client *http.Client) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:10248/healthz", nil)
+func kubeletHealth(ctx context.Context, socket string) (result error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	client, err := allocwatch.NewPodResourcesLister(ctx, socket)
 	if err != nil {
 		return err
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }() // A read-only health response has no state to flush.
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("kubelet health status: %s", resp.Status)
-	}
-	return nil
+	defer func() { result = errors.Join(result, client.Close()) }()
+	// A successful RPC proves the API responds; an empty node is healthy too.
+	_, result = client.List(ctx)
+	return result
 }
