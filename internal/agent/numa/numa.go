@@ -25,7 +25,7 @@ const name = "numa"
 
 const helperSource = "/usr/local/bin/mokka-kubelet-helper"
 
-// HostRunner applies or restores NUMA setup in the node's mount namespace.
+// HostRunner applies or restores NUMA setup through propagated host volumes.
 type HostRunner interface {
 	Run(context.Context, HostAction, bool) error
 }

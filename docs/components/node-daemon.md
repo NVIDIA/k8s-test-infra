@@ -98,9 +98,11 @@ profile edit does not need a pod restart.
 
 The optional NUMA simulator uses the shared topology prepared before staging.
 It exposes the same zone placement to kubelet, the device plugin, and NFD through
-`/sys/devices/system/node` and `/sys/bus/node/devices`. The privileged pod enters
-the node's mount namespace to apply and restore these views, keeping mounts
-inside that node even when Kind nodes share a VM.
+`/sys/devices/system/node` and `/sys/bus/node/devices`. The privileged pod uses
+bidirectional host volumes to apply and remove mounts from its own mount
+namespace. Each mount is made read-only in a private staging area before it is
+attached, so the node receives a read-only view. Mounts stay on the selected
+node even when Kind nodes share a VM.
 
 With kubelet management enabled, the pod bind-mounts a modified configuration
 over `/var/lib/kubelet/config.yaml` and restarts kubelet. The original file on

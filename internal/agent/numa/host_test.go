@@ -32,6 +32,7 @@ func hostFixture(t *testing.T) (*hostSetup, *[]string) {
 	} {
 		require.NoError(t, fsutil.Write(path, []byte(data), 0600))
 	}
+	require.NoError(t, os.MkdirAll(h.RootPath("numa/sysbusnode"), 0700))
 	s := newHostSetup(h)
 	calls := []string{}
 	mounts := map[string]string{}
@@ -39,6 +40,10 @@ func hostFixture(t *testing.T) (*hostSetup, *[]string) {
 		calls = append(calls, name+" "+strings.Join(args, " "))
 		if name == "mount" && args[0] == "--bind" {
 			mounts[args[2]] = args[1]
+		}
+		if name == "mount" && args[0] == "--move" {
+			mounts[args[2]] = mounts[args[1]]
+			delete(mounts, args[1])
 		}
 		if name == "umount" {
 			delete(mounts, args[0])
@@ -65,11 +70,19 @@ func TestHostApplyMountsConfigWithoutChangingOriginalAndRestores(t *testing.T) {
 	mounted, err := s.currentMounts(true)
 	require.NoError(t, err)
 	require.True(t, mounted)
-	require.Contains(t, *calls, "mount --bind "+h.RootPath("numa/kubelet-config.yaml")+" "+h.HostPath(kubeletConfig))
-	require.Contains(t, *calls, "mount --make-rprivate "+h.Sys)
-	require.Contains(t, *calls, "mount -o remount,bind,ro "+h.SysPath("devices/system/node"))
-	require.Contains(t, *calls, "mount --bind "+h.RootPath("numa/sysbusnode")+" "+h.SysPath("bus/node/devices"))
-	require.Contains(t, *calls, "mount -o remount,bind,ro "+h.SysPath("bus/node/devices"))
+	// Read-only remounts do not propagate: each mount must be read-only
+	// before it is moved onto a host volume.
+	for _, target := range []string{h.SysPath("devices/system/node"), h.SysPath("bus/node/devices"), h.HostPath(kubeletConfig)} {
+		found := false
+		for i, call := range *calls {
+			if strings.HasPrefix(call, "mount --move ") && strings.HasSuffix(call, " "+target) {
+				stage := strings.TrimSuffix(strings.TrimPrefix(call, "mount --move "), " "+target)
+				require.Contains(t, (*calls)[:i], "mount -o remount,bind,ro "+stage)
+				found = true
+			}
+		}
+		require.True(t, found, "mount must be published at %s", target)
+	}
 	service, err := os.ReadFile(h.EtcPath("systemd/system/mokka-kubelet-reset.service"))
 	require.NoError(t, err)
 	require.Contains(t, string(service), "ExecStart=/var/lib/nvml-mock/kubelet/mokka-kubelet-helper prestart")
@@ -182,6 +195,46 @@ func TestHostMountOnlyUsesNoSystemdSetupAndDoesNotStopKubelet(t *testing.T) {
 	requireFileContent(t, s.host.HostPath(kubeletConfig), "original config")
 	for _, call := range *calls {
 		require.NotContains(t, call, "systemctl")
+	}
+}
+
+func TestHostMountFailureDoesNotPublishAndPreservesSource(t *testing.T) {
+	t.Parallel()
+	for _, failCleanup := range []bool{false, true} {
+		t.Run(map[bool]string{false: "cleanup succeeds", true: "cleanup fails"}[failCleanup], func(t *testing.T) {
+			t.Parallel()
+			s, _ := hostFixture(t)
+			source := s.host.RootPath("numa/sysnode")
+			target := s.host.SysPath("devices/system/node")
+			original := s.run
+			var stage string
+			s.run = func(ctx context.Context, name string, args ...string) error {
+				if name == "mount" && args[0] == "--bind" && args[1] == source {
+					stage = args[2]
+				}
+				if name == "mount" && args[0] == "-o" {
+					return errors.New("read-only remount failed")
+				}
+				if failCleanup && name == "umount" {
+					return errors.New("staging unmount failed")
+				}
+				return original(ctx, name, args...)
+			}
+			err := s.mountReadOnly(t.Context(), source, target)
+			require.ErrorContains(t, err, "read-only remount failed")
+			mounted, mountErr := s.mounted(target)
+			require.NoError(t, mountErr)
+			require.False(t, mounted, "a writable mount must never reach the node")
+			requireFileContent(t, filepath.Join(source, "online"), "0-1\n")
+			require.NotEmpty(t, stage)
+			if failCleanup {
+				require.ErrorContains(t, err, "staging unmount failed")
+				require.DirExists(t, stage, "do not delete a directory that still contains a mount")
+				t.Cleanup(func() { require.NoError(t, os.RemoveAll(filepath.Dir(stage))) })
+			} else {
+				require.NoDirExists(t, filepath.Dir(stage))
+			}
+		})
 	}
 }
 

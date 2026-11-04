@@ -7,6 +7,34 @@ capabilities:
   majorVersion: 1
   minorVersion: 35
 tests:
+  - it: keeps propagated NUMA mounts available for setup and restore
+    set:
+      nodeAgent.containerRuntime.enabled: false
+      nodeAgent.numa.enabled: false
+      nodeAgent.numa.configureKubelet: false
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: node-sysfs
+            mountPath: /host/sys
+            mountPropagation: Bidirectional
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: numa-kubelet
+            mountPath: /host/var/lib/kubelet
+            mountPropagation: Bidirectional
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: numa-systemd
+            mountPath: /host/etc/systemd/system
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: numa-state
+            mountPath: /host/run/mokka
   - it: is disabled by default
     asserts:
       - notContains:
