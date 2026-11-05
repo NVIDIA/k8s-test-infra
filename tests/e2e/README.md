@@ -54,8 +54,11 @@ it. The chart profiles are the deployed source of truth.
 ### Labels select the specs
 
 Every spec carries Ginkgo labels, and every profile name is also a label. Select
-work with `--label-filter`. This is how a scenario is run in isolation, and how
-CI splits the suite into parallel jobs.
+work with `--label-filter`. Scenario labels such as `dra` and `multi-node`
+select a whole scenario; check labels such as `nvidia-smi`, `nvlink`,
+`mockfiles`, `ib`, and `device-plugin` are shared across scenarios. Combine
+scenario and check labels with `&&` to select a check within one scenario.
+CI uses scenario labels to split the suite into parallel jobs.
 
 **`make e2e` does not run everything.** It applies a default filter written
 entirely as exclusions:
@@ -68,6 +71,16 @@ The filter is phrased that way because the standalone scenario has no scenario
 label of its own — it is whatever remains once the six specialised scenarios are
 excluded. So a bare `make e2e` runs the standalone scenario only; use the
 per-scenario targets for the rest.
+
+Setting `E2E_GINKGO_FLAGS` **replaces** that default filter; it does not add to
+it. Keep all six exclusions when selecting a standalone subset, including
+`!nri`: the NRI scenario also uses `nvidia-smi`. Selecting a label does not
+provision the scenario's dependencies. See the [DRA and multi-node
+setup](#dra-and-multi-node-setup) before selecting their checks.
+
+`make e2e` passes `--fail-on-empty`, so a filter matching no specs fails
+instead of passing. It does not validate label names: `nvidia-smi || nvlnk`
+still selects the `nvidia-smi` specs despite the misspelled second term.
 
 Specs also skip themselves when the selected profile cannot support them: no
 fabric means no fabric-health checks, no InfiniBand means no `ibping`, fewer
@@ -118,8 +131,8 @@ make e2e E2E_PROFILES=a100
 # Several profiles against the same cluster.
 make e2e E2E_PROFILES="a100 h100"
 
-# A subset of checks.
-make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
+# A subset of standalone checks.
+make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd"'
 
 # Against an image Tilt deployed under a different ref.
 make e2e E2E_IMAGE=ghcr.io/nvidia/nvml-mock:tilt-<digest>
@@ -140,6 +153,26 @@ tests that must not be scoped by `E2E_PROFILES`.
 | Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | An ordinary pod that requests no GPU, mounts no hostPath and sets no `MOCK_*` env still sees GPUs, via Node Resource Interface (NRI) ambient injection |
 | NFD label provenance | `make e2e-nfd` | `nfd`, `nfd-provenance` | Node Feature Discovery (NFD) derives `feature.node.kubernetes.io/pci-10de.present` from the feature file the mock writes — and that the mock does not write the label itself. Pinned to `a100`, because the label is vendor-only and identical across profiles |
 | CUDA validator | opt-in | `validator` | The CUDA vectorAdd sample runs against the mock CUDA library. **Skipped by default** — see below |
+
+### DRA and multi-node setup
+
+After [creating the cluster and loading the image](#provision-the-cluster-and-image),
+use the matching Tilt mode before running a scenario or one of its checks:
+
+```bash
+# DRA needs the driver installed, even when selecting only nvidia-smi.
+tilt ci -- --dra --nvmlmock-image=nvml-mock:e2e
+make e2e E2E_GINKGO_FLAGS='--label-filter="dra && nvidia-smi"'
+
+# Multi-node needs exactly two workers and the A100/T4 releases.
+tilt ci -- --multi-gpu-profile --nvmlmock-image=nvml-mock:e2e
+make e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter="multi-node && mockfiles"'
+```
+
+The multi-node mode installs `nvml-mock-a100` and `nvml-mock-t4`; a plain
+`tilt up` does not. For the full scenarios, use `make e2e-dra` or
+`make e2e-multi-node` after the corresponding setup. See the
+[local development modes](../../local/README.md#step-2--start-tilt) for details.
 
 ### Node-wide NRI injection
 
@@ -246,9 +279,9 @@ runtime-override TTL waits (30s).
 
 ```bash
 make e2e E2E_PROFILES=h100 E2E_GINKGO_FLAGS='--label-filter="failure-injection"'
-make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
+make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd"'
 make e2e E2E_GINKGO_FLAGS='--label-filter="gb200 && ibping"'
-make e2e-nri E2E_GINKGO_FLAGS='--label-filter="nri-cdi-suppression"'
+make e2e E2E_GINKGO_FLAGS='--label-filter="nri && nri-cdi-suppression"'
 ```
 
 ### Where things live

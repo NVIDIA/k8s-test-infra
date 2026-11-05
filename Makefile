@@ -578,12 +578,14 @@ image-load:
 # scope with E2E_PROFILES / E2E_GINKGO_FLAGS. Examples:
 #   make e2e                       # gb200
 #   make e2e E2E_PROFILES=a100     # fast inner loop, single profile
-#   make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
+#   make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd"'
 #   make e2e-dra                   # DRA scenario
 #   make e2e-gpu-operator          # GPU Operator scenario
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 #   make e2e-nri                   # node-wide NRI ambient-injection scenario
 #   make e2e-nfd                   # NFD label-provenance scenario
+# E2E_GINKGO_FLAGS replaces the default filter. Shared check labels span
+# scenarios; keep the exclusions above for a standalone subset.
 # CI builds the image once per run. Every leg loads it into Kind and sets
 # E2E_IMAGE to that ref. The reshaping scenarios set the DaemonSet to this ref.
 #

@@ -25,7 +25,8 @@
 // from the command line so the guard reproduces the 3.81 behaviour on any make
 // version, including the 4.x used by CI.
 // The `e2e` target also asks Ginkgo to fail when a label filter selects no
-// specs, so a typo cannot turn a targeted run into a false green.
+// specs, so an empty selection fails instead of passing. This does not reject
+// unknown labels in a filter that still matches other specs.
 package makefile
 
 import (
@@ -147,7 +148,9 @@ func TestE2EPassesFailOnEmptyToGinkgo(t *testing.T) {
 
 	code, out := runE2E(t, 0)
 	require.Zero(t, code, "`make e2e` failed for a passing suite.\n%s", out)
-	require.Contains(t, out, "--fail-on-empty",
+	// The stub prints one argument per line. Match that output rather than
+	// make's echo of the recipe, which contains the flag even for a silent stub.
+	require.Regexp(t, `(?m)^--fail-on-empty$`, out,
 		"`make e2e` must fail when its label filter selects no specs")
 }
 
