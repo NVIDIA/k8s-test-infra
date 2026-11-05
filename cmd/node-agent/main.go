@@ -16,6 +16,8 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/imex"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/migcaps"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/numa"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/numatopology"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/nvlink"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/pcibus"
 	"github.com/urfave/cli/v3"
@@ -61,6 +63,15 @@ func startCommand() *cli.Command {
 		Usage: "start the node agent",
 		Flags: []cli.Flag{
 			features.CLIFlag(),
+			&cli.BoolFlag{Name: "numa-simulation", Usage: "publish a persistent host NUMA filesystem derived from the GPU profile", Sources: cli.EnvVars("MOKKA_NUMA_SIMULATION")},
+			&cli.BoolFlag{Name: "numa-configure-kubelet", Usage: "back up, configure and restart kubelet for NUMA simulation", Sources: cli.EnvVars("MOKKA_NUMA_CONFIGURE_KUBELET")},
+			&cli.StringFlag{Name: "numa-memory-manager-policy", Value: "none", Usage: "Memory Manager policy (none or static)", Sources: cli.EnvVars("MOKKA_NUMA_MEMORY_MANAGER_POLICY")},
+			&cli.StringFlag{Name: "numa-system-reserved-cpu", Usage: "system CPU reservation instead of an explicit reserved CPU list", Sources: cli.EnvVars("MOKKA_NUMA_SYSTEM_RESERVED_CPU")},
+			&cli.StringFlag{Name: "numa-system-reserved-memory", Value: "256Mi", Usage: "system memory reservation when Memory Manager is Static", Sources: cli.EnvVars("MOKKA_NUMA_SYSTEM_RESERVED_MEMORY")},
+			&cli.StringFlag{Name: "numa-cpu-manager-policy", Value: "none", Usage: "CPU Manager policy (none or static)", Sources: cli.EnvVars("MOKKA_NUMA_CPU_MANAGER_POLICY")},
+			&cli.StringFlag{Name: "numa-reserved-cpus", Usage: "CPU IDs reserved for system processes; static defaults to the first simulated-zone CPU", Sources: cli.EnvVars("MOKKA_NUMA_RESERVED_CPUS")},
+			&cli.StringFlag{Name: "numa-topology-manager-policy", Value: "single-numa-node", Usage: "kubelet topology policy with --numa-configure-kubelet", Sources: cli.EnvVars("MOKKA_NUMA_TOPOLOGY_MANAGER_POLICY")},
+
 			&cli.StringFlag{
 				Name:    "log-level",
 				Value:   "info",
@@ -264,10 +275,40 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		zap.String("container_runtime_systemd_unit", cmd.String("container-runtime-systemd-unit")),
 		zap.String("container_runtime_nri_socket", cmd.String("container-runtime-nri-socket")),
 		zap.String("host_fs", cmd.String("host-fs")),
+		zap.Bool("numa_simulation", cmd.Bool("numa-simulation")),
+		zap.Bool("numa_configure_kubelet", cmd.Bool("numa-configure-kubelet")),
+		zap.String("numa_topology_manager_policy", cmd.String("numa-topology-manager-policy")),
+		zap.String("numa_cpu_manager_policy", cmd.String("numa-cpu-manager-policy")),
+		zap.String("numa_memory_manager_policy", cmd.String("numa-memory-manager-policy")),
+		zap.String("numa_reserved_cpus", cmd.String("numa-reserved-cpus")),
+		zap.String("numa_system_reserved_cpu", cmd.String("numa-system-reserved-cpu")),
+		zap.String("numa_system_reserved_memory", cmd.String("numa-system-reserved-memory")),
 	)
+
+	numaSimulator, err := numa.New(h, numa.Options{
+		Runner:               numa.NewPodRunner(h),
+		Enabled:              cmd.Bool("numa-simulation"),
+		ConfigureKubelet:     cmd.Bool("numa-configure-kubelet"),
+		Policy:               cmd.String("numa-topology-manager-policy"),
+		CPUManagerPolicy:     cmd.String("numa-cpu-manager-policy"),
+		ReservedCPUs:         cmd.String("numa-reserved-cpus"),
+		MemoryManagerPolicy:  cmd.String("numa-memory-manager-policy"),
+		SystemReservedMemory: cmd.String("numa-system-reserved-memory"),
+		SystemReservedCPU:    cmd.String("numa-system-reserved-cpu"),
+	})
+	if err != nil {
+		return err
+	}
+
+	// With NUMA disabled, nothing reads the node's CPU and memory layout.
+	var enrichers []agent.Enricher
+	if cmd.Bool("numa-simulation") {
+		enrichers = append(enrichers, numatopology.NewEnricher(h))
+	}
 
 	a := agent.New(agent.Config{
 		Simulators: []agent.Simulator{
+			numaSimulator,
 			gpudriver.New(h),
 			pcibus.New(h),
 			crisim.New(h, criOpts),
@@ -288,6 +329,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 				Fabric:  cmd.Bool("ib-fabric"),
 			}),
 		},
+		Enrichers:       enrichers,
 		Source:          source.NewFileSource(configPath, cmd.String("topology"), resyncInterval, log),
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,

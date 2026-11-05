@@ -19,12 +19,27 @@ import (
 func TestLocal_ProfileSet(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, []int{0, 1, 2, 8}, Local(agent.RootComplex{NUMANode: 0, CPUAffinity: "8,0-2,1"}, 36, nil))
-	require.Equal(t, seq(36, 71), Local(agent.RootComplex{NUMANode: 1}, 36, nil))
-	require.Equal(t, seq(64, 127), Local(agent.RootComplex{NUMANode: 1}, 0, nil),
+	require.Equal(t, []int{0, 1, 2, 8}, Local(agent.RootComplex{NUMANode: 0, CPUAffinity: "8,0-2,1"}, 36, nil, nil))
+	require.Equal(t, seq(36, 71), Local(agent.RootComplex{NUMANode: 1}, 36, nil, nil))
+	require.Equal(t, seq(64, 127), Local(agent.RootComplex{NUMANode: 1}, 0, nil, nil),
 		"an unset cores_per_numa falls back to the engine default")
-	require.Nil(t, Local(agent.RootComplex{NUMANode: -1}, 36, seq(0, 13)), "no NUMA node, no locality")
-	require.Nil(t, Local(agent.RootComplex{CPUAffinity: "x"}, 36, nil), "an unparseable cpu_affinity publishes nothing")
+	require.Nil(t, Local(agent.RootComplex{NUMANode: -1}, 36, seq(0, 13), nil), "no NUMA node, no locality")
+	require.Nil(t, Local(agent.RootComplex{CPUAffinity: "x"}, 36, nil, nil), "an unparseable cpu_affinity publishes nothing")
+}
+
+// A resolved NUMA layout decides for the zones it covers, over both the
+// profile's affinity and the host's online CPUs.
+func TestLocal_NUMALayoutDecides(t *testing.T) {
+	t.Parallel()
+
+	layout := &agent.NUMATopology{Zones: []agent.NUMAZone{
+		{ID: 0, CPUs: []int{0, 1, 4, 5}},
+		{ID: 1, CPUs: []int{2, 3, 6, 7}},
+	}}
+	rc := agent.RootComplex{NUMANode: 1, CPUAffinity: "0-3"}
+	require.Equal(t, []int{2, 3, 6, 7}, Local(rc, 36, seq(0, 7), layout))
+	require.Equal(t, []int{0, 1, 2, 3}, Local(agent.RootComplex{NUMANode: 2, CPUAffinity: "0-3"}, 36, seq(0, 7), layout),
+		"a zone the layout does not cover keeps the profile's set")
 }
 
 // A profile models the CPUs of the machine it describes, not of the host the
@@ -36,10 +51,10 @@ func TestLocal_KeepsOnlyTheHostsCPUs(t *testing.T) {
 
 	numa0, numa1 := agent.RootComplex{NUMANode: 0}, agent.RootComplex{NUMANode: 1}
 
-	require.Equal(t, seq(0, 13), Local(numa0, 0, seq(0, 13)))
-	require.Equal(t, seq(0, 13), Local(numa1, 0, seq(0, 13)), "no NUMA 1 CPU exists, so every CPU is local")
-	require.Equal(t, seq(0, 63), Local(numa0, 0, seq(0, 99)))
-	require.Equal(t, seq(64, 99), Local(numa1, 0, seq(0, 99)))
+	require.Equal(t, seq(0, 13), Local(numa0, 0, seq(0, 13), nil))
+	require.Equal(t, seq(0, 13), Local(numa1, 0, seq(0, 13), nil), "no NUMA 1 CPU exists, so every CPU is local")
+	require.Equal(t, seq(0, 63), Local(numa0, 0, seq(0, 99), nil))
+	require.Equal(t, seq(64, 99), Local(numa1, 0, seq(0, 99), nil))
 }
 
 func TestOnline(t *testing.T) {

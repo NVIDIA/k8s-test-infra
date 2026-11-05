@@ -140,7 +140,7 @@ func buildTopology(state *agent.State, online []int) *pcisysfs.PCIeTopology {
 	for _, rc := range rcs {
 		var cpus []int
 		if declared {
-			cpus = cpulocality.Local(rc, state.NodeShape.Topology.CoresPerNUMA, online)
+			cpus = cpulocality.Local(rc, state.NodeShape.Topology.CoresPerNUMA, online, state.NodeShape.NUMA)
 		}
 		topo.RootComplexes = append(topo.RootComplexes, pcisysfs.RootComplex{
 			ID:       rc.ID,

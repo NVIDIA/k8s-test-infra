@@ -36,25 +36,46 @@ outlive a reconcile.
 
 ## The reconcile lifecycle
 
-A simulator implements one required interface and up to two optional ones. Which
-it implements decides when the daemon calls it.
+The state source builds the desired state from the profile; it never reads the
+node. Enrichers then add facts read from this node, and each simulator
+implements its staging, publication, and daemon interfaces.
 
 | Interface | Implemented by | Purpose |
 |---|---|---|
-| `Simulator` | all eight | `Stage` writes artifacts that are not yet externally visible. Idempotent, re-runs on every state change |
+| `Enricher` | the NUMA topology enricher, registered only with NUMA simulation enabled | `Enrich` reads the node, never changes it, and writes only the state fields it owns |
+| `Simulator` | all simulators | `Stage` writes artifacts that are not yet externally visible. Idempotent, re-runs on every state change |
 | `Applier` | `gpudriver`, `pcibus`, `cri` | `Apply` publishes artifacts that something *outside* the node acts on — containerd, NFD, the GPU Operator validator |
 | `Daemon` | `fabricmanager`, `ib`, `kernellog` | `Run` supervises a long-lived process; `Reload` delivers later state to it without a restart |
 
-One reconcile pass runs three waves:
+Each state update runs through enrichment and three waves:
 
 ```mermaid
 flowchart LR
-    state[State update] --> stage[Stage<br/>all simulators, in parallel]
+    source[Source builds desired state] --> valid{{Build succeeded?}}
+    valid -->|no| invalid[Report source error<br/>keep the last valid state]
+    valid -->|yes| enrich[Enrich<br/>in order, once per state]
+    enrich --> enriched{{All enriched?}}
+    enriched -->|no| retry[Keep the last enriched state<br/>retry with backoff]
+    enriched -->|yes| stage[Stage<br/>all simulators, in parallel]
     stage --> barrier{{All staged?}}
     barrier -->|no| fail[Report failing simulators<br/>no daemon starts, no Apply]
     barrier -->|yes| daemons[Supervise<br/>start once, or Reload]
     daemons --> apply[Apply<br/>appliers, in parallel]
 ```
+
+Enrichers run in a fixed order on a copy of the source's state, so a later
+enricher can use an earlier one's result. They run once for each new state; a
+requeue restages the enriched state without reading the node again. If an
+enricher fails, the agent drops the new state, like a source error: the node
+keeps the last fully enriched state, and the agent retries the enrichment with
+a delay that starts at 5 seconds and doubles up to 5 minutes. Before the first
+success, nothing is staged. Simulators share enriched fields, so none of them
+ever sees a state with some of those fields missing.
+
+With NUMA simulation enabled, the NUMA topology enricher reads the node's real
+CPUs and RAM and resolves one layout in `State.NodeShape.NUMA`. The NUMA
+simulator renders it, and `pcibus` and `gpudriver` publish each GPU's local CPUs
+from the same zones, so kubelet, the driver files, and NVML agree.
 
 The split between `Stage` and `Apply` is the important part. Staging is private:
 files exist but nothing outside the node is looking at them yet. Publishing is
@@ -76,13 +97,46 @@ socket or a port, so a second instance would contend for it rather than converge
 with it. Later state reaches a running daemon through `Reload`, which is why a
 profile edit does not need a pod restart.
 
+## NUMA simulation
+
+The optional NUMA simulator renders the layout the NUMA topology enricher
+resolved. It exposes the same zone placement to kubelet, the device plugin, and
+NFD through `/sys/devices/system/node` and `/sys/bus/node/devices`. The privileged pod uses
+bidirectional host volumes to apply and remove mounts from its own mount
+namespace. Each mount is made read-only in a private staging area before it is
+attached, so the node receives a read-only view. Mounts stay on the selected
+node even when Kind nodes share a VM.
+
+With kubelet management enabled, the pod bind-mounts a modified configuration
+over `/var/lib/kubelet/config.yaml` and restarts kubelet. The original file on
+disk remains unchanged. Recovery copies, manager checkpoints, and applied or
+pending markers live under `/run/mokka/numa/`; they survive pod replacement but
+not a node reboot. Repeated setup preserves existing allocations.
+
+Explicit disable removes owned mounts, restores saved checkpoints, and checks
+that kubelet is active and answers a PodResources `List` request before deleting
+recovery files. The chart retains host access
+for this restore step even when NUMA and container runtime setup are disabled.
+Failed restoration keeps the backup and pending marker for a retry.
+
+If applying or restoring fails, the simulator requeues a reconcile, because the
+agent otherwise runs `Apply` again only when the state changes. The delay starts
+at 5 seconds, doubles up to 5 minutes, and resets after a success.
+
+The pod installs the persistent [kubelet helper](mokka-kubelet-helper.md) and its
+systemd dependency to prepare kubelet after node reboot. The helper performs
+boot cleanup only; simulation setup and restoration remain in the pod.
+
+For configuration, requirements, and removal, see
+[NUMA filesystem simulation](../helm-chart.md#numa-filesystem-simulation).
+
 ## Health
 
 Both probes are served on port 9091 and answer different questions:
 
 | Probe | Passes when | Reports |
 |---|---|---|
-| `/healthz` | the last `Stage` wave completed without error | which simulators failed, when they did. Recovers on the next successful `Stage` |
+| `/healthz` | the last `Stage` wave completed without error | the simulators that failed. Recovers on the next successful staging |
 | `/readyz` | every simulator reports itself ready | which simulator is not serving |
 
 Neither consults the state source. Liveness reflects what staging did, not

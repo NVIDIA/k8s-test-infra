@@ -35,6 +35,8 @@ on:
     paths:
       - 'go.mod'
       - 'go.sum'
+      - 'hack/codegen/go.mod'
+      - 'hack/codegen/go.sum'
       # The recipe is the check's contract, so a change to it re-runs it.
       - 'Makefile'
       - '.github/workflows/dependency-integrity.yaml'

@@ -80,6 +80,7 @@ func processFlags() []cli.Flag {
 			Sources: cli.EnvVars("MOKKA_NRI_AGENT_STAGED_URL"),
 			Usage:   "node-agent /stagedz URL; when set, only adjust containers while the agent reports its tree staged",
 		},
+		&cli.BoolFlag{Name: "numa-memory-simulation", Usage: "translate simulated kubelet memory affinity to kernel-allowed memory nodes"},
 		&cli.StringFlag{
 			Name:    "staging-lock-path",
 			Sources: cli.EnvVars("MOKKA_NRI_STAGING_LOCK_PATH"),
@@ -259,7 +260,15 @@ func configFrom(cmd *cli.Command) (nri.Config, error) {
 		return nri.Config{}, err
 	}
 
+	memoryNodes := ""
+	if cmd.Bool("numa-memory-simulation") {
+		memoryNodes, err = nri.KernelMemoryNodes()
+		if err != nil {
+			return nri.Config{}, err
+		}
+	}
 	return nri.Config{
+		MemoryNodes:     memoryNodes,
 		SocketPath:      cmd.String("socket-path"),
 		PluginName:      cmd.String("plugin-name"),
 		PluginIndex:     cmd.String("plugin-index"),

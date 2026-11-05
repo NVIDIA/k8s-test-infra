@@ -1314,3 +1314,86 @@ for the nvml-mock release namespace.
 - [E2E Test Workflow](https://github.com/NVIDIA/k8s-test-infra/blob/main/.github/workflows/nvml-mock-e2e-go.yaml)
 - [KIND DRA Config](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/kind-dra-config.yaml)
 - [Device Plugin Mock Manifest](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/device-plugin-mock.yaml)
+
+## NUMA filesystem simulation
+
+Expose the GPU profile's NUMA zones to the real kubelet and a
+NodeResourceTopology (NRT) publisher on a CPU-only test node. Simulation is off
+by default. This example also enables CPU and memory allocation:
+
+```yaml
+gpu:
+  profile: a100
+nri:
+  enabled: true
+nodeAgent:
+  numa:
+    enabled: true
+    configureKubelet: true
+    topologyManagerPolicy: single-numa-node
+    cpuManagerPolicy: static
+    memoryManagerPolicy: static
+    systemReservedMemory: 256Mi
+```
+
+Use fresh or drained Linux test nodes with privileged node-agent access.
+`configureKubelet: true` requires systemd and restarts kubelet to apply the
+policies. With `configureKubelet: false`, Mokka mounts only the topology view;
+the administrator manages kubelet configuration and restarts. CPU and memory
+managers are disabled by default; their policy values are lowercase `none` or
+`static`.
+
+Zones come from `pcie_topology.root_complexes` in the GPU profile. IDs must start
+at zero, be contiguous, and number at most eight. Mokka divides real CPUs and
+RAM across the zones, keeping sibling threads together during automatic CPU
+assignment. Optional explicit `cpu_affinity` lists must cover every zone and
+partition all online CPUs without repetition.
+
+### CPU and memory allocation in a simulated topology
+
+Static CPU Manager assigns real CPU IDs. NRI is required for static simulated
+memory allocation: it maps logical memory zones to nodes permitted by Linux,
+including for CPU-only workloads. This tests allocation and admission decisions;
+it does not add capacity or prove physical memory locality.
+
+`reservedCPUs` selects the shared system CPUs; with neither CPU reservation
+setting, Mokka reserves the first CPU in the first zone. Set
+`systemReservedCPU: 100m` instead when a small node needs fractional scheduling
+headroom. These settings are mutually exclusive. CPU Manager still reserves
+whole CPU IDs, so exclusive allocations remain limited to real unreserved CPUs.
+`systemReservedMemory` defaults to `256Mi`.
+
+Install an NRT publisher separately. For GPU Operator's NFD subchart, this
+configuration reports GPU, CPU, and memory resources with the managers above:
+
+```yaml
+node-feature-discovery:
+  topologyUpdater:
+    enable: true
+    createCRDs: true
+    kubeletConfigPath: /var/lib/kubelet/config.yaml
+    annotations:
+      nvml-mock.nvidia.com/inject: "false"
+    config:
+      excludeList: {}
+```
+
+Exclude `cpu` or `memory` from NRT reporting when its manager is disabled.
+Restart the reporter after the device plugin registers all GPUs so its resource
+snapshot includes the complete topology. NRT objects and allocation data come
+from the real reporter and kubelet PodResources API.
+
+### Restart and removal
+
+Ordinary Mokka pod and kubelet restarts preserve allocations. After node reboot,
+kubelet starts with its original configuration and fresh CPU/memory manager
+state; the DaemonSet then reapplies simulation. Allocation state is not preserved
+across node reboot.
+
+Before uninstalling Mokka or changing an active topology or policy, upgrade with
+`nodeAgent.numa.enabled: false` and wait for restoration to finish. An active
+layout change is rejected. Failed restoration retains recovery files for a retry.
+
+For the mount and recovery lifecycle, see the
+[node daemon](components/node-daemon.md#numa-simulation) and
+[kubelet helper](components/mokka-kubelet-helper.md).

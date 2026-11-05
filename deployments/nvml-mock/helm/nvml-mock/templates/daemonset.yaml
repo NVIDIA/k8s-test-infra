@@ -44,9 +44,20 @@ imex.binaries has none. */}}
 {{- /* Where the node agent looks for the IMEX archive (--imex-provided-dir). */}}
 {{- $imexProvidedDir := "/opt/mokka/imex" }}
 {{- $runtime := .Values.nodeAgent.containerRuntime | default dict }}
+{{- $numa := .Values.nodeAgent.numa | default dict }}
+{{- if not (has ($numa.cpuManagerPolicy | default "none") (list "none" "static")) }}
+{{- fail "nodeAgent.numa.cpuManagerPolicy must be none or static" }}
+{{- end }}
+{{- if and $numa.enabled (eq ($numa.memoryManagerPolicy | default "none") "static") (not .Values.nri.enabled) }}
+{{- fail "static simulated Memory Manager requires nri.enabled" }}
+{{- end }}
+{{- $numaHost := or ($numa.enabled | default false) ($numa.configureKubelet | default false) }}
 {{- /* A surge pod would set the runtime up next to the old pod, whose revert
 then removes the setup. Kubernetes reads 0 and "0%" alike as no surge. */}}
 {{- $maxSurge := dig "rollingUpdate" "maxSurge" 0 (.Values.updateStrategy | default dict) | toString | trimSuffix "%" | float64 }}
+{{- if and $numaHost (gt $maxSurge 0.0) }}
+{{- fail "updateStrategy.rollingUpdate.maxSurge cannot be used with nodeAgent.numa: only one pod may configure a node at a time" }}
+{{- end }}
 {{- if and $runtime.enabled (gt $maxSurge 0.0) }}
 {{- fail "updateStrategy.rollingUpdate.maxSurge cannot be used with nodeAgent.containerRuntime: the old node pod's revert would remove the new one's setup" }}
 {{- end }}
@@ -92,11 +103,9 @@ spec:
       {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
-      {{- if and $runtime.enabled (eq $runtime.restartMode "systemd") }}
-      # systemctl refuses a systemd it cannot see, so restarting containerd
-      # takes the host's PID namespace.
+      # Restoring saved NUMA state needs systemd access even when all setup
+      # options are disabled in the replacement pod.
       hostPID: true
-      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -163,6 +172,28 @@ spec:
             - --topology=/etc/nvml-mock/topology/topology.yaml
             {{- end }}
             - --host-root=/host
+            {{- if $numa.enabled }}
+            - --numa-simulation
+            {{- end }}
+            {{- if $numa.configureKubelet }}
+            - --numa-configure-kubelet
+            {{- end }}
+            {{- if $numaHost }}
+            - --numa-topology-manager-policy={{ $numa.topologyManagerPolicy | default "single-numa-node" }}
+            {{- if eq ($numa.memoryManagerPolicy | default "none") "static" }}
+            - --numa-memory-manager-policy=static
+            - --numa-system-reserved-memory={{ $numa.systemReservedMemory | default "256Mi" }}
+            {{- end }}
+            {{- if eq ($numa.cpuManagerPolicy | default "none") "static" }}
+            - --numa-cpu-manager-policy=static
+            {{- end }}
+            {{- with $numa.systemReservedCPU }}
+            - --numa-system-reserved-cpu={{ . }}
+            {{- end }}
+            {{- with $numa.reservedCPUs }}
+            - {{ printf "--numa-reserved-cpus=%s" (toString .) | quote }}
+            {{- end }}
+            {{- end }}
             - --health-addr=:9091
             - --log-level={{ .Values.nodeAgent.logging.level }}
             - --log-format={{ .Values.nodeAgent.logging.format }}
@@ -368,25 +399,30 @@ spec:
             - name: fabric-state
               mountPath: {{ printf "/host%s" .Values.fabricmanager.stateDir }}
             {{- end }}
-            # Read only: the agent copies the node's DMI attributes into the
-            # rendered tree, which shadows them once served at /sys/devices,
-            # and limits each GPU's local_cpulist and NVML CPU affinity to the
-            # node's online CPUs.
+            # Keep propagation available after NUMA is disabled so a replacement
+            # pod can remove the node's mounts and restore saved state.
             - name: node-sysfs
               mountPath: /host/sys
-              readOnly: true
+              mountPropagation: Bidirectional
+            - name: numa-kubelet
+              mountPath: /host/var/lib/kubelet
+              mountPropagation: Bidirectional
+            - name: numa-systemd
+              mountPath: /host/etc/systemd/system
+            - name: numa-state
+              mountPath: /host/run/mokka
             {{- if .Values.nodeAgent.kernelLog.enabled }}
             # The node's kernel ring buffer, for the Xid announcement. Write
             # only in practice: nothing here reads it back.
             - name: kernel-log
               mountPath: /dev/kmsg
             {{- end }}
-            {{- if $runtime.enabled }}
-            # The host's root, read only, for systemctl to run chrooted into.
+            # Keep the host root available for disable-and-restore upgrades.
             - name: host-fs
               mountPath: /host
               readOnly: true
               mountPropagation: HostToContainer
+            {{- if $runtime.enabled }}
             - name: host-usr-bin
               mountPath: /host/usr/bin
             - name: container-toolkit
@@ -433,6 +469,9 @@ spec:
             - --socket-path={{ .Values.nri.socketPath }}
             - --plugin-name={{ .Values.nri.pluginName }}
             - --plugin-index={{ .Values.nri.pluginIndex }}
+            {{- if and $numa.enabled (eq ($numa.memoryManagerPolicy | default "none") "static") }}
+            - --numa-memory-simulation
+            {{- end }}
             - --overlay-host-path={{ .Values.nri.overlay.hostPath }}
             - --overlay-mount-path={{ .Values.nri.overlay.mountPath }}
             - --device-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev
@@ -592,6 +631,18 @@ spec:
           hostPath:
             path: /sys
             type: Directory
+        - name: numa-kubelet
+          hostPath:
+            path: /var/lib/kubelet
+            type: DirectoryOrCreate
+        - name: numa-systemd
+          hostPath:
+            path: /etc/systemd/system
+            type: DirectoryOrCreate
+        - name: numa-state
+          hostPath:
+            path: /run/mokka
+            type: DirectoryOrCreate
         {{- if .Values.nodeAgent.kernelLog.enabled }}
         # CharDevice, so a node that exposes no kernel ring buffer fails the
         # pod instead of silently swallowing announcements into a new file.
@@ -600,11 +651,11 @@ spec:
             path: /dev/kmsg
             type: CharDevice
         {{- end }}
-        {{- if $runtime.enabled }}
         - name: host-fs
           hostPath:
             path: /
             type: Directory
+        {{- if $runtime.enabled }}
         - name: host-usr-bin
           hostPath:
             path: /usr/bin
