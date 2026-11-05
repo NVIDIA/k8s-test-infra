@@ -17,6 +17,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/imex"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/migcaps"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/numa"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/numatopology"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/nvlink"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/pcibus"
 	"github.com/urfave/cli/v3"
@@ -299,8 +300,11 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	stateSource := source.NewFileSource(cmd.String("config"), cmd.String("topology"), cmd.Duration("resync-interval"), log)
-	stateSource.WithNUMA(h, cmd.Bool("numa-simulation"))
+	// With NUMA disabled, nothing reads the node's CPU and memory layout.
+	var enrichers []agent.Enricher
+	if cmd.Bool("numa-simulation") {
+		enrichers = append(enrichers, numatopology.NewEnricher(h))
+	}
 
 	a := agent.New(agent.Config{
 		Simulators: []agent.Simulator{
@@ -325,7 +329,8 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 				Fabric:  cmd.Bool("ib-fabric"),
 			}),
 		},
-		Source:          stateSource,
+		Enrichers:       enrichers,
+		Source:          source.NewFileSource(configPath, cmd.String("topology"), resyncInterval, log),
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,
 		StagingLockPath: cmd.String("staging-lock-path"),

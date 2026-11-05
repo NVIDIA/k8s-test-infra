@@ -26,6 +26,7 @@ import (
 // Agent is the reconciler and supervisor for all simulators.
 type Agent struct {
 	simulators      []Simulator
+	enrichers       []Enricher
 	source          StateSource
 	log             *zap.Logger
 	shutdownTimeout time.Duration
@@ -43,7 +44,9 @@ type Agent struct {
 
 // Config carries Agent constructor arguments.
 type Config struct {
-	Simulators      []Simulator
+	Simulators []Simulator
+	// Enrichers run in this order on each new State, before Stage.
+	Enrichers       []Enricher
 	Source          StateSource
 	Log             *zap.Logger
 	ShutdownTimeout time.Duration
@@ -57,6 +60,7 @@ func New(cfg Config) *Agent {
 	}
 	a := &Agent{
 		simulators:      cfg.Simulators,
+		enrichers:       cfg.Enrichers,
 		source:          cfg.Source,
 		log:             cfg.Log,
 		shutdownTimeout: cfg.ShutdownTimeout,
@@ -165,8 +169,10 @@ func (a *Agent) reconcileLoop(ctx context.Context) error {
 				a.log.Warn("state source error; keeping cached state", zap.Error(u.Err))
 				continue
 			}
-			latest = u.State
-			a.reconcileLogged(ctx, u.State)
+			// Enrich once per new State: a requeue reuses the result, so a
+			// node change alone never produces a different layout.
+			latest = a.enrich(ctx, u.State)
+			a.reconcileLogged(ctx, latest)
 		}
 	}
 }

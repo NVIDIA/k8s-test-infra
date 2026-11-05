@@ -360,7 +360,7 @@ func writeEngineConfig(ctx context.Context, h *host.Host, state *agent.State) er
 	}
 	// TODO: replace with Runtime.System.NumDevices once the Profile/Runtime split lands.
 	cfg.System.NumDevices = len(state.Devices)
-	limitCPUAffinity(cfg.PCIeTopology, cpulocality.Online(h))
+	limitCPUAffinity(cfg.PCIeTopology, cpulocality.Online(h), state.NodeShape.NUMA)
 	configBytes, err := yaml.Marshal(&cfg)
 	if err != nil {
 		return fmt.Errorf("marshal engine config: %w", err)
@@ -386,8 +386,8 @@ func writeEngineConfig(ctx context.Context, h *host.Host, state *agent.State) er
 // stager serves as local_cpulist, so NVML and the driver files agree on which
 // CPUs are local to a GPU. Roots with no CPUs on this host are left for the
 // engine to synthesize, as they would be with no host limit at all.
-func limitCPUAffinity(topo *engine.PCIeTopologyConfig, online []int) {
-	if topo == nil || online == nil {
+func limitCPUAffinity(topo *engine.PCIeTopologyConfig, online []int, layout *agent.NUMATopology) {
+	if topo == nil || (online == nil && layout == nil) {
 		return
 	}
 	for i, rc := range topo.RootComplexes {
@@ -395,7 +395,7 @@ func limitCPUAffinity(topo *engine.PCIeTopologyConfig, online []int) {
 			ID:          rc.ID,
 			NUMANode:    rc.NUMANode,
 			CPUAffinity: rc.CPUAffinity,
-		}, topo.CoresPerNUMA, online)
+		}, topo.CoresPerNUMA, online, layout)
 		if len(cpus) > 0 {
 			topo.RootComplexes[i].CPUAffinity = cpulist.Format(cpus)
 		}

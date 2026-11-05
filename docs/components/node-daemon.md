@@ -36,40 +36,41 @@ outlive a reconcile.
 
 ## The reconcile lifecycle
 
-The state source builds the complete state shared by all simulators. Each
-simulator then implements its staging, publication, and daemon interfaces.
+The state source builds the desired state from the profile; it never reads the
+node. Enrichers then add facts read from this node, and each simulator
+implements its staging, publication, and daemon interfaces.
 
 | Interface | Implemented by | Purpose |
 |---|---|---|
+| `Enricher` | the NUMA topology enricher, registered only with NUMA simulation enabled | `Enrich` reads the node, never changes it, and writes only the state fields it owns |
 | `Simulator` | all simulators | `Stage` writes artifacts that are not yet externally visible. Idempotent, re-runs on every state change |
 | `Applier` | `gpudriver`, `pcibus`, `cri` | `Apply` publishes artifacts that something *outside* the node acts on — containerd, NFD, the GPU Operator validator |
 | `Daemon` | `fabricmanager`, `ib`, `kernellog` | `Run` supervises a long-lived process; `Reload` delivers later state to it without a restart |
 
-Each state update runs through three waves:
+Each state update runs through enrichment and three waves:
 
 ```mermaid
 flowchart LR
-    source[Source builds complete state] --> valid{{Build succeeded?}}
+    source[Source builds desired state] --> valid{{Build succeeded?}}
     valid -->|no| invalid[Report source error<br/>keep the last valid state]
-    valid -->|yes| stage[Stage<br/>all simulators, in parallel]
+    valid -->|yes| enrich[Enrich<br/>in order, once per state]
+    enrich --> stage[Stage<br/>all simulators, in parallel]
     stage --> barrier{{All staged?}}
     barrier -->|no| fail[Report failing simulators<br/>no daemon starts, no Apply]
     barrier -->|yes| daemons[Supervise<br/>start once, or Reload]
     daemons --> apply[Apply<br/>appliers, in parallel]
 ```
 
-With NUMA simulation enabled, the file source reads the node's real CPUs and RAM
-and resolves one layout in `State.NodeShape.NUMA`. It copies the same CPU
-placement into the PCI topology and NVML engine configuration. All simulators,
-daemon reloads, and appliers receive this complete state and treat it as
-read-only. The NUMA simulator renders the supplied layout; it does not calculate
-it again.
+Enrichers run in a fixed order on a copy of the source's state, so a later
+enricher can use an earlier one's result. They run once for each new state; a
+requeue restages the enriched state without reading the node again. A failed
+enricher leaves its fields empty and the rest still run: only the simulators
+that need its result report not ready.
 
-State construction does not change the node. If it fails, the source reports an
-error and the agent keeps its last valid state. A later source refresh retries
-the build even if the profile has not changed. With NUMA enabled, refreshes also
-check for changes to host CPU and memory inputs. The source emits an update only
-when the profile, auxiliary documents, or resolved layout changes.
+With NUMA simulation enabled, the NUMA topology enricher reads the node's real
+CPUs and RAM and resolves one layout in `State.NodeShape.NUMA`. The NUMA
+simulator renders it, and `pcibus` and `gpudriver` publish each GPU's local CPUs
+from the same zones, so kubelet, the driver files, and NVML agree.
 
 The split between `Stage` and `Apply` is the important part. Staging is private:
 files exist but nothing outside the node is looking at them yet. Publishing is
@@ -93,7 +94,8 @@ profile edit does not need a pod restart.
 
 ## NUMA simulation
 
-The optional NUMA simulator uses the shared topology built by the source.
+The optional NUMA simulator renders the layout the NUMA topology enricher
+resolved. Without a layout, it leaves the node unchanged and reports not ready.
 It exposes the same zone placement to kubelet, the device plugin, and NFD through
 `/sys/devices/system/node` and `/sys/bus/node/devices`. The privileged pod uses
 bidirectional host volumes to apply and remove mounts from its own mount
