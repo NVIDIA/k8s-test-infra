@@ -94,6 +94,9 @@ func NVLink(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Prof
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvlink -s exited with error: %s", s.Combined())
 		gomega.Expect(s.Combined()).To(gomega.MatchRegexp(`Link[[:space:]]+0`),
 			"nvlink -s printed no links for NVLink profile %q", p.Name)
+		lastLink := fmt.Sprintf(`Link[[:space:]]+%d:`, expectNV-1)
+		gomega.Expect(s.Combined()).To(gomega.MatchRegexp(lastLink),
+			"nvlink -s did not list link %d of NVLink profile %q", expectNV-1, p.Name)
 
 		ginkgo.By("nvidia-smi nvlink -c (capabilities) enumerates links")
 		c, err := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-c")

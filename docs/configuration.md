@@ -43,6 +43,7 @@ system:                           # System-level settings
   cuda_version_major: 12
   cuda_version_minor: 4
   driver_branch: "r550_00"        # Optional; derived from driver_version when unset
+  product_name: "VR NVL72"        # Optional; the DMI product name GFD labels nvidia.com/gpu.machine (default: the GPU name)
   hic:                            # Optional; host interface cards `nvidia-smi -q -u` prints
     - id: 0
       firmware_version: "1.2.3.4"
@@ -1159,7 +1160,7 @@ Standalone configuration files are provided for each supported GPU model:
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml` | NVIDIA A100-SXM4-40GB | 40 GiB | Ampere |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-l40s.yaml` | NVIDIA L40S | 48 GiB | Ada Lovelace |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-t4.yaml` | NVIDIA T4 | 16 GiB | Turing |
-| `pkg/gpu/mocknvml/configs/mock-nvml-config-vrnvl72.yaml` | NVIDIA Graphics Device (Vera Rubin) | 288 GiB | Rubin |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-vrnvl72.yaml` | NVIDIA Graphics Device (Vera Rubin) | 280 GiB | Rubin |
 
 Each file contains a complete configuration with every device configured: 8 for
 the baseboard profiles, 4 for the rack-scale ones (`gb200`, `gb300`, `vrnvl72`),

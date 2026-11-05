@@ -145,6 +145,7 @@ type rawProfile struct {
 	} `json:"pcie_topology"`
 	System struct {
 		DriverVersion string `json:"driver_version"`
+		ProductName   string `json:"product_name"`
 	} `json:"system"`
 }
 
@@ -178,6 +179,9 @@ type Profile struct {
 	Name string
 	// DisplayName is device_defaults.name, e.g. "NVIDIA A100-SXM4-40GB".
 	DisplayName string
+	// ProductName is system.product_name, the DMI product name, empty when
+	// the profile names no system.
+	ProductName string
 
 	gpuCount    int
 	ibEnabled   bool
@@ -257,6 +261,16 @@ func (p Profile) GFDProductName() string {
 	return strings.ReplaceAll(p.DisplayName, " ", "-")
 }
 
+// GFDMachine is what GPU Feature Discovery publishes as nvidia.com/gpu.machine:
+// the system's product name, or the GPU's where the profile names no system,
+// with spaces turned into dashes.
+func (p Profile) GFDMachine() string {
+	if p.ProductName == "" {
+		return p.GFDProductName()
+	}
+	return strings.ReplaceAll(p.ProductName, " ", "-")
+}
+
 // MemoryMiB is per-device memory in MiB, matching what GFD publishes as
 // nvidia.com/gpu.memory.
 func (p Profile) MemoryMiB() int { return int(p.memoryBytes / bytesPerMiB) }
@@ -295,6 +309,7 @@ func Load(profilesDir, name string) (Profile, error) {
 	p := Profile{
 		Name:        name,
 		DisplayName: raw.DeviceDefaults.Name,
+		ProductName: raw.System.ProductName,
 		gpuCount:    len(raw.Devices),
 		ibEnabled:   raw.Infiniband.Enabled,
 		hcasPerGPU:  raw.Infiniband.HCAsPerGPU,
@@ -321,7 +336,7 @@ func Load(profilesDir, name string) (Profile, error) {
 	}
 	p.pciAddrs, p.gpuNUMA = pciLocality(raw)
 	// An IB-enabled profile that forgot hcas_per_gpu would silently expect 0
-	// HCAs; every shipped profile sets it explicitly (1, or 2 on vrnvl72).
+	// HCAs; every shipped profile sets it explicitly (1, or 3 on vrnvl72).
 	// Default to 1 when enabled but unset so a missing key does not weaken
 	// the assertion.
 	if p.ibEnabled && p.hcasPerGPU == 0 {
@@ -522,7 +537,7 @@ func (p Profile) MIGCapable() bool { return p.migMaxInstances > 0 }
 
 // ExpectedHCAs is the number of InfiniBand HCAs the profile should expose:
 // hcas_per_gpu per GPU when IB is enabled, otherwise 0 (l40s/t4 negative
-// control). Most profiles pair one HCA with each GPU; vrnvl72 pairs two.
+// control). Most profiles pair one HCA with each GPU; vrnvl72 pairs three.
 func (p Profile) ExpectedHCAs() int {
 	if !p.ibEnabled {
 		return 0

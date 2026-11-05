@@ -26,7 +26,7 @@ const profilesDir = "../../../../deployments/nvml-mock/helm/nvml-mock/profiles"
 // YAML against an authoritative table. The NV# column matches the engine
 // oracle constants in
 // pkg/gpu/mocknvml/engine/topology_test.go:TestNodeFabric_BuiltinProfiles
-// (a100 NV12; h100/gb200/gb300/vrnvl72 NV18; b200 NV0). Keeping this table in lockstep
+// (a100 NV12; h100/gb200/gb300 NV18; vrnvl72 NV36; b200 NV0). Keeping this table in lockstep
 // with that oracle is the guard that stops the chart profiles/ and engine
 // configs/ copies from drifting in a way the e2e would not catch.
 func TestDerivations(t *testing.T) {
@@ -44,7 +44,7 @@ func TestDerivations(t *testing.T) {
 		// PCIe bus, i.e. how many bridge-class entries `lspci` must list beside
 		// the GPUs. Non-zero only for the HGX baseboard profiles: on NVL72 the
 		// switches are in their own trays, so gb200/gb300/vrnvl72 declare
-		// NVSwitches (NV18 above) and render no bridges.
+		// NVSwitches (NV18/NV36 above) and render no bridges.
 		pciBridges    int
 		reportsTLimit bool
 		c2c           bool
@@ -66,7 +66,7 @@ func TestDerivations(t *testing.T) {
 		{"gb300", "NVIDIA GB300 NVL", 4, 4, 18, true, true, true, 2, 0, true, true, 95, 90, 85, 6, 2070},
 		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, 0, true, false, 96, 93, 89, 4, 2520}, // IB + NVLink negative control
 		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, 0, false, false, 96, 93, 89, 3, 1590},
-		{"vrnvl72", "NVIDIA Graphics Device", 4, 8, 18, true, true, true, 2, 0, true, true, 95, 90, 85, 6, 2070}, // one Vera Rubin tray: two NICs per GPU
+		{"vrnvl72", "NVIDIA Graphics Device", 4, 12, 36, true, true, true, 4, 0, true, true, 93, 88, 90, 6, 2424}, // one Vera Rubin tray: three RoCE NICs per GPU, a host bridge per GPU
 	}
 
 	for _, c := range cases {

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/gpuarch"
 )
 
 // The checks over a decoded document. Each is named *Problems because it
@@ -47,6 +49,38 @@ func InventoryProblems(out, wantProductName string, wantGPUs int) []string {
 		if name != wantProductName {
 			problems = append(problems, fmt.Sprintf("GPU %d product_name = %q, want %q",
 				i, name, wantProductName))
+		}
+	}
+	return problems
+}
+
+// ArchitectureName is how nvidia-smi prints a generation in
+// <product_architecture>: "Ada Lovelace" for Ada, otherwise the generation's
+// name capitalized ("Rubin").
+func ArchitectureName(a gpuarch.Arch) string {
+	if a == gpuarch.Ada {
+		return "Ada Lovelace"
+	}
+	name := a.String()
+	if name == "" {
+		return ""
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
+}
+
+// ArchitectureProblems checks every GPU's <product_architecture> names want. An
+// nvidia-smi older than the generation prints "Unknown" although NVML reports
+// it, so this also catches a binary from the wrong driver branch.
+func ArchitectureProblems(out string, want gpuarch.Arch) []string {
+	snap, err := ParseSnapshot(out)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	wantName := ArchitectureName(want)
+	var problems []string
+	for i, gpu := range snap.doc.GPUs {
+		if got := strings.TrimSpace(string(gpu.ProductArchitecture)); got != wantName {
+			problems = append(problems, fmt.Sprintf("GPU %d product_architecture = %q, want %q", i, got, wantName))
 		}
 	}
 	return problems

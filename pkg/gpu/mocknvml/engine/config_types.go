@@ -37,6 +37,11 @@ type SystemConfig struct {
 	CUDAVersionMinor int    `json:"cuda_version_minor"`
 	NumDevices       int    `json:"num_devices,omitzero"`
 
+	// ProductName is the system's DMI product name, the string a real node
+	// reports in /sys/class/dmi/id/product_name and GPU Feature Discovery
+	// labels as nvidia.com/gpu.machine. Empty falls back to the GPU name.
+	ProductName string `json:"product_name,omitempty"`
+
 	// DriverBranch names the driver branch nvmlSystemGetDriverBranch reports.
 	// Left empty it is derived from DriverVersion (580.65.06 -> r580_00), so
 	// only a profile modelling a point-release branch needs to state it.
