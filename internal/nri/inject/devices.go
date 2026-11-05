@@ -4,9 +4,10 @@
 package inject
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -15,8 +16,9 @@ func discoverDevices(deviceHostPath string) ([]Device, error) {
 	return scanDeviceDir(deviceHostPath, "nvidia", "/dev")
 }
 
-// discoverImexChannels lists the mock IMEX channel nodes staged by
-// imex.mockChannels, mapping them onto the fixed kernel path consumers expect.
+// discoverImexChannels lists the mock IMEX channel nodes the node agent stages
+// on multi-node NVLink profiles, mapping them onto the fixed kernel path
+// consumers expect.
 func discoverImexChannels(channelHostPath string) ([]Device, error) {
 	return scanDeviceDir(channelHostPath, imexChannelPrefix, imexChannelContainerDir)
 }
@@ -50,8 +52,8 @@ func scanDeviceDir(hostDir, prefix, containerDir string) ([]Device, error) {
 			Path:     filepath.Join(containerDir, name),
 		})
 	}
-	sort.Slice(devices, func(i, j int) bool {
-		return devices[i].Path < devices[j].Path
+	slices.SortFunc(devices, func(a, b Device) int {
+		return cmp.Compare(a.Path, b.Path)
 	})
 	return devices, nil
 }

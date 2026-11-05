@@ -89,11 +89,7 @@ func ConfigOverridePath() string {
 // resolveConfigOverridePath derives the config override path from the same resolution the
 // engine uses for config. It is cheap and only called on cache misses.
 func resolveConfigOverridePath() string {
-	configPath := os.Getenv("MOCK_NVML_CONFIG")
-	if configPath == "" {
-		configPath = discoverConfigPath()
-	}
-	return ConfigOverridePathFor(configPath)
+	return ConfigOverridePathFor(resolveConfigPath())
 }
 
 //nolint:cyclop // existing complexity; refactor deferred

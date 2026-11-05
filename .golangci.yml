@@ -102,16 +102,33 @@ linters:
           - revive
         text: 'should not use dot imports'
 
-      # The mocknvml/mockcuda packages deliberately mirror NVML/CUDA C API names
-      # (GetBoardId, DeviceGetHandleByPciBusId, GetMemoryInfo_v2, TemperatureGPU_C,
-      # ...) so ConfigurableDevice satisfies go-nvml's Device interface and the
-      # YAML profiles read like their real NVML counterparts. Renaming these to
-      # Go idiom (BoardID, GetMemoryInfoV2, TemperatureGPUC) would break the
+      # The mocknvml package deliberately mirrors NVML C API names (GetBoardId,
+      # DeviceGetHandleByPciBusId, GetMemoryInfo_v2, TemperatureGPU_C, ...) so
+      # ConfigurableDevice satisfies go-nvml's Device interface and the YAML
+      # profiles read like their real NVML counterparts. Renaming these to Go
+      # idiom (BoardID, GetMemoryInfoV2, TemperatureGPUC) would break the
       # interface and the profile schema.
-      - path: ^pkg/gpu/mock(nvml|cuda)/
+      - path: ^pkg/gpu/mocknvml/
         linters:
           - revive
         text: 'var-naming'
+
+      # shims/libcuda mirrors CUDA driver/runtime API names (CudaError,
+      # CudaMemcpyKind, ...) so its exports read like their real CUDA
+      # counterparts.
+      - path: ^shims/libcuda/
+        linters:
+          - revive
+        text: 'var-naming'
+      # Same reasoning, for a spelling rather than a naming convention:
+      # go-nvml mirrors NVML's own NVML_FAN_POLICY_TEMPERATURE_CONTINOUS_SW,
+      # typo included. The constant belongs to the upstream API, so every
+      # reference to it trips misspell and none of them can be corrected.
+      # Scoped to the name so ordinary prose in these packages is still gated.
+      - path: ^pkg/gpu/mock(nvml|cuda)/
+        linters:
+          - misspell
+        text: '`CONTINOUS` is a misspelling'
       # internal/nri/convert.go casts syscall.Stat_t.Rdev to uint64 — a no-op
       # on Linux (where Rdev is uint64) but required on Darwin (where Rdev is
       # int32). We //nolint:unconvert the two lines; on Darwin those directives

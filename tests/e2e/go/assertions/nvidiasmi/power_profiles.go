@@ -6,7 +6,7 @@ package nvidiasmi
 import (
 	"fmt"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -287,8 +287,8 @@ func equalInts(got, want []int) bool {
 	}
 	g := append([]int(nil), got...)
 	w := append([]int(nil), want...)
-	sort.Ints(g)
-	sort.Ints(w)
+	slices.Sort(g)
+	slices.Sort(w)
 	for i := range g {
 		if g[i] != w[i] {
 			return false

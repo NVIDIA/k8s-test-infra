@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,8 +34,8 @@ const (
 	nriWorkloadNS     = "default"
 	nriAgentDaemonSet = "gpu-agent"
 	nriAgentSelector  = "app=gpu-agent"
-	nriNRIDaemonSet   = "nvml-mock-nri"
-	nriPluginSelector = "app.kubernetes.io/name=nvml-mock-nri"
+	nriDaemonSet      = "nvml-mock"
+	nriPluginSelector = "app.kubernetes.io/name=nvml-mock"
 	// Device-plugin composition (#440, MEP-0002). Not a smaller image: the
 	// overlay stages nvidia-smi without its glibc dependencies, so the image has
 	// to supply them. busybox:1.36-glibc resolves ld-linux but ships no
@@ -55,6 +56,9 @@ const (
 	// pod names them by absolute path because a shell-less image has no PATH
 	// lookup to fall back on.
 	nriOverlayBinDir = "/opt/nvml-mock/driver/usr/bin"
+	// nriOverlayHostPath is the node directory the plugin binds into containers
+	// (the chart's nri.overlay.hostPath default).
+	nriOverlayHostPath = "/var/lib/nvml-mock"
 
 	// nriDomainName / nriDomainUUID identify the single ComputeDomain the
 	// generated topology overlay declares. The UUID is arbitrary but must match
@@ -62,28 +66,28 @@ const (
 	nriDomainName = "node-wide-domain"
 	nriDomainUUID = "00000000-0000-0000-0000-0000000000cd"
 
-	// Mock IMEX channel injection (#437). imex.mockChannels defaults to 2048
-	// channels to match the DRA driver's getImexChannelCount(); the count is
-	// irrelevant to the injection path and every channel is a real mknod on
-	// every node, so the suite runs a small one.
-	nriImexChannelCount = 8
-	nriImexChannelDir   = "/dev/nvidia-caps-imex-channels"
-	nriImexAnnotation   = "nvml-mock.nvidia.com/imex-channels"
-	// nriImexChannelMajor must equal imex.mockChannels.channelMajor, which is
-	// also the major the rendered proc-devices advertises to the DRA driver.
+	// Mock IMEX channel injection (#437). Like a real node's driver, the node
+	// agent stages channel0 only.
+	nriImexChannelDir = "/dev/nvidia-caps-imex-channels"
+	nriImexAnnotation = "nvml-mock.nvidia.com/imex-channels"
+	// nriImexChannelMajor is imex.deviceNumbers.channelMajor. The agent
+	// advertises it unless the host already uses it; then it advertises a free
+	// major from 384 to 511.
 	nriImexChannelMajor = 235
 
 	// nriDeviceAnnotation is the per-pod opt-in for device-node injection.
 	nriDeviceAnnotation = "nvml-mock.nvidia.com/devices"
+	// nriIBAnnotation is the per-pod opt-in for the mock InfiniBand tools.
+	nriIBAnnotation = "nvml-mock.nvidia.com/infiniband"
 )
 
-// Go port of docs/guides/node-wide-injection/run.sh. A dedicated Kind cluster
-// with containerd NRI enabled is created once; the nvml-mock chart is installed
-// per selected GPU profile with `nri.enabled=true` (plus a per-node
-// ComputeDomain overlay for fabric-attached profiles). The scenario then proves
-// that an ordinary `gpu-agent` DaemonSet — no `nvidia.com/gpu` request, no
-// hostPath/mock volumes, no `MOCK_*` env — sees the full mock GPU stack purely
-// through NRI ambient injection, and that each node carries its assigned
+// A dedicated Kind cluster with containerd NRI enabled is created once; the
+// nvml-mock chart is installed per selected GPU profile with `nri.enabled=true`
+// (plus a per-node ComputeDomain overlay for fabric-attached profiles). The
+// scenario then proves
+// that a `gpu-agent` DaemonSet — no `nvidia.com/gpu` request, no hostPath/mock
+// volumes, no `MOCK_*` env, only the devices annotation — sees the full mock GPU
+// stack purely through NRI injection, and that each node carries its assigned
 // ComputeDomain clique / cluster UUID.
 var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, func() {
 	var (
@@ -105,7 +109,6 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 	})
 
 	for _, name := range selectedProfiles {
-		name := name
 		Context("profile "+name, Label(name), Ordered, func() {
 			var (
 				p             profile.Profile
@@ -119,14 +122,13 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				// profiles like a100 report "fabric NOT SUPPORTED".
 				computeDomain = p.HasFabric()
 				installNRIChart(ctx, h, p, topoValues, computeDomain)
-				assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
-				assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+				assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 				deployNRIAgent(ctx, h)
 			})
 
 			// gpu-agent readiness alone already proves injection (its `set -eu`
-			// self-test fails otherwise); this asserts the pod spec stayed plain.
-			It("keeps the workload pod plain (no nvidia.com/gpu request)", Label("nri-inject"), func(ctx SpecContext) {
+			// self-test fails otherwise); this asserts the pod spec requests no GPU.
+			It("injects without an nvidia.com/gpu request", Label("nri-inject"), func(ctx SpecContext) {
 				assertAgentHasNoGPURequest(ctx, h)
 			})
 
@@ -201,6 +203,53 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				}
 			})
 
+			// The IB tools share the overlay with the mock driver, and with no
+			// /dev/nvidiaN in the container mock NVML would otherwise report
+			// every GPU on the node.
+			It("shows no mock GPUs to an InfiniBand-only pod", Label("nri-ib-only"), func(ctx SpecContext) {
+				spec := nriAnyGPUNode(nriWorkload("nri-ib-only"), "")
+				spec.Annotations = map[string]string{nriIBAnnotation: "true"}
+				pod := applyNRIWorkload(ctx, h, spec.Render(), "nri-ib-only")
+
+				// The image ships no nvidia-smi, so this runs the staged one. It
+				// exits 0 with this message only when NVML loaded and reported
+				// zero devices; a load or init failure exits non-zero.
+				res, err := h.Kube.ExecSh(ctx, pod, `test "$MOCK_IB" = full && nvidia-smi -L`)
+				Expect(err).NotTo(HaveOccurred(),
+					"an InfiniBand-only pod should run with MOCK_IB=full and a working staged nvidia-smi:\n%s", res.Combined())
+				Expect(res.Combined()).To(ContainSubstring("No devices found"),
+					"an InfiniBand-only pod must see no mock GPUs:\n%s", res.Combined())
+			})
+
+			// A privileged container inherits every device on the node, so on an
+			// RDMA host it carries /dev/infiniband nodes nobody allocated to it.
+			// Those must not select InfiniBand: when they did, such pods got the
+			// fabric with MOCK_NVML_VISIBLE_DEVICES=none and lost every GPU. A node
+			// created on the Kind node stands in for the RDMA host.
+			It("ignores InfiniBand nodes a privileged pod inherits", Label("nri-privileged-ib"), func(ctx SpecContext) {
+				node := workers[0]
+				stageHostInfiniBandNode(ctx, node.Container)
+
+				plain := nriAnyGPUNode(nriWorkload("nri-privileged-plain"), node.Name)
+				plain.Privileged = true
+				plainPod := applyNRIWorkload(ctx, h, plain.Render(), "nri-privileged-plain")
+				res, err := h.Kube.ExecSh(ctx, plainPod,
+					`test -e /dev/infiniband/uverbs0 && test ! -e /opt/nvml-mock && test -z "${MOCK_NVML_VISIBLE_DEVICES:-}"`)
+				Expect(err).NotTo(HaveOccurred(),
+					"a privileged pod with no annotation must keep its inherited InfiniBand node and get nothing from NRI:\n%s", res.Combined())
+
+				managed := nriAnyGPUNode(nriWorkload("nri-privileged-devices"), node.Name)
+				managed.Privileged = true
+				managed.Annotations = map[string]string{nriDeviceAnnotation: "true"}
+				managedPod := applyNRIWorkload(ctx, h, managed.Render(), "nri-privileged-devices")
+				res, err = h.Kube.ExecSh(ctx, managedPod,
+					`test -e /dev/infiniband/uverbs0 && test "$MOCK_IB" = off && test -z "${MOCK_NVML_VISIBLE_DEVICES:-}"`)
+				Expect(err).NotTo(HaveOccurred(),
+					"an annotated privileged pod must get GPUs only, with its inherited InfiniBand node ignored:\n%s", res.Combined())
+				Expect(visibleGPUCount(ctx, h, managedPod)).To(Equal(p.ExpectedGPUs()),
+					"an inherited InfiniBand node must not hide the mock GPUs from an annotated privileged pod")
+			})
+
 			It("carries per-node ComputeDomain fabric identity through NRI", Label("compute-domain"), func(ctx SpecContext) {
 				if !computeDomain {
 					Skip("profile " + name + " declares no device_defaults.fabric block; ComputeDomain identity is unsupported")
@@ -235,8 +284,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				// by waiting; the engine's own override TTL still applies.
 				"allocationWatcher.interval": "500ms",
 			})
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 			deployDevicePluginOnWorkers(ctx, h, workers, p.ExpectedGPUs())
 			gpuNode = workers[0].Name
 		})
@@ -288,8 +336,9 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		// pushing the engine's visibility filter back to "all present" and
 		// exposing every GPU to a pod allocated one.
 		//
-		// Mutation-checked: reverting alreadyHasGPUDevices turns this red with
-		// nvidia-smi reporting every GPU instead of one.
+		// Mutation-checked: letting the devices annotation win over
+		// hasGPUAllocation turns this red with nvidia-smi reporting every GPU
+		// instead of one.
 		It("keeps an annotated pod's allocation intact", Label("nri-dp-suppression"), func(ctx SpecContext) {
 			pod := applyNRIWorkload(ctx, h,
 				nriRequestPodManifest("nri-dp-annotated-request", gpuNode, 1,
@@ -388,18 +437,19 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				"default deviceInjectionMode is raw, so the CDI spec must not have been applied")
 		})
 
-		It("handles a plain unannotated pod with no GPU request", Label("nri-dp-plain"), func(ctx SpecContext) {
+		// The negative half of the allocation rule: on a node where the device
+		// plugin is serving, a pod that requested no GPU and carries no
+		// annotation must look exactly as it would on a real GPU node — no mock
+		// driver, no mock environment, no GPU device nodes.
+		It("leaves a pod with no GPU request and no annotation untouched", Label("nri-dp-plain"), func(ctx SpecContext) {
 			pod := applyNRIWorkload(ctx, h, nriPlainPodManifest("nri-dp-plain"), "nri-dp-plain")
 
-			// Verify ambient overlay injection is present.
-			res, err := h.Kube.ExecSh(ctx, pod, "test -d /opt/nvml-mock/driver")
-			Expect(err).NotTo(HaveOccurred(), "check overlay mount in nri-dp-plain: %s", res.Combined())
-
-			// Verify GPU visibility reported via nvidia-smi -L.
-			visible := visibleGPUUUIDs(ctx, h, pod)
-			Expect(visible).To(HaveLen(p.ExpectedGPUs()),
-				"plain unannotated pod on DP node receives ambient overlay and reports all %d profile GPUs",
-				p.ExpectedGPUs())
+			res, err := h.Kube.ExecSh(ctx, pod,
+				`test ! -e /opt/nvml-mock && test -z "${MOCK_NVML_CONFIG:-}" && `+
+					`! command -v nvidia-smi && ! ls /dev/nvidia[0-9]* 2>/dev/null`)
+			Expect(err).NotTo(HaveOccurred(),
+				"a pod with no GPU request and no annotation must receive no overlay, mock env or GPU nodes:\n%s",
+				res.Combined())
 		})
 
 		It("leaves the scheduler gate intact once the node is saturated", Label("nri-dp-scheduling"), func(ctx SpecContext) {
@@ -455,15 +505,14 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			Expect(selectedProfiles).NotTo(BeEmpty())
 			p = loadProfile(selectedProfiles[0])
 			installNRICDIChart(ctx, h, p)
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 		})
 
 		AfterAll(func(ctx SpecContext) {
 			// Put the release back on the default mechanism so any spec ordered
 			// after this Context sees the shipped configuration.
 			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 		})
 
 		It("delivers every GPU through the CDI spec", Label("nri-cdi-inject"), func(ctx SpecContext) {
@@ -519,6 +568,43 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		})
 	})
 
+	// Mount propagation. The plugin layers a writable bind of the config
+	// directory over its read-only bind of the overlay. A container with a
+	// Bidirectional volume, such as a DRA kubelet plugin, has an rshared root,
+	// and while those binds named no propagation the config bind was copied onto
+	// the node at /var/lib/nvml-mock/driver/config. The copies outlived the pod
+	// and doubled with each such container.
+	//
+	// Every other spec here asserts what a container sees. This leak is visible
+	// only from the node, so none of them could catch it.
+	Context("when an injected container has a Bidirectional volume", Label("nri-mount-propagation"), Ordered, func() {
+		var node cluster.Node
+
+		BeforeAll(func(ctx SpecContext) {
+			Expect(selectedProfiles).NotTo(BeEmpty())
+			p := loadProfile(selectedProfiles[0])
+			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			node = workers[0]
+		})
+
+		It("mounts nothing onto the node's overlay tree", func(ctx SpecContext) {
+			before := nriOverlayMountsOnNode(ctx, node.Container)
+
+			const name = "nri-bidirectional"
+			pod := applyNRIWorkload(ctx, h, nriBidirectionalPodManifest(name, node.Name), name)
+
+			// Without the config bind there is nothing to leak, and the spec
+			// would pass against a plugin that skipped the pod.
+			res, err := h.Kube.ExecSh(ctx, pod,
+				`awk '$5 == "/opt/nvml-mock/driver/config" { found = 1 } END { exit !found }' /proc/self/mountinfo`)
+			Expect(err).NotTo(HaveOccurred(), "%s carries no config bind\n%s", name, res.Combined())
+
+			Expect(nriOverlayMountsOnNode(ctx, node.Container)).To(Equal(before),
+				"a container with a Bidirectional volume left mounts under %s on %s", nriOverlayHostPath, node.Name)
+		})
+	})
+
 	// Mock IMEX channel injection (#437). The NRI plugin already delivers the
 	// mock GPU tree; ComputeDomain workloads additionally need the IMEX channel
 	// nodes, which no mock node has because there is no NVIDIA kernel module to
@@ -535,19 +621,26 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		BeforeAll(func(ctx SpecContext) {
 			Expect(selectedProfiles).NotTo(BeEmpty())
 			p := loadProfile(selectedProfiles[0])
+			if !p.MultiNodeNVLink() {
+				Skip("profile " + p.Name + " is not multi-node NVLink, so its nodes stage no IMEX channels")
+			}
 			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 			gpuNode = workers[0].Name
 		})
 
-		It("delivers every staged channel into an annotated pod", Label("imex-channels"), func(ctx SpecContext) {
+		It("delivers the staged channel0 into an annotated pod", Label("imex-channels"), func(ctx SpecContext) {
 			pod := applyNRIWorkload(ctx, h,
 				nriImexPodManifest("nri-imex-annotated", gpuNode, true),
 				"nri-imex-annotated")
 
-			Expect(imexChannelNames(ctx, h, pod)).To(HaveLen(nriImexChannelCount),
-				"annotated pod should see all %d channels staged by imex.mockChannels", nriImexChannelCount)
+			Expect(imexChannelNames(ctx, h, pod)).To(Equal([]string{"channel0"}),
+				"annotated pod should see channel0, the one channel the node agent stages")
+			// A channel is not a GPU: without the overlay, nothing in the pod
+			// can enumerate the node's mock GPUs.
+			res, err := h.Kube.ExecSh(ctx, pod, `test ! -e /opt/nvml-mock && test -z "${MOCK_NVML_CONFIG:-}"`)
+			Expect(err).NotTo(HaveOccurred(),
+				"an IMEX-only pod must receive the channels and no overlay or mock env:\n%s", res.Combined())
 		})
 
 		// The opt-in has to be a real gate. Without this, a plugin that injected
@@ -564,8 +657,8 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		})
 
 		// The invariant that keeps the mock self-consistent, and the reason this
-		// feature consumes imex.mockChannels instead of provisioning its own
-		// nodes. The DRA driver's compute-domain plugin reads the channel major
+		// feature consumes the node agent's channels instead of provisioning
+		// its own nodes. The DRA driver's compute-domain plugin reads the channel major
 		// out of the rendered proc-devices; the injected nodes must carry that
 		// same major. Two provisioning paths with different majors would leave
 		// the directory split across majors while proc-devices advertised one,
@@ -576,8 +669,9 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				"nri-imex-major")
 
 			advertised := advertisedImexMajor(ctx, h, gpuNode)
-			Expect(advertised).To(Equal(nriImexChannelMajor),
-				"rendered proc-devices should advertise the chart's channelMajor")
+			Expect(advertised == nriImexChannelMajor || (advertised >= 384 && advertised <= 511)).To(BeTrue(),
+				"rendered proc-devices advertises %d: neither the chart's channelMajor %d nor a free major from 384 to 511",
+				advertised, nriImexChannelMajor)
 
 			for _, name := range imexChannelNames(ctx, h, pod) {
 				res, err := h.Kube.ExecSh(ctx, pod, `stat -c %t `+nriImexChannelDir+`/`+name)
@@ -588,6 +682,70 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 					"%s carries major %d but proc-devices advertises %d; the node has more than one channel provisioner",
 					name, major, advertised)
 			}
+		})
+	})
+
+	Context("when the node agent restarts after NRI registers", Label("nri-agent-restart"), func() {
+		It("withholds stale adjustments and resumes after restaging", func(ctx SpecContext) {
+			Expect(selectedProfiles).NotTo(BeEmpty())
+			p := loadProfile(selectedProfiles[0])
+			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
+
+			victim := workers[0]
+			pluginPID := nriPluginHostPID(ctx, victim.Container)
+			agentPID := nriProcessHostPID(ctx, victim.Container, "node-agent")
+			By("freezing the already-running agent while NRI remains registered")
+			_, err := runner.Run(ctx, "docker", "exec", victim.Container, "kill", "-STOP", agentPID)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func(ctx SpecContext) {
+				_, _ = runner.Run(ctx, "docker", "exec", victim.Container, "kill", "-CONT", agentPID) // process may already have been killed below
+			})
+
+			// The agent's probe port no longer answers, although its staged tree
+			// and NRI's runtime connection still exist. A new pod must be plain.
+			// The test image is already loaded on every Kind node. Pulling a
+			// separate workload image could outlast the kubelet's liveness budget
+			// and restart the frozen agent before this negative control starts.
+			downSpec := nriAnyGPUNode(nriWorkload("nri-agent-down"), victim.Name)
+			downSpec.Image = config.Image()
+			downSpec.Annotations = map[string]string{nriDeviceAnnotation: "true"}
+			plain := applyNRIWorkload(ctx, h, downSpec.Render(), "nri-agent-down")
+			// The negative control only holds if the agent was still frozen when
+			// the workload's container was created. A kubelet that had already
+			// restarted it would have reopened the gate, so report that instead
+			// of blaming NRI.
+			Expect(nriProcessHostPID(ctx, victim.Container, "node-agent")).To(Equal(agentPID),
+				"kubelet restarted the frozen agent before the workload started; the check needs it frozen throughout")
+			res, err := h.Kube.ExecSh(ctx, plain, "test ! -e /opt/nvml-mock/driver")
+			Expect(err).NotTo(HaveOccurred(), "NRI injected while the agent was unavailable: %s", res.Combined())
+			Expect(nriPluginHostPID(ctx, victim.Container)).To(Equal(pluginPID),
+				"the NRI process should remain registered while the agent is unavailable")
+			// Failing open must not be silent: the plugin names the container it
+			// left unmocked.
+			nriPod := nriPluginPodOnNode(ctx, h, victim.Name)
+			pluginLog, err := h.Kube.KubectlCombined(ctx, "logs", "-n", nriPod.Namespace, nriPod.Pod, "-c", "nvml-mock-nri")
+			Expect(err).NotTo(HaveOccurred(), "read NRI plugin log: %s", pluginLog)
+			Expect(strings.Split(pluginLog, "\n")).To(ContainElement(
+				And(ContainSubstring("leaving container unmodified"), ContainSubstring(plain.Pod))),
+				"NRI left %s unmocked without a warning naming it", plain.Pod)
+
+			By("killing the agent so kubelet restarts and restages it")
+			_, err = runner.Run(ctx, "docker", "exec", victim.Container, "kill", "-KILL", agentPID)
+			Expect(err).NotTo(HaveOccurred())
+			waitNRIGateOpen(ctx, h, victim)
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			recoveredSpec := nriAnyGPUNode(nriWorkload("nri-agent-restaged"), victim.Name)
+			recoveredSpec.Image = config.Image()
+			recoveredSpec.Annotations = map[string]string{nriDeviceAnnotation: "true"}
+			recovered := applyNRIWorkload(ctx, h, recoveredSpec.Render(), "nri-agent-restaged")
+			// Assert injection before counting. The test image ships its own
+			// nvidia-smi and mock library, which report a built-in eight-GPU
+			// node when nothing is injected, so a count alone cannot tell an
+			// uninjected pod from an injected one on eight-GPU profiles.
+			res, err = h.Kube.ExecSh(ctx, recovered, "test -d /opt/nvml-mock/driver")
+			Expect(err).NotTo(HaveOccurred(), "NRI did not inject after the agent restaged: %s", res.Combined())
+			Expect(visibleGPUCount(ctx, h, recovered)).To(Equal(p.ExpectedGPUs()))
 		})
 	})
 
@@ -616,8 +774,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			Expect(selectedProfiles).NotTo(BeEmpty())
 			p := loadProfile(selectedProfiles[0])
 			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 			deployNRIAgent(ctx, h)
 
 			victim = workers[0]
@@ -635,10 +792,10 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		// the node silently injects nothing.
 		It("reports the wedged node as NotReady", Label("nri-failure-detect"), func(ctx SpecContext) {
 			Eventually(func() (bool, error) {
-				return h.Kube.DaemonSetReady(ctx, nvmlMockNamespace, nriNRIDaemonSet)
+				return h.Kube.DaemonSetReady(ctx, nvmlMockNamespace, nriDaemonSet)
 			}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(time.Second).
 				Should(BeFalse(), "daemonset %s/%s stayed Ready while the plugin on %s was wedged",
-					nvmlMockNamespace, nriNRIDaemonSet, victim.Name)
+					nvmlMockNamespace, nriDaemonSet, victim.Name)
 		})
 
 		// The liveness probe is the recovery half. A wedged plugin cannot exit
@@ -663,7 +820,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		// correctly injected once the plugin recovers. This is the assertion
 		// the positive specs above structurally cannot make.
 		It("injects into a workload created after the wedge", Label("nri-failure-inject"), func(ctx SpecContext) {
-			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 
 			By("recreating gpu-agent so its containers are created after the wedge")
 			deployNRIAgent(ctx, h)
@@ -676,7 +833,27 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 	})
 })
 
-// nriPluginPodOnNode returns the nvml-mock-nri pod scheduled on node.
+// waitNRIGateOpen polls the plugin's own /readyz from the Kind node until it
+// passes. Right after an agent restart the DaemonSet can still report the
+// Ready status it had before, while /readyz passes only once the restarted
+// agent has restaged and released the staging lock.
+func waitNRIGateOpen(ctx context.Context, h *harness.Harness, node cluster.Node) {
+	GinkgoHelper()
+	pod := nriPluginPodOnNode(ctx, h, node.Name)
+	ip, err := h.Kube.PodIP(ctx, pod.Namespace, pod.Pod)
+	Expect(err).NotTo(HaveOccurred(), "read IP of %s", pod.Pod)
+	port, err := h.Kube.KubectlCombined(ctx, "get", "pod", "-n", pod.Namespace, pod.Pod, "-o",
+		`jsonpath={.spec.containers[?(@.name=="nvml-mock-nri")].ports[?(@.name=="nri-health")].containerPort}`)
+	Expect(err).NotTo(HaveOccurred(), "read NRI health port: %s", port)
+	url := fmt.Sprintf("http://%s:%s/readyz", ip, strings.TrimSpace(port))
+	Eventually(func() error {
+		_, err := runner.Run(ctx, "docker", "exec", node.Container, "curl", "-sf", "-o", "/dev/null", url)
+		return err
+	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+		Should(Succeed(), "NRI on %s never reported the restarted agent's tree staged", node.Name)
+}
+
+// nriPluginPodOnNode returns the shared node pod scheduled on node.
 func nriPluginPodOnNode(ctx context.Context, h *harness.Harness, node string) kube.PodRef {
 	GinkgoHelper()
 	var name string
@@ -697,13 +874,13 @@ func nriPluginPodOnNode(ctx context.Context, h *harness.Harness, node string) ku
 		}
 		return "", nil
 	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
-		ShouldNot(BeEmpty(), "no running nvml-mock-nri pod on node %s", node)
+		ShouldNot(BeEmpty(), "no running nvml-mock pod with the NRI sidecar on node %s", node)
 	return kube.PodRef{Namespace: nvmlMockNamespace, Pod: name}
 }
 
 func nriRestartCount(ctx context.Context, h *harness.Harness, pod kube.PodRef) (int, error) {
 	out, err := h.Kube.KubectlCombined(ctx, "get", "pod", "-n", pod.Namespace, pod.Pod,
-		"-o", "jsonpath={.status.containerStatuses[0].restartCount}")
+		"-o", `jsonpath={.status.containerStatuses[?(@.name=="nvml-mock-nri")].restartCount}`)
 	if err != nil {
 		return 0, err
 	}
@@ -746,13 +923,17 @@ func wedgeNRIPlugin(ctx context.Context, container string) {
 // guaranteed in the node image, and matching on a command line would also match
 // the matching process itself.
 func nriPluginHostPID(ctx context.Context, container string) string {
+	return nriProcessHostPID(ctx, container, "nri-plugin")
+}
+
+func nriProcessHostPID(ctx context.Context, container, binary string) string {
 	GinkgoHelper()
-	const script = `for p in /proc/[0-9]*; do case "$(readlink "$p/exe" 2>/dev/null)" in */nri-plugin) echo "${p##*/}";; esac; done`
+	script := `for p in /proc/[0-9]*; do case "$(readlink "$p/exe" 2>/dev/null)" in */` + binary + `) echo "${p##*/}";; esac; done`
 	res, err := runner.Run(ctx, "docker", "exec", container, "sh", "-c", script)
-	Expect(err).NotTo(HaveOccurred(), "locate nri-plugin on %s: %s", container, res.Combined())
+	Expect(err).NotTo(HaveOccurred(), "locate %s on %s: %s", binary, container, res.Combined())
 
 	pids := strings.Fields(res.Stdout)
-	Expect(pids).NotTo(BeEmpty(), "no nri-plugin process found on %s", container)
+	Expect(pids).NotTo(BeEmpty(), "no %s process found on %s", binary, container)
 	return pids[0]
 }
 
@@ -771,18 +952,13 @@ func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 		Namespace:       nvmlMockNamespace,
 		CreateNamespace: true,
 		HideOutput:      true,
-		Set: map[string]string{
+		Set: withSuiteFeatureGates(map[string]string{
 			"gpu.count":        strconv.Itoa(p.ExpectedGPUs()),
 			"gpu.profile":      p.Name,
 			"image.repository": repo,
 			"image.tag":        tag,
 			"nri.enabled":      "true",
-			// Stage the mock IMEX channel nodes so the NRI channel opt-in has
-			// something to deliver (#437). This is the ONLY mechanism that
-			// creates them; the NRI plugin consumes what this stages.
-			"imex.mockChannels.enabled":      "true",
-			"imex.mockChannels.channelCount": strconv.Itoa(nriImexChannelCount),
-		},
+		}),
 		Wait:    true,
 		Timeout: config.HelmTimeout(),
 	}
@@ -801,7 +977,7 @@ func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 // deployNRIAgent (re)creates the plain gpu-agent DaemonSet. It deletes any
 // prior instance first so containers are created AFTER the nvml-mock daemon
 // staged the overlay — NRI only injects at container-creation time — then waits
-// for readiness, which fails unless every pod's ambient self-test passed.
+// for readiness, which fails unless every pod's injection self-test passed.
 func deployNRIAgent(ctx context.Context, h *harness.Harness) {
 	GinkgoHelper()
 	Expect(h.Kube.Delete(ctx, assets.NRIGpuAgentManifest)).To(Succeed(), "delete previous gpu-agent DaemonSet")
@@ -810,15 +986,15 @@ func deployNRIAgent(ctx context.Context, h *harness.Harness) {
 }
 
 // assertAgentHasNoGPURequest mirrors run.sh's "gpu-agent has no nvidia.com/gpu
-// resource request" guard: node-wide injection must not depend on the extended
-// resource being requested.
+// resource request" guard: the devices annotation alone must be enough to
+// receive every mock GPU.
 func assertAgentHasNoGPURequest(ctx context.Context, h *harness.Harness) {
 	GinkgoHelper()
 	out, err := h.Kube.KubectlCombined(ctx, "get", "daemonset", "-n", nriWorkloadNS, nriAgentDaemonSet,
 		"-o", "jsonpath={.spec.template.spec.containers[0].resources}")
 	Expect(err).NotTo(HaveOccurred(), "read gpu-agent container resources")
 	Expect(out).NotTo(ContainSubstring(kube.GPUResourceName),
-		"gpu-agent must not request %s; node-wide injection is ambient (resources=%s)", kube.GPUResourceName, out)
+		"gpu-agent must not request %s; the devices annotation alone selects it (resources=%s)", kube.GPUResourceName, out)
 }
 
 // assertAgentSeesGPUs reads `nvidia-smi -q -x` in a gpu-agent pod and asserts
@@ -899,9 +1075,9 @@ func assertNodeCliqueIdentities(ctx context.Context, h *harness.Harness, workers
 	}
 }
 
-// deployDevicePluginOnWorkers reuses the validator scenario's device-plugin
-// deployment and extends the capacity wait to every worker, so the composition
-// specs can pin pods to a node knowing it advertises the full profile count.
+// deployDevicePluginOnWorkers reuses deployDevicePlugin and extends the
+// capacity wait to every worker, so the composition specs can pin pods to a
+// node knowing it advertises the full profile count.
 func deployDevicePluginOnWorkers(ctx SpecContext, h *harness.Harness, workers []cluster.Node, expectedGPUs int) {
 	GinkgoHelper()
 	By("deploying the upstream device plugin alongside the NRI plugin")
@@ -986,8 +1162,7 @@ func nriAnnotatedPodManifest(name string, node ...string) []byte {
 }
 
 // nriPlainPodManifest renders a pod that opts into nothing: no GPU request and
-// no device annotation. It still receives the overlay and the environment,
-// which is the node-wide NRI contract.
+// no annotation. The NRI plugin leaves it exactly as authored.
 func nriPlainPodManifest(name string) []byte {
 	return nriAnyGPUNode(nriWorkload(name), "").Render()
 }
@@ -997,15 +1172,46 @@ func nriPlainPodManifest(name string) []byte {
 // `sleep` wrapper and no `sh -c`: the image has no shell, which is the whole
 // point of using it. The label is what the spec selects on to read the pod's
 // logs, since it has already exited by the time they are collected.
+//
+// The pod selects InfiniBand alone, which is also what proves the IB tools need
+// no GPU selection to load and enumerate.
 func nriMinimalIBPodManifest(name, tool string, args ...string) []byte {
 	spec := nriAnyGPUNode(nriWorkload(name), "")
 	spec.Image = nriMinimalImage
+	spec.Annotations = map[string]string{nriIBAnnotation: "true"}
 	// Replaces the keepalive shell wholesale; this image has none, so the trap
 	// script would reach the tool as arguments.
 	spec.Command = append([]string{nriOverlayBinDir + "/" + tool}, args...)
 	spec.Args = nil
 	spec.Labels = map[string]string{"app": name}
 	return spec.Render()
+}
+
+// stageHostInfiniBandNode makes a Kind node look like an RDMA host to the
+// privileged pods it runs, since containerd hands those every node in its /dev.
+// It creates /dev/infiniband/uverbs0 unless the host already exposes one, and
+// removes only what it created.
+func stageHostInfiniBandNode(ctx context.Context, container string) {
+	GinkgoHelper()
+	const script = `
+created=
+[ -d /dev/infiniband ] || { mkdir /dev/infiniband && created=dir; }
+if [ ! -e /dev/infiniband/uverbs0 ]; then
+	mknod /dev/infiniband/uverbs0 c 231 192 && created="$created node"
+fi
+echo "$created"`
+	res, err := runner.Run(ctx, "docker", "exec", container, "sh", "-c", script)
+	Expect(err).NotTo(HaveOccurred(), "stage /dev/infiniband/uverbs0 on %s: %s", container, res.Combined())
+
+	created := strings.Fields(res.Stdout)
+	DeferCleanup(func(ctx SpecContext) { //nolint:contextcheck // Ginkgo cleanup ctx is intentionally distinct from the outer spec ctx
+		if slices.Contains(created, "node") {
+			_, _ = runner.Run(ctx, "docker", "exec", container, "rm", "-f", "/dev/infiniband/uverbs0")
+		}
+		if slices.Contains(created, "dir") {
+			_, _ = runner.Run(ctx, "docker", "exec", container, "rmdir", "/dev/infiniband")
+		}
+	})
 }
 
 // runIBToolInMinimalImage applies the pod, waits for it to terminate, and
@@ -1056,20 +1262,75 @@ func installNRICDIChart(ctx context.Context, h *harness.Harness, p profile.Profi
 		Namespace:       nvmlMockNamespace,
 		CreateNamespace: true,
 		HideOutput:      true,
-		Set: map[string]string{
-			"gpu.count":                 strconv.Itoa(p.ExpectedGPUs()),
-			"gpu.profile":               p.Name,
-			"image.repository":          repo,
-			"image.tag":                 tag,
-			"nri.enabled":               "true",
-			"nri.deviceInjectionMode":   "cdi",
-			"imex.mockChannels.enabled": "false",
-		},
+		Set: withSuiteFeatureGates(map[string]string{
+			"gpu.count":               strconv.Itoa(p.ExpectedGPUs()),
+			"gpu.profile":             p.Name,
+			"image.repository":        repo,
+			"image.tag":               tag,
+			"nri.enabled":             "true",
+			"nri.deviceInjectionMode": "cdi",
+		}),
 		Wait:    true,
 		Timeout: config.HelmTimeout(),
 	}
 	By("helm upgrade --install nvml-mock with NRI device injection mode=cdi (profile=" + p.Name + ")")
 	Expect(h.Helm.UpgradeInstall(ctx, rel)).To(Succeed(), "helm upgrade --install nvml-mock with CDI injection (profile=%s)", p.Name)
+}
+
+// nriBidirectionalPodManifest renders a pod pinned to node with a Bidirectional
+// hostPath volume, as a DRA kubelet plugin has. The volume's contents are
+// irrelevant: it is there because it gives the container an rshared root.
+// Kubernetes allows Bidirectional only in a privileged container, and the pod
+// framework renders neither field. The device annotation opts the pod in, as it
+// does nriAnnotatedPodManifest's pods.
+func nriBidirectionalPodManifest(name, node string) []byte {
+	return fmt.Appendf(nil, `apiVersion: v1
+kind: Pod
+metadata:
+  name: %[1]s
+  namespace: %[2]s
+  annotations:
+    %[3]s: "true"
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 1
+  nodeName: %[4]s
+  containers:
+    - name: app
+      image: %[5]s
+      command: ["/bin/sh", "-c"]
+      args: ["trap 'exit 0' TERM; sleep 3600 & wait"]
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - name: shared
+          mountPath: /shared
+          mountPropagation: Bidirectional
+  volumes:
+    - name: shared
+      hostPath:
+        path: /var/lib/%[1]s
+        type: DirectoryOrCreate
+`, name, nriWorkloadNS, nriDeviceAnnotation, node, nriWorkloadImage)
+}
+
+// nriOverlayMountsOnNode lists the mounts at or below the overlay's host path in
+// the Kind node's own mount namespace, one entry per mount, so a stack shows up
+// as repeats.
+func nriOverlayMountsOnNode(ctx context.Context, container string) []string {
+	GinkgoHelper()
+	res, err := runner.RunQuiet(ctx, "docker", "exec", container, "cat", "/proc/self/mountinfo")
+	Expect(err).NotTo(HaveOccurred(), "read the mount table of %s", container)
+
+	var mounts []string
+	for line := range strings.SplitSeq(res.Stdout, "\n") {
+		// The fifth field is the mount point.
+		fields := strings.Fields(line)
+		if len(fields) > 4 && (fields[4] == nriOverlayHostPath || strings.HasPrefix(fields[4], nriOverlayHostPath+"/")) {
+			mounts = append(mounts, fields[4])
+		}
+	}
+	return mounts
 }
 
 // nriImexPodManifest renders a pod pinned to one node that optionally opts into
@@ -1090,7 +1351,7 @@ func imexChannelNames(ctx context.Context, h *harness.Harness, pod kube.PodRef) 
 	res, err := h.Kube.ExecSh(ctx, pod, `ls `+nriImexChannelDir)
 	Expect(err).NotTo(HaveOccurred(), "list %s in %s: %s", nriImexChannelDir, pod.Pod, res.Combined())
 	var names []string
-	for _, line := range strings.Split(res.Combined(), "\n") {
+	for line := range strings.SplitSeq(res.Combined(), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "channel") {
 			names = append(names, line)
@@ -1100,14 +1361,14 @@ func imexChannelNames(ctx context.Context, h *harness.Harness, pod kube.PodRef) 
 }
 
 // advertisedImexMajor reads the channel major out of the proc-devices file that
-// imex.mockChannels renders for the DRA driver, as staged on the node itself.
+// the node agent renders for the DRA driver, as staged on the node itself.
 func advertisedImexMajor(ctx context.Context, h *harness.Harness, node string) int {
 	GinkgoHelper()
 	pod := nriMockPodOnNode(ctx, h, node)
 	res, err := h.Kube.ExecSh(ctx, pod, `cat /host/var/lib/nvml-mock/imex/proc-devices`)
 	Expect(err).NotTo(HaveOccurred(), "read rendered proc-devices on %s: %s", node, res.Combined())
 
-	for _, line := range strings.Split(res.Combined(), "\n") {
+	for line := range strings.SplitSeq(res.Combined(), "\n") {
 		fields := strings.Fields(strings.TrimSpace(line))
 		if len(fields) == 2 && fields[1] == "nvidia-caps-imex-channels" {
 			major, parseErr := strconv.Atoi(fields[0])

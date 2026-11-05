@@ -54,8 +54,19 @@ func writeStub(t *testing.T, dir string) string {
 	return stub
 }
 
+func copyExecutable(t *testing.T, source, destination string) {
+	t.Helper()
+	content, err := os.ReadFile(source)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(destination, content, 0o755))
+}
+
+// The tests below write an executable and then run it, so they are not
+// parallel. A parallel test that forks while the file is still open for writing
+// leaves the child holding that descriptor, and exec then fails with "text file
+// busy" (golang/go#22315). Go runs non-parallel tests one at a time.
+
 func TestShimExecsRealWithNogpu(t *testing.T) {
-	t.Parallel()
 	tmp := t.TempDir()
 	shim := prebuiltShim(t)
 	stub := writeStub(t, tmp)
@@ -67,6 +78,23 @@ func TestShimExecsRealWithNogpu(t *testing.T) {
 	var ee *exec.ExitError
 	require.ErrorAs(t, err, &ee, "stub exits 7; shim must surface the real binary's exit code")
 	require.Equal(t, 7, ee.ExitCode(), "exit code must pass through exec")
+	require.Equal(t, "-c\n/imexd/imexd.cfg\n--nogpu\nENV_PROBE=carried-through\n", string(out))
+}
+
+func TestShimExecsSiblingRealBinary(t *testing.T) {
+	tmp := t.TempDir()
+	shimSource := prebuiltShim(t)
+	shim := filepath.Join(tmp, "nvidia-imex")
+	copyExecutable(t, shimSource, shim)
+	_ = writeStub(t, tmp)
+
+	cmd := exec.Command(shim, "-c", "/imexd/imexd.cfg")
+	cmd.Env = append(os.Environ(), envRealBin+"=", "ENV_PROBE=carried-through")
+	out, err := cmd.Output()
+
+	var ee *exec.ExitError
+	require.ErrorAs(t, err, &ee)
+	require.Equal(t, 7, ee.ExitCode())
 	require.Equal(t, "-c\n/imexd/imexd.cfg\n--nogpu\nENV_PROBE=carried-through\n", string(out))
 }
 

@@ -85,7 +85,7 @@ CONFIGMAP_NAME="${RELEASE_NAME}-config"
 POD_SELECTOR="app.kubernetes.io/name=nvml-mock,app.kubernetes.io/instance=${RELEASE_NAME}"
 # Number of GPUs that nvidia-smi reports inside the daemonset pod. We
 # DON'T pass --set gpu.count=... because that only affects the
-# host-side CDI spec produced by the cdi simulator — the in-pod config mounted
+# host-side CDI spec produced by the cri simulator — the in-pod config mounted
 # at /etc/nvml-mock/config.yaml is the chart's full ConfigMap, which
 # always contains every device defined by the chosen profile (eg 8
 # for h100). The baseline scenario below detects the actual count by
@@ -218,7 +218,7 @@ KUBE_CONTEXT="${DEMO_KUBE_CONTEXT}"
 IMAGE_NAME="$(demo::image_ref)"
 
 # Split "repo:tag" for the chart's two separate values. Shared with the
-# standalone demo, and it rejects digest refs the chart cannot express.
+# standalone demo, and it rejects digest refs the demo cannot express.
 # `exit` inside $() only leaves the subshell, so propagate the code explicitly
 # rather than relying on set -e to notice the failed assignment.
 IMAGE_PARTS="$(demo::image_parts "${IMAGE_NAME}")" || exit $?

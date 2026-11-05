@@ -1,0 +1,75 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Two GB200 NVL72 racks with two nodes each, for the ComputeDomain e2e
+# scenarios (tests/e2e/go/scenario_compute_domain_test.go):
+#
+#   rack-1 (00000000-0000-0000-0000-0000000000a1)   rack-2 (00000000-0000-0000-0000-0000000000b2)
+#     clique 0: worker-0, worker-1                      clique 0: worker-2, worker-3
+#
+# Each rack is one NVLink clique. mokka.nvidia.com/clique (<cluster UUID>.<clique
+# ID>) is the scenarios' input: they build the topology they install from it,
+# so the mock reports exactly that clique. nvidia.com/gpu.clique carries the
+# same value, as GFD or the DRA driver's kubelet plugin (with its clique label
+# turned on) would set it from NVML on a real node; the scenarios do not read
+# it, since those components may rewrite it. Topograph and the topology-rebind
+# trigger keep local/kind/compute-domain.kind.yaml.
+#
+#   make cluster-create PROFILE=compute-domain KIND_CLUSTER_CONFIG=tests/e2e/kind-compute-domain-racks.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: mokka-compute-domain
+featureGates:
+  DynamicResourceAllocation: true
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        apiServer:
+          extraArgs:
+            runtime-config: "resource.k8s.io/v1beta1=true"
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: control-0
+  - role: worker
+    labels:
+      mokka.nvidia.com/clique: "00000000-0000-0000-0000-0000000000a1.0"
+      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000a1.0"
+      mokka.nvidia.com/type: sgpu
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-0
+  - role: worker
+    labels:
+      mokka.nvidia.com/clique: "00000000-0000-0000-0000-0000000000a1.0"
+      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000a1.0"
+      mokka.nvidia.com/type: sgpu
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-1
+  - role: worker
+    labels:
+      mokka.nvidia.com/clique: "00000000-0000-0000-0000-0000000000b2.0"
+      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000b2.0"
+      mokka.nvidia.com/type: sgpu
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-2
+  - role: worker
+    labels:
+      mokka.nvidia.com/clique: "00000000-0000-0000-0000-0000000000b2.0"
+      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000b2.0"
+      mokka.nvidia.com/type: sgpu
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-3

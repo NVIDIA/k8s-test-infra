@@ -5,7 +5,7 @@ package assertions
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 )
 
@@ -58,7 +58,7 @@ func DiffGFDLabels(want, got map[string]string) []string {
 	for key := range want {
 		keys = append(keys, key)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 
 	var problems []string
 	for _, key := range keys {

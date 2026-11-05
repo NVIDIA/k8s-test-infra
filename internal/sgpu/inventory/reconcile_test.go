@@ -21,17 +21,17 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	inventorycleanup "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/cleanup"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/metadata"
-	rackrender "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/rack"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
+	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 	mokkafake "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/fake"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
 )
 
 func TestReconcileCreatesDeterministicRacksAndIsIdempotent(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 2, 2)
 	inventory := testInventory("inventory", "inventory-uid", "p", 2)
 	nodes := []*corev1.Node{
@@ -96,7 +96,7 @@ func TestReconcileCreatesDeterministicRacksAndIsIdempotent(t *testing.T) {
 
 func TestReconcileCreatesCacheMissingRacksWithOneWriteEach(t *testing.T) {
 	const rackCount = 8
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, rackCount)
 	inventory.Finalizers = []string{InventoryFinalizer}
@@ -141,7 +141,7 @@ func TestReconcileRetriesCacheMissingRackWithChangedAllocationInputs(t *testing.
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			profile := testProfile("p", "profile-uid", 1, 1, 1)
 			inventory := testInventory("inventory", "inventory-uid", profile.Name, 1)
 			inventory.Finalizers = []string{InventoryFinalizer}
@@ -165,7 +165,7 @@ func TestReconcileRetriesCacheMissingRackWithChangedAllocationInputs(t *testing.
 				&nodeOverrideCache{Cache: h.cache, nodes: h.nodes},
 				h.mokka.MokkaV1alpha1().SGPUInventories(),
 				h.mokka.MokkaV1alpha1().SGPURacks(),
-				inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return false }),
+				sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return false }),
 			)
 			h.mokka.Fake.ClearActions()
 			result, err := reconciler.Reconcile(ctx, inventory.Name)
@@ -195,7 +195,7 @@ func TestReconcileRetriesCacheMissingRackWithChangedAllocationInputs(t *testing.
 				return
 			}
 			require.Len(t, result.CleanupNeeded, 1)
-			require.Equal(t, inventorycleanup.CleanupSelectorMismatch, result.CleanupNeeded[0].Reason)
+			require.Equal(t, sgpurelease.SelectorMismatch, result.CleanupNeeded[0].Reason)
 			require.Equal(t, committed.UID, result.CleanupNeeded[0].RackUID)
 			require.Equal(t, bound.UID, result.CleanupNeeded[0].Binding.Node.UID)
 
@@ -213,7 +213,7 @@ func TestReconcileRetriesCacheMissingRackWithChangedAllocationInputs(t *testing.
 }
 
 func TestReconcileComputesRevisionOncePerProfileObservation(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	shared := testProfile("shared", "shared-profile-uid", 7, 1, 1)
 	other := testProfile("other", "other-profile-uid", 3, 1, 1)
 	other.Spec.Software.DriverVersion = "other-driver"
@@ -238,7 +238,7 @@ func TestReconcileComputesRevisionOncePerProfileObservation(t *testing.T) {
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return false }),
+		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return false }),
 	)
 	reconciler.precomputeProfileRevision = func(
 		profile *mokkav1alpha1.SGPURackProfile,
@@ -326,7 +326,7 @@ func TestSupportedInventoryCapacityBoundariesAndOverflow(t *testing.T) {
 }
 
 func TestReconcileRejectsAggregateCapacityBeforeAllocationOrWrites(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 50_000)
 	second := inventory.Spec.RackGroups[0]
@@ -344,7 +344,7 @@ func TestReconcileRejectsAggregateCapacityBeforeAllocationOrWrites(t *testing.T)
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return false }),
+		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return false }),
 		allocation,
 	)
 	h.mokka.Fake.ClearActions()
@@ -360,7 +360,7 @@ func TestReconcileRejectsAggregateCapacityBeforeAllocationOrWrites(t *testing.T)
 }
 
 func TestReconcileRejectsAdmittedMaximumPerGroupBeforeProfileResolution(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	inventory := testInventory("inventory", "inventory-uid", "missing-profile", 100_000)
 	inventory.Spec.RackGroups = make([]mokkav1alpha1.RackGroup, 64)
 	for i := range inventory.Spec.RackGroups {
@@ -380,7 +380,7 @@ func TestReconcileRejectsAdmittedMaximumPerGroupBeforeProfileResolution(t *testi
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return false }),
+		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return false }),
 		allocation,
 	)
 	h.mokka.Fake.ClearActions()
@@ -402,7 +402,7 @@ func TestReconcileGroupIndexesLargeBindingSetOnce(t *testing.T) {
 		nodesPerRack = 100
 		nodeCount    = rackCount * nodesPerRack
 	)
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, nodesPerRack, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, rackCount)
 	inventory.Finalizers = []string{InventoryFinalizer}
@@ -496,7 +496,7 @@ func TestGroupAllocationIndexesOnlyChangedRackAmong100K(t *testing.T) {
 }
 
 func TestReconcileReportsOverlapAndRetainsLastGoodRackForMissingProfile(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	inventory.Finalizers = []string{InventoryFinalizer}
@@ -525,7 +525,7 @@ func TestReconcileReportsOverlapAndRetainsLastGoodRackForMissingProfile(t *testi
 func TestReconcileMaterializesHealthyGroupWhenSiblingProfileIsMissing(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("healthy-profile", "healthy-profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 3)
 	inventory.Finalizers = []string{InventoryFinalizer}
@@ -559,7 +559,7 @@ func TestReconcileMaterializesHealthyGroupWhenSiblingProfileIsMissing(t *testing
 func TestReconcileGroupProcessesChangedRacksWhenSiblingProfileIsMissing(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("healthy-profile", "healthy-profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 3)
 	inventory.Finalizers = []string{InventoryFinalizer}
@@ -610,7 +610,7 @@ func TestReconcileGroupProcessesChangedRacksWhenSiblingProfileIsMissing(t *testi
 }
 
 func TestReconcileExistingBindingWinsNewSelectorOverlap(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -635,7 +635,7 @@ func TestReconcileExistingBindingWinsNewSelectorOverlap(t *testing.T) {
 }
 
 func TestReconcileInvalidInventoryAndProfileRetainLastGoodRacks(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -675,7 +675,7 @@ func TestReconcileInvalidInventoryAndProfileRetainLastGoodRacks(t *testing.T) {
 }
 
 func TestReconcileProjectedLabelSelectorRetainsBindingWithoutWrites(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -687,7 +687,7 @@ func TestReconcileProjectedLabelSelectorRetainsBindingWithoutWrites(t *testing.T
 	invalid, err := h.mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	invalid.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
-		Key: metadata.CliqueLabel, Operator: metav1.LabelSelectorOpExists,
+		Key: sgpumetadata.CliqueLabel, Operator: metav1.LabelSelectorOpExists,
 	}}}
 	invalid.Generation++
 	_, err = h.mokka.MokkaV1alpha1().SGPUInventories().Update(ctx, invalid, metav1.UpdateOptions{})
@@ -699,7 +699,7 @@ func TestReconcileProjectedLabelSelectorRetainsBindingWithoutWrites(t *testing.T
 	require.NoError(t, err)
 	require.False(t, result.Accepted)
 	require.Equal(t,
-		`rack group "group" selector: selector must not reference controller-owned label "`+metadata.CliqueLabel+`"`,
+		`rack group "group" selector: selector must not reference controller-owned label "`+sgpumetadata.CliqueLabel+`"`,
 		result.ValidationError,
 	)
 	require.Empty(t, result.CleanupNeeded)
@@ -716,7 +716,7 @@ func TestReconcileProjectedLabelSelectorRetainsBindingWithoutWrites(t *testing.T
 }
 
 func TestReconcileReleasesTerminatingNodeAsIneligible(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -736,11 +736,11 @@ func TestReconcileReleasesTerminatingNodeAsIneligible(t *testing.T) {
 	require.Len(t, result.Allocation.Released, 1)
 	require.Equal(t, allocate.ReleaseNodeIneligible, result.Allocation.Released[0].Reason)
 	require.Len(t, result.CleanupNeeded, 1)
-	require.Equal(t, inventorycleanup.CleanupNodeIneligible, result.CleanupNeeded[0].Reason)
+	require.Equal(t, sgpurelease.NodeIneligible, result.CleanupNeeded[0].Reason)
 }
 
 func TestReconcileUsesCurrentInventoryOverStaleListSnapshot(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -752,14 +752,14 @@ func TestReconcileUsesCurrentInventoryOverStaleListSnapshot(t *testing.T) {
 	current := inventory.DeepCopy()
 	current.Finalizers = []string{InventoryFinalizer}
 	current.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
-		Key: metadata.AssignedLabel, Operator: metav1.LabelSelectorOpExists,
+		Key: sgpumetadata.AssignedLabel, Operator: metav1.LabelSelectorOpExists,
 	}}}
 	h.mokka.Fake.ClearActions()
 	reconciler := NewReconciler(
 		&inventoryOverrideCache{Cache: h.cache, inventory: current},
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return false }),
+		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return false }),
 	)
 
 	result, err := reconciler.Reconcile(ctx, inventory.Name)
@@ -770,7 +770,7 @@ func TestReconcileUsesCurrentInventoryOverStaleListSnapshot(t *testing.T) {
 }
 
 func TestReconcileRendersRecreatedProfileWithoutMovingBindings(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "old-profile-uid", 1, 2, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -798,7 +798,7 @@ func TestReconcileRendersRecreatedProfileWithoutMovingBindings(t *testing.T) {
 }
 
 func TestReconcileShrinkWaitsForCleanupThenRetires(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 2, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 2)
 	nodes := []*corev1.Node{
@@ -855,7 +855,7 @@ func TestReconcileShrinkWaitsForCleanupThenRetires(t *testing.T) {
 }
 
 func TestReconcileDoesNotGrowRackWhileRetiredCapacityAwaitsCleanup(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 2)
 	nodes := []*corev1.Node{
@@ -884,7 +884,7 @@ func TestReconcileDoesNotGrowRackWhileRetiredCapacityAwaitsCleanup(t *testing.T)
 	result, err := h.reconcile(ctx, inventory.Name)
 	require.NoError(t, err)
 	require.Len(t, result.CleanupNeeded, 1)
-	require.Equal(t, inventorycleanup.CleanupCapacityShrink, result.CleanupNeeded[0].Reason)
+	require.Equal(t, sgpurelease.CapacityShrink, result.CleanupNeeded[0].Reason)
 	surviving, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(
 		ctx,
 		rackrender.RackName(inventory.Name, inventory.UID, "group", 0),
@@ -896,7 +896,7 @@ func TestReconcileDoesNotGrowRackWhileRetiredCapacityAwaitsCleanup(t *testing.T)
 }
 
 func TestReconcileHandlesOwnerConflictAndRetriesOptimisticConflict(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	name := rackrender.RackName(inventory.Name, inventory.UID, "group", 0)
@@ -945,7 +945,7 @@ func TestReconcileHandlesOwnerConflictAndRetriesOptimisticConflict(t *testing.T)
 }
 
 func TestReconcileClassifiesInvalidRackCreateAsProfileIssue(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 2)
 	h := newHarness(t, []runtime.Object{profile, inventory}, nil)
@@ -973,7 +973,7 @@ func TestReconcileClassifiesInvalidRackCreateAsProfileIssue(t *testing.T) {
 }
 
 func TestReconcileLeavesTransientRackCreateErrorsRetryable(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 1)
 	h := newHarness(t, []runtime.Object{profile, inventory}, nil)
@@ -989,7 +989,7 @@ func TestReconcileLeavesTransientRackCreateErrorsRetryable(t *testing.T) {
 }
 
 func TestReconcileWaitsForGoneUIDCleanupBeforeAllocatingReplacement(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	old := testNode("same", "old-uid", 1, map[string]string{"pool": "gpu"})
@@ -1028,7 +1028,7 @@ func TestReconcileWaitsForGoneUIDCleanupBeforeAllocatingReplacement(t *testing.T
 }
 
 func TestReconcileRetriesWhenStaleRackUpdateFindsDeletedObject(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	old := testNode("same", "old-uid", 1, map[string]string{"pool": "gpu"})
@@ -1046,7 +1046,7 @@ func TestReconcileRetriesWhenStaleRackUpdateFindsDeletedObject(t *testing.T) {
 		&nodeOverrideCache{Cache: h.cache, nodes: []*corev1.Node{replacement}},
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return true }),
+		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return true }),
 	)
 
 	_, err = reconciler.Reconcile(ctx, inventory.Name)
@@ -1061,7 +1061,7 @@ func TestReconcileRetriesWhenStaleRackUpdateFindsDeletedObject(t *testing.T) {
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return true }),
+		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return true }),
 	)
 	_, err = reconciler.Reconcile(ctx, inventory.Name)
 	require.NoError(t, err)
@@ -1072,7 +1072,7 @@ func TestReconcileRetriesWhenStaleRackUpdateFindsDeletedObject(t *testing.T) {
 }
 
 func TestCleanupAcknowledgementSurvivesConflictAndStaleCache(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -1105,7 +1105,7 @@ func TestCleanupAcknowledgementSurvivesConflictAndStaleCache(t *testing.T) {
 	_, err = reconciler.Reconcile(ctx, inventory.Name)
 	require.NoError(t, err)
 	require.True(t, conflicted)
-	require.True(t, gate.Ready(inventorycleanup.CleanupNeeded{}), "cleanup must remain acknowledged until the cache observes the removed binding")
+	require.True(t, gate.Ready(sgpurelease.Cleanup{}), "cleanup must remain acknowledged until the cache observes the removed binding")
 	stored, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(
 		ctx,
 		rackrender.RackName(inventory.Name, inventory.UID, "group", 0),
@@ -1117,7 +1117,7 @@ func TestCleanupAcknowledgementSurvivesConflictAndStaleCache(t *testing.T) {
 	_, err = reconciler.Reconcile(ctx, inventory.Name)
 	require.Error(t, err)
 	require.True(t, apierrors.IsConflict(err))
-	require.True(t, gate.Ready(inventorycleanup.CleanupNeeded{}), "a stale-cache conflict must not discard the acknowledgement")
+	require.True(t, gate.Ready(sgpurelease.Cleanup{}), "a stale-cache conflict must not discard the acknowledgement")
 	h.sync(t)
 	reconciler = NewReconciler(
 		h.cache,
@@ -1133,7 +1133,7 @@ func TestCleanupAcknowledgementSurvivesConflictAndStaleCache(t *testing.T) {
 }
 
 func TestReconcileDeletionFinalizersAndManualRackDeletion(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
@@ -1183,7 +1183,7 @@ func TestReconcileDeletionFinalizersAndManualRackDeletion(t *testing.T) {
 }
 
 func TestReconcileInventoryDeletionRetiresLiveCacheMissingRackBeforeFinalizer(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	inventory.Finalizers = []string{InventoryFinalizer}
 	now := metav1.Now()
@@ -1250,7 +1250,7 @@ func TestReconcileInventoryDeletionRetiresLiveCacheMissingRackBeforeFinalizer(t 
 }
 
 func TestReconcileInventoryDeletionPropagatesLiveListError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
 	inventory.Finalizers = []string{InventoryFinalizer}
 	now := metav1.Now()
@@ -1315,7 +1315,7 @@ type testCleanupGate struct {
 	ready bool
 }
 
-func (g *testCleanupGate) Ready(inventorycleanup.CleanupNeeded) bool { return g.ready }
+func (g *testCleanupGate) Ready(sgpurelease.Cleanup) bool { return g.ready }
 
 type inventoryOverrideCache struct {
 	Cache
@@ -1409,7 +1409,7 @@ func (h *harness) installRackUpdateReactor() {
 
 func (h *harness) sync(t *testing.T) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	profileIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, Indexers())
@@ -1447,7 +1447,7 @@ func (h *harness) reconcile(ctx context.Context, key string) (Result, error) {
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return h.cleaned }),
+		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return h.cleaned }),
 	)
 	return reconciler.Reconcile(ctx, key)
 }
@@ -1457,7 +1457,7 @@ func (h *harness) reconcileGroup(ctx context.Context, key allocate.RackGroupKey)
 		h.cache,
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
-		inventorycleanup.CleanupGateFunc(func(inventorycleanup.CleanupNeeded) bool { return h.cleaned }),
+		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return h.cleaned }),
 	)
 	return reconciler.ReconcileGroup(ctx, key)
 }

@@ -49,7 +49,7 @@ func TestRender_DefaultsAndCount(t *testing.T) {
 		RootDir:  dir,
 	})
 	require.NoError(t, err, "Render")
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		caDir := filepath.Join(dir, "sys/class/infiniband", "mlx5_"+strconv.Itoa(i))
 		_, err := os.Stat(caDir)
 		require.NoError(t, err, "missing CA dir mlx5_%d", i)
@@ -110,7 +110,7 @@ func TestRender_HCAsPerGPU(t *testing.T) {
 		RootDir:  dir,
 	})
 	require.NoError(t, err, "Render")
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		caDir := filepath.Join(dir, "sys/class/infiniband", "mlx5_"+strconv.Itoa(i))
 		_, err := os.Stat(caDir)
 		require.NoError(t, err, "missing CA dir mlx5_%d", i)
@@ -125,7 +125,7 @@ func TestRender_HCACountOverride(t *testing.T) {
 		RootDir:  dir,
 	})
 	require.NoError(t, err, "Render")
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		caDir := filepath.Join(dir, "sys/class/infiniband", "mlx5_"+strconv.Itoa(i))
 		_, err := os.Stat(caDir)
 		require.NoError(t, err, "missing CA dir mlx5_%d", i)
@@ -234,7 +234,7 @@ func TestRender_NodePortGUIDsNoOverlap(t *testing.T) {
 		return strings.TrimSpace(string(b))
 	}
 	seen := map[string]string{}
-	for i := 0; i < hcas; i++ {
+	for i := range hcas {
 		ca := "mlx5_" + strconv.Itoa(i)
 		for _, kind := range []struct{ rel, what string }{
 			{filepath.Join("sys/class/infiniband", ca, "node_guid"), ca + " node_guid"},

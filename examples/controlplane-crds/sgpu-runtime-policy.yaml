@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SGPURuntimePolicy
+metadata:
+  name: example-node-1-failed
+spec:
+  targetRef:
+    group: mokka.nvidia.com
+    kind: SGPUInventory
+    name: example
+    rackGroups:
+      - compute
+    nodeIndexes:
+      - 1
+  runtime:
+    deviceState: Failed
+    telemetry:
+      power:
+        drawMilliWatts: 0

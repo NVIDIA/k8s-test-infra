@@ -3,7 +3,6 @@
 const { createHash } = require("node:crypto");
 
 const REPOSITORY = /^[a-z0-9](?:[a-z0-9.-]{0,99})\/[a-z0-9](?:[a-z0-9._-]{0,99})$/;
-const REVISION = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const OWNER_PATH = /^\/(?:[A-Za-z0-9_.-]+\/)*OWNERS$/;
 
 function canonical(value) {
@@ -27,9 +26,6 @@ function policyDigest(input) {
   if (typeof input.repository !== "string" || !REPOSITORY.test(input.repository)) {
     throw new TypeError("repository identity is invalid");
   }
-  if (typeof input.revision !== "string" || !REVISION.test(input.revision)) {
-    throw new TypeError("policy revision is invalid");
-  }
   if (!Array.isArray(input.ownerSources) || input.ownerSources.length === 0 || input.ownerSources.length > 32) {
     throw new TypeError("owner sources must be a bounded array");
   }
@@ -51,9 +47,9 @@ function policyDigest(input) {
   if (typeof input.aliasesSource !== "string" || input.aliasesSource.length > 1024 * 1024) {
     throw new TypeError("alias source is invalid");
   }
+  // The main revision is not hashed: unrelated pushes to main must not invalidate recorded evidence.
   const document = canonical({
     repository: input.repository,
-    revision: input.revision,
     policy: input.policy,
     ownerSources,
     aliasesSource: input.aliasesSource,

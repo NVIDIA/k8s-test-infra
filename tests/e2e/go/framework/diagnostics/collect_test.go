@@ -6,7 +6,6 @@
 package diagnostics
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -92,7 +91,7 @@ func read(t *testing.T, c *Collector, name string) string {
 func TestPodLogsCollectsEverySidecarContainer(t *testing.T) {
 	c, _ := newCollector(t)
 
-	c.PodLogs(context.Background(), "nvml-mock", "gpu-operator", "app.kubernetes.io/name=nvml-mock", 100)
+	c.PodLogs(t.Context(), "nvml-mock", "gpu-operator", "app.kubernetes.io/name=nvml-mock", 100)
 
 	got := read(t, c, "nvml-mock-logs.txt")
 	for _, want := range []string{
@@ -110,7 +109,7 @@ func TestPodLogsCollectsEverySidecarContainer(t *testing.T) {
 func TestPodLogsCollectsPreviousInstanceAfterARestart(t *testing.T) {
 	c, _ := newCollector(t)
 
-	c.PodLogs(context.Background(), "nvml-mock", "gpu-operator", "app.kubernetes.io/name=nvml-mock", 100)
+	c.PodLogs(t.Context(), "nvml-mock", "gpu-operator", "app.kubernetes.io/name=nvml-mock", 100)
 
 	got := read(t, c, "nvml-mock-logs-previous.txt")
 	want := "[sidecar] dial /var/lib/kubelet/pod-resources: connection refused"
@@ -123,7 +122,7 @@ func TestPodLogsCollectsPreviousInstanceAfterARestart(t *testing.T) {
 func TestPodLogsSkipsPreviousInstanceOnHealthyPods(t *testing.T) {
 	c, calls := newCollector(t)
 
-	c.PodLogs(context.Background(), "nvml-mock", "healthy", "app.kubernetes.io/name=nvml-mock", 100)
+	c.PodLogs(t.Context(), "nvml-mock", "healthy", "app.kubernetes.io/name=nvml-mock", 100)
 
 	got := read(t, c, "nvml-mock-logs.txt")
 	require.Contains(t, got, "[sidecar] watch-allocations",

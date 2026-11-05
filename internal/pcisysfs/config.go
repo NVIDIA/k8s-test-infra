@@ -13,6 +13,22 @@ type PCI struct {
 	BusID       string `json:"bus_id" yaml:"bus_id"`
 	DeviceID    uint32 `json:"device_id,omitempty"    yaml:"device_id,omitempty"`
 	SubsystemID uint32 `json:"subsystem_id,omitempty" yaml:"subsystem_id,omitempty"`
+	// Class is the sysfs `class` word. It is what tells a GPU apart from an
+	// NVSwitch for every consumer that reads the tree instead of NVML: lspci
+	// prints the class name, and GPU Feature Discovery derives
+	// nvidia.com/gpu.mode from it. Zero means PCIClass3DController.
+	Class uint32 `json:"class,omitempty" yaml:"class,omitempty"`
+	// VGPUHostDriver, when set, makes the function a vGPU guest: config space
+	// carries the vendor capability holding the host driver, which is how GPU
+	// Feature Discovery detects a vGPU. It comes from the virtualization
+	// block, not the PCI identity, so it is never read from YAML.
+	VGPUHostDriver *VGPUHostDriver `json:"-" yaml:"-"`
+}
+
+// VGPUHostDriver is the host driver a vGPU guest's config space advertises.
+type VGPUHostDriver struct {
+	Version string
+	Branch  string
 }
 
 // PCIeTopology describes the root-complex layout the renderer materializes
@@ -28,4 +44,8 @@ type RootComplex struct {
 	ID       string   `json:"id"        yaml:"id"`
 	NUMANode int      `json:"numa_node" yaml:"numa_node"`
 	Devices  []string `json:"devices"   yaml:"devices"`
+	// CPUList is the kernel cpulist ("0-63", "0-35,72-107") of the CPUs local
+	// to this root, served as each device's local_cpulist. Empty omits the
+	// file rather than asserting an affinity nothing declared.
+	CPUList string `json:"cpu_list,omitempty" yaml:"cpu_list,omitempty"`
 }

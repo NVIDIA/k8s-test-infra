@@ -53,6 +53,13 @@ function normalizeLogin(value, field) {
   return value.toLowerCase();
 }
 
+function normalizeActorLogin(value, field) {
+  if (isSafeText(value) && value.endsWith("[bot]")) {
+    return `${normalizeLogin(value.slice(0, -5), field)}[bot]`;
+  }
+  return normalizeLogin(value, field);
+}
+
 function normalizeLogins(values, field) {
   if (!Array.isArray(values)) {
     throw new TypeError(`${field} must be an array`);
@@ -189,7 +196,7 @@ function normalizeReviews(reviews) {
       }
       return {
         id,
-        user: normalizeLogin(review.user, "review user"),
+        user: normalizeActorLogin(review.user, "review user"),
         state,
         commitOid,
         submittedAt: null,
@@ -202,7 +209,7 @@ function normalizeReviews(reviews) {
     const submittedAt = normalizeTimestamp(review.submittedAt, "review submitted time");
     return {
       id,
-      user: normalizeLogin(review.user, "review user"),
+      user: normalizeActorLogin(review.user, "review user"),
       state,
       commitOid,
       submittedAt: submittedAt.value,
@@ -211,7 +218,8 @@ function normalizeReviews(reviews) {
   });
 
   return normalized
-    .filter((review) => review.state !== "PENDING")
+    // Validate bot review records, then exclude them from human approval evidence.
+    .filter((review) => review.state !== "PENDING" && !review.user.endsWith("[bot]"))
     .sort((left, right) => (
       left.submittedSortKey - right.submittedSortKey || left.id - right.id
     ));
@@ -263,7 +271,7 @@ function evaluateApprovalCoverage(options) {
   const files = normalizeFiles(options.files);
   const reviews = normalizeReviews(options.reviews);
   const headOid = normalizeOid(options.headOid, "head OID");
-  const author = normalizeLogin(options.author, "author");
+  const author = normalizeActorLogin(options.author, "author");
   const effectiveReviews = reduceReviews(reviews);
   const approvedApprovers = new Set(
     effectiveReviews
@@ -340,7 +348,7 @@ function selectApprovers(options) {
   const effectiveReviews = normalizeEffectiveReviews(options.effectiveReviews);
   const requested = normalizeLogins(options.requested, "requested");
   const headOid = normalizeOid(options.headOid, "head OID");
-  const author = normalizeLogin(options.author, "author");
+  const author = normalizeActorLogin(options.author, "author");
   const candidates = candidatePaths(files, author);
   const covered = new Set();
   const used = new Set();

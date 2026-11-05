@@ -6,6 +6,20 @@ Mock GPU environment deployed on all nodes!
   Driver version: {{ include "nvml-mock.driverVersion" . }}
   Mock driver root: /var/lib/nvml-mock/driver
   Mock config: /var/lib/nvml-mock/config/config.yaml
+{{- if .Values.nri.enabled }}
+
+NRI injection is on: containers that hold a GPU allocation, or whose pod opts
+in by annotation, get the mock driver when they are created. Pods in these
+namespaces never do: {{ .Release.Namespace }}, kube-system
+{{- range .Values.nri.excludedNamespaces }}, {{ . }}{{ end }}.
+If a node pod stays NotReady, containerd on that node may have NRI disabled; see
+https://nvidia.github.io/k8s-test-infra/troubleshooting/#the-node-pod-is-notready-and-nvml-mock-nri-crash-loops
+{{- if eq .Release.Namespace "default" }}
+
+WARNING: this release is in the "default" namespace, so workloads there get no
+mock GPUs. Reinstall into a dedicated namespace, for example -n mokka.
+{{- end }}
+{{- end }}
 
 NOTE: If you installed from source (no published image yet), you built the
 image locally and loaded it into your cluster. See the chart README for
@@ -46,8 +60,34 @@ OPTION B: NVIDIA DRA Driver (requires DRA-enabled cluster)
       --create-namespace \
       --set nvidiaDriverRoot=/var/lib/nvml-mock/driver \
       --set gpuResourcesEnabledOverride=true \
+{{- $multiNode := eq (include "nvml-mock.multiNodeNVLink" .) "true" }}
+{{- /* The NRI plugin hands the IMEX daemon nvidia-imex.real. */}}
+{{- $computeDomains := and $multiNode .Values.nri.enabled }}
+{{- if $computeDomains }}
+      --set resources.computeDomains.enabled=true \
+      --set altProcDevices=/var/lib/nvml-mock/imex/proc-devices \
+{{- else }}
       --set resources.computeDomains.enabled=false \
+{{- end }}
       --wait --timeout 180s
+{{- if $computeDomains }}
+
+  ComputeDomains: the {{ .Values.gpu.profile }} profile's NVLink spans nodes, so
+  the node agent stages IMEX and the driver runs ComputeDomains with its
+  upstream images. IMEX comes from imex.binaries.image or, while the
+  IMEXDownload feature gate is on, a download from NVIDIA. The driver's
+  kubelet plugin looks for IMEX only when it starts, so install the driver
+  once every node has it:
+
+    kubectl -n {{ .Release.Namespace }} exec <node pod> -- \
+      test -f /var/lib/nvml-mock/driver/usr/bin/nvidia-imex.real
+
+  and restart the plugin on a node that gets IMEX later.
+{{- else if $multiNode }}
+
+  ComputeDomains are off: they need nri.enabled=true, since the NRI plugin
+  hands the driver's IMEX daemon the real nvidia-imex.
+{{- end }}
 
   Verify ResourceSlices:
 
@@ -62,10 +102,11 @@ OPTION C: GPU Operator
   nvml-mock, so both are disabled and CDI carries the devices instead.
   The overlay below carries that, plus the driver root the device plugin,
   GFD and dcgm-exporter each need in their environment.
-
-  Cluster prerequisites (KIND): the node needs CDI enabled in containerd
-  and the nvidia runtime handler registered.
-  Walkthrough, including that containerd setup:
+{{- if not (.Values.nodeAgent.containerRuntime | default dict).enabled }}
+  Cluster prerequisites: nodeAgent.containerRuntime is off, so each node needs
+  CDI enabled in containerd and the nvidia runtime handler registered.
+{{- end }}
+  Walkthrough:
     https://nvidia.github.io/k8s-test-infra/guides/gpu-operator/
   In a checkout of this repository: docs/guides/with-gpu-operator/
 

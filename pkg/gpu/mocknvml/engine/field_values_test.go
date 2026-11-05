@@ -138,7 +138,6 @@ func TestGetMarginTemperature_PreAdaNotSupported(t *testing.T) {
 	// at all, so it takes the same answer: no T.Limit margin, absolute
 	// thresholds still available.
 	for _, arch := range []string{"turing", "ampere", "bogus_arch"} {
-		arch := arch
 		t.Run(arch, func(t *testing.T) {
 			dev := newTestDeviceWithConfig(t, &DeviceConfig{
 				Architecture: arch,
@@ -214,7 +213,6 @@ func TestGetFieldValue_TlimitThresholds_PreAdaNotSupported(t *testing.T) {
 	// An unrecognized spelling resolves to UNKNOWN, which identifies no
 	// generation and so must clear the gate the same way.
 	for _, arch := range []string{"turing", "ampere", "bogus_arch"} {
-		arch := arch
 		t.Run(arch, func(t *testing.T) {
 			dev := newTestDeviceWithConfig(t, &DeviceConfig{
 				Architecture: arch,

@@ -22,6 +22,10 @@ const (
 	PCIDevicesRelPath = "sys/bus/pci/devices"
 	// SysDevicesRelPath is the hierarchy those symlinks point into.
 	SysDevicesRelPath = "sys/devices"
+	// PCIDriverNvidiaRelPath holds a BDF symlink for every GPU bound to the
+	// nvidia driver. Slurm's gres AutoDetect=nvidia reads each GPU's
+	// local_cpulist through it.
+	PCIDriverNvidiaRelPath = "sys/bus/pci/drivers/nvidia"
 )
 
 // Options controls a single rendering pass.
@@ -130,6 +134,10 @@ func prune(root string, topo *PCIeTopology) error {
 		// The flat lookup directory holds only BDF symlinks.
 		fsutil.PruneDir(filepath.Join(root, PCIDevicesRelPath),
 			func(name string) bool { return allBDFs[name] }),
+		// Rendering unbinds a BDF that stopped being a GPU; this catches the
+		// ones that stopped existing.
+		fsutil.PruneDir(filepath.Join(root, PCIDriverNvidiaRelPath),
+			func(name string) bool { return allBDFs[name] }),
 	}
 
 	devicesDir := filepath.Join(root, SysDevicesRelPath)
@@ -185,8 +193,7 @@ func renderRootComplex(root string, rc RootComplex, ids map[string]PCI) error {
 		if err := mkdirAll(root, devDir); err != nil {
 			return err
 		}
-		if err := writeFile(root, filepath.Join(devDir, "numa_node"),
-			fmt.Sprintf("%d\n", rc.NUMANode)); err != nil {
+		if err := renderLocality(root, devDir, rc); err != nil {
 			return err
 		}
 
@@ -203,6 +210,47 @@ func renderRootComplex(root string, rc RootComplex, ids map[string]PCI) error {
 			return fmt.Errorf("symlink %s -> %s: %w",
 				filepath.Join(PCIDevicesRelPath, bdfLC), linkTarget, err)
 		}
+
+		if err := renderDriverBinding(root, rc.ID, bdfLC, ids[bdfLC]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// renderLocality writes where a device sits relative to the CPUs: the NUMA
+// node of its root complex and, when known, the CPUs local to it.
+func renderLocality(root, devDir string, rc RootComplex) error {
+	if err := writeFile(root, filepath.Join(devDir, "numa_node"), fmt.Sprintf("%d\n", rc.NUMANode)); err != nil {
+		return err
+	}
+	cpuListPath := filepath.Join(devDir, "local_cpulist")
+	if rc.CPUList == "" {
+		if err := os.Remove(filepath.Join(root, cpuListPath)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove %s: %w", cpuListPath, err)
+		}
+		return nil
+	}
+	return writeFile(root, cpuListPath, rc.CPUList+"\n")
+}
+
+// renderDriverBinding links a GPU into the nvidia driver's directory, as the
+// kernel does when the driver binds it, and unlinks anything else: an NVSwitch
+// binds to nvidia-nvswitch, and a BDF re-declared as one must not stay bound.
+func renderDriverBinding(root, rcID, bdf string, pci PCI) error {
+	linkPath := filepath.Join(root, PCIDriverNvidiaRelPath, bdf)
+
+	if pci.Class != 0 && pci.Class != PCIClass3DController {
+		if err := os.Remove(linkPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("unbind %s: %w", bdf, err)
+		}
+		return nil
+	}
+
+	linkTarget := filepath.Join("..", "..", "..", "..", "devices", rcID, bdf)
+	if err := replaceSymlink(linkPath, linkTarget); err != nil {
+		return fmt.Errorf("symlink %s -> %s: %w",
+			filepath.Join(PCIDriverNvidiaRelPath, bdf), linkTarget, err)
 	}
 	return nil
 }
@@ -212,10 +260,19 @@ func renderRootComplex(root string, rc RootComplex, ids map[string]PCI) error {
 // on a missing `vendor` file.
 const nvidiaVendorID = 0x10de
 
-// pciClass3DController is the sysfs `class` value for NVIDIA data-center GPUs:
+// PCIClass3DController is the sysfs `class` value for NVIDIA data-center GPUs:
 // base class 0x03 (display controller), subclass 0x02 (3D controller),
 // prog-if 0x00. This is how real H100/A100 boards enumerate under lspci.
-const pciClass3DController = 0x030200
+const PCIClass3DController = 0x030200
+
+// PCIClassBridge is the sysfs `class` value an NVSwitch enumerates with: base
+// class 0x06 (bridge), subclass 0x80 (other bridge), prog-if 0x00. lspci
+// renders it as the bare "Bridge" class name, which is why an NVSwitch on a
+// real HGX baseboard reads "Bridge: NVIDIA Corporation GH100 [H100 NVSwitch]".
+//
+// Despite the bridge class the device is a PCI endpoint, not a PCI-to-PCI
+// bridge, so its config-space header type stays 0x00 like a GPU's.
+const PCIClassBridge = 0x068000
 
 // pciResourceBARs is the number of "start end flags" lines a Linux kernel
 // emits in a device's `resource` file (6 standard BARs + expansion ROM).
@@ -233,24 +290,29 @@ var pciResource = strings.Repeat(
 // single device. The NVML packed identity words are unpacked as the kernel
 // exposes them: device_id = (device<<16)|vendor, subsystem_id =
 // (subdevice<<16)|subvendor. When no identity is known the vendor defaults
-// to NVIDIA so the mandatory `vendor`/`device` files still exist.
+// to NVIDIA and the class to a GPU's, so the mandatory `vendor`/`device`/
+// `class` files still exist for a BDF the topology names and nothing claims.
 func renderDeviceAttrs(root, devDir string, pci PCI) error {
 	vendor := pci.DeviceID & 0xffff
 	device := (pci.DeviceID >> 16) & 0xffff
 	subVendor := pci.SubsystemID & 0xffff
 	subDevice := (pci.SubsystemID >> 16) & 0xffff
+	class := pci.Class
 	if vendor == 0 {
 		vendor = nvidiaVendorID
 	}
 	if subVendor == 0 {
 		subVendor = vendor
 	}
+	if class == 0 {
+		class = PCIClass3DController
+	}
 
 	// libpci reads these with die-on-error; they must exist.
 	writes := []struct{ name, val string }{
 		{"vendor", fmt.Sprintf("0x%04x\n", vendor)},
 		{"device", fmt.Sprintf("0x%04x\n", device)},
-		{"class", fmt.Sprintf("0x%06x\n", pciClass3DController)},
+		{"class", fmt.Sprintf("0x%06x\n", class)},
 		{"revision", "0x00\n"},
 		{"irq", "0\n"},
 		// Optional but cheap; lets lspci print the subsystem line.
@@ -269,25 +331,41 @@ func renderDeviceAttrs(root, devDir string, pci PCI) error {
 	// Providing a synthetic config space silences the
 	// "pcilib: Cannot open .../config" warning and makes `lspci -x` render
 	// a coherent header.
-	return writeConfigSpace(root, filepath.Join(devDir, "config"),
-		uint16(vendor), uint16(device), uint16(subVendor), uint16(subDevice))
+	return writeConfigSpace(root, filepath.Join(devDir, "config"), configSpace{
+		vendor: uint16(vendor), device: uint16(device),
+		subVendor: uint16(subVendor), subDevice: uint16(subDevice),
+		class:    class,
+		vgpuHost: pci.VGPUHostDriver,
+	})
+}
+
+// configSpace is the identity a synthetic PCI config-space header carries.
+type configSpace struct {
+	vendor, device       uint16
+	subVendor, subDevice uint16
+	class                uint32
+	vgpuHost             *VGPUHostDriver
 }
 
 // writeConfigSpace emits a minimal 256-byte PCI configuration space with the
-// identity, class, and header-type fields populated. All other bytes are
-// zero — enough for libpci to parse a Type 0 header without erroring.
-func writeConfigSpace(root, rel string, vendor, device, subVendor, subDevice uint16) error {
+// identity, class, and header-type fields populated — enough for libpci to
+// parse a Type 0 header without erroring. A vGPU guest additionally carries
+// the vGPU vendor capability; all other bytes are zero.
+func writeConfigSpace(root, rel string, id configSpace) error {
 	cfg := make([]byte, 256)
-	binary.LittleEndian.PutUint16(cfg[0x00:], vendor)
-	binary.LittleEndian.PutUint16(cfg[0x02:], device)
+	binary.LittleEndian.PutUint16(cfg[0x00:], id.vendor)
+	binary.LittleEndian.PutUint16(cfg[0x02:], id.device)
 	// Class code at 0x09-0x0b: prog-if, subclass, base class.
-	cfg[0x09] = byte(pciClass3DController & 0xff)
-	cfg[0x0a] = byte((pciClass3DController >> 8) & 0xff)
-	cfg[0x0b] = byte((pciClass3DController >> 16) & 0xff)
+	cfg[0x09] = byte(id.class & 0xff)
+	cfg[0x0a] = byte((id.class >> 8) & 0xff)
+	cfg[0x0b] = byte((id.class >> 16) & 0xff)
 	// Header type 0x00 (normal device, single function).
 	cfg[0x0e] = 0x00
-	binary.LittleEndian.PutUint16(cfg[0x2c:], subVendor)
-	binary.LittleEndian.PutUint16(cfg[0x2e:], subDevice)
+	binary.LittleEndian.PutUint16(cfg[0x2c:], id.subVendor)
+	binary.LittleEndian.PutUint16(cfg[0x2e:], id.subDevice)
+	if id.vgpuHost != nil {
+		writeVGPUCapability(cfg, *id.vgpuHost)
+	}
 
 	full := filepath.Join(root, rel)
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
@@ -297,6 +375,36 @@ func writeConfigSpace(root, rel string, vendor, device, subVendor, subDevice uin
 		return fmt.Errorf("write %s: %w", rel, err)
 	}
 	return nil
+}
+
+// The vGPU vendor-specific capability, in the layout the host driver gives a
+// vGPU and GPU Feature Discovery parses: ID 0x09, next pointer, length, the
+// signature "VF", then records. Record 0 holds the host driver version and
+// branch in fixed 10-byte NUL-padded fields; engine validation keeps both
+// within that width.
+const (
+	pciStatusOffset         = 0x06
+	pciStatusCapabilityList = 0x10
+	pciCapabilityPointer    = 0x34
+	pciCapVendorSpecific    = 0x09
+	vgpuCapabilityOffset    = 0xd0
+	vgpuDriverFieldLength   = 10
+	vgpuDriverRecordLength  = 2 + 2*vgpuDriverFieldLength
+	vgpuCapabilityLength    = 5 + vgpuDriverRecordLength
+)
+
+func writeVGPUCapability(cfg []byte, host VGPUHostDriver) {
+	cfg[pciStatusOffset] |= pciStatusCapabilityList
+	cfg[pciCapabilityPointer] = vgpuCapabilityOffset
+	c := cfg[vgpuCapabilityOffset : vgpuCapabilityOffset+vgpuCapabilityLength]
+	c[0] = pciCapVendorSpecific
+	c[1] = 0 // last capability in the chain
+	c[2] = vgpuCapabilityLength
+	c[3], c[4] = 'V', 'F'
+	c[5] = 0 // host driver record
+	c[6] = vgpuDriverRecordLength
+	copy(c[7:7+vgpuDriverFieldLength], host.Version)
+	copy(c[7+vgpuDriverFieldLength:], host.Branch)
 }
 
 // replaceSymlink ensures `path` is a symlink pointing at `target`,

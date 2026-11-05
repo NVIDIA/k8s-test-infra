@@ -328,6 +328,8 @@ function decideMergeAction(input) {
   if (state.labels.some((label) => label.startsWith("do-not-merge/"))) {
     blockers.push("do-not-merge-label");
   }
+  if (state.ciState === "PENDING") blockers.push("ci-pending");
+  if (state.ciState === "FAILED") blockers.push("ci-failed");
   if (state.finalHeadOid !== state.headOid) blockers.push("head-changed");
   if (state.autoMergeMethod === "MERGE" || state.autoMergeMethod === "REBASE") {
     blockers.push("auto-merge-method-mismatch");
@@ -335,7 +337,7 @@ function decideMergeAction(input) {
 
   if (blockers.length === 0) {
     return {
-      action: state.autoMergeMethod === "SQUASH" ? "NOOP" : "ENABLE",
+      action: state.autoMergeMethod === null ? "ENABLE" : "NOOP",
       blockers,
     };
   }

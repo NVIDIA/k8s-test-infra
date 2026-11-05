@@ -2,20 +2,10 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Fault scenario: heat one mock GPU and assert the step change reaches
-# Prometheus.
-#
 # Resets every GPU on the target node, waits for the reading to DIFFER from the
 # value about to be injected, pins the target GPU, then asserts Prometheus
 # serves that exact value. The reset plus the "differs first" wait are what stop
 # a re-run passing on the pin the previous run left behind.
-#
-# Injection goes through nvml-mock-ctl rather than `helm upgrade`: an upgrade
-# recycles dcgm-exporter and tears a hole in the series this exists to render.
-# The CLI writes a node-local overlay the running exporter re-reads on the mock
-# engine's TTL, so the series stays continuous and shows a step change.
-#
-# Ported from docs/guides/observability/run.sh phase 1.
 
 set -euo pipefail
 
@@ -46,8 +36,8 @@ POLL_INTERVAL_S="${POLL_INTERVAL_S:-5}"
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
-# Reject an out-of-band override up front. Both failure modes are real and both
-# report something other than their cause, so the guard has to name them here.
+# Both failure modes report something other than their cause, so the guard names
+# them.
 [[ "${HOT_TEMP_C}" =~ ^[0-9]+$ ]] || fail "HOT_TEMP_C='${HOT_TEMP_C}' is not an integer"
 [[ "${HOT_TEMP_C}" -gt 73 ]] \
   || fail "HOT_TEMP_C=${HOT_TEMP_C} is inside the simulator's own 52-73C band, so a sibling GPU will read it too and the scope check will report a leak that did not happen"
@@ -75,10 +65,8 @@ if [[ "${prom_ready}" != "true" ]]; then
   fail "Prometheus never answered through the service proxy at ${PROM_SVC}"
 fi
 
-# Pick the target from what Prometheus actually serves, not from "the first mock
-# pod": the fleet is heterogeneous (a100 and t4 workers carry different GPU
-# counts) and the control-plane runs a mock pod but no dcgm-exporter, so not
-# every mock node has scraped GPUs.
+# Pick the target from what Prometheus actually scrapes, not from "the first mock
+# pod": a node has scraped GPUs only once its dcgm-exporter is up and discovered.
 target_node=""
 target_pod=""
 for host in $(promq "query?query=DCGM_FI_DEV_GPU_TEMP" \
@@ -99,9 +87,9 @@ printf '    target: gpu %s on %s (mock pod %s)\n' "${TARGET_GPU}" "${target_node
 
 mock_ctl() { kubectl -n "${MOKKA_NAMESPACE}" exec "${target_pod}" -- nvml-mock-ctl "$@"; }
 
-# Read one DCGM series for the target GPU. The PromQL stays label-free so it
-# needs no URL encoding; jq matches instead. An absent series yields the literal
-# "none" so a missing metric can never be mistaken for a reading.
+# The PromQL stays label-free so it needs no URL encoding; jq matches instead. An
+# absent series yields the literal "none" so a missing metric can never be mistaken
+# for a reading.
 gpu_temp() {
   promq "query?query=DCGM_FI_DEV_GPU_TEMP" \
     | jq -r --arg gpu "${TARGET_GPU}" --arg node "${target_node}" \

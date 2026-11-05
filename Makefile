@@ -20,6 +20,16 @@ GO_SRC := $(shell find . -type f -name '*.go')
 GO_PKG_DIRS := cmd pkg tests
 
 BIN_DIR=$(PWD)/tmp/bin
+ADDLICENSE ?= $(BIN_DIR)/addlicense
+ADDLICENSE_VERSION ?= v1.2.0
+
+# Keep the check focused on source files. Generated manifests, documentation,
+# dependency metadata, and vendored code use their own licensing conventions.
+# The setup-dgxc-goproxy kit is vendored verbatim and digest-pinned.
+LICENSE_FILES = git ls-files -- '*.go' '*.sh' '*.tiltfile' 'Tiltfile' '*.real' \
+	'**/Makefile' 'Makefile' '**/Dockerfile' '**/Dockerfile.*' '*.Dockerfile' 'Dockerfile*' \
+	':(exclude)vendor' ':(exclude)licenses' ':(exclude)dist' ':(exclude)tmp' \
+	':(exclude).github/actions/setup-dgxc-goproxy'
 
 VERSION := 0.0.1
 
@@ -94,13 +104,20 @@ kwok-scale-matrix:
 	done
 
 CONTROLLER_GEN_VERSION ?= v0.20.1
+# CI installs this exact version too (see .github/workflows/golang.yaml), so a
+# new golangci-lint release cannot fail the check job on code nobody changed.
+GOLANGCI_LINT_VERSION ?= v2.14.0
+
+.PHONY: print-golangci-lint-version
+print-golangci-lint-version:
+	@echo $(GOLANGCI_LINT_VERSION)
 
 .PHONY: tools
 tools: ## Install static checkers & other binaries
 	@echo "🚚 Downloading tools.."
 	@mkdir -p $(GOBIN)
 	@ \
-	test -x $(BIN_DIR)/golangci-lint || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) v2.12.2 & \
+	$(BIN_DIR)/golangci-lint version 2>/dev/null | grep -q " $(GOLANGCI_LINT_VERSION:v%=%) " || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) $(GOLANGCI_LINT_VERSION) & \
 	test -x $(BIN_DIR)/govulncheck || go install golang.org/x/vuln/cmd/govulncheck@latest & \
 	test -x $(BIN_DIR)/controller-gen || go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION) & \
 	wait
@@ -156,7 +173,7 @@ deps-verify: ## Re-download every module into a throwaway cache and re-verify it
 	exit $$status
 
 CRDS_OUT     := deployments/mokka-crds/helm/mokka-crds/templates
-API_PKG_PATH := ./internal/controlplane/api/...
+API_PKG_PATH := ./api/...
 # The bridge generator reads go-nvml's nvml.go and nvml.h. Their module cache path
 # is version-stamped, so resolve it here instead of hardcoding the pinned version.
 GO_NVML_MOD  := github.com/NVIDIA/go-nvml
@@ -168,7 +185,7 @@ gen: tools ## Generate machine-controlled code
 	@go mod download $(GO_NVML_MOD)
 	@GO_NVML_DIR=$$(go list -m -f '{{.Dir}}' $(GO_NVML_MOD)) go generate ./pkg/gpu/mocknvml/bridge/...
 	@echo "Generating deepcopy for $(API_PKG_PATH).."
-	@$(BIN_DIR)/controller-gen object paths="$(API_PKG_PATH)"
+	@$(BIN_DIR)/controller-gen object:headerFile=hack/boilerplate.go.txt paths="$(API_PKG_PATH)"
 	@echo "Generating CRD manifests into $(CRDS_OUT).."
 	@mkdir -p $(CRDS_OUT)
 	@$(BIN_DIR)/controller-gen crd:allowDangerousTypes=true \
@@ -181,11 +198,11 @@ gen: tools ## Generate machine-controlled code
 gen-check: gen ## Check whether all generated code is up to date
 	@git diff --quiet HEAD -- \
 		./pkg/gpu/mocknvml/bridge/ \
-		./internal/controlplane/api/ \
+		./api/ \
 		./pkg/generated/ \
 		$(CRDS_OUT) || { \
 		echo "ERROR: generated code is out of date. Run 'make gen' and commit the result."; \
-		git diff -- ./internal/controlplane/api/ $(CRDS_OUT); \
+		git diff -- ./api/ $(CRDS_OUT); \
 		exit 1; }
 
 DIST_DIR ?= dist
@@ -211,6 +228,21 @@ build: ## Build all CLIs
 
 build-mockfs: ## Build mockfs
 	@make -C shims/libmockfs
+
+# Builds one platform for the local daemon; the multi-platform release image comes
+# from .github/workflows/nvml-mock-publish.yaml. Unset, MOKKA_IMAGE_PLATFORM leaves
+# Docker to use its daemon's platform. The default ref is E2E_IMAGE's default
+# (tests/e2e/go/framework/config/config.go), so a built image is what `make e2e` expects.
+MOKKA_IMAGE ?= nvml-mock:e2e
+MOKKA_IMAGE_PLATFORM ?=
+
+.PHONY: mokka-image
+mokka-image: ## Build the main Mokka image (node daemon and mock libraries): make mokka-image [MOKKA_IMAGE=repo:tag] [MOKKA_IMAGE_PLATFORM=linux/amd64]
+	docker build $(if $(MOKKA_IMAGE_PLATFORM),--platform "$(MOKKA_IMAGE_PLATFORM)") \
+		--file deployments/nvml-mock/Dockerfile \
+		--build-arg GOLANG_VERSION=$(shell ./hack/golang-version.sh) \
+		--tag "$(MOKKA_IMAGE)" \
+		.
 
 .PHONY: mokka-control-plane-publish mokka-control-plane-image-push
 .PHONY: mokka-control-plane-image-sign mokka-control-plane-image-sbom
@@ -435,8 +467,57 @@ mokka-control-plane-image-attest: ## Attest each Mokka control-plane child manif
 test: ## Run unit tests with race detection and coverage
 	@$(GO_CMD) test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
+.PHONY: license-fmt
+license-fmt: addlicense ## Add Apache-2.0 headers to tracked source files missing them.
+	@$(LICENSE_FILES) | xargs -r $(ADDLICENSE) -c "NVIDIA CORPORATION" -l apache -y 2026
+
+.PHONY: license-header-check
+license-header-check: addlicense ## Verify tracked source files contain license headers.
+	@$(LICENSE_FILES) | xargs -r $(ADDLICENSE) -check -c "NVIDIA CORPORATION" -l apache
+
+# internal/fsutil and internal/agent/gpudriver skip their bind-mount, mknod
+# and Stage tests outside root on Linux (skipUnlessRootLinux) — the `test`
+# target above always runs as the invoking user, so those never execute
+# there. GOPROXY=off and the GOMODCACHE mount are what let this run offline:
+# `test` already downloaded and verified everything this needs on the same
+# runner, in the same job, moments earlier. The mount has to be writable —
+# Go's module cache takes a lock file even to read from it — which is fine
+# on a CI runner thrown away at the end of the job, less so reused locally.
+.PHONY: test-privileged
+test-privileged: ## Run internal/fsutil, internal/agent/gpudriver and internal/agent/imex as root in a privileged container, for the tests `test` always skips
+	@docker run --rm --privileged \
+		-e GOPROXY=off \
+		-v "$(CURDIR)":/src -w /src \
+		-v "$(shell $(GO_CMD) env GOMODCACHE)":/go/pkg/mod \
+		golang:$(shell ./hack/golang-version.sh) \
+		go test -v ./internal/fsutil/... ./internal/agent/gpudriver/... ./internal/agent/imex/...
+
 HELM_CHART_DIR      := deployments/nvml-mock/helm/nvml-mock
 CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds
+HELM_DOCS_VERSION   ?= v1.14.2
+CRD_REF_DOCS_VERSION ?= v0.3.0
+
+.PHONY: helm-docs
+helm-docs: ## Generate the published nvml-mock Helm values reference
+	$(GO_CMD) run github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION) \
+		-c $(HELM_CHART_DIR) \
+		-g $(HELM_CHART_DIR) \
+		-o ../../../../docs/helm-chart-values.md \
+		--skip-version-footer
+
+.PHONY: crd-docs
+crd-docs: ## Generate the Control Plane API reference documentation
+	$(GO_CMD) run github.com/elastic/crd-ref-docs@$(CRD_REF_DOCS_VERSION) \
+		--config hack/crd-ref-docs-config.yaml \
+		--source-path api/v1alpha1 \
+		--output-path docs \
+		--renderer markdown \
+		--output-mode single \
+		--max-depth 20
+	awk 'BEGIN { print "<!--"; print "SPDX-License-Identifier: Apache-2.0"; print "SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION"; print "-->"; print "" } { print }' docs/out.md > docs/crd-reference.md.tmp
+	perl -0pi -e 's/\n+\z/\n/' docs/crd-reference.md.tmp
+	mv docs/crd-reference.md.tmp docs/crd-reference.md
+	unlink docs/out.md
 
 # Drives the built libnvidia-ml.so through go-nvml over the real C ABI.
 # Docker-based, hence separate from the `go test` run.
@@ -456,6 +537,32 @@ test-mockfs: mockfs-shim ## Run mockfs integration tests
 test-nvidia-imex-shim: build ## Run nvidia-imex-shim integration tests
 	@$(GO_CMD) test -v ./shims/nvidia-imex-shim/...
 
+.PHONY: test-imex-archives
+test-imex-archives: ## Download the IMEX archives pinned in imex.lock.json and verify each stages
+	@MOKKA_IMEX_DOWNLOAD_TEST=1 $(GO_CMD) test -run '^TestPinnedOfficialArchives$$' -v ./internal/agent/imex
+
+# The IMEX binaries image carries the archive pinned in imex.lock.json, for the
+# chart's imex.binaries.image. Mokka does not publish it: load it into the
+# cluster (`kind load docker-image`) or push it to a private registry.
+# IMEX_ARCHIVE_DIR keeps the downloaded archives (empty: the user cache
+# directory); once it holds a verified copy, the build needs no network.
+IMEX_ARCHIVE_DIR ?=
+IMEX_BINARIES_ARCH ?= $(shell $(GO_CMD) env GOARCH)
+IMEX_VERSION = $(shell sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' internal/agent/imex/imex.lock.json)
+IMEX_BINARIES_IMAGE ?= mokka-imex:$(IMEX_VERSION)
+# Prints the image build context it lays out.
+IMEX_ARCHIVES = $(GO_CMD) run ./hack/tools/imex-archives -dir '$(IMEX_ARCHIVE_DIR)' -arch '$(IMEX_BINARIES_ARCH)'
+
+.PHONY: imex-archive
+imex-archive: ## Download and verify the pinned IMEX archive into IMEX_ARCHIVE_DIR, without building the image
+	@$(IMEX_ARCHIVES)
+
+.PHONY: imex-binaries-image
+imex-binaries-image: ## Build the IMEX binaries image for imex.binaries.image from the pinned NVIDIA archive (not published)
+	@context="$$($(IMEX_ARCHIVES))" && \
+	docker buildx build --load --platform 'linux/$(IMEX_BINARIES_ARCH)' --build-arg IMEX_VERSION='$(IMEX_VERSION)' \
+		-f deployments/imex-binaries/Dockerfile -t '$(IMEX_BINARIES_IMAGE)' "$$context"
+
 .PHONY: verify-greptile
 verify-greptile: ## Validate the .greptile review configuration
 	@bash hack/verify-greptile-config.sh
@@ -463,6 +570,13 @@ verify-greptile: ## Validate the .greptile review configuration
 .PHONY: actionlint
 actionlint: ## Validate GitHub Actions workflows
 	@./hack/actionlint.sh
+
+.PHONY: addlicense
+addlicense: $(ADDLICENSE) ## Download addlicense locally if necessary.
+
+$(ADDLICENSE):
+	@mkdir -p "$(BIN_DIR)"
+	@GOBIN="$(abspath $(BIN_DIR))" $(GO_CMD) install github.com/google/addlicense@$(ADDLICENSE_VERSION)
 
 REPOSITORY_AUTOMATION_DIR := .github/actions/repo-automation
 
@@ -472,7 +586,8 @@ repository-automation-ci: ## Validate and package the repository automation acti
 	cd $(REPOSITORY_AUTOMATION_DIR) && npm test
 	cd $(REPOSITORY_AUTOMATION_DIR) && npm run lint
 	cd $(REPOSITORY_AUTOMATION_DIR) && npm audit --audit-level=high
-	go test ./tests/hack -run TestMokkaCherryPick -count=1
+	node --test '.github/scripts/issue-commands/*.test.js'
+	node --test '.github/scripts/retire-merge-policy/*.test.js'
 	make actionlint
 	cd $(REPOSITORY_AUTOMATION_DIR) && npm run package
 	cd $(REPOSITORY_AUTOMATION_DIR) && git diff --exit-code -- dist
@@ -480,6 +595,68 @@ repository-automation-ci: ## Validate and package the repository automation acti
 .PHONY: helm-tests
 helm-tests: ## Run the nvml-mock chart unit test suite
 	helm unittest $(HELM_CHART_DIR)
+
+# ---------------------------------------------------------------------------
+# Changelog (changie)
+# Entries are recorded as fragments under .changes/unreleased/ instead of edits
+# to CHANGELOG.md, so concurrent PRs never conflict. A maintainer
+# folds the pending fragments into CHANGELOG.md when cutting a release.
+# ---------------------------------------------------------------------------
+CHANGIE_VERSION ?= v1.26.0
+CHANGIE := $(BIN_DIR)/changie
+
+.PHONY: changie
+changie: $(CHANGIE) ## Install changie into tmp/bin if missing
+$(CHANGIE):
+	@mkdir -p $(BIN_DIR)
+	@echo "🚚 Downloading changie $(CHANGIE_VERSION).."
+	@GOBIN=$(BIN_DIR) $(GO_CMD) install github.com/miniscruff/changie@$(CHANGIE_VERSION)
+
+# `changie new --interactive=false` demands a value for every declared custom
+# key, including optional ones, so the scriptable path writes the fragment
+# directly — same layout and file name format as changie's own output.
+# KIND / BODY / ISSUE are read from the environment rather than interpolated:
+# make exports command-line variables, and entry bodies are full of backticks
+# and quotes that would otherwise be re-parsed by the shell.
+# File names have one-second resolution, so the name is claimed with noclobber
+# (an exclusive create) and a taken second waits for the next one; two calls
+# within the same second would otherwise leave a single fragment.
+.PHONY: changelog
+changelog: changie ## Add a changelog fragment: make changelog KIND=Fixed BODY="..." [ISSUE=636]
+	@if [ -n "$$KIND" ] && [ -n "$$BODY" ]; then \
+		grep -q "^  - label: $$KIND\$$" .changie.yaml || { echo "unknown KIND '$$KIND' — pick one of: $$(awk '/^  - label: /{print $$NF}' .changie.yaml | paste -sd'|' -)"; exit 1; }; \
+		n=0; until out=".changes/unreleased/$$KIND-$$(date '+%Y%m%d-%H%M%S').yaml"; (set -C; : > "$$out") 2>/dev/null; do \
+			n=$$((n + 1)); [ $$n -lt 5 ] || { echo "cannot create a fragment under .changes/unreleased/"; exit 1; }; sleep 1; \
+		done; \
+		{ \
+			printf 'kind: %s\nbody: |-\n' "$$KIND"; \
+			printf '%s\n' "$$BODY" | sed 's/^/  /'; \
+			printf 'time: %s\n' "$$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; \
+			test -z "$$ISSUE" || printf 'custom:\n  Issue: "%s"\n' "$$ISSUE"; \
+		} > "$$out"; \
+		echo "Created $$out"; \
+	elif [ -n "$$KIND" ] || [ -n "$$BODY" ]; then \
+		echo "Both KIND and BODY must be set for non-interactive mode"; exit 1; \
+	else \
+		$(CHANGIE) new; \
+	fi
+
+# RELEASE_VERSION rather than VERSION: the latter is the image tag version and
+# already carries a default, which would silently fold a release as 0.0.1.
+.PHONY: changelog-preview
+changelog-preview: changie ## Preview the next release section without writing: make changelog-preview RELEASE_VERSION=0.5.0
+	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required, e.g. make changelog-preview RELEASE_VERSION=0.5.0"; exit 1; }
+	@CHANGIE=$(CHANGIE) bash hack/changelog-fold.sh --dry-run $(RELEASE_VERSION)
+
+.PHONY: changelog-release
+changelog-release: changie ## Maintainers: fold unreleased fragments into CHANGELOG.md as RELEASE_VERSION
+	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required, e.g. make changelog-release RELEASE_VERSION=0.5.0"; exit 1; }
+	@CHANGIE=$(CHANGIE) bash hack/changelog-fold.sh $(RELEASE_VERSION)
+
+.PHONY: verify-release
+verify-release: ## Maintainers: verify a published release's runs, images, charts and signatures: make verify-release RELEASE_VERSION=0.5.0
+	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required, e.g. make verify-release RELEASE_VERSION=0.5.0"; exit 1; }
+	@bash hack/verify-release.sh $(RELEASE_VERSION)
 
 .PHONY: helm-crds-tests
 helm-crds-tests: ## Lint + template-render the mokka-crds chart
@@ -495,10 +672,10 @@ helm-crds-tests: ## Lint + template-render the mokka-crds chart
 test-e2e-framework:
 	$(GO_CMD) test -tags e2e -race ./tests/e2e/go/framework/...
 
-KIND_NODE_IMAGE   ?= kind-node-nv:latest
+KIND_NODE_IMAGE   ?= kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 # Cluster profile (select via PROFILE=<name>):
 #   - PROFILE=default (default)  local/kind/default.kind.yaml        (1 CP + 2 workers labelled a100 / t4)
-#   - PROFILE=compute-domain     local/kind/compute-domain.kind.yaml (1 CP + 4 workers labelled clique 0 / 1)
+#   - PROFILE=compute-domain     local/kind/compute-domain.kind.yaml (1 CP + 4 workers in two cliques of two)
 # Consumer selection (--gpu-operator / --dra / --fgo / --multi-gpu-profile)
 # happens in the Tiltfile — the default cluster shape supports every consumer
 # scenario without a rebuild.
@@ -515,29 +692,8 @@ endif
 KIND_CLUSTER_NAME   ?= $(if $(filter compute-domain,$(PROFILE)),mokka-compute-domain,mokka)
 KIND_CLUSTER_CONFIG ?= local/kind/$(PROFILE).kind.yaml
 
-.PHONY: image-kind-node image-load cluster-create cluster-delete
-# KIND_NODE_IMAGE_PREBUILT (env, any non-empty value): skip the local docker
-# build and use the pre-built $(KIND_NODE_IMAGE) already loaded in the local
-# daemon. Verify with `docker image inspect` before skipping, so a botched
-# staging step fails here (with a clear message) instead of surfacing later
-# as an opaque `kind create cluster` pull error. CI sets this after loading
-# the image from the artifact its build-kind-node-image job uploads (see
-# .github/workflows/nvml-mock-e2e-go.yaml); local devs leave it unset and get
-# the rebuild-when-Dockerfile-changes behavior.
-image-kind-node:
-	@if [ -n "$$KIND_NODE_IMAGE_PREBUILT" ]; then \
-		docker image inspect $(KIND_NODE_IMAGE) >/dev/null 2>&1 || { \
-			echo "ERROR: KIND_NODE_IMAGE_PREBUILT is set but $(KIND_NODE_IMAGE) is not in the local docker daemon."; \
-			echo "       Ensure a preceding step loaded it, e.g. make image-load TARBALL=<tarball> IMAGE=$(KIND_NODE_IMAGE)"; \
-			echo "       (Or unset KIND_NODE_IMAGE_PREBUILT to build it locally.)"; \
-			exit 1; \
-		}; \
-		echo "Using pre-built $(KIND_NODE_IMAGE) already present locally"; \
-	else \
-		docker build -t $(KIND_NODE_IMAGE) ./deployments/kind-nvidia-cdi; \
-	fi
-
-cluster-create: image-kind-node
+.PHONY: image-load cluster-create cluster-delete
+cluster-create:
 	@kind create cluster --name $(KIND_CLUSTER_NAME) --image $(KIND_NODE_IMAGE) --config $(KIND_CLUSTER_CONFIG)
 
 cluster-delete:
@@ -578,12 +734,15 @@ image-load:
 # scope with E2E_PROFILES / E2E_GINKGO_FLAGS. Examples:
 #   make e2e                       # gb200
 #   make e2e E2E_PROFILES=a100     # fast inner loop, single profile
-#   make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd"'
+#   make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu"'
 #   make e2e-dra                   # DRA scenario
+#   make e2e-compute-domain        # ComputeDomains through the DRA driver (two-rack cluster)
 #   make e2e-gpu-operator          # GPU Operator scenario
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
-#   make e2e-nri                   # node-wide NRI ambient-injection scenario
+#   make e2e-nri                   # NRI injection scenario
 #   make e2e-nfd                   # NFD label-provenance scenario
+#   make e2e-mig                   # MIG scenario, device plugin in migStrategy=single
+#   make e2e-vgpu                  # vGPU host and guest scenario
 # E2E_GINKGO_FLAGS replaces the default filter. Shared check labels span
 # scenarios; keep the exclusions above for a standalone subset.
 # CI builds the image once per run. Every leg loads it into Kind and sets
@@ -598,10 +757,10 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd
+E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
-.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd
+.PHONY: e2e e2e-dra e2e-compute-domain e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig e2e-vgpu
 
 # `set -o pipefail` is inline on purpose; do not drop it as redundant with
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
@@ -613,13 +772,19 @@ e2e: ## Run the Ginkgo e2e suite against E2E_CLUSTER_NAME/E2E_KUBE_CONTEXT (defa
 e2e-dra: ## e2e — DRA scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra'
 
+# Needs the two-rack cluster, tests/e2e/kind-compute-domain-racks.yaml, with
+# `tilt ci -- --compute-domain --dra`. Set E2E_IMEX_BINARIES_IMAGE to keep the
+# node agent from downloading IMEX.
+e2e-compute-domain: ## e2e — ComputeDomains through the unmodified DRA driver
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra-compute-domain'
+
 e2e-gpu-operator: ## e2e — GPU Operator scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=gpu-operator'
 
 e2e-multi-node: ## e2e — heterogeneous a100/t4 cluster
 	$(MAKE) e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter=multi-node'
 
-e2e-nri: ## e2e — NRI ambient-injection scenario
+e2e-nri: ## e2e — NRI injection scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=nri'
 
 # E2E_PROFILES is pinned rather than inherited from DefaultProfiles. The nfd
@@ -629,6 +794,18 @@ e2e-nri: ## e2e — NRI ambient-injection scenario
 # log then reads exactly like one that did exercise gb200.
 e2e-nfd: ## e2e — NFD label-provenance scenario (pinned to a100)
 	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=nfd'
+
+# E2E_PROFILES is the caller's, as for the sibling scenario targets. Pinning it
+# here would be a command-line assignment to the sub-make, which outranks the
+# environment: every CI matrix leg would run the pinned set rather than its own
+# profile. Pick profiles that declare a partitioning — the scenario skips the
+# boards that cannot partition, and the chart refuses a capable board with no
+# layout from either the profile or gpu.mig.gpuInstances.
+e2e-mig: ## e2e — MIG scenario with the device plugin in migStrategy=single
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=mig'
+
+e2e-vgpu: ## e2e — vGPU host and guest scenario
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=vgpu'
 
 ##@ Documentation
 

@@ -47,22 +47,24 @@ func nvmlDeviceGetTopologyNearestGpus(device C.nvmlDevice_t, level C.nvmlGpuTopo
 		return toReturn(ret)
 	}
 
-	// First call (deviceArray nil) returns the required size, matching the
-	// two-phase NVML query convention.
-	if deviceArray == nil {
+	// A zero count is the size query NVML documents for this family, whatever
+	// the array pointer holds: a caller with a fixed-size stack array asks "how
+	// many?" by zeroing the count, not by giving up its buffer. The NULL-array
+	// probe is undocumented but a harmless superset, and go-nvml uses it.
+	if deviceArray == nil || *count == 0 {
 		*count = C.uint(len(peers))
 		return C.NVML_SUCCESS
 	}
-	if int(*count) < len(peers) {
-		*count = C.uint(len(peers))
-		return C.NVML_ERROR_INSUFFICIENT_SIZE
-	}
 
-	out := unsafe.Slice(deviceArray, len(peers))
-	for i, h := range peers {
+	// INSUFFICIENT_SIZE is not a documented return here, unlike the array
+	// getters elsewhere in the bridge: the fill call writes the count the
+	// caller asked for and reports how many that turned out to be.
+	written := min(int(*count), len(peers))
+	out := unsafe.Slice(deviceArray, written)
+	for i, h := range peers[:written] {
 		out[i].handle = (*C.struct_nvmlDevice_st)(h)
 	}
-	*count = C.uint(len(peers))
+	*count = C.uint(written)
 	return C.NVML_SUCCESS
 }
 
@@ -79,20 +81,18 @@ func nvmlSystemGetTopologyGpuSet(cpuNumber C.uint, count *C.uint, deviceArray *C
 		return toReturn(ret)
 	}
 
-	// Two-phase NVML query convention: a nil array returns the size.
-	if deviceArray == nil {
+	// Same size-query and bounded-fill contract as the nearest-GPU query above,
+	// word for word in the header.
+	if deviceArray == nil || *count == 0 {
 		*count = C.uint(len(gpus))
 		return C.NVML_SUCCESS
 	}
-	if int(*count) < len(gpus) {
-		*count = C.uint(len(gpus))
-		return C.NVML_ERROR_INSUFFICIENT_SIZE
-	}
 
-	out := unsafe.Slice(deviceArray, len(gpus))
-	for i, h := range gpus {
+	written := min(int(*count), len(gpus))
+	out := unsafe.Slice(deviceArray, written)
+	for i, h := range gpus[:written] {
 		out[i].handle = (*C.struct_nvmlDevice_st)(h)
 	}
-	*count = C.uint(len(gpus))
+	*count = C.uint(written)
 	return C.NVML_SUCCESS
 }

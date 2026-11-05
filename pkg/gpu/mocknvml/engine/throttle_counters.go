@@ -43,7 +43,9 @@ import (
 // bundles — has them at 251-253 and power smoothing at 256-273 instead. The
 // simulated driver's numbering is the one consumers see, so it is the one used
 // here; verified by tracing a `nvidia-smi -q` field-value batch, which asks for
-// exactly 74, 76, 251, 252 and 253 at the whole-GPU scope.
+// exactly 74, 76, 251, 252 and 253 at the whole-GPU scope. A profile on a
+// driver that uses the newer numbering is translated to these ids before they
+// reach the engine (see CanonicalFieldID).
 const (
 	fiPerfPolicyPower     = 74
 	fiPerfPolicyThermal   = 75
@@ -175,6 +177,9 @@ func (d *ConfigurableDevice) throttleCounterFieldValue(fieldID uint32) (FieldVal
 	cause, ok := throttleCauseForField(fieldID)
 	if !ok {
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, false
+	}
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return FieldValueUnsupported, 0, ret, true
 	}
 	return FieldValueUint64, d.throttleAccrual().resolve()[cause], nvml.SUCCESS, true
 }

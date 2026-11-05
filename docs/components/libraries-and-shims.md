@@ -132,15 +132,18 @@ that inherits them without the corresponding configuration sees the real host.
 
 | Shim | Kind | Makes this work |
 |---|---|---|
-| `libmockfs` | `LD_PRELOAD` | `lspci` and topology-aware schedulers see mock GPU BDFs |
+| `libmockfs` | `LD_PRELOAD` | `lspci`, topology-aware schedulers and Slurm's `AutoDetect=nvidia` see mock GPUs |
 | `libibmock` | `LD_PRELOAD` | `ibstat`, `ibstatus`, `iblinkinfo`, `ibv_devinfo` see mock InfiniBand HCAs |
 | `nvidia-imex-shim` | `execve` wrapper | `nvidia-imex` starts on a machine with no GPU |
 
 ### libmockfs
 
 Builds `libmockfs.so`. Redirects lookups under `/sys/bus/pci`,
-`/sys/bus/pci/devices` and `/sys/devices/pci` into the tree named by
-`MOCK_PCI_ROOT`, and is a no-op when that variable is unset.
+`/sys/devices/pci`, `/sys/module`, `/proc/modules` and `/proc/driver/nvidia`
+into the tree named by `MOCK_PCI_ROOT`, and is a no-op when that variable is
+unset. The two `/proc` paths cannot be bind-mounted, because runc refuses
+mounts inside `/proc`, so `lsmod` and Slurm's GPU autodetection reach the mock
+only through this shim.
 
 ### libibmock
 
@@ -171,15 +174,22 @@ also intercepted so the shim still behaves on earlier libc versions.
 
 ### nvidia-imex-shim
 
-Not an `LD_PRELOAD` library — a small Go program installed at
-`/usr/bin/nvidia-imex`, with the real daemon moved to
-`/usr/bin/nvidia-imex.real`.
+Not an `LD_PRELOAD` library — a small Go program in the nvml-mock image. On
+multi-node NVLink profiles, such as `gb200`, the
+[node daemon](node-daemon.md) stages it as `usr/bin/nvidia-imex` in the mock
+driver tree, beside NVIDIA's daemon, which it stages as `nvidia-imex.real`
+from the pinned IMEX archive. The NVIDIA DRA driver finds `nvidia-imex` there
+as on a real node and mounts it into its ComputeDomain daemon, and the
+[NRI plugin](nri-plugin.md) adds `nvidia-imex.real` beside it.
 
 The upstream compute-domain daemon hard-codes its command line with no flag
 passthrough, so `--nogpu` cannot be injected from outside. The shim appends it
-and `exec`s the real binary, preserving arguments, environment and stdio.
-Because it `exec`s rather than forks, no wrapper process lingers and signals
-reach the daemon directly.
+and `exec`s `nvidia-imex.real` from its own directory, preserving arguments,
+environment and stdio. Because it `exec`s rather than forks, no wrapper process
+lingers and signals reach the daemon directly. The real daemon then runs in NO
+GPU mode and speaks the real IMEX protocol with its peers. See the
+[ComputeDomain guide](../guides/compute-domain/README.md#providing-imex) for how
+IMEX gets onto a node.
 
 This one is meant to disappear: it exists only until upstream supports passing
 extra arguments ([#304](https://github.com/NVIDIA/k8s-test-infra/issues/304)).

@@ -30,7 +30,7 @@ tests:
       - matchRegexRaw:
           pattern: "GPUs per node: 4"
       - matchRegexRaw:
-          pattern: "Driver version: 570.124.06"
+          pattern: "Driver version: 580.65.06"
 
   # count left unset: the rendered figure is the h100 device list, so it differs
   # from the default profile's above and neither can be satisfied by a constant.
@@ -44,16 +44,7 @@ tests:
       - matchRegexRaw:
           pattern: "GPUs per node: 8"
       - matchRegexRaw:
-          pattern: "Driver version: 550.163.01"
-
-  - it: should render Blackwell driver version for b200
-    set:
-      gpu:
-        profile: b200
-        count: 8
-    asserts:
-      - matchRegexRaw:
-          pattern: "Driver version: 560.35.03"
+          pattern: "Driver version: 580.65.06"
 
   - it: should render Blackwell Ultra driver version for gb300
     set:
@@ -62,7 +53,7 @@ tests:
         count: 4
     asserts:
       - matchRegexRaw:
-          pattern: "Driver version: 570.124.06"
+          pattern: "Driver version: 580.65.06"
 
   - it: should render explicit driver version
     set:
@@ -75,6 +66,46 @@ tests:
     asserts:
       - matchRegexRaw:
           pattern: "a100, h100, b200, gb200, gb300, l40s, t4"
+
+  # The plugin always excludes its release namespace, so a release in
+  # "default" silently leaves every workload there without mock GPUs.
+  - it: should warn when NRI excludes the default namespace
+    release:
+      namespace: default
+    asserts:
+      - matchRegexRaw:
+          pattern: 'WARNING: this release is in the "default" namespace'
+
+  - it: should name the excluded namespaces without warning in a dedicated one
+    release:
+      namespace: mokka
+    asserts:
+      - matchRegexRaw:
+          pattern: "never do: mokka, kube-system\\."
+      - notMatchRegexRaw:
+          pattern: "WARNING"
+
+  - it: should name the namespaces added to nri.excludedNamespaces
+    release:
+      namespace: mokka
+    set:
+      nri:
+        excludedNamespaces: [team-a, team-b]
+    asserts:
+      - matchRegexRaw:
+          pattern: "never do: mokka, kube-system, team-a, team-b\\."
+
+  - it: should omit the NRI section when NRI is disabled
+    release:
+      namespace: default
+    set:
+      nri:
+        enabled: false
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "NRI injection is on"
+      - notMatchRegexRaw:
+          pattern: "WARNING"
 
   - it: should contain all three option sections
     asserts:
@@ -109,3 +140,69 @@ tests:
           pattern: "guides/gpu-operator/"
       - matchRegexRaw:
           pattern: "docs/guides/with-gpu-operator/"
+
+  # OPTION C's prerequisite follows nodeAgent.containerRuntime: with the
+  # setup on, the node daemon registers the handler the operator's pods use,
+  # so there is none to name.
+  - it: should name no cluster prerequisite when the node daemon prepares containerd
+    asserts:
+      # OPTION B, the DRA driver, keeps a prerequisite of its own.
+      - notMatchRegexRaw:
+          pattern: "OPTION C: GPU Operator[^━]*Cluster prerequisites"
+
+  - it: should ask for containerd setup when the node daemon does not do it
+    set:
+      nodeAgent:
+        containerRuntime:
+          enabled: false
+    asserts:
+      - matchRegexRaw:
+          pattern: "OPTION C: GPU Operator[^━]*nodeAgent.containerRuntime is off, so each node needs\n  CDI enabled in containerd and the nvidia runtime handler registered"
+      - notMatchRegexRaw:
+          pattern: "--set toolkit\\.enabled"
+
+  # An upgrade with --reuse-values from an earlier release renders the block
+  # absent, which leaves the setup off.
+  - it: should ask for containerd setup when the block is absent
+    set:
+      nodeAgent:
+        containerRuntime: null
+    asserts:
+      - matchRegexRaw:
+          pattern: "OPTION C: GPU Operator[^━]*nodeAgent.containerRuntime is off, so each node needs\n  CDI enabled in containerd and the nvidia runtime handler registered"
+
+  # ComputeDomains need a board whose NVLink spans nodes; elsewhere the DRA
+  # driver install keeps them off.
+  - it: should enable ComputeDomains in the DRA install only on multi-node NVLink profiles
+    set:
+      gpu:
+        profile: gb200
+    asserts:
+      - matchRegexRaw:
+          pattern: "resources.computeDomains.enabled=true"
+      - matchRegexRaw:
+          pattern: "altProcDevices=/var/lib/nvml-mock/imex/proc-devices"
+
+  - it: should keep ComputeDomains off and say why when NRI is disabled
+    set:
+      gpu:
+        profile: gb200
+      nri:
+        enabled: false
+    asserts:
+      - matchRegexRaw:
+          pattern: "resources.computeDomains.enabled=false"
+      - notMatchRegexRaw:
+          pattern: "altProcDevices"
+      - matchRegexRaw:
+          pattern: "ComputeDomains are off: they need nri.enabled=true"
+
+  - it: should keep ComputeDomains off in the DRA install on single-node NVLink profiles
+    set:
+      gpu:
+        profile: h100
+    asserts:
+      - matchRegexRaw:
+          pattern: "resources.computeDomains.enabled=false"
+      - notMatchRegexRaw:
+          pattern: "altProcDevices"

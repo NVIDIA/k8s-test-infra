@@ -34,7 +34,7 @@ const DefaultInterval = 2 * time.Second
 // pod-resources reports claims against.
 func DevicesFromConfig(cfg *engine.Config) []Device {
 	devices := make([]Device, 0, cfg.NumDevices)
-	for i := 0; i < cfg.NumDevices; i++ {
+	for i := range cfg.NumDevices {
 		dev := Device{Index: i, UUID: cfg.GetDeviceUUID(i)}
 		if dc := cfg.GetDeviceConfig(i); dc != nil && dc.Memory != nil {
 			dev.TotalBytes = dc.Memory.TotalBytes

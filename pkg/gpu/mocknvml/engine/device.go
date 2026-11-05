@@ -14,6 +14,8 @@
 package engine
 
 import (
+	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
@@ -65,8 +67,20 @@ type ConfigurableDevice struct {
 	pciInfo    nvml.PciInfo
 	boardID    uint32
 
-	// Mutable in-memory state (not persisted across restarts)
-	persistenceModeOverride *nvml.EnableState
+	// migState is the device's MIG partitioning. Non-nil on every physical
+	// GPU (it also records that a board is not MIG-capable); nil on MIG
+	// devices, which cannot themselves be partitioned.
+	migState *migState
+
+	// mig is set only when this device IS a MIG device rather than a physical
+	// GPU, and carries the identity and attributes that differ from its
+	// parent. See migIdentity for why MIG devices reuse this type.
+	mig *migIdentity
+
+	// hostname holds the value nvmlDeviceSetHostname_v1 recorded, nil until
+	// something sets one. Atomic because the bridge's exports run on whichever
+	// thread the consumer calls from.
+	hostname atomic.Pointer[string]
 
 	// dynamicMetrics holds the current simulator (nil == static mode). It is
 	// swapped atomically on refresh so a runtime config override that edits
@@ -84,9 +98,26 @@ type ConfigurableDevice struct {
 	// override can take back.
 	throttle atomic.Pointer[throttleAccrual]
 
+	// appliedMIG is the MIG config reconcileMIG last acted on. Comparing
+	// against it is what keeps an unrelated override — a pinned temperature —
+	// from tearing a partitioned board down and rebuilding it.
+	appliedMIG *MIGConfig
+
+	// migDirty asks for one reconcile the document cannot ask for itself. See
+	// MarkMIGDirty: a mutation this process applied but could not record
+	// leaves the board ahead of a file that never changed, so neither the
+	// generation nor appliedMIG would report anything to do.
+	migDirty atomic.Bool
+
+	// onRepartition reports what a repartition destroyed: the MIG devices, and
+	// the instances they were derived from. The handle tables live on Engine
+	// and a device has no back-reference to it, so the engine supplies this at
+	// construction; it is nil for a device a test drives directly.
+	onRepartition func(retired migRetired)
+
 	// refresh bookkeeping
 	refreshMu  sync.Mutex
-	appliedGen uint64
+	appliedGen atomic.Uint64
 }
 
 // NewConfigurableDevice creates a device with YAML configuration. The
@@ -102,34 +133,55 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 		minorNumber: minorNumber,
 		baseConfig:  config,
 	}
+	dev.seedFromConfig(config, uuid, pciBusID, minorNumber)
 
-	dev.nvmlIndex.Store(int64(index))
+	debugLog("[DEVICE %d] Created: name=%s uuid=%s pci=%s\n", index, dev.Config.Name, dev.UUID, dev.PciBusID)
+
+	return dev
+}
+
+// seedFromConfig brings the device up on what its YAML profile declares, which
+// is the state every later refresh reconciles away from.
+//
+// It holds the refresh lock for the whole of construction because some of the
+// steps below read the effective config through ordinary getters, and those
+// refresh. A refresh that ran here would reconcile against a device that is
+// only half assembled — one whose migState does not exist yet reads as a board
+// that is not MIG-capable — and would then record the override document as
+// applied, so no later refresh would revisit it. refresh takes this lock with
+// TryLock, so those nested calls become no-ops and appliedGen stays 0, leaving
+// the document to the first refresh that runs against complete state.
+func (d *ConfigurableDevice) seedFromConfig(config *DeviceConfig, uuid, pciBusID string, minorNumber int) {
+	d.refreshMu.Lock()
+	defer d.refreshMu.Unlock()
+
+	d.nvmlIndex.Store(int64(d.index))
 
 	// Override base device properties from config
-	applyDeviceBaseOverrides(dev, config)
+	applyDeviceBaseOverrides(d, config)
 
 	// Override UUID if provided
 	if uuid != "" {
-		dev.UUID = uuid
+		d.UUID = uuid
 	}
 
 	// Override PCI bus ID if provided
 	if pciBusID != "" {
-		dev.PciBusID = pciBusID
+		d.PciBusID = pciBusID
 	}
 
 	// Set minor number
-	dev.Minor = minorNumber
+	d.Minor = minorNumber
 
 	// Initialize cached values from the base config. These run once at
 	// construction and intentionally use the base (pre-config override) config.
-	dev.initBAR1Memory(config)
-	dev.initPciInfo(config)
+	d.initBAR1Memory(config)
+	d.initPciInfo(config)
 
 	// Enable dynamic metric simulation if the YAML opts in. Leaving
 	// config.DynamicMetrics nil preserves the historical static behavior.
 	if config != nil && config.DynamicMetrics != nil {
-		dev.dynamicMetrics.Store(newDynamicMetricsSimulator(config.DynamicMetrics))
+		d.dynamicMetrics.Store(newDynamicMetricsSimulator(config.DynamicMetrics))
 	}
 
 	// Seed effective config + injector from the base. appliedGen stays 0 so
@@ -138,19 +190,19 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 	if initial == nil {
 		initial = &DeviceConfig{}
 	}
-	dev.effective.Store(initial)
+	d.effective.Store(initial)
 
 	// Enable failure injection (lost/fallen_off_bus/ecc_uncorrectable)
 	// when the YAML opts in. newFailureInjector returns nil for the
 	// default healthy mode, so the per-call hot path stays a single
 	// nil check.
 	if config != nil && config.Failure != nil {
-		dev.failure.Store(newFailureInjector(config.Failure))
+		d.failure.Store(newFailureInjector(config.Failure))
 	}
 
-	debugLog("[DEVICE %d] Created: name=%s uuid=%s pci=%s\n", index, dev.Config.Name, dev.UUID, dev.PciBusID)
-
-	return dev
+	// Last, because resolving the board's MIG tables and materializing any
+	// declared partitions both read the effective config set above.
+	d.initMIG(config)
 }
 
 // applyDeviceBaseOverrides copies whichever base fields the YAML profile
@@ -206,12 +258,34 @@ func (d *ConfigurableDevice) failureInjector() *failureInjector {
 // runs when overrides actually changed.
 func (d *ConfigurableDevice) refresh() {
 	gen, doc := configOverrides.snapshot()
-	if atomic.LoadUint64(&d.appliedGen) == gen {
+	// The dirty flag is consulted alongside the generation because a device
+	// can be out of step with a document that never changed; reconcileMIG
+	// clears it. Costing the hot path one atomic load keeps that case from
+	// needing a second refresh entry point of its own.
+	if d.appliedGen.Load() == gen && !d.migDirty.Load() {
 		return
 	}
-	d.refreshMu.Lock()
+	// TryLock rather than Lock: reconcileMIG rebuilds the partitioning through
+	// failure-guarded NVML methods that call back into refresh on this same
+	// goroutine, and refreshMu is not reentrant. It is the only reconciler that
+	// re-enters — a blocking Lock was correct until it existed. A caller that
+	// cannot take the lock proceeds with whatever the holder has published so
+	// far — the previous config, and state a reconciler may still be rebuilding
+	// — and converges on a later call, since appliedGen is not advanced until
+	// the reconcilers finish.
+	//
+	// The reverse direction is a deadlock rather than a no-op: reconcileMIG
+	// takes migState.mu, so a goroutine already holding that lock must never
+	// reach a getter that refreshes. Such callers read the config already
+	// published instead — effectiveMemoryInfo rather than memoryInfo, and the
+	// Locked-suffixed migState accessors. Nothing detects the violation: it
+	// only self-deadlocks when the document generation advances between the
+	// outer refresh and the inner call.
+	if !d.refreshMu.TryLock() {
+		return
+	}
 	defer d.refreshMu.Unlock()
-	if d.appliedGen == gen {
+	if d.appliedGen.Load() == gen && !d.migDirty.Load() {
 		return
 	}
 
@@ -223,13 +297,23 @@ func (d *ConfigurableDevice) refresh() {
 	merged, err := MergeDeviceConfig(base, patch)
 	if err != nil {
 		warnLog("[CONFIG-OVERRIDE] device %d: %v (keeping previous config)\n", d.index, err)
-		atomic.StoreUint64(&d.appliedGen, gen) // avoid hot re-merge on a bad doc
+		// A dirty device is still owed its reconcile, and the mark has to be
+		// consumed on this path or it would defeat the generation store below
+		// and re-merge the same unusable patch on every call. The config kept
+		// is the last one that merged, so that is what the board is pulled
+		// back to — the drift the mark reports is against the document, and
+		// this is the most of the document still readable.
+		if d.migDirty.Load() {
+			d.reconcileMIG(d.effective.Load().MIG)
+		}
+		d.appliedGen.Store(gen) // avoid hot re-merge on a bad doc
 		return
 	}
 	d.effective.Store(merged)
 	d.reconcileFailure(merged.Failure)
 	d.reconcileDynamicMetrics(merged.DynamicMetrics)
-	atomic.StoreUint64(&d.appliedGen, gen)
+	d.reconcileMIG(merged.MIG)
+	d.appliedGen.Store(gen)
 }
 
 // reconcileDynamicMetrics rebuilds the dynamic-metrics simulator when the
@@ -385,9 +469,11 @@ func (d *ConfigurableDevice) initPciInfo(config *DeviceConfig) {
 			d.pciInfo.PciSubSystemId = config.PCI.SubsystemID
 		}
 	} else {
-		// Default A100 IDs
+		// Default A100 IDs, as the captured board reports them (see
+		// tests/e2e/go/assertions/nvidiasmi/testdata/hardware/qx-a100.xml and
+		// TestDefaultPCIIdentityMatchesA100Capture).
 		d.pciInfo.PciDeviceId = 0x20B010DE
-		d.pciInfo.PciSubSystemId = 0x134710DE
+		d.pciInfo.PciSubSystemId = 0x134F10DE
 	}
 
 	// Populate both the modern busId ([32]) and the legacy busIdLegacy ([16])
@@ -410,15 +496,16 @@ func deriveBoardID(domain, bus, device, function uint32) uint32 {
 	return domain<<16 | bus<<8 | (device&0x1f)<<3 | function&0x7
 }
 
-// writeBusID copies an ASCII PCI bus-ID string into an NVML C char array
-// (go-nvml models nvmlPciInfo_t.busId/busIdLegacy as [N]int8; bus-ID bytes are
-// ASCII so the int8 conversion is lossless). It NUL-terminates when the string
+// writeBusID copies an ASCII PCI bus-ID string into an NVML C char array. The
+// element type is generic because go-nvml regenerations alternate
+// nvmlPciInfo_t.busId/busIdLegacy between [N]int8 and [N]uint8; bus-ID bytes
+// are ASCII so either conversion is lossless. It NUL-terminates when the string
 // is shorter than the destination; callers pass a bus ID that fits the buffer
 // (the legacy [16] field takes the 4-digit-domain form).
-func writeBusID(dst []int8, s string) {
+func writeBusID[E ~int8 | ~uint8](dst []E, s string) {
 	i := 0
 	for ; i < len(s) && i < len(dst); i++ {
-		dst[i] = int8(s[i])
+		dst[i] = E(s[i])
 	}
 	if i < len(dst) {
 		dst[i] = 0
@@ -459,6 +546,11 @@ func (d *ConfigurableDevice) GetUUID() (string, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return "", ret
 	}
+	// MIG devices carry their own UUID: consumers use it to tell partitions
+	// apart, and it must not collide with the parent's.
+	if d.mig != nil {
+		return d.mig.uuid, nvml.SUCCESS
+	}
 	debugLog("[NVML] nvmlDeviceGetUUID -> %s\n", d.UUID)
 	return d.UUID, nvml.SUCCESS
 }
@@ -469,6 +561,9 @@ func (d *ConfigurableDevice) GetUUID() (string, nvml.Return) {
 func (d *ConfigurableDevice) GetName() (string, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return "", ret
+	}
+	if d.mig != nil {
+		return d.mig.name, nvml.SUCCESS
 	}
 	debugLog("[NVML] nvmlDeviceGetName -> %s\n", d.Config.Name)
 	return d.Config.Name, nvml.SUCCESS
@@ -497,8 +592,30 @@ func (d *ConfigurableDevice) GetBAR1MemoryInfo() (nvml.BAR1Memory, nvml.Return) 
 // silently deriving it would make that field dead. Falls back to the
 // construction-time struct when the device was built without a memory block
 // (legacy/default mode), where d.MemoryInfo carries the base mock's values.
+//
+// It refreshes first, which makes it the entry point for callers that do not
+// hold migState.mu; callers that do hold it must use effectiveMemoryInfo.
 func (d *ConfigurableDevice) memoryInfo() nvml.Memory {
-	if c := d.cfg(); c.Memory != nil {
+	d.refresh()
+	return d.effectiveMemoryInfo()
+}
+
+// effectiveMemoryInfo is memoryInfo answered from the config already published,
+// without refreshing first. It exists for callers holding migState.mu: a
+// refresh reconciles MIG, which takes that lock, and neither it nor the refresh
+// lock is reentrant, so refreshing from under it would deadlock the goroutine
+// against itself. What those callers read is the config already published: on a
+// getter path that is the one the enclosing refresh installed, and on the
+// declared-layout path it is deliberately the construction-time one, because a
+// declared layout answers for the config it was handed rather than for the
+// document on disk.
+func (d *ConfigurableDevice) effectiveMemoryInfo() nvml.Memory {
+	// A MIG device reports its slice, not the board it was carved from.
+	if d.mig != nil {
+		total := d.mig.attrs.MemorySizeMB * oneMiB
+		return nvml.Memory{Total: total, Free: total}
+	}
+	if c := d.effective.Load(); c.Memory != nil {
 		return nvml.Memory{
 			Total: c.Memory.TotalBytes,
 			Free:  c.Memory.FreeBytes,
@@ -548,20 +665,70 @@ func (d *ConfigurableDevice) GetPciInfo() (nvml.PciInfo, nvml.Return) {
 	return d.pciInfo, nvml.SUCCESS
 }
 
+// Process types a configured process can declare. An omitted type is compute.
+const (
+	processTypeCompute  = "C"
+	processTypeGraphics = "G"
+	// processTypeMPS is an MPS client: a compute process whose context the MPS
+	// server owns, which NVML lists apart from the compute processes.
+	processTypeMPS = "M"
+)
+
+// noMIGInstanceID is the GPU and compute instance ID NVML reports for a
+// process not attributed to a MIG instance. 0 is a valid instance ID, so
+// leaving the fields zero would place every process in instance 0.
+const noMIGInstanceID = 0xFFFFFFFF
+
 // GetComputeRunningProcesses returns running compute processes
 func (d *ConfigurableDevice) GetComputeRunningProcesses() ([]nvml.ProcessInfo, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetComputeRunningProcesses\n")
-	c := d.cfg()
-	if len(c.Processes) == 0 {
-		return []nvml.ProcessInfo{}, nvml.SUCCESS
-	}
+	return d.runningProcesses(processTypeCompute, "")
+}
 
-	var procs []nvml.ProcessInfo
-	for _, p := range c.Processes {
-		if p.Type == "C" || p.Type == "" { // Compute process
+// GetMPSComputeRunningProcesses returns the MPS clients. Under MPS the compute
+// list shows the MPS server, whose context the clients' work runs in, so the
+// clients are reported here and nowhere else among the running-process lists.
+func (d *ConfigurableDevice) GetMPSComputeRunningProcesses() ([]nvml.ProcessInfo, nvml.Return) {
+	debugLog("[NVML] nvmlDeviceGetMPSComputeRunningProcesses\n")
+	return d.runningProcesses(processTypeMPS)
+}
+
+// RunningProcessesByMode returns the processes nvmlDeviceGetRunningProcessDetailList
+// reports for mode: the list the matching per-type getter returns, or all
+// three for PROCESS_MODE_ALL.
+func (d *ConfigurableDevice) RunningProcessesByMode(mode nvml.ProcessMode) ([]nvml.ProcessInfo, nvml.Return) {
+	debugLog("[NVML] nvmlDeviceGetRunningProcessDetailList(mode=%d)\n", mode)
+	switch mode {
+	case nvml.PROCESS_MODE_COMPUTE:
+		return d.runningProcesses(processTypeCompute, "")
+	case nvml.PROCESS_MODE_GRAPHICS:
+		return d.runningProcesses(processTypeGraphics)
+	case nvml.PROCESS_MODE_MPS:
+		return d.runningProcesses(processTypeMPS)
+	case nvml.PROCESS_MODE_ALL:
+		return d.runningProcesses(processTypeCompute, "", processTypeGraphics, processTypeMPS)
+	default:
+		return nil, nvml.ERROR_INVALID_ARGUMENT
+	}
+}
+
+// runningProcesses returns the configured processes declaring one of types. A
+// lost GPU answers GPU_IS_LOST rather than the configured list, which would
+// otherwise read as a reachable GPU to a client holding an older handle. The
+// check observes the failure without advancing it, so listing processes does
+// not count toward a failure scheduled after N calls.
+func (d *ConfigurableDevice) runningProcesses(types ...string) ([]nvml.ProcessInfo, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return nil, ret
+	}
+	procs := []nvml.ProcessInfo{}
+	for _, p := range d.cfg().Processes {
+		if slices.Contains(types, p.Type) {
 			procs = append(procs, nvml.ProcessInfo{
-				Pid:           p.PID,
-				UsedGpuMemory: p.UsedMemoryMiB * 1024 * 1024,
+				Pid:               p.PID,
+				UsedGpuMemory:     p.UsedMemoryMiB * oneMiB,
+				GpuInstanceId:     noMIGInstanceID,
+				ComputeInstanceId: noMIGInstanceID,
 			})
 		}
 	}
@@ -587,21 +754,7 @@ func (d *ConfigurableDevice) ProcessByPID(pid uint32) (ProcessConfig, bool) {
 // GetGraphicsRunningProcesses returns running graphics processes
 func (d *ConfigurableDevice) GetGraphicsRunningProcesses() ([]nvml.ProcessInfo, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetGraphicsRunningProcesses\n")
-	c := d.cfg()
-	if len(c.Processes) == 0 {
-		return []nvml.ProcessInfo{}, nvml.SUCCESS
-	}
-
-	var procs []nvml.ProcessInfo
-	for _, p := range c.Processes {
-		if p.Type == "G" { // Graphics process
-			procs = append(procs, nvml.ProcessInfo{
-				Pid:           p.PID,
-				UsedGpuMemory: p.UsedMemoryMiB * 1024 * 1024,
-			})
-		}
-	}
-	return procs, nvml.SUCCESS
+	return d.runningProcesses(processTypeGraphics)
 }
 
 // GetProcessUtilization returns one sample per configured process, compute and
@@ -612,6 +765,9 @@ func (d *ConfigurableDevice) GetGraphicsRunningProcesses() ([]nvml.ProcessInfo, 
 // configured values.
 func (d *ConfigurableDevice) GetProcessUtilization(lastSeenTimestamp uint64) ([]nvml.ProcessUtilizationSample, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetProcessUtilization(lastSeen=%d)\n", lastSeenTimestamp)
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return nil, ret
+	}
 	c := d.cfg()
 	if len(c.Processes) == 0 {
 		return nil, nvml.SUCCESS
@@ -803,6 +959,14 @@ func (d *ConfigurableDevice) GetPowerUsage() (uint32, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
+	power, ret := d.powerDraw()
+	debugLog("[NVML] nvmlDeviceGetPowerUsage -> %d mW, ret=%d\n", power, ret)
+	return power, ret
+}
+
+// powerDraw is the power reading without the failure tick, shared by the
+// getters that report it.
+func (d *ConfigurableDevice) powerDraw() (uint32, nvml.Return) {
 	c := d.cfg()
 	hasStatic := c.Power != nil
 	hasDynamic := c.DynamicMetrics != nil && c.DynamicMetrics.Power != nil
@@ -819,7 +983,6 @@ func (d *ConfigurableDevice) GetPowerUsage() (uint32, nvml.Return) {
 	if dm := d.dynamicMetrics.Load(); dm != nil {
 		power = dm.Power(power, minMW, maxMW)
 	}
-	debugLog("[NVML] nvmlDeviceGetPowerUsage -> %d mW\n", power)
 	return power, nvml.SUCCESS
 }
 
@@ -876,6 +1039,14 @@ func (d *ConfigurableDevice) GetClockInfo(clockType nvml.ClockType) (uint32, nvm
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
+	clock, ret := d.currentClock(clockType)
+	debugLog("[NVML] nvmlDeviceGetClockInfo(type=%d) -> %d MHz, ret=%d\n", clockType, clock, ret)
+	return clock, ret
+}
+
+// currentClock is the clock reading without the failure tick, shared by the
+// getters that report it.
+func (d *ConfigurableDevice) currentClock(clockType nvml.ClockType) (uint32, nvml.Return) {
 	c := d.cfg()
 	if c.Clocks == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
@@ -883,17 +1054,17 @@ func (d *ConfigurableDevice) GetClockInfo(clockType nvml.ClockType) (uint32, nvm
 	var clock uint32
 	switch clockType {
 	case nvml.CLOCK_GRAPHICS:
-		clock = c.Clocks.GraphicsCurrent
+		clock = lockedClock(c.Clocks.GraphicsCurrent, c.Clocks.LockedGraphics, c.Clocks.GraphicsMax)
 	case nvml.CLOCK_SM:
-		clock = c.Clocks.SMCurrent
+		// The SM clock is derived from the GPC clock -lgc locks.
+		clock = lockedClock(c.Clocks.SMCurrent, c.Clocks.LockedGraphics, c.Clocks.SMMax)
 	case nvml.CLOCK_MEM:
-		clock = c.Clocks.MemoryCurrent
+		clock = lockedClock(c.Clocks.MemoryCurrent, c.Clocks.LockedMemory, c.Clocks.MemoryMax)
 	case nvml.CLOCK_VIDEO:
 		clock = c.Clocks.VideoCurrent
 	default:
 		// CLOCK_COUNT is an enum sentinel; leave clock at 0.
 	}
-	debugLog("[NVML] nvmlDeviceGetClockInfo(type=%d) -> %d MHz\n", clockType, clock)
 	return clock, nvml.SUCCESS
 }
 
@@ -1026,6 +1197,14 @@ func (d *ConfigurableDevice) GetUtilizationRates() (nvml.Utilization, nvml.Retur
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return nvml.Utilization{}, ret
 	}
+	util := d.utilizationRates()
+	debugLog("[NVML] nvmlDeviceGetUtilizationRates -> gpu=%d%% mem=%d%%\n", util.Gpu, util.Memory)
+	return util, nvml.SUCCESS
+}
+
+// utilizationRates is the utilization reading without the failure tick,
+// shared by the getters that report it.
+func (d *ConfigurableDevice) utilizationRates() nvml.Utilization {
 	util := nvml.Utilization{}
 	if c := d.cfg(); c.Utilization != nil {
 		util.Gpu = c.Utilization.GPU
@@ -1034,8 +1213,7 @@ func (d *ConfigurableDevice) GetUtilizationRates() (nvml.Utilization, nvml.Retur
 	if dm := d.dynamicMetrics.Load(); dm != nil {
 		util.Gpu, util.Memory = dm.Utilization(util.Gpu, util.Memory)
 	}
-	debugLog("[NVML] nvmlDeviceGetUtilizationRates -> gpu=%d%% mem=%d%%\n", util.Gpu, util.Memory)
-	return util, nvml.SUCCESS
+	return util
 }
 
 // GetPerformanceState returns the current performance state
@@ -1050,23 +1228,37 @@ func (d *ConfigurableDevice) GetPerformanceState() (nvml.Pstates, nvml.Return) {
 
 // GetPersistenceMode returns persistence mode status
 func (d *ConfigurableDevice) GetPersistenceMode() (nvml.EnableState, nvml.Return) {
-	// Check in-memory override first (set by SetPersistenceMode)
-	if d.persistenceModeOverride != nil {
-		debugLog("[NVML] nvmlDeviceGetPersistenceMode -> %d (override)\n", *d.persistenceModeOverride)
-		return *d.persistenceModeOverride, nvml.SUCCESS
-	}
 	enabled := nvml.FEATURE_DISABLED
-	if c := d.cfg(); c.PersistenceMode == "enabled" {
+	if d.persistenceEnabled() {
 		enabled = nvml.FEATURE_ENABLED
 	}
 	debugLog("[NVML] nvmlDeviceGetPersistenceMode -> %d\n", enabled)
 	return enabled, nvml.SUCCESS
 }
 
-// SetPersistenceMode sets persistence mode in-memory (not persisted across restarts)
+func (d *ConfigurableDevice) persistenceEnabled() bool {
+	return d.cfg().PersistenceMode == "enabled"
+}
+
+// SetPersistenceMode records the mode in the override document, so a separate
+// process sees it: `nvidia-smi -pm 0` is how an operator clears the way for a
+// drain, which runs as its own invocation and refuses a persistent GPU.
 func (d *ConfigurableDevice) SetPersistenceMode(mode nvml.EnableState) nvml.Return {
+	if mode != nvml.FEATURE_ENABLED && mode != nvml.FEATURE_DISABLED {
+		debugLog("[NVML] nvmlDeviceSetPersistenceMode(%d) -> INVALID_ARGUMENT\n", mode)
+		return nvml.ERROR_INVALID_ARGUMENT
+	}
+	w := overrideWriter()
+	if w == nil {
+		warnLog("[NVML] nvmlDeviceSetPersistenceMode(%d) -> NO_PERMISSION (no override writer)\n", mode)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	if err := w.SetPersistenceMode(d.PhysicalIndex(), mode == nvml.FEATURE_ENABLED); err != nil {
+		warnLog("[NVML] nvmlDeviceSetPersistenceMode(%d) -> NO_PERMISSION: %v\n", mode, err)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	configOverrides.invalidateAfterLocalWrite()
 	debugLog("[NVML] nvmlDeviceSetPersistenceMode(%d)\n", mode)
-	d.persistenceModeOverride = &mode
 	return nvml.SUCCESS
 }
 
@@ -1108,20 +1300,26 @@ func (d *ConfigurableDevice) GetEccMode() (nvml.EnableState, nvml.EnableState, n
 	return current, pending, nvml.SUCCESS
 }
 
-// GetFanSpeed returns fan speed percentage
+// GetFanSpeed returns fan speed percentage.
+//
+// NVML's unindexed reading is the board's first fan, so it resolves through the
+// same path as GetFanSpeed_v2(0) and reports a manually held duty cycle. That
+// makes this the one place a fan write is visible to nvidia-smi, whose whole
+// fan surface is this getter and `--query-gpu=fan.speed`.
 func (d *ConfigurableDevice) GetFanSpeed() (uint32, nvml.Return) {
 	c := d.cfg()
-	speed := uint32(0)
-	if c.Fan != nil {
-		if c.Fan.SpeedPercent != "" && c.Fan.SpeedPercent != "N/A" {
-			_, _ = fmt.Sscanf(c.Fan.SpeedPercent, "%d", &speed)
-		}
-	}
-	debugLog("[NVML] nvmlDeviceGetFanSpeed -> %d%%\n", speed)
-	// Fan speed of 0 with count 0 means no fans (liquid cooled)
-	if c.Fan != nil && c.Fan.Count == 0 {
+	// Count 0 means no dedicated fans — every liquid- and passively-cooled
+	// board, which is every profile Mokka ships. nvidia-smi renders the
+	// refusal as [N/A].
+	if c.Fan == nil || c.Fan.Count <= 0 {
+		debugLog("[NVML] nvmlDeviceGetFanSpeed -> NOT_SUPPORTED (board declares no fans)\n")
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
+	// An unparseable or "N/A" reading on a board that does have fans stays
+	// zero with SUCCESS rather than becoming a refusal, which is what this
+	// getter reported before the rest of the family existed.
+	speed, _ := fanSpeedPercent(c.Fan, 0)
+	debugLog("[NVML] nvmlDeviceGetFanSpeed -> %d%%\n", speed)
 	return speed, nvml.SUCCESS
 }
 
@@ -1159,6 +1357,52 @@ func (d *ConfigurableDevice) GetMaxPcieLinkGeneration() (int, nvml.Return) {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 	return gen, nvml.SUCCESS
+}
+
+// pcieLaneRateMbps is each PCIe generation's per-lane signalling rate, indexed
+// by generation. Gen 0 is absent so that an unconfigured link has no rate.
+var pcieLaneRateMbps = [...]int{1: 2500, 2: 5000, 3: 8000, 4: 16000, 5: 32000, 6: 64000}
+
+// GetPcieSpeed returns the current link's per-lane rate in Mbps: a Gen4 link
+// reports 16000. A generation the profile does not configure, a negative one,
+// or one past the last NVML can name is NOT_SUPPORTED rather than a speed of 0.
+func (d *ConfigurableDevice) GetPcieSpeed() (int, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	gen, ret := d.GetCurrPcieLinkGeneration()
+	if ret != nvml.SUCCESS || gen < 1 || gen >= len(pcieLaneRateMbps) {
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+	speed := pcieLaneRateMbps[gen]
+	debugLog("[NVML] nvmlDeviceGetPcieSpeed -> %d\n", speed)
+	return speed, nvml.SUCCESS
+}
+
+// GetPcieLinkMaxSpeed returns the fastest generation the link supports, as an
+// NVML_PCIE_LINK_MAX_SPEED_* code rather than in Mbps despite what nvml.h's
+// prose says: the codes number the generations, so Gen5 reports 5.
+func (d *ConfigurableDevice) GetPcieLinkMaxSpeed() (uint32, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	gen, ret := d.GetMaxPcieLinkGeneration()
+	if ret != nvml.SUCCESS || gen < 1 || gen > nvml.PCIE_LINK_MAX_SPEED_64000MBPS {
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+	debugLog("[NVML] nvmlDeviceGetPcieLinkMaxSpeed -> %d\n", gen)
+	return uint32(gen), nvml.SUCCESS
+}
+
+// GetBusType reports how the GPU attaches to the host. Every mocked board is
+// a PCIe device — the simulated sysfs tree and /proc/driver/nvidia both say
+// so — including Grace boards, whose GPUs enumerate over PCIe alongside C2C.
+func (d *ConfigurableDevice) GetBusType() (nvml.BusType, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	debugLog("[NVML] nvmlDeviceGetBusType -> PCIE\n")
+	return nvml.BUS_TYPE_PCIE, nvml.SUCCESS
 }
 
 // GetGpuMaxPcieLinkGeneration returns the maximum PCIe link generation the GPU
@@ -1325,26 +1569,6 @@ func (d *ConfigurableDevice) GetDisplayMode() (nvml.EnableState, nvml.Return) {
 	}
 	debugLog("[NVML] nvmlDeviceGetDisplayMode -> %d\n", mode)
 	return mode, nvml.SUCCESS
-}
-
-// GetAccountingMode returns accounting mode
-func (d *ConfigurableDevice) GetAccountingMode() (nvml.EnableState, nvml.Return) {
-	mode := nvml.FEATURE_DISABLED
-	if c := d.cfg(); c.Accounting != nil && c.Accounting.Mode == "enabled" {
-		mode = nvml.FEATURE_ENABLED
-	}
-	debugLog("[NVML] nvmlDeviceGetAccountingMode -> %d\n", mode)
-	return mode, nvml.SUCCESS
-}
-
-// GetAccountingBufferSize returns accounting buffer size
-func (d *ConfigurableDevice) GetAccountingBufferSize() (int, nvml.Return) {
-	size := 4000 // Default
-	if c := d.cfg(); c.Accounting != nil && c.Accounting.BufferSize > 0 {
-		size = c.Accounting.BufferSize
-	}
-	debugLog("[NVML] nvmlDeviceGetAccountingBufferSize -> %d\n", size)
-	return size, nvml.SUCCESS
 }
 
 // GetEncoderStats returns encoder statistics
@@ -1850,39 +2074,8 @@ func (d *ConfigurableDevice) GetPowerState() (nvml.Pstates, nvml.Return) {
 	return d.GetPerformanceState()
 }
 
-// GetMigMode returns MIG mode (current, pending)
-func (d *ConfigurableDevice) GetMigMode() (int, int, nvml.Return) {
-	current, pending := 0, 0
-	if c := d.cfg(); c.MIG != nil {
-		if c.MIG.ModeCurrent == "enabled" {
-			current = 1
-		}
-		if c.MIG.ModePending == "enabled" {
-			pending = 1
-		}
-	}
-	debugLog("[NVML] nvmlDeviceGetMigMode -> current=%d pending=%d\n", current, pending)
-	return current, pending, nvml.SUCCESS
-}
-
-// GetMaxMigDeviceCount returns the maximum number of MIG devices
-func (d *ConfigurableDevice) GetMaxMigDeviceCount() (int, nvml.Return) {
-	count := 0
-	if c := d.cfg(); c.MIG != nil {
-		count = c.MIG.MaxGPUInstances
-	}
-	debugLog("[NVML] nvmlDeviceGetMaxMigDeviceCount -> %d\n", count)
-	return count, nvml.SUCCESS
-}
-
-// GetMigDeviceHandleByIndex returns a MIG device handle by index.
-// Returns NOT_FOUND when no MIG devices exist (MIG disabled or no instances).
-// NOT_FOUND (vs NOT_SUPPORTED) signals "no device at this index" which callers
-// like nvidia-device-plugin treat as end-of-iteration, not as a fatal error.
-func (d *ConfigurableDevice) GetMigDeviceHandleByIndex(index int) (nvml.Device, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetMigDeviceHandleByIndex(%d) -> NOT_FOUND (no MIG devices)\n", index)
-	return nil, nvml.ERROR_NOT_FOUND
-}
+// MIG mode, MIG device enumeration and the GPU/compute instance lifecycle live
+// in mig.go.
 
 // GetGpmSupport returns whether GPM (GPU Performance Monitoring) is supported.
 // Like real NVML, GPM is supported on Hopper and newer; DCGM's profiling
@@ -2206,13 +2399,6 @@ func (d *ConfigurableDevice) GetRemappedRows() (int, int, bool, bool, nvml.Retur
 	return corrRows, uncRows, isPending, failureOccurred, nvml.SUCCESS
 }
 
-// GetFanSpeed_v2 returns fan speed for a specific fan
-func (d *ConfigurableDevice) GetFanSpeed_v2(fan int) (uint32, nvml.Return) {
-	speed, ret := d.GetFanSpeed()
-	debugLog("[NVML] nvmlDeviceGetFanSpeed_v2(fan=%d) -> %d\n", fan, speed)
-	return speed, ret
-}
-
 // Helper functions
 
 func parseArchitecture(name string) nvml.DeviceArchitecture {
@@ -2314,6 +2500,8 @@ func parseVirtualizationMode(mode string) nvml.GpuVirtualizationMode {
 		return nvml.GPU_VIRTUALIZATION_MODE_PASSTHROUGH
 	case "vgpu":
 		return nvml.GPU_VIRTUALIZATION_MODE_VGPU
+	case "host_vgpu":
+		return nvml.GPU_VIRTUALIZATION_MODE_HOST_VGPU
 	default:
 		return nvml.GPU_VIRTUALIZATION_MODE_NONE
 	}
@@ -2476,6 +2664,62 @@ func (s *MockServer) DeviceGetHandleByPciBusId(pciBusId string) (nvml.Device, nv
 		}
 	}
 	return nil, nvml.ERROR_NOT_FOUND
+}
+
+// DeviceGetHandleBySerial returns the visible device carrying a board serial.
+// A serial names a board rather than a GPU, which is why nvml.h deprecates the
+// call: when more than one visible GPU carries it — the two GPUs of a GB200
+// superchip — the lookup is ambiguous and fails with INVALID_ARGUMENT.
+func (s *MockServer) DeviceGetHandleBySerial(serial string) (nvml.Device, nvml.Return) {
+	debugLog("[NVML] nvmlDeviceGetHandleBySerial(%s)\n", serial)
+	if serial == "" {
+		return nil, nvml.ERROR_INVALID_ARGUMENT
+	}
+	var match *ConfigurableDevice
+	for i, dev := range s.configurableDevices {
+		if dev == nil || !s.isDeviceVisible(i) || dev.cfg().Serial != serial {
+			continue
+		}
+		if match != nil {
+			debugLog("[NVML] nvmlDeviceGetHandleBySerial(%s) -> INVALID_ARGUMENT (shared by several GPUs)\n", serial)
+			return nil, nvml.ERROR_INVALID_ARGUMENT
+		}
+		match = dev
+	}
+	if match == nil {
+		return nil, nvml.ERROR_NOT_FOUND
+	}
+	if ret := match.handleLookupReturn(); ret != nvml.SUCCESS {
+		return nil, ret
+	}
+	return match, nvml.SUCCESS
+}
+
+// deviceGetHandleByUUIDBinary is DeviceGetHandleByUUID for the 16-byte form of
+// a UUID, which carries neither the GPU- prefix nor letter case.
+func (s *MockServer) deviceGetHandleByUUIDBinary(raw [16]byte) (nvml.Device, nvml.Return) {
+	debugLog("[NVML] nvmlDeviceGetHandleByUUIDV(binary %x)\n", raw)
+	for i, dev := range s.configurableDevices {
+		if dev == nil || !uuidMatchesBinary(dev.UUID, raw) {
+			continue
+		}
+		if !s.isDeviceVisible(i) {
+			return nil, nvml.ERROR_NOT_FOUND
+		}
+		if ret := dev.handleLookupReturn(); ret != nvml.SUCCESS {
+			return nil, ret
+		}
+		return dev, nvml.SUCCESS
+	}
+	return nil, nvml.ERROR_NOT_FOUND
+}
+
+// uuidMatchesBinary reports whether a device UUID spells the 16 bytes of a
+// binary nvmlUUID_t. An operator-supplied UUID need not be hex at all, and
+// such a device simply has no binary form to match.
+func uuidMatchesBinary(uuid string, raw [16]byte) bool {
+	decoded, err := hex.DecodeString(strings.ReplaceAll(trimUUIDPrefix(uuid), "-", ""))
+	return err == nil && bytes.Equal(decoded, raw[:])
 }
 
 // handleLookupReturn returns the NVML return code that a handle-lookup

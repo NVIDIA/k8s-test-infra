@@ -8,16 +8,24 @@ metadata:
   labels:
     {{- include "nvml-mock.labels" . | nindent 4 }}
 spec:
-  # Headless: DNS returns fabric daemon pod IPs for peer discovery. Scoped to
-  # the daemon component so the sidecar NRI DaemonSet (which shares the app
-  # name but does not listen on the fabric port) is never returned as a peer.
+  # Headless: DNS returns node DaemonSet pod IPs for peer discovery. The NRI
+  # sidecar shares those pods, while the numeric target reaches the ibping
+  # listener exposed by the node-agent container.
   clusterIP: None
+  {{- if .Values.nri.enabled }}
+  # NRI contributes pod readiness but does not serve the relay. Keep a healthy
+  # node-agent discoverable when only its NRI peer is unready.
+  publishNotReadyAddresses: true
+  {{- end }}
   selector:
     app.kubernetes.io/name: {{ include "nvml-mock.name" . }}
     app.kubernetes.io/component: daemon
   ports:
     - name: ibping
       port: {{ .Values.infiniband.ping.port }}
-      targetPort: ibping
+      # Kubernetes 1.29-1.31 cannot resolve named Service ports from
+      # restartable init containers. The configured number works in both pod
+      # layouts and across every supported Kubernetes version.
+      targetPort: {{ .Values.infiniband.ping.port }}
       protocol: TCP
 {{- end }}

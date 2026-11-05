@@ -33,6 +33,9 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       name: Checkout code
 
+    - name: Check license headers
+      run: make license-header-check
+
     # A .greptile scope glob that matches nothing fails open: the rule stops
     # applying and nothing reports it. Placed ahead of the Go setup and the
     # proxy credential because it needs only python3 and git, so it fails fast.
@@ -44,10 +47,14 @@ jobs:
       with:
         go-version: ${{ inputs.golang_version }}
 
+    - name: Read the pinned golangci-lint version
+      id: golangci-lint
+      run: echo "version=$(make -s print-golangci-lint-version)" >> "$GITHUB_OUTPUT"
+
     - name: Install golangci-lint (fast prebuilt, via action)
       uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
       with:
-        version: latest
+        version: ${{ steps.golangci-lint.outputs.version }}
         install-only: true
 
     - name: Stage golangci-lint into tmp/bin (make lint expects it there)
@@ -73,6 +80,9 @@ jobs:
 
     - name: Run unit tests
       run: make test
+
+    - name: Run privileged unit tests (bind mount, mknod)
+      run: make test-privileged
 
     - name: Run mockfs integration tests
       run: make test-mockfs

@@ -10,23 +10,32 @@ const YAML = require("yaml");
 const repositoryRoot = path.resolve(__dirname, "../../../..");
 const workflowRoot = path.join(repositoryRoot, ".github", "workflows");
 const checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
-const githubScript = "actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd";
-const sharedConcurrency = {
-  group: "repository-automation-state",
-  "cancel-in-progress": false,
+const githubScript = "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3";
+// GitHub keeps one pending run per concurrency group, so each concern gets its own group.
+const concurrency = {
+  commands: {
+    group: "repository-automation-pr-${{ github.event.issue.number }}",
+    "cancel-in-progress": false,
+  },
+  metadata: {
+    group: "${{ github.event_name == 'pull_request_target' && format('repository-automation-pr-{0}', github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && format('repository-automation-label-scan-{0}', inputs.request_id) || 'repository-automation-scan' }}",
+    "cancel-in-progress": false,
+  },
+  merge: { group: "repository-automation-merge-evaluate", "cancel-in-progress": false },
+  policyLabels: { group: "repository-automation-policy-labels", "cancel-in-progress": false },
+  labelSync: { group: "repository-automation-label-sync", "cancel-in-progress": false },
 };
 const activationGates = {
-  metadata: "${{ vars.REPOSITORY_AUTOMATION_METADATA_ENABLED == 'true' }}",
+  metadata:
+    "${{ vars.REPOSITORY_AUTOMATION_METADATA_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || (github.repository == 'NVIDIA/k8s-test-infra' && github.repository_id == '733665780' && github.ref == 'refs/heads/main' && github.sha == inputs.workflow_commit_sha && github.workflow_sha == inputs.workflow_commit_sha)) }}",
   commands:
-    "${{ vars.REPOSITORY_AUTOMATION_COMMANDS_ENABLED == 'true' && github.event.issue.pull_request != null && github.event.action == 'created' }}",
-  backport:
-    "${{ vars.REPOSITORY_AUTOMATION_BACKPORT_ENABLED == 'true' && needs.command.outputs.backport-requests != '[]' }}",
+    "${{ vars.REPOSITORY_AUTOMATION_COMMANDS_ENABLED == 'true' && github.event.issue.pull_request != null && github.event.action == 'created' && github.event.comment.user.type == 'User' && contains(github.event.comment.body, '/') }}",
   reviews: "${{ vars.REPOSITORY_AUTOMATION_REVIEWS_ENABLED == 'true' }}",
   merge:
     "${{ vars.REPOSITORY_AUTOMATION_MERGE_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}",
-  reusableBackport: "${{ vars.REPOSITORY_AUTOMATION_BACKPORT_ENABLED == 'true' }}",
-  mokka:
-    "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/tags/mokka-cherry-pick-v0.11.0-r1' }}",
+  policyLabels:
+    "${{ vars.REPOSITORY_AUTOMATION_POLICY_LABELS_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}",
+  issueCommands: "${{ vars.REPOSITORY_AUTOMATION_ISSUE_COMMANDS_ENABLED == 'true' && github.ref == 'refs/heads/main' }}",
 };
 
 function readWorkflow(name) {
@@ -72,6 +81,7 @@ test("label synchronization is manual, additive, and trusted", () => {
     "${{ github.ref_name == github.event.repository.default_branch }}");
   assert.deepEqual(job.permissions, { contents: "read", issues: "write" });
   assert.equal(job["timeout-minutes"], 10);
+  assert.deepEqual(job.concurrency, concurrency.labelSync);
   assertTrustedCheckout(job);
   assert.deepEqual(actionStep(job, "label-sync").with, {
     mode: "label-sync",
@@ -84,14 +94,14 @@ test("metadata and command workflows use exact trusted code", () => {
   const metadata = readWorkflow("pr-metadata.yml").workflow;
   assert.deepEqual(metadata.on.pull_request_target, {
     types: ["opened", "reopened", "synchronize", "edited", "ready_for_review", "converted_to_draft"],
-    branches: ["main", "release-*"],
+    branches: ["main"],
   });
   assert.deepEqual(metadata.permissions, {});
   assert.equal(metadata.jobs.metadata.if, activationGates.metadata);
   assert.deepEqual(metadata.jobs.metadata.permissions, {
     contents: "read", issues: "write", "pull-requests": "write",
   });
-  assert.deepEqual(metadata.jobs.metadata.concurrency, sharedConcurrency);
+  assert.deepEqual(metadata.jobs.metadata.concurrency, concurrency.metadata);
   assertTrustedCheckout(metadata.jobs.metadata);
   assert.equal(actionStep(metadata.jobs.metadata, "metadata").with["control-directory"], "control");
 
@@ -103,17 +113,15 @@ test("metadata and command workflows use exact trusted code", () => {
     actions: "write", contents: "read", issues: "write", "pull-requests": "write",
   });
   assert.match(commands.jobs.command.if, /github\.event\.action == 'created'/);
-  assert.deepEqual(commands.jobs.command.concurrency, sharedConcurrency);
+  assert.deepEqual(commands.jobs.command.concurrency, concurrency.commands);
   assertTrustedCheckout(commands.jobs.command);
   assert.equal(actionStep(commands.jobs.command, "command").with["control-directory"], "control");
-  assert.equal(commands.jobs.command.outputs["backport-requests"], "${{ steps.command.outputs.backport-requests }}");
-  assert.deepEqual(commands.jobs.backport.permissions, { contents: "write", "pull-requests": "write" });
-  assert.equal(commands.jobs.backport.if, activationGates.backport);
-  assert.equal(commands.jobs.backport.uses, "./.github/workflows/backport.yml");
-  assert.equal(commands.jobs.backport.strategy.matrix.request, "${{ fromJSON(needs.command.outputs.backport-requests) }}");
+  // The command job is the only job: nothing in this workflow writes repository contents.
+  assert.deepEqual(Object.keys(commands.jobs), ["command"]);
+  assert.equal(commands.jobs.command.outputs, undefined);
 });
 
-test("review observation and merge evaluation use bounded events", () => {
+test("review observation and native merge evaluation use bounded events and trusted code", () => {
   const observer = readWorkflow("review-observer.yml").workflow;
   assert.deepEqual(observer.on, {
     pull_request_review: { types: ["submitted", "edited", "dismissed"] },
@@ -132,54 +140,118 @@ test("review observation and merge evaluation use bounded events", () => {
   assert.deepEqual(evaluator.permissions, {});
   assert.equal(evaluator.jobs.evaluate.if, activationGates.merge);
   assert.deepEqual(evaluator.jobs.evaluate.permissions, {
-    actions: "read", checks: "write", contents: "read", issues: "write", "pull-requests": "write",
+    actions: "read", checks: "write", contents: "write", issues: "write", "pull-requests": "write",
   });
-  assert.deepEqual(evaluator.jobs.evaluate.concurrency, sharedConcurrency);
+  assert.deepEqual(evaluator.jobs.evaluate.concurrency, concurrency.merge);
   assertTrustedCheckout(evaluator.jobs.evaluate);
-  assert.equal(actionStep(evaluator.jobs.evaluate, "merge-evaluate").with["control-directory"], "control");
+  assert.deepEqual(evaluator.jobs.evaluate.steps.map((step) => step.uses), [
+    githubScript, checkout, "./control/.github/actions/repo-automation",
+  ]);
+  const evaluation = actionStep(evaluator.jobs.evaluate, "merge-evaluate");
+  assert.equal(evaluation.with["control-directory"], "control");
+  assert.equal(evaluation.with["policy-revision"], "${{ steps.trusted.outputs.result }}");
+  assert.deepEqual(evaluation.env, { GITHUB_TOKEN: "${{ github.token }}" });
 });
 
-test("generic backport is reusable only and isolates its target checkout", () => {
-  const workflow = readWorkflow("backport.yml").workflow;
-  assert.deepEqual(Object.keys(workflow.on), ["workflow_call"]);
-  assert.deepEqual(workflow.permissions, {});
-  const job = workflow.jobs.backport;
-  assert.equal(job.if, activationGates.reusableBackport);
-  assert.deepEqual(job.permissions, { contents: "write", "pull-requests": "write" });
+test("labels-only policy evaluation is a separate job with label permissions and its own gate", () => {
+  const evaluator = readWorkflow("merge-evaluate.yml").workflow;
+  assert.deepEqual(Object.keys(evaluator.jobs), ["evaluate", "policy-labels"]);
+  const job = evaluator.jobs["policy-labels"];
+  assert.equal(job.if, activationGates.policyLabels);
+  assert.deepEqual(job.permissions, {
+    actions: "read", contents: "read", issues: "write", "pull-requests": "write",
+  });
+  assert.deepEqual(job.concurrency, concurrency.policyLabels);
+  assert.equal(job["timeout-minutes"], 15);
   assertTrustedCheckout(job);
-  const target = job.steps.filter((step) => step.uses === checkout)[1];
-  assert.equal(target.with.ref, "${{ inputs.target-branch }}");
-  assert.equal(target.with.path, "target");
-  assert.equal(target.with["persist-credentials"], true);
-  assert.equal(target.with.submodules, false);
-  assert.equal(target.with.lfs, false);
-  assert.equal(actionStep(job, "backport").with["control-directory"], "control");
-  assert.equal(actionStep(job, "backport").with["working-directory"], "target");
+  assert.deepEqual(job.steps.map((step) => step.uses), [
+    githubScript, checkout, "./control/.github/actions/repo-automation",
+  ]);
+  const labels = actionStep(job, "policy-labels");
+  assert.deepEqual(labels.with, {
+    mode: "policy-labels",
+    "pr-number": "${{ inputs.pr_number || '' }}",
+    "control-directory": "control",
+    "policy-revision": "${{ steps.trusted.outputs.result }}",
+    "dry-run": "${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}",
+  });
+  assert.deepEqual(labels.env, { GITHUB_TOKEN: "${{ github.token }}" });
+  assert.equal(evaluator.jobs.evaluate.if, activationGates.merge);
 });
 
-test("Mokka dispatch stays disabled until its repository variable is enabled", () => {
-  const workflow = readWorkflow("mokka-cherry-pick.yml").workflow;
-  const job = workflow.jobs["cherry-pick"];
-  assert.equal(job.if, activationGates.mokka);
-  const trustedCheckout = job.steps.find((candidate) => candidate.name === "Check out trusted automation");
-  assert.ok(trustedCheckout, "trusted tagged automation checkout is required");
-  assert.equal(trustedCheckout.uses, checkout);
-  assert.deepEqual(trustedCheckout.with, {
-    ref: "${{ github.sha }}",
-    path: "control",
-    "persist-credentials": false,
-    "fetch-depth": 1,
-    submodules: false,
-    lfs: false,
+test("no workflow queues behind the old repository-wide automation group", () => {
+  const sharing = fs.readdirSync(workflowRoot)
+    .filter((name) => readWorkflow(name).source.includes("repository-automation-state"));
+  assert.deepEqual(sharing, []);
+});
+
+test("issue commands run only when enabled from main, and no dispatch waits behind another", () => {
+  const { workflow } = readWorkflow("issue-commands.yml");
+  assert.equal(workflow.name, "Issue commands");
+  assert.equal(workflow["run-name"], "Issue command ${{ inputs.command }} #${{ inputs.number }} by ${{ inputs.requester }}");
+  assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
+  // The Mokka agent checks this interface: five string inputs, and it always
+  // sends all five, with "" for the ones a command does not use.
+  assert.deepEqual(workflow.on.workflow_dispatch.inputs, {
+    command: {
+      description: "Command to apply: assign, unassign, cc, uncc, close, reopen or retitle",
+      type: "string",
+      required: true,
+    },
+    number: { description: "Issue or pull request number", type: "string", required: true },
+    users: {
+      description: "Comma-separated GitHub logins, for assign, unassign, cc and uncc",
+      type: "string",
+      required: false,
+    },
+    title: { description: "New title, for retitle", type: "string", required: false },
+    requester: { description: "Login of the user whose comment asked for the command", type: "string", required: true },
   });
-  assert.equal(job.steps.some((candidate) => candidate.id === "trusted"), false);
-  assert.deepEqual(actionStep(job, "mokka-cherry-pick").with, {
-    mode: "mokka-cherry-pick",
-    pull_request_number: "${{ inputs.pull_request_number }}",
-    source_sha: "${{ inputs.source_sha }}",
-    "target-branch": "${{ inputs.target_branch }}",
-    action_id: "${{ inputs.action_id }}",
-    "working-directory": "target",
-    "dry-run": "false",
+  assert.deepEqual(workflow.permissions, {});
+  assert.deepEqual(Object.keys(workflow.jobs), ["issue-command"]);
+  const job = workflow.jobs["issue-command"];
+  assert.equal(job.if, activationGates.issueCommands);
+  assert.deepEqual(job.permissions, { contents: "read", issues: "write", "pull-requests": "write" });
+  assert.equal(job["timeout-minutes"], 5);
+  // GitHub keeps one pending run per group and cancels the older one, so any
+  // group two dispatches can share would drop a command: each run is its own group.
+  assert.deepEqual(job.concurrency, { group: "issue-commands-${{ github.run_id }}", "cancel-in-progress": false });
+  assert.deepEqual(job.steps.map((step) => step.uses), [checkout, githubScript, githubScript]);
+  assert.deepEqual(job.steps[0].with, { "persist-credentials": false });
+  const [, validate, apply] = job.steps;
+  assert.equal(validate.id, "inputs");
+  assert.deepEqual(validate.env, {
+    INPUT_COMMAND: "${{ inputs.command }}",
+    INPUT_NUMBER: "${{ inputs.number }}",
+    INPUT_USERS: "${{ inputs.users }}",
+    INPUT_TITLE: "${{ inputs.title }}",
+    INPUT_REQUESTER: "${{ inputs.requester }}",
   });
+  // The glue is pinned whole: the request run.js acts on comes only from
+  // validate(), which calls parseInputs and answers an invalid dispatch.
+  assert.equal(validate.with.script, [
+    "const { validate } = require('./.github/scripts/issue-commands/run.js');",
+    "const request = await validate({",
+    "  github,",
+    "  context,",
+    "  core,",
+    "  inputs: {",
+    "    command: process.env.INPUT_COMMAND,",
+    "    number: process.env.INPUT_NUMBER,",
+    "    users: process.env.INPUT_USERS,",
+    "    title: process.env.INPUT_TITLE,",
+    "    requester: process.env.INPUT_REQUESTER,",
+    "  },",
+    "});",
+    "if (request !== null) core.setOutput('request', JSON.stringify(request));",
+    "",
+  ].join("\n"));
+  assert.deepEqual(apply.env, { REQUEST_JSON: "${{ steps.inputs.outputs.request }}" });
+  assert.equal(apply.with.script, [
+    "const run = require('./.github/scripts/issue-commands/run.js');",
+    "return await run({ github, context, core, request: JSON.parse(process.env.REQUEST_JSON) });",
+    "",
+  ].join("\n"));
+  // Inputs reach the scripts only through the environment, never as script text.
+  for (const step of [validate, apply]) assert.doesNotMatch(step.with.script, /\$\{\{/);
 });
