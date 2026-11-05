@@ -1,0 +1,16 @@
+ 	[4mGPU0	GPU1	GPU2	GPU3	[0m
+ GPU0	X	OK	OK	OK	
+ GPU1	OK	X	OK	OK	
+ GPU2	OK	OK	X	OK	
+ GPU3	OK	OK	OK	X	
+
+Legend:
+
+  X    = Self
+  OK   = Status Ok
+  CNS  = Chipset not supported
+  GNS  = GPU not supported
+  TNS  = Topology not supported
+  NS   = Not supported
+  DR   = Disabled by regkey
+  U    = Unknown
