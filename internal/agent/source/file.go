@@ -19,7 +19,6 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
-	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	ibconfig "github.com/NVIDIA/k8s-test-infra/internal/ib/config"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
@@ -51,7 +50,6 @@ type FileSource struct {
 	topologyPath   string
 	resyncInterval time.Duration
 	log            *zap.Logger
-	numaHost       *host.Host
 }
 
 // NewFileSource returns a FileSource that watches configPath and topologyPath.
@@ -207,28 +205,18 @@ func (f *FileSource) reload(ctx context.Context, ch chan<- agent.Update, lastHas
 	migTable := f.migTable()
 
 	h := inputsHash(data, topology, migTable)
-	if f.numaHost == nil && h == *lastHash {
+	if h == *lastHash {
 		f.log.Debug("watched documents unchanged; skipping reconcile")
 		return // content unchanged
 	}
-	state, err := f.buildState(ctx, data)
+	*lastHash = h
+
+	state, err := compileState(data, f.configPath)
 	if err != nil {
 		f.send(ctx, ch, agent.Update{Err: fmt.Errorf("%s: %w", f.configPath, err), At: time.Now()})
 		return
 	}
-	if f.numaHost != nil {
-		h, err = numaStateHash(h, state.NodeShape.NUMA)
-		if err != nil {
-			f.send(ctx, ch, agent.Update{Err: err, At: time.Now()})
-			return
-		}
-		if h == *lastHash {
-			return
-		}
-	}
-	// Commit the hash only after all inputs were resolved successfully, so
-	// transient node-read failures can recover without a profile edit.
-	*lastHash = h
+	state.ConfigRaw = data
 	state.TopologyRaw = topology
 	state.MIGProfilesRaw = migTable
 	f.log.Info("state updated from config", zap.String("config", f.configPath))

@@ -1,0 +1,12 @@
+link mlx5_0/1 state ACTIVE physical_state LINK_UP netdev enP1p3s0np0 
+link mlx5_1/1 state ACTIVE physical_state LINK_UP netdev enP3p1s0np0 
+link mlx5_2/1 state ACTIVE physical_state LINK_UP netdev enP4p3s0np0 
+link mlx5_3/1 state ACTIVE physical_state LINK_UP netdev enP5p65s0f0np0 
+link mlx5_4/1 state ACTIVE physical_state LINK_UP netdev enP5p65s0f1np1 
+link mlx5_5/1 state ACTIVE physical_state LINK_UP netdev enP6p1s0np0 
+link mlx5_6/1 state ACTIVE physical_state LINK_UP netdev enP9p3s0np0 
+link mlx5_7/1 state ACTIVE physical_state LINK_UP netdev enP11p1s0np0 
+link mlx5_8/1 state ACTIVE physical_state LINK_UP netdev enP12p3s0np0 
+link mlx5_9/1 state ACTIVE physical_state LINK_UP netdev enP13p65s0f0np0 
+link mlx5_10/1 state ACTIVE physical_state LINK_UP netdev enP13p65s0f1np1 
+link mlx5_11/1 state ACTIVE physical_state LINK_UP netdev enP14p1s0np0 

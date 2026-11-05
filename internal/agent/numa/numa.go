@@ -81,13 +81,17 @@ func (s *Simulator) Ready() bool { return s.ready.Load() }
 // Stage validates and renders the topology without changing the node mount.
 func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	s.ready.Store(false)
+	s.desired = ""
 	zap.L().Info("staging simulator", zap.String("simulator", name))
 	if !s.opts.Enabled {
 		return nil
 	}
 	plan := state.NodeShape.NUMA
 	if plan == nil {
-		return errors.New("NUMA topology is not prepared")
+		// The NUMA enricher logged why it has no layout. Failing Stage would
+		// stop every simulator, so leave the node unchanged and stay not ready.
+		zap.L().Warn("no NUMA layout resolved; leaving the node unchanged", zap.String("simulator", name))
+		return nil
 	}
 	data, err := json.Marshal(plan)
 	if err != nil {
@@ -125,31 +129,41 @@ func (s *Simulator) matchApplied() (bool, error) {
 
 // Apply installs or restores the node setup from the privileged agent pod.
 func (s *Simulator) Apply(ctx context.Context, _ *agent.State) error {
-	_, err := readApplied(s.host)
-	if err != nil && !os.IsNotExist(err) {
-		return err
+	if s.opts.Enabled && s.desired == "" {
+		return nil // Stage had no layout to render.
 	}
-	if !s.opts.Enabled && os.IsNotExist(err) {
-		registered, err := kubelet.BootResetRegistered(s.host)
-		if err != nil {
+	if !s.opts.Enabled {
+		clean, err := s.nothingToRestore()
+		if err != nil || clean {
+			s.ready.Store(clean)
 			return err
-		}
-		if !registered {
-			s.ready.Store(true)
-			return nil
 		}
 	}
 	action := ActionApply
 	if !s.opts.Enabled {
 		action = ActionRestore
 	}
-	err = s.runHost(ctx, action)
+	err := s.runHost(ctx, action)
 	if err != nil {
 		return fmt.Errorf("%s node NUMA filesystem: %w", action, err)
 	}
 	s.ready.Store(true)
 	zap.L().Info("node NUMA simulation reconciled", zap.String("simulator", name), zap.String("action", string(action)), zap.String("policy", s.opts.Policy))
 	return nil
+}
+
+// nothingToRestore reports whether this node carries no NUMA setup: none is
+// applied and no boot-reset unit is registered.
+func (s *Simulator) nothingToRestore() (bool, error) {
+	_, err := readApplied(s.host)
+	if err == nil {
+		return false, nil
+	}
+	if !os.IsNotExist(err) {
+		return false, err
+	}
+	registered, err := kubelet.BootResetRegistered(s.host)
+	return err == nil && !registered, err
 }
 
 func (s *Simulator) runHost(ctx context.Context, action HostAction) error {

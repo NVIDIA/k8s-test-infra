@@ -11,8 +11,9 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/migcaps"
 )
 
-// State is the desired simulation state compiled by a source, including any
-// host-resolved topology simulators need before reconciliation.
+// State is the compiled desired simulation state the agent reconciles toward.
+// It maps 1:1 to what MEP-0001's Control Plane will emit, except for the
+// fields an Enricher fills from this node.
 type State struct {
 	Generation int64
 	Node       NodeMeta
@@ -285,7 +286,8 @@ type NodeShape struct {
 	NumGPUs  int
 	Topology PCIeTopology
 	Network  NetworkShape
-	// NUMA is resolved by the source before simulators read this state.
+	// NUMA is set by the NUMA enricher, never by a source. It is nil when
+	// NUMA simulation is disabled or the layout could not be resolved.
 	NUMA *NUMATopology
 }
 

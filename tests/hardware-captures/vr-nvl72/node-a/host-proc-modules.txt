@@ -1,0 +1,8 @@
+nvidia_modeset 1703936 0 - Live 0xffffb9e06a360000 (OE)
+nvidia_uvm 1966080 0 - Live 0xffffb9e06a570000 (OE)
+nvidia 17235968 76 gdrdrv,nvidia_modeset,nvidia_uvm, Live 0xffffb9e0692d0000 (OE)
+ib_core 720896 6 rdma_ucm,rdma_cm,iw_cm,ib_cm,mlx5_ib,ib_uverbs, Live 0xffffb9e067bc0000
+nvidia_cspmu 262144 0 - Live 0xffffb9e067ac0000
+nvidia_t410_c2c_pmu 262144 0 - Live 0xffffb9e0675e0000
+nvidia_t410_cmem_latency_pmu 262144 0 - Live 0xffffb9e067520000
+mlx5_core 3080192 2 mlx5_ib,mlx5_fwctl, Live 0xffffb9e066e20000

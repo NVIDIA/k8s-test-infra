@@ -1,7 +1,8 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package numatopology resolves host-backed layouts for agent state sources.
+// Package numatopology resolves the simulated NUMA layout from the node's real
+// CPUs and memory, for the agent's NUMA enricher.
 package numatopology
 
 import (
@@ -16,7 +17,6 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/cpulist"
-	"sigs.k8s.io/yaml"
 )
 
 // Resolve calculates one NUMA layout from the node and the declared profile.
@@ -143,51 +143,6 @@ func explicitCPUs(cpus []int, zones int, explicit map[int]string) ([][]int, erro
 		return nil, fmt.Errorf("CPU affinities must cover all %d online CPUs", len(cpus))
 	}
 	return assigned, nil
-}
-
-func shareAffinities(state *agent.State, plan *agent.NUMATopology) error {
-	state.NodeShape.Topology.RootComplexes = slices.Clone(state.NodeShape.Topology.RootComplexes)
-	affinities := make(map[string]string)
-	for i := range state.NodeShape.Topology.RootComplexes {
-		rc := &state.NodeShape.Topology.RootComplexes[i]
-		rc.CPUAffinity = cpulist.Format(plan.Zones[rc.NUMANode].CPUs)
-		affinities[rc.ID] = rc.CPUAffinity
-	}
-	var doc map[string]any
-	if err := yaml.Unmarshal(state.ConfigRaw, &doc); err != nil {
-		return fmt.Errorf("read profile for NUMA affinities: %w", err)
-	}
-	if err := setProfileAffinities(doc, affinities); err != nil {
-		return err
-	}
-	raw, err := yaml.Marshal(doc)
-	if err != nil {
-		return fmt.Errorf("write resolved NUMA profile: %w", err)
-	}
-	state.ConfigRaw = raw
-	return nil
-}
-
-func setProfileAffinities(doc map[string]any, affinities map[string]string) error {
-	pci, ok := doc["pcie_topology"].(map[string]any)
-	if !ok {
-		return errors.New("profile has no pcie_topology")
-	}
-	list, ok := pci["root_complexes"].([]any)
-	if !ok {
-		return errors.New("profile has no root_complexes")
-	}
-	for _, entry := range list {
-		rc, ok := entry.(map[string]any)
-		if !ok {
-			return errors.New("invalid root complex")
-		}
-		id, _ := rc["id"].(string)
-		if value, found := affinities[id]; found {
-			rc["cpu_affinity"] = value
-		}
-	}
-	return nil
 }
 
 func coreGroups(h *host.Host, cpus []int) ([][]int, error) {
