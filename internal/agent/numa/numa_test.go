@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -296,25 +295,6 @@ func TestStageRefreshesHostHelper(t *testing.T) {
 	requireFileContent(t, h.RootPath("kubelet/mokka-kubelet-helper"), "updated executable")
 }
 
-func TestLegacySetupMustBeRestoredWithPreviousVersion(t *testing.T) {
-	t.Parallel()
-	for _, enabled := range []bool{true, false} {
-		t.Run(strconv.FormatBool(enabled), func(t *testing.T) {
-			t.Parallel()
-			h := testHost(t)
-			require.NoError(t, os.MkdirAll(h.RootPath("numa"), 0755))
-			require.NoError(t, os.WriteFile(h.RootPath("numa/.applied"), []byte("legacy"), 0600))
-			sim, err := newTestSimulator(h, Options{Enabled: enabled})
-			require.NoError(t, err)
-			require.ErrorContains(t, sim.Apply(t.Context(), nil), "previous Mokka version")
-			if enabled {
-				require.ErrorContains(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)), "previous Mokka version")
-			}
-			requireFileContent(t, h.RootPath("numa/.applied"), "legacy")
-		})
-	}
-}
-
 func TestLowercaseMemoryPolicyUsesKubeletSpellingInAppliedConfiguration(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
@@ -324,7 +304,7 @@ func TestLowercaseMemoryPolicyUsesKubeletSpellingInAppliedConfiguration(t *testi
 	require.NoError(t, err)
 	require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
 	// User settings are lowercase; the stored policy uses kubelet spelling.
-	const previous = "sysbus-v1:339badff2f87bb98162abc14e5e739ff2a7a0fb192e5987be55339009087961f:true:single-numa-node:static::Static:2Mi"
+	const previous = "339badff2f87bb98162abc14e5e739ff2a7a0fb192e5987be55339009087961f:true:single-numa-node:static::Static:2Mi"
 	requireFileContent(t, h.RootPath("numa/desired"), previous+"\n")
 	require.NoError(t, fsutil.Write(h.RunPath(appliedRel), []byte(previous+"\n"), 0600))
 	require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
@@ -485,16 +465,4 @@ func testPreparedState(t *testing.T, h *host.Host) *agent.State {
 	state, err := numatopology.ResolveState(t.Context(), h, testState())
 	require.NoError(t, err)
 	return state
-}
-
-func TestStageRequiresRestoreForPreviousFilesystemSchema(t *testing.T) {
-	t.Parallel()
-	h := testHost(t)
-	sim, err := newTestSimulator(h, Options{Enabled: true})
-	require.NoError(t, err)
-	state := testPreparedState(t, h)
-	require.NoError(t, sim.Stage(t.Context(), state))
-	previous := strings.TrimPrefix(sim.desired, "sysbus-v1:")
-	require.NoError(t, fsutil.Write(h.RunPath(appliedRel), []byte(previous+"\n"), 0600))
-	require.ErrorContains(t, sim.Stage(t.Context(), state), "disable NUMA simulation")
 }

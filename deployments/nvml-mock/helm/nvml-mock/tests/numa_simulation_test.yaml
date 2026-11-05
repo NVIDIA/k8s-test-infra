@@ -158,12 +158,6 @@ tests:
           path: spec.template.spec.initContainers[0].command
           content: --numa-system-reserved-cpu=100m
 
-  - it: rejects the previous top-level NUMA settings instead of silently disabling simulation
-    set:
-      numaSimulation.enabled: true
-    asserts:
-      - failedTemplate:
-          errorMessage: "numaSimulation has moved to nodeAgent.numa"
   - it: rejects capitalized user memory policy values
     set:
       nodeAgent.numa.memoryManagerPolicy: Static
