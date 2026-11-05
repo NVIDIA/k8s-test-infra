@@ -63,9 +63,9 @@ func JpgOfaUtilization(ctx context.Context, k *kube.Client, pod kube.PodRef, wan
 
 // PCIeIdentity asserts nvidia-smi -q -x reports per-GPU PCIe identity values a
 // real GPU could produce: the link and device maxima at the profile's
-// configured generation, the independent host maximum (or N/A where the
-// profile says it is unsupported), and a non-zero board ID that is unique
-// across the node. See issue #638.
+// configured generation, the independent host maximum (or N/A when
+// host_max_link_gen is absent), and a non-zero board ID that is unique across
+// the node. See issue #638.
 func PCIeIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
 	ginkgo.GinkgoHelper()
 

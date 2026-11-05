@@ -85,6 +85,7 @@ device_defaults:
 
   pcie:
     max_link_gen: 4                 # PCIe Gen4
+    host_max_link_gen: 4            # Explicit success path for the host-max ABI test
     current_link_gen: 4
     max_link_width: 16              # x16
     current_link_width: 16

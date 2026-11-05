@@ -154,6 +154,11 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
     }
 
     // Host-side max PCIe link generation: fn(nvmlDevice_t device, unsigned int* out).
+    // Slot located by its position in the -q call sequence: it fires between
+    // nvmlDeviceGetGpuMaxPcieLinkGeneration ("Device Max") and
+    // nvmlDeviceGetMaxPcieLinkWidth. Writing a marker here moves the Host Max
+    // row of `-q`, <max_host_link_gen> in `-q -x` and pcie.link.gen.hostmax
+    // together; no public NVML API exposes this host-side maximum.
     // Handle this before the generic device-handle guard: the historical slot
     // response for an unknown handle is success with a zero output, whereas a
     // known device without a configured host maximum reports NOT_SUPPORTED.
