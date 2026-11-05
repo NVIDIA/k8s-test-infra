@@ -112,15 +112,22 @@ GOLANGCI_LINT_VERSION ?= v2.14.0
 print-golangci-lint-version:
 	@echo $(GOLANGCI_LINT_VERSION)
 
+# Installs run in parallel; wait on each job by PID, since a bare `wait`
+# returns 0 even when an install fails and hides the real error.
 .PHONY: tools
 tools: ## Install static checkers & other binaries
 	@echo "🚚 Downloading tools.."
 	@mkdir -p $(GOBIN)
-	@ \
+	@pids=(); names=(); \
 	$(BIN_DIR)/golangci-lint version 2>/dev/null | grep -q " $(GOLANGCI_LINT_VERSION:v%=%) " || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) $(GOLANGCI_LINT_VERSION) & \
+	pids+=($$!); names+=(golangci-lint); \
 	test -x $(BIN_DIR)/govulncheck || go install golang.org/x/vuln/cmd/govulncheck@latest & \
+	pids+=($$!); names+=(govulncheck); \
 	test -x $(BIN_DIR)/controller-gen || go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION) & \
-	wait
+	pids+=($$!); names+=(controller-gen); \
+	failed=(); \
+	for i in "$${!pids[@]}"; do wait "$${pids[$$i]}" || failed+=("$${names[$$i]}"); done; \
+	if [ "$${#failed[@]}" -gt 0 ]; then echo "ERROR: failed to install: $${failed[*]}" >&2; exit 1; fi
 
 .PHONY: lint
 lint: tools gen-check ## Lint the source code
