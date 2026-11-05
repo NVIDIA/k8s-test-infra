@@ -236,6 +236,30 @@ func TestStaticMemoryReservationsMatchNodeReservations(t *testing.T) {
 	}
 }
 
+// The expected values come from kubelet's eviction formula, which keeps
+// float32 precision; reservedMemory must match it exactly or kubelet refuses
+// to start with the static Memory Manager.
+func TestMemoryEvictionPercentMatchesKubeletRounding(t *testing.T) {
+	t.Parallel()
+	const capacity = 16 << 30
+	for _, tc := range []struct {
+		threshold string
+		want      int64
+	}{
+		{threshold: "1%", want: 171798688},
+		{threshold: "5%", want: 858993472},
+		{threshold: "7.5%", want: 1288490240},
+		{threshold: "10%", want: 1717986944},
+	} {
+		t.Run(tc.threshold, func(t *testing.T) {
+			t.Parallel()
+			got, err := memoryEviction(&kubeletSettings{EvictionHard: map[string]string{"memory.available": tc.threshold}}, capacity)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestStaticMemoryRejectsImpossibleReservations(t *testing.T) {
 	t.Parallel()
 	for _, value := range []string{"invalid", "0", "1Gi"} {

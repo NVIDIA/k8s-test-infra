@@ -143,11 +143,13 @@ func memoryEviction(config *kubeletSettings, capacity int64) (int64, error) {
 	if !strings.HasSuffix(value, "%") {
 		return memoryQuantity(value)
 	}
-	percent, err := strconv.ParseFloat(strings.TrimSuffix(value, "%"), 64)
+	// Kubelet parses the percentage as float32 and requires reservedMemory to
+	// equal its own result exactly, so float64 arithmetic is off by a few bytes.
+	percent, err := strconv.ParseFloat(strings.TrimSuffix(value, "%"), 32)
 	if err != nil || percent < 0 || percent >= 100 {
 		return 0, fmt.Errorf("invalid memory eviction threshold %q", value)
 	}
-	return int64(float64(capacity) * percent / 100), nil
+	return int64(float64(capacity) * float64(float32(percent)/100)), nil
 }
 
 func memoryReservations(numaTopology *agent.NUMATopology, total int64) ([]memoryReservation, error) {
