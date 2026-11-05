@@ -103,9 +103,9 @@ kwok-scale-matrix:
 		KWOK_NODE_COUNT=$$count KWOK_CLUSTER_NAME=mokka-controller-kwok-$$count ./tests/kwok/run.sh || exit; \
 	done
 
-# Code generators are pinned in hack/codegen/go.mod rather than installed with
-# `go install pkg@version`: its go.sum verifies them, so building them needs no
-# checksum-database lookup through the Go proxy.
+# Code generators and govulncheck are pinned in hack/codegen/go.mod rather than
+# installed with `go install pkg@version`: its go.sum verifies them, so building
+# them needs no checksum-database lookup through the Go proxy.
 CODEGEN_MOD := hack/codegen
 # CI installs this exact version too (see .github/workflows/golang.yaml), so a
 # new golangci-lint release cannot fail the check job on code nobody changed.
@@ -121,7 +121,7 @@ tools: ## Install static checkers & other binaries
 	@mkdir -p $(GOBIN)
 	@ \
 	$(BIN_DIR)/golangci-lint version 2>/dev/null | grep -q " $(GOLANGCI_LINT_VERSION:v%=%) " || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) $(GOLANGCI_LINT_VERSION) & \
-	test -x $(BIN_DIR)/govulncheck || go install golang.org/x/vuln/cmd/govulncheck@latest & \
+	test -x $(BIN_DIR)/govulncheck || go -C $(CODEGEN_MOD) install golang.org/x/vuln/cmd/govulncheck & \
 	test -x $(BIN_DIR)/controller-gen || go -C $(CODEGEN_MOD) install sigs.k8s.io/controller-tools/cmd/controller-gen & \
 	wait
 
