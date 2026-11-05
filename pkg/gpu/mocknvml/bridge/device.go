@@ -308,7 +308,7 @@ func nvmlDeviceGetPciInfo_v3(nvmlDevice C.nvmlDevice_t, pci *C.nvmlPciInfo_t) C.
 		return toReturn(ret)
 	}
 	// Copy BusIdLegacy (16 bytes = NVML_DEVICE_PCI_BUS_ID_LEGACY_FMT_SIZE)
-	for i := 0; i < len(info.BusIdLegacy) && i < 16; i++ {
+	for i := range min(len(info.BusIdLegacy), 16) {
 		pci.busIdLegacy[i] = C.char(info.BusIdLegacy[i])
 	}
 	pci.domain = C.uint(info.Domain)
@@ -317,7 +317,7 @@ func nvmlDeviceGetPciInfo_v3(nvmlDevice C.nvmlDevice_t, pci *C.nvmlPciInfo_t) C.
 	pci.pciDeviceId = C.uint(info.PciDeviceId)
 	pci.pciSubSystemId = C.uint(info.PciSubSystemId)
 	// Copy BusId (32 bytes = NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE)
-	for i := 0; i < len(info.BusId) && i < 32; i++ {
+	for i := range min(len(info.BusId), 32) {
 		pci.busId[i] = C.char(info.BusId[i])
 	}
 	return C.NVML_SUCCESS
@@ -367,7 +367,7 @@ func nvmlDeviceGetPciInfoExt(nvmlDevice C.nvmlDevice_t, pci *C.nvmlPciInfoExt_t)
 	pci.baseClass = C.uint(0x03)
 	pci.subClass = C.uint(0x02)
 	// Copy BusId (32 bytes = NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE).
-	for i := 0; i < len(info.BusId) && i < 32; i++ {
+	for i := range min(len(info.BusId), 32) {
 		pci.busId[i] = C.char(info.BusId[i])
 	}
 	return C.NVML_SUCCESS
@@ -494,7 +494,7 @@ func nvmlDeviceGetNvLinkRemotePciInfo_v2(device C.nvmlDevice_t, link C.uint, pci
 	pci.domain = C.uint(info.Domain)
 	pci.bus = C.uint(info.Bus)
 	pci.device = C.uint(info.Device)
-	for i := 0; i < len(info.BusId) && i < 32; i++ {
+	for i := range min(len(info.BusId), 32) {
 		pci.busId[i] = C.char(info.BusId[i])
 	}
 	return C.NVML_SUCCESS
@@ -634,6 +634,13 @@ func nvmlDeviceGetMaxMigDeviceCount(device C.nvmlDevice_t, count *C.uint) C.nvml
 	return C.NVML_SUCCESS
 }
 
+// nvmlDeviceGetMigDeviceHandleByIndex returns the MIG device at an index on a
+// partitioned GPU.
+//
+// ERROR_NOT_FOUND is what consumers treat as end-of-iteration: go-nvlib walks
+// indices up to nvmlDeviceGetMaxMigDeviceCount and skips the ones that report
+// NOT_FOUND, so a partly-populated board enumerates cleanly.
+//
 //export nvmlDeviceGetMigDeviceHandleByIndex
 func nvmlDeviceGetMigDeviceHandleByIndex(device C.nvmlDevice_t, index C.uint, migDevice *C.nvmlDevice_t) C.nvmlReturn_t {
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetMigDeviceHandleByIndex"); !ok {
@@ -642,13 +649,13 @@ func nvmlDeviceGetMigDeviceHandleByIndex(device C.nvmlDevice_t, index C.uint, mi
 	if migDevice == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := unsafe.Pointer(device.handle)
-	dev := engine.GetEngine().LookupConfigurableDevice(handle)
-	if dev == nil {
-		return C.NVML_ERROR_INVALID_ARGUMENT
+	handle, ret := engine.GetEngine().DeviceGetMigDeviceHandleByIndex(
+		unsafe.Pointer(device.handle), int(index))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
 	}
-	_, ret := dev.GetMigDeviceHandleByIndex(int(index))
-	return toReturn(ret)
+	migDevice.handle = (*C.struct_nvmlDevice_st)(handle)
+	return C.NVML_SUCCESS
 }
 
 // =============================================================================
@@ -761,43 +768,8 @@ func nvmlDeviceGetMigMode(nvmlDevice C.nvmlDevice_t, currentMode *C.uint, pendin
 
 //export nvmlDeviceGetComputeRunningProcesses_v3
 func nvmlDeviceGetComputeRunningProcesses_v3(nvmlDevice C.nvmlDevice_t, infoCount *C.uint, infos *C.nvmlProcessInfo_t) C.nvmlReturn_t {
-	if ret, ok := bridgeVersionCheck("nvmlDeviceGetComputeRunningProcesses_v3"); !ok {
-		return ret
-	}
-	if infoCount == nil {
-		return C.NVML_ERROR_INVALID_ARGUMENT
-	}
-	handle := unsafe.Pointer(nvmlDevice.handle)
-	dev := engine.GetEngine().LookupConfigurableDevice(handle)
-	if dev == nil {
-		return C.NVML_ERROR_INVALID_ARGUMENT
-	}
-	procs, ret := dev.GetComputeRunningProcesses()
-	if ret != nvml.SUCCESS {
-		return toReturn(ret)
-	}
-	if infos == nil {
-		// Caller is querying the count
-		*infoCount = C.uint(len(procs))
-		return C.NVML_SUCCESS
-	}
-	bufSize := int(*infoCount)
-	if len(procs) > bufSize {
-		*infoCount = C.uint(len(procs))
-		return C.NVML_ERROR_INSUFFICIENT_SIZE
-	}
-	*infoCount = C.uint(len(procs))
-	if len(procs) > 0 {
-		// Write process info to the caller's buffer
-		outSlice := unsafe.Slice(infos, len(procs))
-		for i, p := range procs {
-			outSlice[i].pid = C.uint(p.Pid)
-			outSlice[i].usedGpuMemory = C.ulonglong(p.UsedGpuMemory)
-			outSlice[i].gpuInstanceId = C.uint(p.GpuInstanceId)
-			outSlice[i].computeInstanceId = C.uint(p.ComputeInstanceId)
-		}
-	}
-	return C.NVML_SUCCESS
+	return runningProcessesExport("nvmlDeviceGetComputeRunningProcesses_v3", nvmlDevice, infoCount, infos,
+		(*engine.ConfigurableDevice).GetComputeRunningProcesses)
 }
 
 //export nvmlDeviceGetProcessUtilization
@@ -819,14 +791,20 @@ func nvmlDeviceGetProcessUtilization(nvmlDevice C.nvmlDevice_t, utilization *C.n
 		return toReturn(ret)
 	}
 
-	// Probe call (utilization==nil): report the count. INSUFFICIENT_SIZE when there
-	// are samples (go-nvml then allocates and re-calls); SUCCESS when there are none
-	// (yields a clean empty result rather than an error).
+	// An empty result is NOT_FOUND, not a zero count, on either call: that is
+	// what the header specifies, and it is how a caller renders "nothing
+	// running" instead of falling through its success path having been told
+	// samples were written.
+	if len(samples) == 0 {
+		*processSamplesCount = 0
+		return C.NVML_ERROR_NOT_FOUND
+	}
+
+	// Probe call (utilization==nil): report the count. INSUFFICIENT_SIZE is not
+	// in this function's documented return list, but it is what a real driver
+	// answers and what go-nvml re-calls on, so the mock keeps it.
 	if utilization == nil {
 		*processSamplesCount = C.uint(len(samples))
-		if len(samples) == 0 {
-			return C.NVML_SUCCESS
-		}
 		return C.NVML_ERROR_INSUFFICIENT_SIZE
 	}
 
@@ -836,16 +814,14 @@ func nvmlDeviceGetProcessUtilization(nvmlDevice C.nvmlDevice_t, utilization *C.n
 		return C.NVML_ERROR_INSUFFICIENT_SIZE
 	}
 	*processSamplesCount = C.uint(len(samples))
-	if len(samples) > 0 {
-		out := unsafe.Slice(utilization, len(samples))
-		for i, s := range samples {
-			out[i].pid = C.uint(s.Pid)
-			out[i].timeStamp = C.ulonglong(s.TimeStamp)
-			out[i].smUtil = C.uint(s.SmUtil)
-			out[i].memUtil = C.uint(s.MemUtil)
-			out[i].encUtil = C.uint(s.EncUtil)
-			out[i].decUtil = C.uint(s.DecUtil)
-		}
+	out := unsafe.Slice(utilization, len(samples))
+	for i, s := range samples {
+		out[i].pid = C.uint(s.Pid)
+		out[i].timeStamp = C.ulonglong(s.TimeStamp)
+		out[i].smUtil = C.uint(s.SmUtil)
+		out[i].memUtil = C.uint(s.MemUtil)
+		out[i].encUtil = C.uint(s.EncUtil)
+		out[i].decUtil = C.uint(s.DecUtil)
 	}
 	return C.NVML_SUCCESS
 }
@@ -2280,42 +2256,8 @@ func nvmlDeviceGetOfaUtilization(device C.nvmlDevice_t, utilization *C.uint, sam
 
 //export nvmlDeviceGetGraphicsRunningProcesses_v3
 func nvmlDeviceGetGraphicsRunningProcesses_v3(device C.nvmlDevice_t, infoCount *C.uint, infos *C.nvmlProcessInfo_t) C.nvmlReturn_t {
-	if ret, ok := bridgeVersionCheck("nvmlDeviceGetGraphicsRunningProcesses_v3"); !ok {
-		return ret
-	}
-	if infoCount == nil {
-		return C.NVML_ERROR_INVALID_ARGUMENT
-	}
-	handle := unsafe.Pointer(device.handle)
-	dev := engine.GetEngine().LookupConfigurableDevice(handle)
-	if dev == nil {
-		return C.NVML_ERROR_INVALID_ARGUMENT
-	}
-	procs, ret := dev.GetGraphicsRunningProcesses()
-	if ret != nvml.SUCCESS {
-		return toReturn(ret)
-	}
-	if infos == nil {
-		// Caller is querying the count
-		*infoCount = C.uint(len(procs))
-		return C.NVML_SUCCESS
-	}
-	bufSize := int(*infoCount)
-	if len(procs) > bufSize {
-		*infoCount = C.uint(len(procs))
-		return C.NVML_ERROR_INSUFFICIENT_SIZE
-	}
-	*infoCount = C.uint(len(procs))
-	if len(procs) > 0 {
-		outSlice := unsafe.Slice(infos, len(procs))
-		for i, p := range procs {
-			outSlice[i].pid = C.uint(p.Pid)
-			outSlice[i].usedGpuMemory = C.ulonglong(p.UsedGpuMemory)
-			outSlice[i].gpuInstanceId = C.uint(p.GpuInstanceId)
-			outSlice[i].computeInstanceId = C.uint(p.ComputeInstanceId)
-		}
-	}
-	return C.NVML_SUCCESS
+	return runningProcessesExport("nvmlDeviceGetGraphicsRunningProcesses_v3", device, infoCount, infos,
+		(*engine.ConfigurableDevice).GetGraphicsRunningProcesses)
 }
 
 //export nvmlDeviceGetNvLinkVersion
@@ -2539,25 +2481,43 @@ func nvmlDeviceGetDetailedEccErrors(device C.nvmlDevice_t, errorType C.nvmlMemor
 // MIG Device Handle Detection
 // =============================================================================
 
-// nvmlDeviceIsMigDeviceHandle returns whether a device handle refers to a MIG
-// device. Mock devices are always full GPUs, never MIG instances.
+// nvmlDeviceIsMigDeviceHandle reports whether a device handle refers to a MIG
+// device rather than a full GPU.
 //
 //export nvmlDeviceIsMigDeviceHandle
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceIsMigDeviceHandle(device C.nvmlDevice_t, isMigDevice *C.uint) C.nvmlReturn_t {
 	if isMigDevice == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	*isMigDevice = 0 // false: mock devices are not MIG devices
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	isMig, ret := dev.IsMigDeviceHandle()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	if isMig {
+		*isMigDevice = 1
+	} else {
+		*isMigDevice = 0
+	}
 	return C.NVML_SUCCESS
 }
 
 // nvmlDeviceGetDeviceHandleFromMigDeviceHandle returns the parent GPU handle
-// for a MIG device. Since mock devices are never MIG devices, this always
-// returns ERROR_NOT_SUPPORTED.
+// for a MIG device. ERROR_INVALID_ARGUMENT on a full GPU matches real NVML:
+// the handle is simply the wrong kind for this query.
 //
 //export nvmlDeviceGetDeviceHandleFromMigDeviceHandle
-//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetDeviceHandleFromMigDeviceHandle(migDevice C.nvmlDevice_t, device *C.nvmlDevice_t) C.nvmlReturn_t {
-	return C.NVML_ERROR_NOT_SUPPORTED
+	if device == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle, ret := engine.GetEngine().DeviceGetDeviceHandleFromMigDeviceHandle(unsafe.Pointer(migDevice.handle))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	device.handle = (*C.struct_nvmlDevice_st)(handle)
+	return C.NVML_SUCCESS
 }

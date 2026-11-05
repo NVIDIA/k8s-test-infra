@@ -11,9 +11,11 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/cpulist"
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/cpulocality"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 )
@@ -79,7 +81,7 @@ func stageDMI(h *host.Host) error {
 // empties the tree and stages no DMI, since nothing is served.
 func stageSysfs(h *host.Host, state *agent.State) error {
 	if err := pcisysfs.Render(pcisysfs.Options{
-		Topology:    buildTopology(state),
+		Topology:    buildTopology(state, cpulocality.Online(h)),
 		Identities:  buildIdentities(state),
 		OverlayRoot: h.Root,
 	}); err != nil {
@@ -126,38 +128,68 @@ func stagePCIShim(h *host.Host) error {
 
 // buildTopology maps the state's reconciled layout onto the renderer's type.
 // Returns nil when there is nothing to render, which Render treats as a no-op.
-func buildTopology(state *agent.State) *pcisysfs.PCIeTopology {
+// online is the host's online CPUs, or nil when unknown; see hostLocal.
+func buildTopology(state *agent.State, online []int) *pcisysfs.PCIeTopology {
 	rcs := state.PCITopology()
 	if len(rcs) == 0 {
 		return nil
 	}
 
+	declared := len(state.NodeShape.Topology.RootComplexes) > 0
 	topo := &pcisysfs.PCIeTopology{RootComplexes: make([]pcisysfs.RootComplex, 0, len(rcs))}
 	for _, rc := range rcs {
+		var cpus []int
+		if declared {
+			cpus = cpulocality.Local(rc, state.NodeShape.Topology.CoresPerNUMA, online)
+		}
 		topo.RootComplexes = append(topo.RootComplexes, pcisysfs.RootComplex{
 			ID:       rc.ID,
 			NUMANode: rc.NUMANode,
 			Devices:  rc.DeviceBDFs,
+			CPUList:  cpulist.Format(cpus),
 		})
 	}
 
 	return topo
 }
 
-// buildIdentities maps each device's lowercased BDF to its PCI identity for
+// buildIdentities maps each PCI function's lowercased BDF to its identity for
 // the renderer's attribute files (vendor, device, class, config space).
+//
+// This is the one place that knows which kind of hardware a BDF names, so it is
+// where the class is decided: a GPU enumerates as a 3D controller, an NVSwitch
+// as a bridge. Getting that wrong is not cosmetic — GPU Feature Discovery reads
+// the class out of this tree to derive nvidia.com/gpu.mode.
 func buildIdentities(state *agent.State) map[string]pcisysfs.PCI {
-	ids := make(map[string]pcisysfs.PCI, len(state.Devices))
+	ids := make(map[string]pcisysfs.PCI, len(state.Devices)+len(state.Switches))
 
 	for _, d := range state.Devices {
 		if d.PCIBusID == "" {
 			continue
 		}
 
-		ids[strings.ToLower(d.PCIBusID)] = pcisysfs.PCI{
+		id := pcisysfs.PCI{
 			BusID:       d.PCIBusID,
 			DeviceID:    d.PCIDeviceID,
 			SubsystemID: d.PCISubsystemID,
+			Class:       pcisysfs.PCIClass3DController,
+		}
+		if g := d.VGPUGuest; g != nil {
+			id.VGPUHostDriver = &pcisysfs.VGPUHostDriver{Version: g.HostDriverVersion, Branch: g.HostDriverBranch}
+		}
+		ids[strings.ToLower(d.PCIBusID)] = id
+	}
+
+	for _, sw := range state.Switches {
+		if sw.PCIBusID == "" {
+			continue
+		}
+
+		ids[strings.ToLower(sw.PCIBusID)] = pcisysfs.PCI{
+			BusID:       sw.PCIBusID,
+			DeviceID:    sw.PCIDeviceID,
+			SubsystemID: sw.PCISubsystemID,
+			Class:       pcisysfs.PCIClassBridge,
 		}
 	}
 

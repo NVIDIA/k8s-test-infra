@@ -16,6 +16,7 @@ package engine
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -54,6 +55,19 @@ type NodeFabric struct {
 	// CPU. Node-level rather than per-device because the link is a property
 	// of the board — every profile that has it has it on every GPU.
 	c2cEnabled bool
+
+	// nvlinkBw mirrors nvlink.bw_mode, and nvleEnabled mirrors
+	// nvlink.nvle_enabled. Node-level for the same reason c2cEnabled is:
+	// they describe the board.
+	nvlinkBw       nvlinkBwModeSpec
+	nvleEnabled    bool
+	nvlinkFirmware []NvlinkFirmwareVersion
+
+	// nvlinkDeclaredLinks mirrors nvlink.links_per_gpu. Kept separately from
+	// the resolved links because a node with one GPU resolves none — it has
+	// no peer to reach — yet the board still has the NVLink hardware that
+	// nvmlDeviceGetNvLinkInfo answers for.
+	nvlinkDeclaredLinks int
 
 	// epoch anchors the deterministic NVLink counter accrual. It is
 	// process-independent so counters grow across separate nvidia-smi
@@ -150,6 +164,169 @@ func resolveC2CEnabled(cfg *Config) bool {
 	return cfg.YAMLConfig.NVLink.C2CEnabled
 }
 
+// resolveNvleEnabled reads the node-level nvlink.nvle_enabled flag.
+func resolveNvleEnabled(cfg *Config) bool {
+	if cfg == nil || cfg.YAMLConfig == nil || cfg.YAMLConfig.NVLink == nil {
+		return false
+	}
+	return cfg.YAMLConfig.NVLink.NvleEnabled
+}
+
+// resolveNvlinkLinksPerGPU reads nvlink.links_per_gpu, which doubles as the
+// profile's statement that the board has NVLink at all: the profiles for
+// boards without it (t4, l40s) declare no link count.
+func resolveNvlinkLinksPerGPU(cfg *Config) int {
+	if cfg == nil || cfg.YAMLConfig == nil || cfg.YAMLConfig.NVLink == nil {
+		return 0
+	}
+	return cfg.YAMLConfig.NVLink.LinksPerGPU
+}
+
+// nvlinkBwModeSpec is a resolved nvlink.bw_mode block. An empty scope means
+// no bandwidth-mode call answers. supported and mode are "unset" markers
+// rather than zero values: the getters need to tell an explicitly configured
+// mode 0 (FULL) from no configuration.
+type nvlinkBwModeSpec struct {
+	scope     NVLinkBwModeScope
+	supported []uint8
+	mode      *uint8
+}
+
+// resolveNvlinkBwMode reads the node-level nvlink.bw_mode block.
+//
+// A scope naming neither function family turns the surface off with a warning
+// instead of guessing one, since a guess would have a typo answer on the wrong
+// set of NVML calls.
+func resolveNvlinkBwMode(cfg *Config) (nvlinkBwModeSpec, []string) {
+	if cfg == nil || cfg.YAMLConfig == nil || cfg.YAMLConfig.NVLink == nil {
+		return nvlinkBwModeSpec{}, nil
+	}
+	bw := cfg.YAMLConfig.NVLink.BwMode
+	if bw == nil {
+		return nvlinkBwModeSpec{}, nil
+	}
+	if bw.Scope != NVLinkBwModeScopeSystem && bw.Scope != NVLinkBwModeScopeDevice {
+		return nvlinkBwModeSpec{}, []string{fmt.Sprintf(
+			"nvlink.bw_mode.scope %q is neither %q nor %q; no bandwidth-mode call will answer",
+			bw.Scope, NVLinkBwModeScopeSystem, NVLinkBwModeScopeDevice)}
+	}
+	return checkNvlinkBwModes(nvlinkBwModeSpec{scope: bw.Scope, supported: bw.Supported, mode: bw.Mode})
+}
+
+// checkNvlinkBwModes warns about the modes of a bw_mode block that nvidia-smi
+// cannot render.
+//
+// A mode the effective supported list does not contain is dropped rather than
+// reported. The setters answer INVALID_ARGUMENT for exactly that value, so
+// honouring it would have the getter report a mode the setter refuses to
+// accept — and, being an index into nvidia-smi's name table, it would render
+// as an unnamed mode. Dropping it falls back to the best supported mode, which
+// is the answer a block without a mode already gives.
+func checkNvlinkBwModes(spec nvlinkBwModeSpec) (nvlinkBwModeSpec, []string) {
+	var warnings []string
+	for _, m := range spec.supported {
+		if m > maxNameableNvlinkBwMode {
+			warnings = append(warnings, fmt.Sprintf(
+				"nvlink.bw_mode.supported contains %d, past the last mode nvidia-smi can name (%d); it will render as an unnamed mode",
+				m, maxNameableNvlinkBwMode))
+		}
+	}
+	effective := effectiveNvlinkBwModes(spec.supported)
+	if spec.mode != nil && !slices.Contains(effective, *spec.mode) {
+		warnings = append(warnings, fmt.Sprintf(
+			"nvlink.bw_mode.mode %d is not in the supported list %v; ignoring it and reporting the best supported mode",
+			*spec.mode, effective))
+		spec.mode = nil
+	}
+	return spec, warnings
+}
+
+// NvlinkFirmwareVersion is one row of the NVLink firmware table, carrying the
+// ucodeType that selects nvidia-smi's label and the three version components
+// it renders as major:minor:subMinor.
+type NvlinkFirmwareVersion struct {
+	UcodeType uint8
+	Major     uint32
+	Minor     uint32
+	SubMinor  uint32
+}
+
+// ucodeType indices, mirroring NVML_NVLINK_FIRMWARE_UCODE_TYPE_* in nvml.h.
+// The engine does not link against the header, so they are restated here; the
+// bridge asserts nothing about them, but an index outside this set makes
+// nvidia-smi abandon the whole `nvlink --info` render rather than skip a row.
+const (
+	nvlinkUcodeMSE       uint8 = 1
+	nvlinkUcodeNETIR     uint8 = 2
+	nvlinkUcodeNETIRUPHY uint8 = 3
+	nvlinkUcodeNETIRCLN  uint8 = 4
+	nvlinkUcodeNETIRDLN  uint8 = 5
+)
+
+// resolveNvlinkFirmware reads the node-level nvlink.firmware block into the
+// table nvmlDeviceGetNvLinkInfo reports. Entries come out in ucodeType order,
+// which is the order nvidia-smi renders them, so the config's key order never
+// shows up in the output. A malformed version is dropped with a warning
+// rather than failing the load, matching how the rest of the nvlink block
+// treats misconfiguration.
+func resolveNvlinkFirmware(cfg *Config) (versions []NvlinkFirmwareVersion, warnings []string) {
+	if cfg == nil || cfg.YAMLConfig == nil || cfg.YAMLConfig.NVLink == nil {
+		return nil, nil
+	}
+	fw := cfg.YAMLConfig.NVLink.Firmware
+	if fw == nil {
+		return nil, nil
+	}
+
+	for _, entry := range []struct {
+		key       string
+		ucodeType uint8
+		raw       string
+	}{
+		{"mse", nvlinkUcodeMSE, fw.MSE},
+		{"netir", nvlinkUcodeNETIR, fw.NETIR},
+		{"netir_uphy", nvlinkUcodeNETIRUPHY, fw.NETIRUPHY},
+		{"netir_cln", nvlinkUcodeNETIRCLN, fw.NETIRCLN},
+		{"netir_dln", nvlinkUcodeNETIRDLN, fw.NETIRDLN},
+	} {
+		if entry.raw == "" {
+			continue
+		}
+		major, minor, subMinor, err := parseNvlinkFirmwareVersion(entry.raw)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf(
+				"nvlink.firmware.%s %q is not major:minor:subMinor (%v); dropping it",
+				entry.key, entry.raw, err))
+			continue
+		}
+		versions = append(versions, NvlinkFirmwareVersion{
+			UcodeType: entry.ucodeType,
+			Major:     major,
+			Minor:     minor,
+			SubMinor:  subMinor,
+		})
+	}
+	return versions, warnings
+}
+
+// parseNvlinkFirmwareVersion splits "major:minor:subMinor" into its three
+// unsigned components.
+func parseNvlinkFirmwareVersion(s string) (major, minor, subMinor uint32, err error) {
+	parts := strings.Split(s, ":")
+	if len(parts) != 3 {
+		return 0, 0, 0, fmt.Errorf("want 3 colon-separated parts, got %d", len(parts))
+	}
+	out := make([]uint32, 3)
+	for i, p := range parts {
+		v, parseErr := strconv.ParseUint(p, 10, 32)
+		if parseErr != nil {
+			return 0, 0, 0, fmt.Errorf("part %d: %w", i+1, parseErr)
+		}
+		out[i] = uint32(v)
+	}
+	return out[0], out[1], out[2], nil
+}
+
 // BuildNodeFabric constructs the immutable node fabric from the loaded
 // configuration. It never fails: misconfiguration is recorded as warnings
 // (see Validate) rather than blocking startup, matching the project's
@@ -167,18 +344,27 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 	}
 
 	f := &NodeFabric{
-		numDevices: n,
-		links:      make([][]ResolvedLink, n),
-		nvCount:    make([][]int, n),
-		pcieLevel:  make([][]nvml.GpuTopologyLevel, n),
-		numaOf:     make([]int, n),
-		rootOf:     make([]string, n),
-		cpusOf:     make([][]int, n),
-		now:        time.Now,
-		epoch:      resolveCounterEpoch(),
-		c2cEnabled: resolveC2CEnabled(cfg),
+		numDevices:  n,
+		links:       make([][]ResolvedLink, n),
+		nvCount:     make([][]int, n),
+		pcieLevel:   make([][]nvml.GpuTopologyLevel, n),
+		numaOf:      make([]int, n),
+		rootOf:      make([]string, n),
+		cpusOf:      make([][]int, n),
+		now:         time.Now,
+		epoch:       resolveCounterEpoch(),
+		c2cEnabled:  resolveC2CEnabled(cfg),
+		nvleEnabled: resolveNvleEnabled(cfg),
+
+		nvlinkDeclaredLinks: resolveNvlinkLinksPerGPU(cfg),
 	}
-	for i := 0; i < n; i++ {
+	var bwWarnings []string
+	f.nvlinkBw, bwWarnings = resolveNvlinkBwMode(cfg)
+	f.warnings = append(f.warnings, bwWarnings...)
+	var fwWarnings []string
+	f.nvlinkFirmware, fwWarnings = resolveNvlinkFirmware(cfg)
+	f.warnings = append(f.warnings, fwWarnings...)
+	for i := range n {
 		f.nvCount[i] = make([]int, n)
 		f.pcieLevel[i] = make([]nvml.GpuTopologyLevel, n)
 		f.numaOf[i] = -1
@@ -192,7 +378,7 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 	// Resolve per-device BDFs (the join key into the topology blocks).
 	bdfOfDev := make([]string, n)
 	bdfToIndex := make(map[string]int, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		bdf := ""
 		if cfg != nil {
 			bdf = strings.ToLower(cfg.GetDevicePCIBusID(i))
@@ -229,7 +415,7 @@ func (f *NodeFabric) resolveAffinity(yc *YAMLConfig, bdfOfDev []string, bdfToInd
 				cpus = parseCPURange(rc.CPUAffinity)
 			} else {
 				start := rc.NUMANode * coresPerNUMA
-				for c := 0; c < coresPerNUMA; c++ {
+				for c := range coresPerNUMA {
 					cpus = append(cpus, start+c)
 				}
 			}
@@ -244,7 +430,7 @@ func (f *NodeFabric) resolveAffinity(yc *YAMLConfig, bdfOfDev []string, bdfToInd
 		}
 	}
 
-	for i := 0; i < f.numDevices; i++ {
+	for i := range f.numDevices {
 		if cpus, ok := cpuByBDF[bdfOfDev[i]]; ok {
 			f.cpusOf[i] = cpus
 		}
@@ -331,12 +517,12 @@ func (f *NodeFabric) resolveLinks(yc *YAMLConfig, n int, bdfOfDev []string, bdfT
 		if want > nvLinkMaxLinks {
 			want = nvLinkMaxLinks
 		}
-		for i := 0; i < n; i++ {
+		for i := range n {
 			if deviceLinkCfgs[i] != nil {
 				continue
 			}
 			synth := make([]NVLinkLinkConfig, want)
-			for k := 0; k < want; k++ {
+			for k := range want {
 				synth[k] = NVLinkLinkConfig{
 					Link:             k,
 					State:            defaults.State,
@@ -348,7 +534,7 @@ func (f *NodeFabric) resolveLinks(yc *YAMLConfig, n int, bdfOfDev []string, bdfT
 		}
 	}
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		for _, lc := range deviceLinkCfgs[i] {
 			rl := resolveLink(lc, defaults, uint32(nv.Version), bw, rate, defaults.CounterSeed, defaults.ErrorRate, bdfOfDev, bdfToIndex, switchBDFs)
 			f.links[i] = append(f.links[i], rl)
@@ -428,7 +614,7 @@ func resolveLink(lc NVLinkLinkConfig, defaults NVLinkDefaults, version uint32, b
 //nolint:cyclop // existing complexity; refactor deferred
 func (f *NodeFabric) computeNVCounts() {
 	switchLinks := make([]int, f.numDevices)
-	for i := 0; i < f.numDevices; i++ {
+	for i := range f.numDevices {
 		for _, l := range f.links[i] {
 			if !l.Active {
 				continue
@@ -448,11 +634,11 @@ func (f *NodeFabric) computeNVCounts() {
 	// Switch-attached links reach every other GPU through the shared
 	// NVSwitch fabric, so each peer sees the full switch link count
 	// (this is what yields GB200's NV18 across every GPU pair).
-	for i := 0; i < f.numDevices; i++ {
+	for i := range f.numDevices {
 		if switchLinks[i] == 0 {
 			continue
 		}
-		for j := 0; j < f.numDevices; j++ {
+		for j := range f.numDevices {
 			if j != i && switchLinks[j] > 0 {
 				f.nvCount[i][j] += switchLinks[i]
 			}
@@ -461,8 +647,8 @@ func (f *NodeFabric) computeNVCounts() {
 }
 
 func (f *NodeFabric) computePCIeLevels() {
-	for i := 0; i < f.numDevices; i++ {
-		for j := 0; j < f.numDevices; j++ {
+	for i := range f.numDevices {
+		for j := range f.numDevices {
 			switch {
 			case i == j:
 				f.pcieLevel[i][j] = nvml.TOPOLOGY_INTERNAL
@@ -479,9 +665,10 @@ func (f *NodeFabric) computePCIeLevels() {
 	}
 }
 
-// Validate returns human-readable warnings for unresolved NVLink
-// endpoints. Runtime callers warn-and-continue; the built-in profile test
-// asserts this is empty for shipped profiles (decision D-b).
+// Validate returns human-readable warnings about the nvlink block: unresolved
+// endpoints, and a bandwidth-mode setting that contradicts itself. Runtime
+// callers warn-and-continue; the built-in profile test asserts this is empty
+// for shipped profiles (decision D-b).
 func (f *NodeFabric) Validate() []string {
 	return f.warnings
 }
@@ -497,6 +684,53 @@ func (f *NodeFabric) C2CEnabled() bool {
 		return false
 	}
 	return f.c2cEnabled
+}
+
+// NvleEnabled reports whether the node's nvlink block declares NVLink
+// encryption. Nil-safe: legacy/default mode builds no fabric.
+func (f *NodeFabric) NvleEnabled() bool {
+	if f == nil {
+		return false
+	}
+	return f.nvleEnabled
+}
+
+// NvlinkFirmware returns the configured NVLink firmware table in ucodeType
+// order, or nil when the profile declared none. Nil-safe: legacy/default mode
+// builds no fabric.
+func (f *NodeFabric) NvlinkFirmware() []NvlinkFirmwareVersion {
+	if f == nil {
+		return nil
+	}
+	return f.nvlinkFirmware
+}
+
+// NvlinkBwModeScope returns which NVML function family answers for the
+// bandwidth mode, or "" when none does. Nil-safe: legacy/default mode builds
+// no fabric.
+func (f *NodeFabric) NvlinkBwModeScope() NVLinkBwModeScope {
+	if f == nil {
+		return ""
+	}
+	return f.nvlinkBw.scope
+}
+
+// NvlinkSupportedBwModes returns the configured supported bandwidth-mode
+// list, or nil when the profile did not declare one.
+func (f *NodeFabric) NvlinkSupportedBwModes() []uint8 {
+	if f == nil {
+		return nil
+	}
+	return f.nvlinkBw.supported
+}
+
+// NvlinkConfiguredBwMode returns the configured initial bandwidth mode and
+// whether the profile declared one at all.
+func (f *NodeFabric) NvlinkConfiguredBwMode() (uint8, bool) {
+	if f == nil || f.nvlinkBw.mode == nil {
+		return 0, false
+	}
+	return *f.nvlinkBw.mode, true
 }
 
 // HasPCIeTopology reports whether root-complex / NUMA facts were supplied.
@@ -516,6 +750,16 @@ func (f *NodeFabric) Link(dev, link int) (ResolvedLink, bool) {
 		}
 	}
 	return ResolvedLink{}, false
+}
+
+// HasNvlink reports whether a device has NVLink at all, either because the
+// profile declares a per-GPU link count or because the fabric resolved links
+// for it. Either is enough: a profile may hand-author links without a count.
+func (f *NodeFabric) HasNvlink(dev int) bool {
+	if f == nil {
+		return false
+	}
+	return f.nvlinkDeclaredLinks > 0 || f.NumLinks(dev) > 0
 }
 
 // NumLinks returns the number of resolved links for a device.
@@ -727,7 +971,7 @@ func nvlinkStateActive(s string) bool {
 // parseCPURange parses "0-71", "0,2,4", or "0-3,8-11" into a CPU id list.
 func parseCPURange(s string) []int {
 	var out []int
-	for _, part := range strings.Split(s, ",") {
+	for part := range strings.SplitSeq(s, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue

@@ -1,0 +1,300 @@
+[    0.000000] ACPI: SSDT 0x0000000000000019 000725 (v02 NVIDIA NVIDSSDT 00000001 DYNT 00010000)
+[    0.000000] ACPI: SSDT 0x000000000000001a 000724 (v02 NVIDIA NVIDSSDT 00000001 DYNT 00010000)
+[    0.000000] ACPI: SSDT 0x000000000000001b 000724 (v02 NVIDIA NVIDSSDT 00000001 DYNT 00010000)
+[    0.000000] ACPI: SSDT 0x000000000000001c 00078E (v02 NVIDIA NVIDSSDT 00000001 DYNT 00010000)
+[    0.000000] ACPI: SSDT 0x000000000000001d 000726 (v02 NVIDIA NVIDSSDT 00000001 DYNT 00010000)
+[    0.000000] ACPI: SSDT 0x000000000000001e 00078E (v02 NVIDIA NVIDSSDT 00000001 DYNT 00010000)
+[    0.000000] ACPI: SSDT 0x000000000000001f 000724 (v02 NVIDIA NVIDSSDT 00000001 DYNT 00010000)
+[    0.000000] ACPI: SSDT 0x0000000000000020 000724 (v02 NVIDIA NVIDSSDT 00000001 DYNT 00010000)
+[    0.000000] ACPI: SSDT 0x0000000000000021 000724 (v02 NVIDIA NVIDSSDT 00000001 DYNT 00010000)
+[    0.000000] ACPI: SSDT 0x0000000000000022 000725 (v02 NVIDIA NVIDSSDT 00000001 DYNT 00010000)
+[    0.000000] ACPI: SSDT 0x0000000000000023 000725 (v02 NVIDIA NVIDSSDT 00000001 DYNT 00010000)
+[    0.000000] ACPI: SSDT 0x0000000000000024 000724 (v02 NVIDIA NVIDSSDT 00000001 DYNT 00010000)
+[    0.000000] ACPI: APMT 0x0000000000000025 0005D4 (v00 NVIDIA          00000001 NVDA 00000001)
+[    0.000000] ACPI: TPM2 0x0000000000000026 000050 (v05 NVIDIA NVIDTPM2 00000001 DYNT 00010000)
+[    0.000000] ACPI: MPAM 0x0000000000000027 0003E4 (v01 NVIDIA NVIDMPAM 00000001 ARMH 00010000)
+[    0.000000] ACPI: SLIT 0x0000000000000028 001DBD (v01 NVIDIA          00000001 NVDA 00000001)
+[    0.000000] ACPI: SRAT 0x0000000000000029 002488 (v03 NVIDIA NVIDSRAT 00000001 DYNT 00010000)
+[    0.000000] ACPI: HMAT 0x000000000000002a 005500 (v02 NVIDIA          00000001 NVDA 00000001)
+[    0.000000] ACPI: SPMI 0x000000000000002b 000041 (v05 NVIDIA NVIDSPMI 00000001 DYNT 00010000)
+[    0.000000] ACPI: SSDT 0x000000000000002c 0000B6 (v02 NVIDIA HF_T410  00000001 INTL 20200717)
+[    0.000000] ACPI: SSDT 0x000000000000002d 000C6C (v02 NVIDIA NVIDSSDT 00000001 DYNT 00010000)
+[    0.000000] ACPI: SSDT 0x000000000000002e 001766 (v02 NVIDIA NVIDPMUT 00000001 DYNT 00010000)
+[    0.000000] ACPI: DBG2 0x000000000000002f 00005D (v00 NVIDIA NVIDDBG2 00000001 DYNT 00010000)
+[    0.000000] ACPI: BDAT 0x0000000000000030 000030 (v01 NVIDIA          00000001 NVDA 00000001)
+[    0.000000] ACPI: WSMT 0x0000000000000031 000028 (v01 NVIDIA          00000001 NVDA 00000001)
+[    0.000000] ACPI: BGRT 0x0000000000000032 000038 (v01 NVIDIA          00000001 NVDA 00000001)
+[    0.000000] CPU features: detected: NVIDIA Olympus device store/load ordering erratum
+[    0.000000] Kernel command line: BOOT_IMAGE=/vmlinuz-7.0.0-2022-nvidia-bos-64k root=/dev/mapper/ubuntu--vg-ubuntu--lv ro console=tty0 console=ttyAMA0,115200 console=ttyAMA0 crashkernel=2G-4G:320M,4G-32G:512M,32G-64G:1024M,64G-128G:2048M,128G-:4096M
+[    0.955212] AMU: Enabling PE0 SMT preference for NVIDIA Olympus
+[    0.996532] DMI: NVIDIA VR NVL72/P3809-BMC, BIOS NV_SBIOS: 06.07.01.05, OEM_SBIOS: 06.07.01.05 Fri Oct 16 09:02:59 AM UTC 2026
+[    9.614181] usb usb1: Manufacturer: Linux 7.0.0-2022-nvidia-bos-64k xhci-hcd
+[    9.781247] usb usb2: Manufacturer: Linux 7.0.0-2022-nvidia-bos-64k xhci-hcd
+[    9.963616] mlx5_core 0001:03:00.0: enabling device (0100 -> 0102)
+[    9.963845] mlx5_core 0001:03:00.0: PTM enabled, 10ns granularity
+[    9.963909] mlx5_core 0001:03:00.0: firmware version: 82.48.4222
+[    9.963992] mlx5_core 0001:03:00.0: 1024.000 Gb/s available PCIe bandwidth (64.0 GT/s PCIe x16 link), in Flit mode
+[   11.090520] mlx5_core 0001:03:00.0: Rate limit: 127 rates are supported, range: 0Mbps to 195312Mbps
+[   11.090866] mlx5_core 0001:03:00.0: E-Switch: Total vports 3, per vport: max uc(128) max mc(2048)
+[   11.092615] mlx5_core 0001:03:00.0: Flow counters bulk query buffer size increased, bulk_query_len(8)
+[   11.135212] mlx5_core 0001:03:00.0: Port module event: module 0, Cable plugged
+[   11.298522] mlx5_core 0001:03:00.0: MLX5E: StrdRq(1) RqSz(8) StrdSz(2048) RxCqeCmprss(0 enhanced)
+[   11.303024] mlx5_core 0003:01:00.0: enabling device (0100 -> 0102)
+[   11.303239] mlx5_core 0003:01:00.0: PTM enabled, 10ns granularity
+[   11.303287] mlx5_core 0003:01:00.0: firmware version: 82.48.4222
+[   11.303336] mlx5_core 0003:01:00.0: 1024.000 Gb/s available PCIe bandwidth (64.0 GT/s PCIe x16 link), in Flit mode
+[   12.390988] mlx5_core 0003:01:00.0: Rate limit: 127 rates are supported, range: 0Mbps to 195312Mbps
+[   12.391213] mlx5_core 0003:01:00.0: E-Switch: Total vports 3, per vport: max uc(128) max mc(2048)
+[   12.392721] mlx5_core 0003:01:00.0: Flow counters bulk query buffer size increased, bulk_query_len(8)
+[   12.397454] mlx5_core 0003:01:00.0: Port module event: module 0, Cable plugged
+[   12.585943] mlx5_core 0003:01:00.0: MLX5E: StrdRq(1) RqSz(8) StrdSz(2048) RxCqeCmprss(0 enhanced)
+[   12.589809] mlx5_core 0004:03:00.0: enabling device (0100 -> 0102)
+[   12.590026] mlx5_core 0004:03:00.0: PTM enabled, 10ns granularity
+[   12.590076] mlx5_core 0004:03:00.0: firmware version: 82.48.4222
+[   12.590151] mlx5_core 0004:03:00.0: 1024.000 Gb/s available PCIe bandwidth (64.0 GT/s PCIe x16 link), in Flit mode
+[   13.711766] mlx5_core 0004:03:00.0: Rate limit: 127 rates are supported, range: 0Mbps to 195312Mbps
+[   13.712094] mlx5_core 0004:03:00.0: E-Switch: Total vports 3, per vport: max uc(128) max mc(2048)
+[   13.713860] mlx5_core 0004:03:00.0: Flow counters bulk query buffer size increased, bulk_query_len(8)
+[   13.719045] mlx5_core 0004:03:00.0: Port module event: module 0, Cable plugged
+[   13.916965] mlx5_core 0004:03:00.0: MLX5E: StrdRq(1) RqSz(8) StrdSz(2048) RxCqeCmprss(0 enhanced)
+[   13.921402] mlx5_core 0005:41:00.0: enabling device (0100 -> 0102)
+[   13.921618] mlx5_core 0005:41:00.0: PTM enabled, 10ns granularity
+[   13.921700] mlx5_core 0005:41:00.0: firmware version: 82.48.4238
+[   13.921756] mlx5_core 0005:41:00.0: 512.000 Gb/s available PCIe bandwidth (64.0 GT/s PCIe x8 link), in Flit mode
+[   14.628612] mlx5_core 0005:41:00.0: Rate limit: 127 rates are supported, range: 0Mbps to 390625Mbps
+[   14.628924] mlx5_core 0005:41:00.0: E-Switch: Total vports 80, per vport: max uc(128) max mc(2048)
+[   14.630619] mlx5_core 0005:41:00.0: Flow counters bulk query buffer size increased, bulk_query_len(8)
+[   14.680091] mlx5_core 0005:41:00.0: Port module event: module 0, Cable plugged
+[   14.821726] mlx5_core 0005:41:00.0: MLX5E: StrdRq(1) RqSz(8) StrdSz(2048) RxCqeCmprss(0 enhanced)
+[   14.825946] mlx5_core 0005:41:00.1: enabling device (0100 -> 0102)
+[   14.826168] mlx5_core 0005:41:00.1: firmware version: 82.48.4238
+[   14.826229] mlx5_core 0005:41:00.1: 512.000 Gb/s available PCIe bandwidth (64.0 GT/s PCIe x8 link), in Flit mode
+[   15.556167] mlx5_core 0005:41:00.1: Rate limit: 127 rates are supported, range: 0Mbps to 390625Mbps
+[   15.556490] mlx5_core 0005:41:00.1: E-Switch: Total vports 80, per vport: max uc(128) max mc(2048)
+[   15.558036] mlx5_core 0005:41:00.1: Flow counters bulk query buffer size increased, bulk_query_len(8)
+[   15.563409] mlx5_core 0005:41:00.1: Port module event: module 1, Cable plugged
+[   15.749741] mlx5_core 0005:41:00.1: MLX5E: StrdRq(1) RqSz(8) StrdSz(2048) RxCqeCmprss(0 enhanced)
+[   15.753428] mlx5_core 0006:01:00.0: enabling device (0100 -> 0102)
+[   15.753642] mlx5_core 0006:01:00.0: PTM enabled, 10ns granularity
+[   15.753680] mlx5_core 0006:01:00.0: firmware version: 82.48.4222
+[   15.753725] mlx5_core 0006:01:00.0: 1024.000 Gb/s available PCIe bandwidth (64.0 GT/s PCIe x16 link), in Flit mode
+[   16.837740] mlx5_core 0006:01:00.0: Rate limit: 127 rates are supported, range: 0Mbps to 195312Mbps
+[   16.837985] mlx5_core 0006:01:00.0: E-Switch: Total vports 3, per vport: max uc(128) max mc(2048)
+[   16.839721] mlx5_core 0006:01:00.0: Flow counters bulk query buffer size increased, bulk_query_len(8)
+[   16.844559] mlx5_core 0006:01:00.0: Port module event: module 0, Cable plugged
+[   17.038405] mlx5_core 0006:01:00.0: MLX5E: StrdRq(1) RqSz(8) StrdSz(2048) RxCqeCmprss(0 enhanced)
+[   17.044217] mlx5_core 0009:03:00.0: enabling device (0100 -> 0102)
+[   17.044484] mlx5_core 0009:03:00.0: PTM enabled, 10ns granularity
+[   17.044530] mlx5_core 0009:03:00.0: firmware version: 82.48.4222
+[   17.044609] mlx5_core 0009:03:00.0: 1024.000 Gb/s available PCIe bandwidth (64.0 GT/s PCIe x16 link), in Flit mode
+[   18.164237] mlx5_core 0009:03:00.0: Rate limit: 127 rates are supported, range: 0Mbps to 195312Mbps
+[   18.164488] mlx5_core 0009:03:00.0: E-Switch: Total vports 3, per vport: max uc(128) max mc(2048)
+[   18.166022] mlx5_core 0009:03:00.0: Flow counters bulk query buffer size increased, bulk_query_len(8)
+[   18.207402] mlx5_core 0009:03:00.0: Port module event: module 0, Cable plugged
+[   18.350798] mlx5_core 0009:03:00.0: MLX5E: StrdRq(1) RqSz(8) StrdSz(2048) RxCqeCmprss(0 enhanced)
+[   18.356623] mlx5_core 000b:01:00.0: enabling device (0100 -> 0102)
+[   18.356818] mlx5_core 000b:01:00.0: PTM enabled, 10ns granularity
+[   18.356851] mlx5_core 000b:01:00.0: firmware version: 82.48.4222
+[   18.356897] mlx5_core 000b:01:00.0: 1024.000 Gb/s available PCIe bandwidth (64.0 GT/s PCIe x16 link), in Flit mode
+[   19.444191] mlx5_core 000b:01:00.0: Rate limit: 127 rates are supported, range: 0Mbps to 195312Mbps
+[   19.444393] mlx5_core 000b:01:00.0: E-Switch: Total vports 3, per vport: max uc(128) max mc(2048)
+[   19.445797] mlx5_core 000b:01:00.0: Flow counters bulk query buffer size increased, bulk_query_len(8)
+[   19.450576] mlx5_core 000b:01:00.0: Port module event: module 0, Cable plugged
+[   19.622855] mlx5_core 000b:01:00.0: MLX5E: StrdRq(1) RqSz(8) StrdSz(2048) RxCqeCmprss(0 enhanced)
+[   19.628265] mlx5_core 000c:03:00.0: enabling device (0100 -> 0102)
+[   19.628475] mlx5_core 000c:03:00.0: PTM enabled, 10ns granularity
+[   19.628510] mlx5_core 000c:03:00.0: firmware version: 82.48.4222
+[   19.628582] mlx5_core 000c:03:00.0: 1024.000 Gb/s available PCIe bandwidth (64.0 GT/s PCIe x16 link), in Flit mode
+[   20.749665] mlx5_core 000c:03:00.0: Rate limit: 127 rates are supported, range: 0Mbps to 195312Mbps
+[   20.749856] mlx5_core 000c:03:00.0: E-Switch: Total vports 3, per vport: max uc(128) max mc(2048)
+[   20.751351] mlx5_core 000c:03:00.0: Flow counters bulk query buffer size increased, bulk_query_len(8)
+[   20.756847] mlx5_core 000c:03:00.0: Port module event: module 0, Cable plugged
+[   20.941283] mlx5_core 000c:03:00.0: MLX5E: StrdRq(1) RqSz(8) StrdSz(2048) RxCqeCmprss(0 enhanced)
+[   20.947074] mlx5_core 000d:41:00.0: PTM enabled, 10ns granularity
+[   20.947136] mlx5_core 000d:41:00.0: firmware version: 82.48.4238
+[   20.947182] mlx5_core 000d:41:00.0: 512.000 Gb/s available PCIe bandwidth (64.0 GT/s PCIe x8 link), in Flit mode
+[   21.722390] mlx5_core 000d:41:00.0: Rate limit: 127 rates are supported, range: 0Mbps to 390625Mbps
+[   21.722846] mlx5_core 000d:41:00.0: E-Switch: Total vports 80, per vport: max uc(128) max mc(2048)
+[   21.724300] mlx5_core 000d:41:00.0: Flow counters bulk query buffer size increased, bulk_query_len(8)
+[   21.770911] mlx5_core 000d:41:00.0: Port module event: module 0, Cable plugged
+[   21.890799] mlx5_core 000d:41:00.0: MLX5E: StrdRq(1) RqSz(8) StrdSz(2048) RxCqeCmprss(0 enhanced)
+[   21.896743] mlx5_core 000d:41:00.1: firmware version: 82.48.4238
+[   21.896792] mlx5_core 000d:41:00.1: 512.000 Gb/s available PCIe bandwidth (64.0 GT/s PCIe x8 link), in Flit mode
+[   22.684239] mlx5_core 000d:41:00.1: Rate limit: 127 rates are supported, range: 0Mbps to 390625Mbps
+[   22.684507] mlx5_core 000d:41:00.1: E-Switch: Total vports 80, per vport: max uc(128) max mc(2048)
+[   22.685898] mlx5_core 000d:41:00.1: Flow counters bulk query buffer size increased, bulk_query_len(8)
+[   22.691004] mlx5_core 000d:41:00.1: Port module event: module 1, Cable plugged
+[   22.869148] mlx5_core 000d:41:00.1: MLX5E: StrdRq(1) RqSz(8) StrdSz(2048) RxCqeCmprss(0 enhanced)
+[   22.874170] mlx5_core 000e:01:00.0: enabling device (0100 -> 0102)
+[   22.874352] mlx5_core 000e:01:00.0: PTM enabled, 10ns granularity
+[   22.874386] mlx5_core 000e:01:00.0: firmware version: 82.48.4222
+[   22.874430] mlx5_core 000e:01:00.0: 1024.000 Gb/s available PCIe bandwidth (64.0 GT/s PCIe x16 link), in Flit mode
+[   23.960532] mlx5_core 000e:01:00.0: Rate limit: 127 rates are supported, range: 0Mbps to 195312Mbps
+[   23.960756] mlx5_core 000e:01:00.0: E-Switch: Total vports 3, per vport: max uc(128) max mc(2048)
+[   23.962236] mlx5_core 000e:01:00.0: Flow counters bulk query buffer size increased, bulk_query_len(8)
+[   23.967064] mlx5_core 000e:01:00.0: Port module event: module 0, Cable plugged
+[   24.140386] mlx5_core 000e:01:00.0: MLX5E: StrdRq(1) RqSz(8) StrdSz(2048) RxCqeCmprss(0 enhanced)
+[   24.151885] mlx5_core 000b:01:00.0 enP11p1s0np0: renamed from eth7
+[   24.153018] mlx5_core 0003:01:00.0 enP3p1s0np0: renamed from eth1
+[   24.153632] mlx5_core 0006:01:00.0 enP6p1s0np0: renamed from eth5
+[   24.154346] mlx5_core 0005:41:00.0 enP5p65s0f0np0: renamed from eth3
+[   24.155213] mlx5_core 0005:41:00.1 enP5p65s0f1np1: renamed from eth4
+[   24.155982] mlx5_core 0004:03:00.0 enP4p3s0np0: renamed from eth2
+[   24.156882] mlx5_core 0009:03:00.0 enP9p3s0np0: renamed from eth6
+[   24.157832] mlx5_core 0001:03:00.0 enP1p3s0np0: renamed from eth0
+[   24.158849] mlx5_core 000e:01:00.0 enP14p1s0np0: renamed from eth11
+[   24.159492] mlx5_core 000d:41:00.1 enP13p65s0f1np1: renamed from eth10
+[   24.160285] mlx5_core 000d:41:00.0 enP13p65s0f0np0: renamed from eth9
+[   24.161032] mlx5_core 000c:03:00.0 enP12p3s0np0: renamed from eth8
+[   24.628091] mlx5_core 0003:01:00.0 enP3p1s0np0: Link up
+[   25.037781] mlx5_core 0001:03:00.0 enP1p3s0np0: Link up
+[   25.451940] mlx5_core 0005:41:00.0 enP5p65s0f0np0: Link up
+[   25.884019] mlx5_core 0004:03:00.0 enP4p3s0np0: Link up
+[   26.292601] mlx5_core 0005:41:00.1 enP5p65s0f1np1: Link up
+[   26.699121] mlx5_core 0006:01:00.0 enP6p1s0np0: Link up
+[   27.066180] mlx5_core 000b:01:00.0 enP11p1s0np0: Link up
+[   27.436998] mlx5_core 0009:03:00.0 enP9p3s0np0: Link up
+[   27.845986] mlx5_core 000d:41:00.0 enP13p65s0f0np0: Link up
+[   28.214914] mlx5_core 000c:03:00.0 enP12p3s0np0: Link up
+[   28.569354] mlx5_core 000e:01:00.0 enP14p1s0np0: Link up
+[   28.958373] mlx5_core 000d:41:00.1 enP13p65s0f1np1: Link up
+[   38.475405] mlx5_core 000d:41:00.0 enP13p65s0f0np0: entered promiscuous mode
+[   38.477526] mlx5_core 000d:41:00.0: mlx5e_fs_set_rx_mode_work:846:(pid 4023): S-tagged traffic will be dropped while C-tag vlan stripping is enabled
+[  225.381833] nvidia: loading out-of-tree module taints kernel.
+[  225.381854] nvidia: module verification failed: signature and/or required key missing - tainting kernel
+[  225.400506] nvidia-nvlink: Nvlink Core is being initialized, major device number 499
+[  225.400541] NVRM: loading NVIDIA UNIX Open Kernel Module for aarch64  615.78.08  Release Build  (dvs-builder@build-host)  Tue Oct  6 05:25:30 UTC 2026
+[  225.479253] nvidia-modeset: Loading NVIDIA UNIX Open Kernel Mode Setting Driver for aarch64  615.78.08  Release Build  (dvs-builder@build-host)  Tue Oct  6 05:06:17 UTC 2026
+[  225.494331] [drm] [nvidia-drm] [GPU ID 0x0002c100] Loading driver
+[  225.494531] [drm] Initialized nvidia-drm 0.0.0 for 0002:c1:00.0 on minor 1
+[  225.494553] [drm] [nvidia-drm] [GPU ID 0x00028100] Loading driver
+[  225.494613] [drm] Initialized nvidia-drm 0.0.0 for 0002:81:00.0 on minor 2
+[  225.494654] [drm] [nvidia-drm] [GPU ID 0x000ae100] Loading driver
+[  225.494776] [drm] Initialized nvidia-drm 0.0.0 for 000a:e1:00.0 on minor 3
+[  225.494808] [drm] [nvidia-drm] [GPU ID 0x000a8100] Loading driver
+[  225.494895] [drm] Initialized nvidia-drm 0.0.0 for 000a:81:00.0 on minor 4
+[  225.498286] [drm] [nvidia-drm] [GPU ID 0x000a8100] Unloading driver
+[  225.498410] [drm] [nvidia-drm] [GPU ID 0x000ae100] Unloading driver
+[  225.498741] [drm] [nvidia-drm] [GPU ID 0x00028100] Unloading driver
+[  225.498911] [drm] [nvidia-drm] [GPU ID 0x0002c100] Unloading driver
+[  225.532548] nvidia-modeset: Unloading
+[  225.789400] nvidia-nvlink: Unregistered Nvlink Core, major device number 499
+[  234.812090] nvidia-nvlink: Nvlink Core is being initialized, major device number 502
+[  234.812120] NVRM: loading NVIDIA UNIX Open Kernel Module for aarch64  615.78.08  Release Build  (dvs-builder@build-host)  Tue Oct  6 05:25:30 UTC 2026
+[  238.581008] nvidia-modeset: Loading NVIDIA UNIX Open Kernel Mode Setting Driver for aarch64  615.78.08  Release Build  (dvs-builder@build-host)  Tue Oct  6 05:06:17 UTC 2026
+[  238.597381] [drm] [nvidia-drm] [GPU ID 0x000a8100] Loading driver
+[  238.602284] [drm] Initialized nvidia-drm 0.0.0 for 000a:81:00.0 on minor 1
+[  238.602336] nvidia 000a:81:00.0: [drm] No compatible format found
+[  238.602356] nvidia 000a:81:00.0: [drm] Cannot find any crtc or sizes
+[  238.602403] [drm] [nvidia-drm] [GPU ID 0x00028100] Loading driver
+[  238.606456] [drm] Initialized nvidia-drm 0.0.0 for 0002:81:00.0 on minor 2
+[  238.606484] nvidia 0002:81:00.0: [drm] No compatible format found
+[  238.606505] nvidia 0002:81:00.0: [drm] Cannot find any crtc or sizes
+[  238.606535] [drm] [nvidia-drm] [GPU ID 0x0002c100] Loading driver
+[  238.610624] [drm] Initialized nvidia-drm 0.0.0 for 0002:c1:00.0 on minor 3
+[  238.610643] nvidia 0002:c1:00.0: [drm] No compatible format found
+[  238.610661] nvidia 0002:c1:00.0: [drm] Cannot find any crtc or sizes
+[  238.610714] [drm] [nvidia-drm] [GPU ID 0x000ae100] Loading driver
+[  238.615318] [drm] Initialized nvidia-drm 0.0.0 for 000a:e1:00.0 on minor 4
+[  238.615339] nvidia 000a:e1:00.0: [drm] No compatible format found
+[  238.615354] nvidia 000a:e1:00.0: [drm] Cannot find any crtc or sizes
+[ 3327.771181] [drm] [nvidia-drm] [GPU ID 0x000ae100] Unloading driver
+[ 3327.773375] [drm] [nvidia-drm] [GPU ID 0x0002c100] Unloading driver
+[ 3327.774888] [drm] [nvidia-drm] [GPU ID 0x00028100] Unloading driver
+[ 3327.781477] [drm] [nvidia-drm] [GPU ID 0x000a8100] Unloading driver
+[ 3327.811119] nvidia-modeset: Unloading
+[ 3390.076028] nvidia-nvlink: Unregistered Nvlink Core, major device number 502
+[ 3606.514242] nvidia: unknown parameter 'options' ignored
+[ 3606.514259] nvidia: unknown parameter 'nvidia' ignored
+[ 3606.514282] nvidia: unknown parameter 'NVreg_GrdmaPciTopoCheckOverride' ignored
+[ 3606.514939] nvidia-nvlink: Nvlink Core is being initialized, major device number 502
+[ 3606.514966] NVRM: loading NVIDIA UNIX Open Kernel Module for aarch64  615.71.09  Release Build  (dvs-builder@build-host)  Fri Sep  4 22:30:06 UTC 2026
+[ 3610.346391] nvidia-modeset: Loading NVIDIA UNIX Open Kernel Mode Setting Driver for aarch64  615.71.09  Release Build  (dvs-builder@build-host)  Fri Sep  4 22:10:07 UTC 2026
+[ 3656.409889] gdrdrv:gdrdrv_init:loading gdrdrv version 2.6 built for opensource NVIDIA driver
+[ 5464.140643] mlx5_core 000c:03:00.0 enP12p3s0np0: Link up
+[ 5464.484517] mlx5_core 000c:03:00.0 enP12p3s0np0: Link up
+[ 5464.584418] mlx5_core 000c:03:00.0 enP12p3s0np0: Link up
+[ 5464.833933] mlx5_core 000c:03:00.0 enP12p3s0np0: Link up
+[ 5468.340119] mlx5_core 0004:03:00.0 enP4p3s0np0: Link up
+[ 5468.683985] mlx5_core 0004:03:00.0 enP4p3s0np0: Link up
+[ 5468.984211] mlx5_core 0004:03:00.0 enP4p3s0np0: Link up
+[ 5474.335823] mlx5_core 000b:01:00.0 enP11p1s0np0: Link up
+[ 5475.479600] mlx5_core 000b:01:00.0 enP11p1s0np0: Link up
+[ 5475.629755] mlx5_core 000b:01:00.0 enP11p1s0np0: Link up
+[ 5476.086046] mlx5_core 0006:01:00.0 enP6p1s0np0: Link up
+[ 5476.581878] mlx5_core 0006:01:00.0 enP6p1s0np0: Link up
+[ 5476.781674] mlx5_core 0006:01:00.0 enP6p1s0np0: Link up
+[ 5477.379580] mlx5_core 000b:01:00.0 enP11p1s0np0: Link up
+[ 5478.081837] mlx5_core 0006:01:00.0 enP6p1s0np0: Link up
+[ 5480.489914] mlx5_core 0001:03:00.0 enP1p3s0np0: Link up
+[ 5480.734016] mlx5_core 0001:03:00.0 enP1p3s0np0: Link up
+[ 5480.883705] mlx5_core 0001:03:00.0 enP1p3s0np0: Link up
+[ 5480.933493] mlx5_core 0001:03:00.0 enP1p3s0np0: Link up
+[ 5493.085204] mlx5_core 000e:01:00.0 enP14p1s0np0: Link up
+[ 5493.281055] mlx5_core 000e:01:00.0 enP14p1s0np0: Link up
+[ 5493.430935] mlx5_core 000e:01:00.0 enP14p1s0np0: Link up
+[ 5495.981220] mlx5_core 000e:01:00.0 enP14p1s0np0: Link up
+[ 5498.737902] mlx5_core 0003:01:00.0 enP3p1s0np0: Link up
+[ 5499.182175] mlx5_core 0003:01:00.0 enP3p1s0np0: Link up
+[ 5499.582089] mlx5_core 0003:01:00.0 enP3p1s0np0: Link up
+[ 5500.482337] mlx5_core 0003:01:00.0 enP3p1s0np0: Link up
+[ 5504.886644] mlx5_core 0009:03:00.0 enP9p3s0np0: Link up
+[ 5505.630836] mlx5_core 0009:03:00.0 enP9p3s0np0: Link up
+[ 5506.380564] mlx5_core 0009:03:00.0 enP9p3s0np0: Link up
+[ 5506.880825] mlx5_core 0009:03:00.0 enP9p3s0np0: Link up
+[23700.936023] NVRM: GPU at PCI:0002:81:00: GPU-00000000-0000-0000-0000-000000000000
+[23700.936052] NVRM: GPU Board Serial Number: 1650000000006
+[23700.936055] NVRM: Xid (PCI:0002:81:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 35 (0x02508c91 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[23700.937520] NVRM: Xid (PCI:0002:81:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 34 (0x02508891 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[23700.937701] NVRM: Xid (PCI:0002:81:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 33 (0x02508491 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[23700.937837] NVRM: Xid (PCI:0002:81:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 32 (0x02508091 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[23700.940431] NVRM: GPU at PCI:000a:81:00: GPU-00000002-0000-0000-0000-000000000002
+[23700.940471] NVRM: GPU Board Serial Number: 1650000000007
+[23700.940494] NVRM: Xid (PCI:000a:81:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 33 (0x02508491 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[23700.940537] NVRM: Xid (PCI:000a:81:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 32 (0x02508091 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[23700.940570] NVRM: Xid (PCI:000a:81:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 34 (0x02508891 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[23700.940601] NVRM: Xid (PCI:000a:81:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 35 (0x02508c91 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[23700.992385] NVRM: GPU at PCI:0002:c1:00: GPU-00000001-0000-0000-0000-000000000001
+[23700.992413] NVRM: GPU Board Serial Number: 1650000000006
+[23700.992418] NVRM: Xid (PCI:0002:c1:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 35 (0x02508c91 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[23700.993496] NVRM: Xid (PCI:0002:c1:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 33 (0x02508491 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[23700.993676] NVRM: Xid (PCI:0002:c1:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 34 (0x02508891 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[23700.993811] NVRM: Xid (PCI:0002:c1:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 32 (0x02508091 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[23701.000933] NVRM: GPU at PCI:000a:e1:00: GPU-00000003-0000-0000-0000-000000000003
+[23701.000970] NVRM: GPU Board Serial Number: 1650000000007
+[23701.000981] NVRM: Xid (PCI:000a:e1:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 34 (0x02508891 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[23701.001004] NVRM: Xid (PCI:000a:e1:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 35 (0x02508c91 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[23701.001024] NVRM: Xid (PCI:000a:e1:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 33 (0x02508491 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[23701.001041] NVRM: Xid (PCI:000a:e1:00): 149, NETIR_LINK_DOWN  Link-Fatal  XC0 i0 Link 32 (0x02508091 0x00000025 0x00000000 0x00000000 0x00000000 0x00000000)
+[25722.045473] mlx5_core 000c:03:00.0 enP12p3s0np0: Link up
+[25722.389799] mlx5_core 000c:03:00.0 enP12p3s0np0: Link up
+[25722.439727] mlx5_core 000c:03:00.0 enP12p3s0np0: Link up
+[25722.689699] mlx5_core 000c:03:00.0 enP12p3s0np0: Link up
+[25726.892385] mlx5_core 000e:01:00.0 enP14p1s0np0: Link up
+[25727.236907] mlx5_core 000e:01:00.0 enP14p1s0np0: Link up
+[25727.286762] mlx5_core 000e:01:00.0 enP14p1s0np0: Link up
+[25728.036718] mlx5_core 000e:01:00.0 enP14p1s0np0: Link up
+[25729.842655] mlx5_core 0009:03:00.0 enP9p3s0np0: Link up
+[25730.436290] mlx5_core 0009:03:00.0 enP9p3s0np0: Link up
+[25730.536441] mlx5_core 0009:03:00.0 enP9p3s0np0: Link up
+[25731.136174] mlx5_core 0009:03:00.0 enP9p3s0np0: Link up
+[25734.243151] mlx5_core 0006:01:00.0 enP6p1s0np0: Link up
+[25736.887011] mlx5_core 0006:01:00.0 enP6p1s0np0: Link up
+[25737.387160] mlx5_core 0006:01:00.0 enP6p1s0np0: Link up
+[25737.587033] mlx5_core 0006:01:00.0 enP6p1s0np0: Link up
+[25738.395081] mlx5_core 0001:03:00.0 enP1p3s0np0: Link up
+[25738.989190] mlx5_core 0001:03:00.0 enP1p3s0np0: Link up
+[25739.639172] mlx5_core 0001:03:00.0 enP1p3s0np0: Link up
+[25739.839293] mlx5_core 0001:03:00.0 enP1p3s0np0: Link up
+[25742.593598] mlx5_core 0003:01:00.0 enP3p1s0np0: Link up
+[25743.237010] mlx5_core 0003:01:00.0 enP3p1s0np0: Link up
+[25743.337345] mlx5_core 0003:01:00.0 enP3p1s0np0: Link up
+[25743.387230] mlx5_core 0003:01:00.0 enP3p1s0np0: Link up
+[25755.645389] mlx5_core 0004:03:00.0 enP4p3s0np0: Link up
+[25755.688858] mlx5_core 0004:03:00.0 enP4p3s0np0: Link up
+[25755.939104] mlx5_core 0004:03:00.0 enP4p3s0np0: Link up
+[25756.239191] mlx5_core 0004:03:00.0 enP4p3s0np0: Link up
+[25762.290977] mlx5_core 000b:01:00.0 enP11p1s0np0: Link up
+[25762.434826] mlx5_core 000b:01:00.0 enP11p1s0np0: Link up
+[25763.085127] mlx5_core 000b:01:00.0 enP11p1s0np0: Link up
+[25763.134708] mlx5_core 000b:01:00.0 enP11p1s0np0: Link up

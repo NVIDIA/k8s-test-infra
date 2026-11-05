@@ -61,6 +61,32 @@ tests:
           path: metadata.name
           value: RELEASE-NAME-nvml-mock
 
+  - it: should pass feature gates to the node agent sorted by name
+    set:
+      featureGates:
+        AllBeta: false
+        AllAlpha: true
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --feature-gates=AllAlpha=true,AllBeta=false
+
+  - it: should reject a feature gate the services do not register
+    set:
+      featureGates:
+        AlternatePlanner: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'AlternatePlanner' not allowed"
+
+  - it: should reject a non-boolean feature gate value
+    set:
+      featureGates:
+        AllAlpha: "yes"
+    asserts:
+      - failedTemplate:
+          errorPattern: "/featureGates/AllAlpha': got string, want boolean"
+
   - it: should include standard labels
     asserts:
       - equal:
@@ -97,55 +123,31 @@ tests:
           path: spec.template.spec.serviceAccountName
           value: RELEASE-NAME-nvml-mock
 
-  - it: should render the default image
+  - it: should default the image tag to the chart appVersion
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].image
-          value: "ghcr.io/nvidia/nvml-mock:latest"
+          path: spec.template.spec.initContainers[0].image
+          value: "ghcr.io/nvidia/nvml-mock:0.0.0-dev"
       - equal:
-          path: spec.template.spec.containers[0].imagePullPolicy
+          path: spec.template.spec.initContainers[0].imagePullPolicy
           value: IfNotPresent
 
   - it: should set default GPU_COUNT env var to 4
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: GPU_COUNT
             value: "4"
 
-  - it: should set default DRIVER_VERSION for non-Blackwell profile
+  - it: should derive DRIVER_VERSION from the profile
     set:
       gpu:
         profile: a100
         count: 8
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: DRIVER_VERSION
-            value: "550.163.01"
-
-  - it: should derive Blackwell driver version for b200 profile
-    set:
-      gpu:
-        profile: b200
-        count: 8
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: DRIVER_VERSION
-            value: "560.35.03"
-
-  - it: should derive Blackwell driver version for gb200 profile
-    set:
-      gpu:
-        profile: gb200
-        count: 4
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: DRIVER_VERSION
             value: "580.65.06"
@@ -158,7 +160,7 @@ tests:
   - it: should mount the NFD features.d host directory
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: nfd-features
             mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
@@ -190,7 +192,7 @@ tests:
         profile: gb200
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
@@ -201,7 +203,7 @@ tests:
         profile: a100
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
@@ -214,7 +216,7 @@ tests:
         enabled: true
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
@@ -227,7 +229,7 @@ tests:
         enabled: false
     asserts:
       - notContains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
@@ -239,17 +241,17 @@ tests:
         count: 4
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: DRIVER_VERSION
-            value: "570.124.06"
+            value: "580.65.06"
 
   - it: should use explicit driverVersion when provided
     set:
       driverVersion: "999.99.99"
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: DRIVER_VERSION
             value: "999.99.99"
@@ -257,7 +259,7 @@ tests:
   - it: should set NODE_NAME from fieldRef
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: NODE_NAME
             valueFrom:
@@ -271,7 +273,7 @@ tests:
     # `[N/A]` for temperature / power.
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_NVML_CONFIG
             value: /etc/nvml-mock/config.yaml
@@ -283,7 +285,7 @@ tests:
         count: 4
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: GPU_COUNT
             value: "4"
@@ -300,7 +302,7 @@ tests:
         count: ""
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: GPU_COUNT
             value: "8"
@@ -312,7 +314,7 @@ tests:
         count: ""
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: GPU_COUNT
             value: "4"
@@ -324,7 +326,7 @@ tests:
         count: ""
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: GPU_COUNT
             value: "4"
@@ -332,12 +334,12 @@ tests:
   - it: should mount all required volumes
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: mokka-root
             mountPath: /host/var/lib/nvml-mock
       - contains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: mokka-profile
             mountPath: /etc/nvml-mock
@@ -345,23 +347,23 @@ tests:
       # Host-absolute MOCK_PCI_ROOT / MOCK_IB_ROOT only resolve for exec'd tools
       # through a second mount of the same volume at the canonical path.
       - contains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: mokka-root
             mountPath: /var/lib/nvml-mock
       - contains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: driver-root-link
             mountPath: /host/run/nvidia
             mountPropagation: Bidirectional
       - contains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: cdi-specs
             mountPath: /host/run/cdi
       - notContains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: cdi-specs
             mountPath: /host/var/run/cdi
@@ -439,11 +441,128 @@ tests:
         pullPolicy: Always
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].image
+          path: spec.template.spec.initContainers[0].image
           value: "custom-registry/nvml-mock:v1.2.3"
       - equal:
-          path: spec.template.spec.containers[0].imagePullPolicy
+          path: spec.template.spec.initContainers[0].imagePullPolicy
           value: Always
+
+  - it: should pin the image by digest over the tag
+    set:
+      allocationWatcher:
+        enabled: true
+      image:
+        tag: v1.2.3
+        digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: ghcr.io/nvidia/nvml-mock@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - equal:
+          path: spec.template.spec.containers[1].image
+          value: ghcr.io/nvidia/nvml-mock@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+  - it: should replace the image registry with global.imageRegistry
+    set:
+      allocationWatcher:
+        enabled: true
+      global:
+        imageRegistry: mirror.example.com
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: mirror.example.com/nvidia/nvml-mock:0.0.0-dev
+      - equal:
+          path: spec.template.spec.containers[1].image
+          value: mirror.example.com/nvidia/nvml-mock:0.0.0-dev
+
+  - it: should replace a registry with a port and keep a pinned digest
+    set:
+      global:
+        imageRegistry: mirror.example.com:5000/
+      image:
+        repository: localhost:5000/team/nvml-mock
+        digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: mirror.example.com:5000/team/nvml-mock@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+  # A first path component without a dot, colon or "localhost" is a Docker Hub
+  # namespace, not a registry host, so it must be kept.
+  - it: should prefix a registry-less repository with global.imageRegistry
+    set:
+      global:
+        imageRegistry: mirror.example.com
+      image:
+        repository: team/nvml-mock
+        tag: v1
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: mirror.example.com/team/nvml-mock:v1
+
+  # An empty pullPolicy follows the Kubernetes default for the rendered tag,
+  # so a floating "latest" is re-pulled instead of served stale from the node.
+  - it: should always pull a latest tag when the pull policy is empty
+    set:
+      allocationWatcher:
+        enabled: true
+      image:
+        tag: latest
+        pullPolicy: ""
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].imagePullPolicy
+          value: Always
+      - equal:
+          path: spec.template.spec.containers[1].imagePullPolicy
+          value: Always
+
+  - it: should pull a release tag if not present when the pull policy is empty
+    set:
+      image:
+        pullPolicy: ""
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].imagePullPolicy
+          value: IfNotPresent
+
+  - it: should not set image pull secrets by default
+    asserts:
+      - notExists:
+          path: spec.template.spec.imagePullSecrets
+
+  - it: should merge global and chart image pull secrets without duplicates
+    set:
+      global:
+        imagePullSecrets:
+          - mirror-creds
+          - name: shared-creds
+      imagePullSecrets:
+        - name: mirror-creds
+        - ghcr-creds
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: mirror-creds
+            - name: shared-creds
+            - name: ghcr-creds
+
+  - it: should reject an image pull secret without a name via the values schema
+    set:
+      imagePullSecrets:
+        - namespace: other
+    asserts:
+      - failedTemplate: {}
+
+  - it: should reject a malformed image digest via the values schema
+    set:
+      image:
+        digest: sha256:not-a-digest
+    asserts:
+      - failedTemplate: {}
 
   - it: should respect nameOverride
     release:
@@ -481,6 +600,101 @@ tests:
       - matchRegex:
           path: spec.template.metadata.annotations["checksum/config"]
           pattern: ^[0-9a-f]{64}$
+
+  # ── Pod scheduling and metadata ─────────────────────────────────────
+  - it: should leave priority and affinity unset by default
+    asserts:
+      - notExists:
+          path: spec.template.spec.priorityClassName
+      - notExists:
+          path: spec.template.spec.affinity
+
+  - it: should apply priorityClassName and affinity
+    set:
+      priorityClassName: system-node-critical
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: system-node-critical
+      - equal:
+          path: spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].key
+          value: node-role.kubernetes.io/control-plane
+
+  - it: should add podAnnotations without displacing the chart's annotations
+    set:
+      podAnnotations:
+        prometheus.io/scrape: "true"
+        checksum/config: user-value
+        kubectl.kubernetes.io/default-container: user-value
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/scrape"]
+          value: "true"
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/config"]
+          pattern: ^[0-9a-f]{64}$
+      - equal:
+          path: spec.template.metadata.annotations["kubectl.kubernetes.io/default-container"]
+          value: node-agent
+
+  - it: should add podLabels alongside the selector labels
+    set:
+      podLabels:
+        team: gpu-infra
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels.team
+          value: gpu-infra
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/name"]
+          value: nvml-mock
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: daemon
+
+  # ── node-agent probes ───────────────────────────────────────────────
+  - it: should probe the node agent health endpoints by default
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].livenessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.initContainers[0].livenessProbe.httpGet.port
+          value: health
+      - equal:
+          path: spec.template.spec.initContainers[0].readinessProbe.httpGet.path
+          value: /readyz
+
+  - it: should apply custom node agent probe settings
+    set:
+      nodeAgent:
+        livenessProbe:
+          periodSeconds: 30
+          failureThreshold: 5
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].livenessProbe.periodSeconds
+          value: 30
+      - equal:
+          path: spec.template.spec.initContainers[0].livenessProbe.httpGet.path
+          value: /healthz
+
+  - it: should drop a node agent probe set to null
+    set:
+      nodeAgent:
+        livenessProbe: null
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers[0].livenessProbe
+      - exists:
+          path: spec.template.spec.initContainers[0].readinessProbe
 
   - it: should keep the checksum well-formed when failureInjection is enabled
     set:
@@ -552,58 +766,58 @@ tests:
   - it: should set ping mock env, LD_PRELOAD, and containerPort
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_IB
             value: "full"
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_IB_PING_FABRIC
             value: "1"
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_IB_PING_PORT
             value: "18515"
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_IB_PING_SOCKET
             value: /var/lib/nvml-mock/run/mock-ib.sock
       # Peer discovery inputs: read by the daemon the agent supervises.
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: POD_IP
             valueFrom:
               fieldRef:
                 fieldPath: status.podIP
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_IB_PING_SERVICE_HOST
             value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: LD_PRELOAD
             value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libmockfs.so.1
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_PCI_ROOT
             value: /var/lib/nvml-mock
       # The agent binds the fabric relay, so ibping is declared on node-agent.
       # Port names are unique per pod, so it cannot also sit on nvml-mock.
       - equal:
-          path: spec.template.spec.containers[0].ports[1].name
+          path: spec.template.spec.initContainers[0].ports[1].name
           value: ibping
       - equal:
-          path: spec.template.spec.containers[0].ports[1].containerPort
+          path: spec.template.spec.initContainers[0].ports[1].containerPort
           value: 18515
       - equal:
-          path: spec.template.spec.containers[0].ports[1].protocol
+          path: spec.template.spec.initContainers[0].ports[1].protocol
           value: TCP
 
   - it: should disable ping mock (but keep sysfs masking) for profiles without InfiniBand
@@ -613,21 +827,21 @@ tests:
     asserts:
       # sysfs (not off) so libibmocksys still masks any real host IB.
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_IB
             value: "sysfs"
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_IB_PING_FABRIC
             value: "0"
       # The agent keeps its health port but declares no fabric relay.
       - equal:
-          path: spec.template.spec.containers[0].ports[0].name
+          path: spec.template.spec.initContainers[0].ports[0].name
           value: health
       - notExists:
-          path: spec.template.spec.containers[0].ports[1]
+          path: spec.template.spec.initContainers[0].ports[1]
 
   - it: should honor a custom ping port
     set:
@@ -636,12 +850,12 @@ tests:
           port: 19000
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_IB_PING_PORT
             value: "19000"
       - equal:
-          path: spec.template.spec.containers[0].ports[1].containerPort
+          path: spec.template.spec.initContainers[0].ports[1].containerPort
           value: 19000
 
   - it: should let infiniband.mockTier override the derived MOCK_IB tier
@@ -650,7 +864,7 @@ tests:
         mockTier: sysfs
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_IB
             value: "sysfs"
@@ -661,7 +875,7 @@ tests:
         mockTier: "off"
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_IB
             value: "off"
@@ -674,7 +888,7 @@ tests:
         mockTier: full
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_IB
             value: "full"
@@ -694,7 +908,7 @@ tests:
         profile: t4
     asserts:
       - notContains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
@@ -708,7 +922,7 @@ tests:
         profile: b200
     asserts:
       - notContains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
@@ -722,7 +936,7 @@ tests:
       # The nvlink simulator stages it into the overlay, where the NRI plugin
       # points workloads at it, and `kubectl exec nvidia-smi -q` reads it here.
       - contains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: cluster-topology
             mountPath: /etc/nvml-mock/topology
@@ -736,10 +950,10 @@ tests:
         enabled: true
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].command
+          path: spec.template.spec.initContainers[0].command
           content: --topology=/etc/nvml-mock/topology/topology.yaml
       - contains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: cluster-topology
             mountPath: /etc/nvml-mock/topology
@@ -749,10 +963,10 @@ tests:
     asserts:
       # An unset --topology is what tells the agent this cluster declares none.
       - notContains:
-          path: spec.template.spec.containers[0].command
+          path: spec.template.spec.initContainers[0].command
           content: --topology=/etc/nvml-mock/topology/topology.yaml
       - notContains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: cluster-topology
             mountPath: /etc/nvml-mock/topology
@@ -762,6 +976,99 @@ tests:
           content:
             name: cluster-topology
 
+  # ── MIG profile table ───────────────────────────────────────────────
+  # The table lives in its own ConfigMap, and the engine's only other way of
+  # finding one is a sibling of MOCK_NVML_CONFIG — which a mount at its own
+  # path is not. So the volume, the mount and the env var have to name the
+  # same place; if any one of them is wrong the board comes up not
+  # MIG-capable and nothing says why.
+  - it: should mount the board's MIG profile table and name it in the env
+    set:
+      gpu:
+        profile: a100
+        count: 8
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: mig-profiles
+            configMap:
+              name: RELEASE-NAME-nvml-mock-mig-profiles
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: mig-profiles
+            mountPath: /etc/nvml-mock/mig
+            readOnly: true
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: MOCK_MIG_PROFILES_CONFIG
+            value: /etc/nvml-mock/mig/mig-profiles.yaml
+
+  # The table moved out of config.yaml, so checksum/config no longer moves
+  # when it changes. Its own annotation is what still rolls the DaemonSet.
+  - it: should roll the DaemonSet on a MIG table change
+    set:
+      gpu:
+        profile: a100
+        count: 8
+    asserts:
+      - exists:
+          path: spec.template.metadata.annotations["checksum/mig-profiles"]
+
+  - it: should not mount a MIG table for a board that ships none
+    set:
+      gpu:
+        profile: t4
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: mig-profiles
+            configMap:
+              name: RELEASE-NAME-nvml-mock-mig-profiles
+      - notContains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: mig-profiles
+            mountPath: /etc/nvml-mock/mig
+            readOnly: true
+      - notContains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: MOCK_MIG_PROFILES_CONFIG
+            value: /etc/nvml-mock/mig/mig-profiles.yaml
+      - notExists:
+          path: spec.template.metadata.annotations["checksum/mig-profiles"]
+
+  # A partitioned board needs the table to have arrived, which is why the
+  # render refuses when gpu.mig.enabled names a profile the chart ships no
+  # table for. Here it is present, so the layout goes through and the mount
+  # still comes with it.
+  - it: should keep the MIG table mounted when the board is partitioned
+    set:
+      gpu:
+        profile: a100
+        count: 8
+        mig:
+          enabled: true
+          gpuInstances:
+            - profile: 1g.5gb
+              count: 7
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: mig-profiles
+            mountPath: /etc/nvml-mock/mig
+            readOnly: true
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: MOCK_MIG_PROFILES_CONFIG
+            value: /etc/nvml-mock/mig/mig-profiles.yaml
+
   - it: should wire fabricmanager state dir into the node-agent when enabled
     set:
       fabricmanager:
@@ -770,7 +1077,7 @@ tests:
       # nvml-mock: the engine reads the marker so `kubectl exec nvidia-smi -q`
       # reports the same fabric state a workload sees.
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
@@ -788,7 +1095,7 @@ tests:
         initDelay: 15s
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_FABRICMANAGER_INIT_DELAY
             value: "15s"
@@ -799,7 +1106,7 @@ tests:
         enabled: true
     asserts:
       - notContains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_FABRICMANAGER_INIT_DELAY
 
@@ -810,7 +1117,7 @@ tests:
         stateDir: /run/nvidia-fabricmanager
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /run/nvidia-fabricmanager
@@ -824,7 +1131,7 @@ tests:
               path: /run/nvidia-fabricmanager
               type: DirectoryOrCreate
       - contains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: fabric-state
             mountPath: /host/run/nvidia-fabricmanager
@@ -833,17 +1140,20 @@ tests:
   - it: should always run the node-agent sidecar
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].name
+          path: spec.template.spec.initContainers[0].name
           value: node-agent
       - contains:
-          path: spec.template.spec.containers[0].command
+          path: spec.template.spec.initContainers[0].command
           content: --log-level=info
       - contains:
-          path: spec.template.spec.containers[0].command
+          path: spec.template.spec.initContainers[0].command
           content: --log-format=json
       - contains:
-          path: spec.template.spec.containers[0].command
+          path: spec.template.spec.initContainers[0].command
           content: --shutdown-timeout=5s
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --resync-interval=1m
 
   # nodeAgent.resources is the only resources knob left: the container it used
   # to sit beside is gone.
@@ -859,16 +1169,16 @@ tests:
             memory: 64Mi
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].resources.limits.cpu
+          path: spec.template.spec.initContainers[0].resources.limits.cpu
           value: 500m
       - equal:
-          path: spec.template.spec.containers[0].resources.limits.memory
+          path: spec.template.spec.initContainers[0].resources.limits.memory
           value: 256Mi
       - equal:
-          path: spec.template.spec.containers[0].resources.requests.cpu
+          path: spec.template.spec.initContainers[0].resources.requests.cpu
           value: 100m
       - equal:
-          path: spec.template.spec.containers[0].resources.requests.memory
+          path: spec.template.spec.initContainers[0].resources.requests.memory
           value: 64Mi
 
   # CDI specs are written to h.Run/cdi/ = /host/run/cdi/. Without this mount the
@@ -876,7 +1186,7 @@ tests:
   - it: node-agent should mount the CDI spec directory
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: cdi-specs
             mountPath: /host/run/cdi
@@ -891,7 +1201,7 @@ tests:
         enabled: true
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: node-sysfs
             mountPath: /host/sys
@@ -912,6 +1222,40 @@ tests:
               path: /sys
               type: Directory
 
+  # helm upgrade --reuse-values renders a value added after the release was
+  # installed as absent, and an empty duration flag stops the agent from
+  # starting. Unset must omit the flag so the binary's own default applies.
+  - it: should omit the resync interval when the value is unset
+    set:
+      nodeAgent:
+        resyncInterval: null
+        # Added after the resync interval, so absent too.
+        containerRuntime: null
+      imex:
+        binaries:
+          download: null
+    asserts:
+      - notContains:
+          path: spec.template.spec.initContainers[0].command
+          content: --resync-interval=
+      - notContains:
+          path: spec.template.spec.initContainers[0].command
+          content: --imex-download-timeout=
+      - lengthEqual:
+          path: spec.template.spec.initContainers[0].command
+          count: 9
+
+  - it: should pass the IMEX download timeout to the node agent
+    set:
+      imex:
+        binaries:
+          download:
+            timeout: 30s
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --imex-download-timeout=30s
+
   - it: should honour node-agent logging and timeout overrides
     set:
       nodeAgent:
@@ -919,16 +1263,20 @@ tests:
           level: debug
           format: plain
         shutdownTimeout: 60s
+        resyncInterval: 30s
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].command
+          path: spec.template.spec.initContainers[0].command
           content: --log-level=debug
       - contains:
-          path: spec.template.spec.containers[0].command
+          path: spec.template.spec.initContainers[0].command
           content: --log-format=plain
       - contains:
-          path: spec.template.spec.containers[0].command
+          path: spec.template.spec.initContainers[0].command
           content: --shutdown-timeout=60s
+      - contains:
+          path: spec.template.spec.initContainers[0].command
+          content: --resync-interval=30s
 
   # ── Allocation watcher (#506) ───────────────────────────────────────
   - it: should not run the allocation watcher by default
@@ -943,6 +1291,22 @@ tests:
             hostPath:
               path: /var/lib/kubelet/pod-resources
               type: Directory
+
+  - it: should run the allocation watcher sidecar from the chart image
+    set:
+      allocationWatcher:
+        enabled: true
+      image:
+        repository: custom-registry/nvml-mock
+        tag: v1.2.3
+        pullPolicy: Always
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].image
+          value: custom-registry/nvml-mock:v1.2.3
+      - equal:
+          path: spec.template.spec.containers[1].imagePullPolicy
+          value: Always
 
   - it: should add the allocation watcher sidecar and its socket mount when enabled
     set:
@@ -1030,12 +1394,12 @@ tests:
           enabled: true
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_NVML_KMSG
             value: /dev/kmsg
       - contains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: kernel-log
             mountPath: /dev/kmsg
@@ -1051,22 +1415,22 @@ tests:
   - it: should always run the node agent privileged
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].securityContext.privileged
+          path: spec.template.spec.initContainers[0].securityContext.privileged
           value: true
       - isNull:
-          path: spec.template.spec.containers[0].securityContext.capabilities
+          path: spec.template.spec.initContainers[0].securityContext.capabilities
 
   - it: should leave the kernel log unmounted by default
     asserts:
       # Empty, not absent: it tells the agent the pod cannot reach /dev/kmsg,
       # so it skips the announcement instead of warning on every injection.
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.initContainers[0].env
           content:
             name: MOCK_NVML_KMSG
             value: ""
       - notContains:
-          path: spec.template.spec.containers[0].volumeMounts
+          path: spec.template.spec.initContainers[0].volumeMounts
           content:
             name: kernel-log
             mountPath: /dev/kmsg

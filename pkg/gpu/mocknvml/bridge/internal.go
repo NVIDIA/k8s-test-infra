@@ -41,6 +41,14 @@ extern unsigned int mockInternalFillProcessList(void* handle, void* buf, unsigne
 // below in Go). Returns 0 when the device is unknown or configures no PCIe block.
 extern unsigned int mockInternalHostMaxPcieLinkGen(void* handle);
 
+// Forward declarations of the vGPU lookups (defined below in Go). Both return 1
+// when the device is the kind the slot asks about, 0 otherwise.
+extern int mockInternalIsVgpuHost(void* handle);
+extern int mockInternalGuestLicenseState(void* handle, unsigned int* state);
+
+// Forward declaration of the public persistence-mode setter (defined in device.go).
+extern nvmlReturn_t nvmlDeviceSetPersistenceMode(nvmlDevice_t device, nvmlEnableState_t mode);
+
 // Forward declaration of the GPU reset (defined in gpu_reset.go). Returns 1 when
 // the device returned to its healthy baseline, 0 when it could not.
 extern int mockInternalResetGPU(void* handle);
@@ -64,11 +72,14 @@ static int isDebugEnabled() {
 // every slot its own trampoline and logging which slots each nvidia-smi view
 // hits (580.65.06).
 #define MOCK_SLOT_GPU_RESET 20
+#define MOCK_SLOT_VGPU_HOST 72
 #define MOCK_SLOT_DEVICE_HANDLE_BY_INDEX 81
+#define MOCK_SLOT_GUEST_LICENSE_STATE 189
 #define MOCK_SLOT_GPU_RESET_COMPLETE 197
 #define MOCK_SLOT_PROCESS_LIST_FIRST 213
 #define MOCK_SLOT_PROCESS_LIST_LAST 215
 #define MOCK_SLOT_HOST_MAX_PCIE_LINK_GEN 230
+#define MOCK_SLOT_SET_PERSISTENCE_MODE 251
 
 // C stub function for internal export table
 // This gets called by nvidia-smi via the export table function pointers
@@ -126,12 +137,32 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
         return NVML_SUCCESS;
     }
 
+    // Persistence mode: fn(nvmlDevice_t device, nvmlEnableState_t mode).
+    // `nvidia-smi -pm` sets it here and never calls the public
+    // nvmlDeviceSetPersistenceMode, and only when the mode would change. Both
+    // catch-alls below mishandle it: DISABLED is 0, so it reads as a NULL arg1
+    // and is acknowledged without being recorded, and ENABLED would be taken
+    // for a count pointer and written through.
+    if (slot == MOCK_SLOT_SET_PERSISTENCE_MODE && mockInternalIsDeviceHandle(arg0)) {
+        nvmlDevice_t device = { .handle = (struct nvmlDevice_st*)arg0 };
+        nvmlReturn_t ret = nvmlDeviceSetPersistenceMode(device, (nvmlEnableState_t)(uintptr_t)arg1);
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u SetPersistenceMode(handle=%p, mode=%u) -> ret=%d\n",
+                    slot, arg0, (unsigned int)(uintptr_t)arg1, ret);
+        }
+        return ret;
+    }
+
     if (arg1 == NULL || !mockInternalIsDeviceHandle(arg0)) {
         // Non-device call - return SUCCESS to acknowledge.
         //
         // Slots with no implementation land here, so it must stay SUCCESS:
         // `nvidia-smi topo -m` probes internal calls before building the matrix
         // and aborts with "Failed to run topology matrix" on any error.
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u unhandled (arg0=%p, arg1=%p, arg2=%p) -> SUCCESS\n",
+                    slot, arg0, arg1, arg2);
+        }
         return NVML_SUCCESS;
     }
 
@@ -160,6 +191,33 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
             if (isDebugEnabled()) {
                 fprintf(stderr, "[C-STUB] slot %u process list (handle=%p) -> %u entries\n",
                         slot, arg0, n);
+            }
+            return NVML_SUCCESS;
+        }
+    }
+
+    // vGPU manager presence: fn(nvmlDevice_t device, unsigned int* out).
+    // `nvidia-smi vgpu` asks this before any public vGPU call and prints "No
+    // supported devices in vGPU mode" while it answers 0. `pmon` asks it too,
+    // and declines a host GPU the way it does on a hypervisor.
+    if (slot == MOCK_SLOT_VGPU_HOST && mockInternalIsVgpuHost(arg0)) {
+        *(unsigned int*)arg1 = 1;
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u vGPU host (handle=%p) -> 1\n", slot, arg0);
+        }
+        return NVML_SUCCESS;
+    }
+
+    // Guest license state: fn(nvmlDevice_t device, unsigned int* out), in
+    // nvmlGridLicenseState_t terms. `nvidia-smi -q` renders a guest's License
+    // Status from this, not from nvmlDeviceGetGridLicensableFeatures.
+    if (slot == MOCK_SLOT_GUEST_LICENSE_STATE) {
+        unsigned int state = 0;
+        if (mockInternalGuestLicenseState(arg0, &state)) {
+            *(unsigned int*)arg1 = state;
+            if (isDebugEnabled()) {
+                fprintf(stderr, "[C-STUB] slot %u guest license state (handle=%p) -> %u\n",
+                        slot, arg0, state);
             }
             return NVML_SUCCESS;
         }
@@ -226,15 +284,48 @@ static void* mockSlotStubs[256] = { MOCK_SLOT_ALL(MOCK_SLOT_ADDR) };
 static void* getSlotStubAddress(unsigned int slot) {
     return mockSlotStubs[slot];
 }
+
+// callSlotForTest makes one export-table call the way nvidia-smi does. arg1
+// goes by value because some slots take an integer there, not a pointer.
+static nvmlReturn_t callSlotForTest(unsigned int slot, void* arg0, uintptr_t arg1) {
+    return internalStubFunction(slot, arg0, (void*)arg1, NULL, NULL);
+}
 */
 import "C"
 
 import (
 	"fmt"
+	"slices"
 	"unsafe"
+
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
+
+const persistenceModeSlotForTest = C.MOCK_SLOT_SET_PERSISTENCE_MODE
+
+const (
+	vgpuHostSlotForTest          = C.MOCK_SLOT_VGPU_HOST
+	guestLicenseStateSlotForTest = C.MOCK_SLOT_GUEST_LICENSE_STATE
+)
+
+// internalSlotReadForTest makes one export-table call whose arg1 is an
+// unsigned int out-parameter and returns what the slot wrote there. The
+// buffer is C memory so the call passes no Go pointer.
+func internalSlotReadForTest(slot uint, handle unsafe.Pointer) (uint32, nvml.Return) {
+	out := (*C.uint)(C.malloc(C.size_t(unsafe.Sizeof(C.uint(0)))))
+	defer C.free(unsafe.Pointer(out))
+	*out = 0xdeadbeef
+	ret := nvml.Return(C.callSlotForTest(C.uint(slot), handle, C.uintptr_t(uintptr(unsafe.Pointer(out)))))
+	return uint32(*out), ret
+}
+
+// internalSlotCallForTest dispatches one export-table call; test files cannot
+// use cgo.
+func internalSlotCallForTest(slot uint, handle unsafe.Pointer, arg1 uintptr) nvml.Return {
+	return nvml.Return(C.callSlotForTest(C.uint(slot), handle, C.uintptr_t(arg1)))
+}
 
 // mockInternalIsDeviceHandle reports whether the raw handle value passed by
 // nvidia-smi through the internal export table belongs to a registered mock
@@ -262,6 +353,34 @@ func mockInternalHostMaxPcieLinkGen(handle unsafe.Pointer) C.uint {
 		return 0
 	}
 	return C.uint(dev.HostMaxPcieLinkGeneration())
+}
+
+// mockInternalIsVgpuHost reports whether the GPU runs the vGPU manager.
+//
+//export mockInternalIsVgpuHost
+func mockInternalIsVgpuHost(handle unsafe.Pointer) C.int {
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil || !dev.IsVgpuHost() {
+		return 0
+	}
+	return 1
+}
+
+// mockInternalGuestLicenseState writes a vGPU guest's license state and
+// reports whether the GPU is one.
+//
+//export mockInternalGuestLicenseState
+func mockInternalGuestLicenseState(handle unsafe.Pointer, state *C.uint) C.int {
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return 0
+	}
+	s, ok := dev.VgpuGuestLicenseState()
+	if !ok {
+		return 0
+	}
+	*state = C.uint(s)
+	return 1
 }
 
 // Layout of one entry in the internal process-list array, recovered by probing
@@ -300,15 +419,18 @@ func mockInternalFillProcessList(handle unsafe.Pointer, buf unsafe.Pointer, capa
 	if dev == nil || buf == nil {
 		return 0
 	}
+	// The three lists fail only for a lost GPU, and then return no entries,
+	// which is the list nvidia-smi should show for a GPU it cannot reach.
 	compute, _ := dev.GetComputeRunningProcesses()
 	graphics, _ := dev.GetGraphicsRunningProcesses()
-	all := append(compute, graphics...)
+	mps, _ := dev.GetMPSComputeRunningProcesses()
+	all := slices.Concat(compute, graphics, mps)
 
 	n := len(all)
 	if n > int(capacity) {
 		n = int(capacity)
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		p, _ := dev.ProcessByPID(all[i].Pid)
 		writeProcessEntry(buf, i, all[i].Pid, all[i].UsedGpuMemory, p.Name)
 	}

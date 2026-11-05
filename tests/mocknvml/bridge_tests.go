@@ -33,12 +33,24 @@ type testResult struct {
 	detail string
 }
 
+// skipPrefix marks the detail of a result that neither passed nor failed
+// because its fixture is absent. The counts below are reported against no
+// expected total, so a leg that returns no results at all reads as one that
+// was never written; a skip keeps it visible without failing a run that was
+// never asked to exercise it.
+const skipPrefix = "SKIP: "
+
+func skippedResult(name, reason string) testResult {
+	return testResult{name, true, skipPrefix + reason}
+}
+
 // bridgeTests runs all bridge-level tests and returns results.
 // Caller must have already called nvml.Init().
 func bridgeTests(deviceCount int) []testResult {
 	var results []testResult
 	results = append(results, testStringHandling()...)
 	results = append(results, testHandleConversions(deviceCount)...)
+	results = append(results, testIdentityLookups(deviceCount)...)
 	results = append(results, testErrorStrings()...)
 	results = append(results, testInvalidIndices(deviceCount)...)
 	results = append(results, testEventSetWait(deviceCount)...)
@@ -49,6 +61,13 @@ func bridgeTests(deviceCount int) []testResult {
 	results = append(results, testConfComputeMemory(deviceCount)...)
 	results = append(results, testPowerLimitSetters(deviceCount)...)
 	results = append(results, testWorkloadPowerProfiles(deviceCount)...)
+	results = append(results, testPowerPolicy(deviceCount)...)
+	results = append(results, testMIG(deviceCount)...)
+	results = append(results, testArrayContractProbesFromC(deviceCount)...)
+	results = append(results, testMemoryLimitsStubFromC()...)
+	results = append(results, testFans(deviceCount)...)
+	results = append(results, testAccountingAndProcesses(deviceCount)...)
+	results = append(results, testDrainLifecycle(deviceCount)...)
 	return results
 }
 
@@ -69,7 +88,7 @@ func bridgeTests(deviceCount int) []testResult {
 func testWorkloadPowerProfiles(deviceCount int) []testResult {
 	var results []testResult
 
-	for index := 0; index < 2 && index < deviceCount; index++ {
+	for index := range min(2, deviceCount) {
 		name := fmt.Sprintf("workloadprofiles/gpu%d", index)
 		device, ret := nvml.DeviceGetHandleByIndex(index)
 		if ret != nvml.SUCCESS {
@@ -159,9 +178,9 @@ func testRequestedProfileSetters(
 			nvml.SUCCESS, []uint32{second}))
 	}
 
-	// UpdateProfiles_v1 is the entry point upstream directs new callers to,
-	// and the one this module's pinned go-nvml has no binding for, so it is
-	// driven by symbol — see workload_profiles_abi.go.
+	// UpdateProfiles_v1 is the entry point upstream directs new callers to.
+	// Drive it by symbol to check its C layout independently of go-nvml — see
+	// workload_profiles_abi.go.
 	results = append(results, testUpdateProfilesV1ABI(index, device, supported)...)
 
 	return results
@@ -290,7 +309,7 @@ func checkEnforcedWithinRequested(name string, current nvml.WorkloadPowerProfile
 func testPowerLimitSetters(deviceCount int) []testResult {
 	var results []testResult
 
-	for index := 0; index < 2 && index < deviceCount; index++ {
+	for index := range min(2, deviceCount) {
 		name := fmt.Sprintf("powerlimit/gpu%d", index)
 		device, ret := nvml.DeviceGetHandleByIndex(index)
 		if ret != nvml.SUCCESS {
@@ -389,6 +408,307 @@ func checkPowerLimitApplied(name string, device nvml.Device, setRet nvml.Return,
 	return testResult{name, true, ""}
 }
 
+// --- MIG tests ---
+
+// testMIG drives the MIG lifecycle through the built library. Everything here
+// crosses the C ABI in both directions — GPU and compute instance handles are
+// opaque pointers the caller holds onto, and the profile-info and attribute
+// structs are caller-allocated — so a wrong offset, a dropped handle or a
+// handle that outlives its instance only shows up at this level.
+//
+// Device 2 boots partitioned from the fixture; device 0 starts with MIG off and
+// is partitioned at runtime, which is what nvidia-mig-parted does. Device 1 is
+// partitioned at runtime as well, to read back what the library recorded.
+//
+// The instance-list leg leaves go-nvml behind: go-nvml presets the count
+// argument that the C ABI documents as output-only, so only a direct C call
+// sees those queries the way nvidia-smi does.
+func testMIG(deviceCount int) []testResult {
+	var results []testResult
+
+	if deviceCount == 0 {
+		return results
+	}
+	results = append(results, testMIGDeclaredPartitions()...)
+	results = append(results, testMIGRuntimeLifecycle()...)
+	results = append(results, testMIGInstanceListsFromC()...)
+	if deviceCount > 1 {
+		results = append(results, testMIGPersistence()...)
+	}
+	if deviceCount > 4 {
+		results = append(results, testMIGProfileIDs(4)...)
+	}
+	return results
+}
+
+// testMIGDeclaredPartitions checks the layout device 2 declares. The uniformity
+// assertion is the point: the device plugin refuses a node under
+// migStrategy=single unless every MIG device on it reports identical
+// attributes, so a per-device attribute leak would strand the whole node.
+func testMIGDeclaredPartitions() []testResult {
+	const (
+		index     = 2
+		want      = 7
+		wantName  = "NVIDIA A100-SXM4-40GB MIG 1g.5gb"
+		wantSlice = 1
+	)
+	name := fmt.Sprintf("mig/declared/gpu%d", index)
+
+	device, ret := nvml.DeviceGetHandleByIndex(index)
+	if ret != nvml.SUCCESS {
+		return []testResult{{name, false, fmt.Sprintf("GetHandleByIndex: %v", nvml.ErrorString(ret))}}
+	}
+
+	current, _, ret := device.GetMigMode()
+	if ret != nvml.SUCCESS || current != nvml.DEVICE_MIG_ENABLE {
+		return []testResult{{name, false, fmt.Sprintf(
+			"GetMigMode -> %d, %v; want DEVICE_MIG_ENABLE, SUCCESS (per-device mig override dropped?)",
+			current, nvml.ErrorString(ret))}}
+	}
+
+	migDevices, err := collectMigDevices(device)
+	if err != nil {
+		return []testResult{{name, false, err.Error()}}
+	}
+	if len(migDevices) != want {
+		return []testResult{{name, false, fmt.Sprintf("enumerated %d MIG devices; want %d", len(migDevices), want)}}
+	}
+
+	var results []testResult
+	uuids := make(map[string]struct{}, len(migDevices))
+	for i, migDevice := range migDevices {
+		if err := checkMigDeviceIdentity(migDevice, device, wantName, wantSlice, uuids); err != nil {
+			results = append(results, testResult{fmt.Sprintf("%s/mig%d", name, i), false, err.Error()})
+			continue
+		}
+		results = append(results, testResult{fmt.Sprintf("%s/mig%d", name, i), true, ""})
+	}
+	if len(uuids) != want {
+		results = append(results, testResult{name + "/unique-uuids", false,
+			fmt.Sprintf("%d distinct UUIDs across %d MIG devices", len(uuids), want)})
+	} else {
+		results = append(results, testResult{name + "/unique-uuids", true, ""})
+	}
+	return results
+}
+
+// checkMigDeviceIdentity asserts the queries a consumer makes about a MIG
+// device: that it says it is one, that it resolves back to its parent, and that
+// its name and attributes describe the partition rather than the whole board.
+func checkMigDeviceIdentity(
+	migDevice, parent nvml.Device, wantName string, wantSlice uint32, uuids map[string]struct{},
+) error {
+	isMig, ret := migDevice.IsMigDeviceHandle()
+	if ret != nvml.SUCCESS || !isMig {
+		return fmt.Errorf("IsMigDeviceHandle -> %t, %v; want true, SUCCESS", isMig, nvml.ErrorString(ret))
+	}
+
+	name, ret := migDevice.GetName()
+	if ret != nvml.SUCCESS || name != wantName {
+		return fmt.Errorf("GetName -> %q, %v; want %q, SUCCESS", name, nvml.ErrorString(ret), wantName)
+	}
+
+	attrs, ret := migDevice.GetAttributes()
+	if ret != nvml.SUCCESS {
+		return fmt.Errorf("GetAttributes: %v", nvml.ErrorString(ret))
+	}
+	if attrs.GpuInstanceSliceCount != wantSlice || attrs.ComputeInstanceSliceCount != wantSlice {
+		return fmt.Errorf("GetAttributes -> gi=%d ci=%d slices; want %d and %d",
+			attrs.GpuInstanceSliceCount, attrs.ComputeInstanceSliceCount, wantSlice, wantSlice)
+	}
+	if attrs.MemorySizeMB == 0 || attrs.MultiprocessorCount == 0 {
+		return fmt.Errorf("GetAttributes -> %d MB, %d SMs; want both non-zero",
+			attrs.MemorySizeMB, attrs.MultiprocessorCount)
+	}
+
+	uuid, ret := migDevice.GetUUID()
+	if ret != nvml.SUCCESS || !strings.HasPrefix(uuid, "MIG-") {
+		return fmt.Errorf("GetUUID -> %q, %v; want a MIG- prefixed UUID", uuid, nvml.ErrorString(ret))
+	}
+	uuids[uuid] = struct{}{}
+
+	resolved, ret := migDevice.GetDeviceHandleFromMigDeviceHandle()
+	if ret != nvml.SUCCESS {
+		return fmt.Errorf("GetDeviceHandleFromMigDeviceHandle: %v", nvml.ErrorString(ret))
+	}
+	parentUUID, _ := parent.GetUUID()
+	resolvedUUID, _ := resolved.GetUUID()
+	if resolvedUUID != parentUUID {
+		return fmt.Errorf("parent resolves to %q; want %q", resolvedUUID, parentUUID)
+	}
+	return nil
+}
+
+// testMIGRuntimeLifecycle partitions device 0 at runtime and tears it back
+// down, asserting that MIG devices appear and disappear with their instances
+// and that handles to destroyed instances stop working.
+func testMIGRuntimeLifecycle() []testResult {
+	const index = 0
+	name := "mig/lifecycle/gpu0"
+
+	device, ret := nvml.DeviceGetHandleByIndex(index)
+	if ret != nvml.SUCCESS {
+		return []testResult{{name, false, fmt.Sprintf("GetHandleByIndex: %v", nvml.ErrorString(ret))}}
+	}
+
+	// The fixture leaves MIG off here, so creating an instance must be refused
+	// until the mode is turned on.
+	giInfo, ret := device.GetGpuInstanceProfileInfo(nvml.GPU_INSTANCE_PROFILE_1_SLICE)
+	if ret != nvml.ERROR_NOT_SUPPORTED {
+		return []testResult{{name, false, fmt.Sprintf(
+			"GetGpuInstanceProfileInfo with MIG off -> %v; want ERROR_NOT_SUPPORTED", nvml.ErrorString(ret))}}
+	}
+
+	if ret, _ := device.SetMigMode(nvml.DEVICE_MIG_ENABLE); ret != nvml.SUCCESS {
+		return []testResult{{name, false, fmt.Sprintf("SetMigMode(enable): %v", nvml.ErrorString(ret))}}
+	}
+	// Leave the device as the fixture had it, so test order cannot matter.
+	defer device.SetMigMode(nvml.DEVICE_MIG_DISABLE) //nolint:errcheck // best-effort cleanup
+
+	giInfo, ret = device.GetGpuInstanceProfileInfo(nvml.GPU_INSTANCE_PROFILE_1_SLICE)
+	if ret != nvml.SUCCESS {
+		return []testResult{{name, false, fmt.Sprintf("GetGpuInstanceProfileInfo: %v", nvml.ErrorString(ret))}}
+	}
+	if giInfo.SliceCount != 1 || giInfo.MemorySizeMB == 0 {
+		return []testResult{{name, false, fmt.Sprintf(
+			"GetGpuInstanceProfileInfo -> %d slices, %d MB; want 1 slice and non-zero memory",
+			giInfo.SliceCount, giInfo.MemorySizeMB)}}
+	}
+
+	placements, ret := device.GetGpuInstancePossiblePlacements(&giInfo)
+	if ret != nvml.SUCCESS || len(placements) == 0 {
+		return []testResult{{name, false, fmt.Sprintf("GetGpuInstancePossiblePlacements -> %d placements, %v; want some",
+			len(placements), nvml.ErrorString(ret))}}
+	}
+
+	gi, ret := device.CreateGpuInstance(&giInfo)
+	if ret != nvml.SUCCESS {
+		return []testResult{{name, false, fmt.Sprintf("CreateGpuInstance: %v", nvml.ErrorString(ret))}}
+	}
+
+	var results []testResult
+	results = append(results, checkGpuInstanceInfo(name, gi, device, &giInfo))
+
+	ciInfo, ret := gi.GetComputeInstanceProfileInfo(
+		nvml.COMPUTE_INSTANCE_PROFILE_1_SLICE, nvml.COMPUTE_INSTANCE_ENGINE_PROFILE_SHARED)
+	if ret != nvml.SUCCESS {
+		return append(results, testResult{name, false,
+			fmt.Sprintf("GetComputeInstanceProfileInfo: %v", nvml.ErrorString(ret))})
+	}
+	ci, ret := gi.CreateComputeInstance(&ciInfo)
+	if ret != nvml.SUCCESS {
+		return append(results, testResult{name, false, fmt.Sprintf("CreateComputeInstance: %v", nvml.ErrorString(ret))})
+	}
+
+	migDevices, err := collectMigDevices(device)
+	if err != nil {
+		return append(results, testResult{name, false, err.Error()})
+	}
+	if len(migDevices) != 1 {
+		return append(results, testResult{name, false,
+			fmt.Sprintf("after one GI+CI: %d MIG devices; want 1", len(migDevices))})
+	}
+	results = append(results, testResult{name + "/create", true, ""})
+
+	migDevice := migDevices[0]
+	if giID, ret := migDevice.GetGpuInstanceId(); ret != nvml.SUCCESS || giID < 0 {
+		results = append(results, testResult{name + "/instance-ids", false,
+			fmt.Sprintf("GetGpuInstanceId -> %d, %v", giID, nvml.ErrorString(ret))})
+	} else if ciID, ret := migDevice.GetComputeInstanceId(); ret != nvml.SUCCESS || ciID < 0 {
+		results = append(results, testResult{name + "/instance-ids", false,
+			fmt.Sprintf("GetComputeInstanceId -> %d, %v", ciID, nvml.ErrorString(ret))})
+	} else {
+		results = append(results, testResult{name + "/instance-ids", true, ""})
+	}
+
+	// Tearing the compute instance down must retire the MIG device with it: a
+	// consumer holding the old handle has to start failing, not keep reading a
+	// partition the driver no longer has.
+	if ret := ci.Destroy(); ret != nvml.SUCCESS {
+		return append(results, testResult{name, false, fmt.Sprintf("ComputeInstance.Destroy: %v", nvml.ErrorString(ret))})
+	}
+	if remaining, err := collectMigDevices(device); err != nil || len(remaining) != 0 {
+		results = append(results, testResult{name + "/destroy-ci", false,
+			fmt.Sprintf("after CI destroy: %d MIG devices, err=%v; want 0", len(remaining), err)})
+	} else {
+		results = append(results, testResult{name + "/destroy-ci", true, ""})
+	}
+
+	if ret := gi.Destroy(); ret != nvml.SUCCESS {
+		return append(results, testResult{name, false, fmt.Sprintf("GpuInstance.Destroy: %v", nvml.ErrorString(ret))})
+	}
+	if _, ret := gi.GetInfo(); ret == nvml.SUCCESS {
+		results = append(results, testResult{name + "/stale-handle", false,
+			"GetInfo on a destroyed GPU instance succeeded; want a failure"})
+	} else {
+		results = append(results, testResult{name + "/stale-handle", true, ""})
+	}
+
+	instances, ret := device.GetGpuInstances(&giInfo)
+	if ret != nvml.SUCCESS || len(instances) != 0 {
+		results = append(results, testResult{name + "/destroy-gi", false,
+			fmt.Sprintf("after GI destroy: %d instances, %v; want 0", len(instances), nvml.ErrorString(ret))})
+	} else {
+		results = append(results, testResult{name + "/destroy-gi", true, ""})
+	}
+	return results
+}
+
+// checkGpuInstanceInfo asserts nvmlGpuInstanceGetInfo fills the caller's struct,
+// including the parent device handle it embeds — the field most likely to come
+// back as a pointer the caller cannot safely use.
+func checkGpuInstanceInfo(
+	name string, gi nvml.GpuInstance, parent nvml.Device, giInfo *nvml.GpuInstanceProfileInfo,
+) testResult {
+	label := name + "/instance-info"
+
+	info, ret := gi.GetInfo()
+	if ret != nvml.SUCCESS {
+		return testResult{label, false, fmt.Sprintf("GetInfo: %v", nvml.ErrorString(ret))}
+	}
+	if info.ProfileId != giInfo.Id {
+		return testResult{label, false, fmt.Sprintf("GetInfo -> profile %d; want %d", info.ProfileId, giInfo.Id)}
+	}
+	if info.Placement.Size == 0 {
+		return testResult{label, false, "GetInfo -> zero-size placement; want the profile's span"}
+	}
+
+	// The embedded device handle has to be usable, not just non-nil: before
+	// the engine repointed it, this was go-nvml's bare mock device, whose
+	// unset methods panic — a segfault inside libnvidia-ml.so.
+	parentUUID, _ := parent.GetUUID()
+	embeddedUUID, ret := info.Device.GetUUID()
+	if ret != nvml.SUCCESS || embeddedUUID != parentUUID {
+		return testResult{label, false, fmt.Sprintf("GetInfo -> device %q, %v; want %q",
+			embeddedUUID, nvml.ErrorString(ret), parentUUID)}
+	}
+	return testResult{label, true, ""}
+}
+
+// collectMigDevices walks a device's MIG indices the way go-nvlib does: up to
+// the board's ceiling, treating ERROR_NOT_FOUND as "nothing at this index"
+// rather than as a failure.
+func collectMigDevices(device nvml.Device) ([]nvml.Device, error) {
+	maxCount, ret := device.GetMaxMigDeviceCount()
+	if ret != nvml.SUCCESS {
+		return nil, fmt.Errorf("GetMaxMigDeviceCount: %v", nvml.ErrorString(ret))
+	}
+
+	var migDevices []nvml.Device
+	for i := range maxCount {
+		migDevice, ret := device.GetMigDeviceHandleByIndex(i)
+		switch ret {
+		case nvml.SUCCESS:
+			migDevices = append(migDevices, migDevice)
+		case nvml.ERROR_NOT_FOUND:
+			continue
+		default:
+			return nil, fmt.Errorf("GetMigDeviceHandleByIndex(%d): %v", i, nvml.ErrorString(ret))
+		}
+	}
+	return migDevices, nil
+}
+
 // --- Confidential Compute memory tests ---
 
 // testConfComputeMemory drives the two CC memory getters through the built
@@ -402,7 +722,7 @@ func checkPowerLimitApplied(name string, device nvml.Device, setRet nvml.Return,
 func testConfComputeMemory(deviceCount int) []testResult {
 	var results []testResult
 
-	for index := 0; index < 2 && index < deviceCount; index++ {
+	for index := range min(2, deviceCount) {
 		name := fmt.Sprintf("confcompute/gpu%d", index)
 		device, ret := nvml.DeviceGetHandleByIndex(index)
 		if ret != nvml.SUCCESS {
@@ -442,19 +762,27 @@ func testConfComputeMemory(deviceCount int) []testResult {
 
 // --- Throttle counter tests ---
 
-// Field ids for the "Clocks Event Reasons Counters". This module pins go-nvml
-// v0.13.0-1, whose const.go still places the three slowdown causes at 251-253,
-// which is where the driver the mock simulates has them, so the names resolve
-// to the ids the engine answers. The root module has since moved to v0.13.3-1,
-// which renumbers them to 269-271 and reuses 251-253 for power smoothing —
-// which is why engine/throttle_counters.go states its ids literally instead of
-// naming them. checkThrottleFieldIDs guards the day this module is bumped too.
+// Field ids the simulated driver answers for the "Clocks Event Reasons
+// Counters" and for power smoothing. They are stated literally rather than
+// named after go-nvml constants: go-nvml v0.13.4 follows the CUDA 13 header,
+// which numbers the three slowdown causes 269-271 and power smoothing 251-268,
+// while the driver the mock simulates (and the nvidia-smi it bundles) has the
+// causes at 251-253 and power smoothing at 256-273. engine/throttle_counters.go
+// and engine/power_smoothing.go use the same driver numbering. The perf-policy
+// ids are the same in both and keep their go-nvml names.
 const (
 	fiThrottleSWPowerCap      = nvml.FI_DEV_PERF_POLICY_POWER
 	fiThrottleSyncBoost       = nvml.FI_DEV_PERF_POLICY_SYNC_BOOST
-	fiThrottleSWThermSlowdown = nvml.FI_DEV_CLOCKS_EVENT_REASON_SW_THERM_SLOWDOWN
-	fiThrottleHWThermSlowdown = nvml.FI_DEV_CLOCKS_EVENT_REASON_HW_THERM_SLOWDOWN
-	fiThrottleHWPowerBrake    = nvml.FI_DEV_CLOCKS_EVENT_REASON_HW_POWER_BRAKE_SLOWDOWN
+	fiThrottleSWThermSlowdown = 251
+	fiThrottleHWThermSlowdown = 252
+	fiThrottleHWPowerBrake    = 253
+
+	fiPwrSmoothingEnabled                = 256
+	fiPwrSmoothingMaxNumPresetProfiles   = 264
+	fiPwrSmoothingProfilePercentTMPFloor = 265
+	fiPwrSmoothingProfileRampDownHystVal = 268
+	fiPwrSmoothingActivePresetProfile    = 269
+
 	valueTypeUnsignedLongLong = 3
 )
 
@@ -475,8 +803,6 @@ func testThrottleCounters(deviceCount int) []testResult {
 		return results
 	}
 
-	results = append(results, checkThrottleFieldIDs())
-
 	causes := []struct {
 		label   string
 		fieldID uint32
@@ -491,7 +817,7 @@ func testThrottleCounters(deviceCount int) []testResult {
 		{"hw_power_brake", fiThrottleHWPowerBrake, 55555},
 	}
 
-	for index := 0; index < 2 && index < deviceCount; index++ {
+	for index := range min(2, deviceCount) {
 		device, ret := nvml.DeviceGetHandleByIndex(index)
 		if ret != nvml.SUCCESS {
 			results = append(results, testResult{
@@ -571,35 +897,6 @@ func testThrottleCounters(deviceCount int) []testResult {
 	}
 
 	return results
-}
-
-// checkThrottleFieldIDs pins the go-nvml names above to the ids the driver the
-// mock simulates uses. Without it, a go-nvml bump that renumbers them would
-// retarget this whole test at ids the engine deliberately does not answer, and
-// every counter below would fail as if the counters had regressed. This says
-// what actually happened instead.
-func checkThrottleFieldIDs() testResult {
-	const (
-		wantSWTherm      = 251
-		wantHWTherm      = 252
-		wantHWPowerBrake = 253
-	)
-	for _, id := range []struct {
-		label     string
-		got, want uint32
-	}{
-		{"sw_therm_slowdown", fiThrottleSWThermSlowdown, wantSWTherm},
-		{"hw_therm_slowdown", fiThrottleHWThermSlowdown, wantHWTherm},
-		{"hw_power_brake", fiThrottleHWPowerBrake, wantHWPowerBrake},
-	} {
-		if id.got != id.want {
-			return testResult{"throttle/field_ids", false, fmt.Sprintf(
-				"go-nvml puts %s at field %d, but the simulated driver has it at %d: "+
-					"this module's go-nvml was bumped past v0.13.0-1 and the names moved",
-				id.label, id.got, id.want)}
-		}
-	}
-	return testResult{"throttle/field_ids", true, ""}
 }
 
 // fieldValueULL reads the ullVal member of the nvmlValue_t union the bridge
@@ -954,7 +1251,7 @@ func testHandleConversions(deviceCount int) []testResult {
 	}
 
 	// Test: all device indices produce valid handles
-	for i := 0; i < deviceCount; i++ {
+	for i := range deviceCount {
 		dev, ret := nvml.DeviceGetHandleByIndex(i)
 		if ret != nvml.SUCCESS {
 			results = append(results, testResult{fmt.Sprintf("handle/index_%d", i), false, fmt.Sprintf("failed: %v", nvml.ErrorString(ret))})
@@ -1099,21 +1396,24 @@ func runBridgeTests(deviceCount int) int {
 	log.Println("\n=== Bridge Edge-Case Tests ===")
 
 	results := bridgeTests(deviceCount)
-	failures := 0
+	failures, skips := 0, 0
 
 	for _, r := range results {
-		if r.passed {
-			if r.detail != "" {
-				log.Printf("  PASS  %s (%s)", r.name, r.detail)
-			} else {
-				log.Printf("  PASS  %s", r.name)
-			}
-		} else {
+		switch {
+		case !r.passed:
 			log.Printf("  FAIL  %s: %s", r.name, r.detail)
 			failures++
+		case strings.HasPrefix(r.detail, skipPrefix):
+			log.Printf("  SKIP  %s (%s)", r.name, strings.TrimPrefix(r.detail, skipPrefix))
+			skips++
+		case r.detail != "":
+			log.Printf("  PASS  %s (%s)", r.name, r.detail)
+		default:
+			log.Printf("  PASS  %s", r.name)
 		}
 	}
 
-	log.Printf("\n=== Bridge Tests: %d passed, %d failed ===", len(results)-failures, failures)
+	log.Printf("\n=== Bridge Tests: %d passed, %d skipped, %d failed ===",
+		len(results)-failures-skips, skips, failures)
 	return failures
 }

@@ -6,13 +6,14 @@ package inject
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/imex"
 )
 
 const (
 	// imexChannelRelPath is where the node agent's imex simulator mknods the
-	// mock IMEX channel nodes, resolved relative to the host overlay path. It
-	// must track that simulator and the imex.mockChannels chart surface.
-	imexChannelRelPath = "driver/dev/nvidia-caps-imex-channels"
+	// mock IMEX channel nodes, resolved relative to the host overlay path.
+	imexChannelRelPath = imex.ChannelsDir
 	// imexChannelContainerDir is the fixed kernel location the channels must
 	// appear at inside the container. Consumers (nvidia-imex, the DRA driver's
 	// compute-domain plugin) hard-code this path.
@@ -22,6 +23,10 @@ const (
 	// resolves against the host overlay path for the existence check and against
 	// the container overlay path for the injected MOCK_TOPOLOGY_CONFIG.
 	topologyRelPath = "topology/topology.yaml"
+	// ibRelPath is the node agent's rendered IB sysfs tree. It resolves against
+	// the host overlay path to check for staged HCAs and against the container
+	// overlay path for the injected MOCK_IB_ROOT.
+	ibRelPath = "ib"
 	// configRelPath holds the mock NVML config and, beside it, the overrides
 	// file runtime state is injected into. It is named once because the mount
 	// and the injected MOCK_NVML_CONFIG have to agree: the overrides the
@@ -50,7 +55,7 @@ type Config struct {
 	ExcludedNamespaces []string
 	OptOutAnnotation   string
 
-	// GPUs — the annotation-gated opt-in and the mechanism that delivers it.
+	// GPUs — the management opt-in and the mechanism that delivers all GPUs.
 	// A missing CDI spec degrades to raw injection rather than failing
 	// container creation.
 	DeviceAnnotation    string
@@ -62,10 +67,15 @@ type Config struct {
 	// IMEX channels — a separate opt-in from the GPU one, because a channel is
 	// a fabric capability rather than a GPU: a ComputeDomain workload may want
 	// channels without the mock device tree, and vice versa. The node agent
-	// stages the nodes when imex.mockChannels.enabled is set; this package only
+	// stages the nodes on multi-node NVLink profiles; this package only
 	// consumes them.
 	ImexChannelAnnotation string
 	ImexChannelHostPath   string
+
+	// InfiniBand — a separate opt-in from the GPU one, because real clusters
+	// allocate RDMA independently of GPUs. Neither a GPU nor an IMEX selection
+	// brings the fabric along.
+	InfiniBandAnnotation string
 
 	// ComputeDomain topology — NodeName gives the mock NVML engine's per-node
 	// overlay its lookup key, so every mock GPU reports the node's clique and
@@ -93,9 +103,8 @@ func DefaultConfig() Config {
 		// The vendor is deliberately NOT nvidia.com: that namespace belongs to
 		// the device plugin and the container toolkit. Keeping ours distinct is
 		// what makes MEP-0002's "exactly one component emits CDI device
-		// references for a container" invariant observable rather than merely
-		// asserted, and it keeps alreadyHasGPUDevices' nvidia.com/ test
-		// meaningful. The "all" device aggregates every mock GPU, which is what
+		// references for a container" invariant observable. The "all" device
+		// aggregates every mock GPU, which is what
 		// the annotation has always meant.
 		CDIDeviceName: "nvml-mock.nvidia.com/gpu=all",
 		// Written by the node agent's cdi simulator. containerd resolves an
@@ -106,6 +115,8 @@ func DefaultConfig() Config {
 
 		ImexChannelAnnotation: "nvml-mock.nvidia.com/imex-channels",
 		ImexChannelHostPath:   filepath.Join(hostOverlay, imexChannelRelPath),
+
+		InfiniBandAnnotation: "nvml-mock.nvidia.com/infiniband",
 	}
 }
 
@@ -121,6 +132,7 @@ func withDefaults(cfg Config) Config {
 	cfg.CDIDeviceName = orDefault(cfg.CDIDeviceName, defaults.CDIDeviceName)
 	cfg.CDISpecHostPath = orDefault(cfg.CDISpecHostPath, defaults.CDISpecHostPath)
 	cfg.ImexChannelAnnotation = orDefault(cfg.ImexChannelAnnotation, defaults.ImexChannelAnnotation)
+	cfg.InfiniBandAnnotation = orDefault(cfg.InfiniBandAnnotation, defaults.InfiniBandAnnotation)
 
 	// Derived from the overlay roots, so they resolve against whatever those
 	// ended up being rather than against the packaged defaults.

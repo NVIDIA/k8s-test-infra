@@ -10,17 +10,14 @@ const YAML = require("yaml");
 const repositoryRoot = path.resolve(__dirname, "../../../..");
 const workflowRoot = path.join(repositoryRoot, ".github", "workflows");
 const trustedRef = "${{ steps.trusted.outputs.result }}";
-const mokkaTrustedRef = "${{ github.sha }}";
-const mokkaActivationGate =
-  "${{ vars.REPOSITORY_AUTOMATION_MOKKA_ENABLED == 'true' && github.ref == 'refs/tags/mokka-cherry-pick-v0.11.0-r1' }}";
 const managed = [
   "automation-ci.yml",
-  "backport.yml",
   "commands.yml",
+  "issue-commands.yml",
   "label-sync.yml",
   "merge-evaluate.yml",
-  "mokka-cherry-pick.yml",
   "pr-metadata.yml",
+  "retire-merge-policy-check.yml",
   "review-observer.yml",
 ];
 
@@ -53,8 +50,7 @@ test("foundation workflows have explicit permissions and immutable actions", () 
 
 test("privileged foundation workflows never execute pull-request code", () => {
   for (const name of [
-    "backport.yml", "commands.yml", "label-sync.yml", "merge-evaluate.yml",
-    "mokka-cherry-pick.yml", "pr-metadata.yml",
+    "commands.yml", "label-sync.yml", "merge-evaluate.yml", "pr-metadata.yml",
   ]) {
     const { source, workflow } = read(name);
     assert.doesNotMatch(source, /pull_request\.head|workflow_run\.head_sha|refs\/pull\//);
@@ -63,15 +59,10 @@ test("privileged foundation workflows never execute pull-request code", () => {
       if (!Array.isArray(job.steps)) continue;
       for (const step of job.steps ?? []) {
         if (step.uses?.startsWith("actions/checkout@") && step.with?.path === "control") {
-          assert.equal(step.with.ref, name === "mokka-cherry-pick.yml" ? mokkaTrustedRef : trustedRef);
+          assert.equal(step.with.ref, trustedRef);
           assert.equal(step.with["persist-credentials"], false);
           assert.equal(step.with.submodules, false);
         }
-      }
-      if (name === "mokka-cherry-pick.yml") {
-        assert.equal(job.if, mokkaActivationGate);
-        assert.equal(job.steps.some((step) => step.id === "trusted"), false);
-        continue;
       }
       const resolver = job.steps.find((step) => step.id === "trusted");
       assert.ok(resolver, `${name}: trusted default-branch resolver`);
@@ -113,4 +104,14 @@ test("foundation scope does not add excluded workflow families", () => {
   );
   assert.match(runbook, /GitHub native auto-merge/);
   assert.match(runbook, /does not (?:install|deploy) (?:Prow or )?Tide/i);
+});
+
+
+test("Pages builds follow MEP sources and the publishing hook", () => {
+  const { workflow } = read("deploy-pages.yaml");
+  for (const event of ["push", "pull_request"]) {
+    for (const changedPath of ["enhancements/**", "hack/mkdocs_meps.py", "hack/test_mkdocs_meps.py"]) {
+      assert.ok(workflow.on[event].paths.includes(changedPath), `${event}: ${changedPath}`);
+    }
+  }
 });

@@ -45,10 +45,39 @@ See [Testing](testing.md) for the full list of gates and what each one checks.
 Also confirm:
 
 - **New files carry an SPDX header.** Match the surrounding files.
-- **The CHANGELOG is updated** if the change is user-facing. Documentation-only
-  changes do not get an entry.
+- **A changelog fragment is added** if the change is user-facing. See
+  [Changelog entries](#changelog-entries).
 - **Documentation is updated** alongside the behaviour it describes, not in a
   follow-up.
+
+## Changelog entries
+
+Each entry is a [changie](https://changie.dev) fragment: a small YAML file
+under `.changes/unreleased/`, one per change. Do not edit `CHANGELOG.md`. It
+holds released versions only and a maintainer writes it when cutting a release,
+so two pull requests never conflict over it.
+
+```bash
+make changelog                                    # prompts for each field
+make changelog KIND=Fixed BODY="..." ISSUE=637    # non-interactive
+```
+
+`KIND` is one of the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+sections: `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed` or `Security`.
+`ISSUE` is optional and renders as a trailing link to that issue or pull
+request. Write the body the way it should read in `CHANGELOG.md`, without the
+leading `- `. For a long entry, open the generated file and wrap the `body:`
+block with continuation lines indented two spaces past the first, the way the
+released entries are wrapped. To see how your entry renders:
+
+```bash
+make changelog-preview RELEASE_VERSION=0.0.0
+```
+
+Refactors, tests, CI and documentation-only changes do not get an entry. A
+maintainer applies the `skip-changelog` label to those instead; CI fails a pull
+request that has neither a fragment nor the label. Dependabot pull requests are
+exempt through the `dependencies` label.
 
 ## Opening it
 
@@ -74,6 +103,22 @@ regressed, and whether comments explain intent rather than restate the code.
 An automated reviewer also comments on pull requests. Treat its findings as
 suggestions — it is configured to stay out of territory the linters already
 cover, but it is not authoritative.
+
+## Rebase only on a conflict
+
+A pull request does not need to be up to date with its base branch to merge.
+The merge agent merges an approved pull request that is behind `main`, so
+other pull requests merging first is not a reason to update yours, and the
+**Update branch** button no longer appears for that case.
+
+Rebase only when the pull request carries the `needs-rebase` label. The
+automation adds it when GitHub reports a merge conflict with the base branch and
+removes it once the conflict is gone; see
+[Repository automation](../maintainers/repository-automation.md).
+
+Every push, a rebase included, dismisses existing approvals and removes the
+`lgtm` evidence, so the pull request needs a fresh review. An update that was not
+needed costs a review round and gains nothing.
 
 ## Related
 

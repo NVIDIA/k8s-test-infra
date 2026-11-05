@@ -12,7 +12,7 @@ By participating, you agree to uphold this code.
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.27+
 - Docker 20.10+
 - Helm 3.x
 - Kind (for E2E testing)
@@ -26,7 +26,7 @@ git clone https://github.com/NVIDIA/k8s-test-infra.git
 cd k8s-test-infra
 
 # Verify Go version
-go version  # must be >= 1.25
+go version  # must be >= 1.27
 
 # Run unit tests
 make test
@@ -71,8 +71,9 @@ Missing, outdated, or incorrect documentation has its own
 1. Fork the repository
 2. Create a feature branch from `main`
 3. Make your changes with tests
-4. Ensure all checks pass (see Testing below)
-5. Submit a pull request
+4. Record a changelog entry with `make changelog` (see [Changelog](#changelog))
+5. Ensure all checks pass (see Testing below)
+6. Submit a pull request
 
 ## Pull Request Process
 
@@ -80,6 +81,18 @@ Missing, outdated, or incorrect documentation has its own
 2. **Tests required** — new features need tests; bug fixes need regression tests
 3. **CI must pass** — all checks (lint, unit tests, E2E) must be green
 4. **Review required** — at least one maintainer approval from [OWNERS](OWNERS)
+5. **Changes logged** — user-facing changes need a changelog fragment, or the
+   `skip-changelog` label
+6. **Rebase only on a conflict**: a pull request that is behind `main` still
+   merges. Rebase only when it has the `needs-rebase` label, because every push
+   dismisses approvals and `lgtm`. See
+   [Pull Requests](https://nvidia.github.io/k8s-test-infra/contributing/pull-requests/#rebase-only-on-a-conflict)
+
+## Changelog
+
+Do not edit `CHANGELOG.md`. Record the entry as a fragment with
+`make changelog` and commit it with your change; see
+[Changelog entries](https://nvidia.github.io/k8s-test-infra/contributing/pull-requests/#changelog-entries).
 
 ## Testing
 

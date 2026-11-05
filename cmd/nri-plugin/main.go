@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -17,6 +18,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/features"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 	"github.com/NVIDIA/k8s-test-infra/internal/nri"
@@ -44,6 +46,7 @@ func newCLI() *cli.Command {
 			overlayFlags(defaults),
 			topologyFlags(),
 			gpuFlags(defaults),
+			infiniBandFlags(defaults),
 			imexChannelFlags(defaults),
 		),
 		Action: run,
@@ -53,6 +56,7 @@ func newCLI() *cli.Command {
 // processFlags shape the binary itself rather than any injection.
 func processFlags() []cli.Flag {
 	return []cli.Flag{
+		features.CLIFlag(),
 		&cli.StringFlag{
 			Name:    "log-level",
 			Value:   string(logging.LevelInfo),
@@ -70,6 +74,16 @@ func processFlags() []cli.Flag {
 			Value:   ":8080",
 			Sources: cli.EnvVars("MOKKA_NRI_HEALTH_ADDR"),
 			Usage:   "address for the /healthz and /readyz probe endpoints; empty disables them",
+		},
+		&cli.StringFlag{
+			Name:    "agent-staged-url",
+			Sources: cli.EnvVars("MOKKA_NRI_AGENT_STAGED_URL"),
+			Usage:   "node-agent /stagedz URL; when set, only adjust containers while the agent reports its tree staged",
+		},
+		&cli.StringFlag{
+			Name:    "staging-lock-path",
+			Sources: cli.EnvVars("MOKKA_NRI_STAGING_LOCK_PATH"),
+			Usage:   "node-agent staging lock file, shared while deciding each adjustment; must not be inside the injected overlay",
 		},
 	}
 }
@@ -202,6 +216,19 @@ func gpuFlags(defaults nri.Config) []cli.Flag {
 	}
 }
 
+// infiniBandFlags control the InfiniBand opt-in, which is separate from the GPU
+// one because real clusters allocate RDMA independently of GPUs.
+func infiniBandFlags(defaults nri.Config) []cli.Flag {
+	return []cli.Flag{
+		&cli.StringFlag{
+			Name:    "infiniband-annotation",
+			Value:   defaults.Inject.InfiniBandAnnotation,
+			Sources: cli.EnvVars("MOKKA_NRI_INFINIBAND_ANNOTATION"),
+			Usage:   "pod annotation key; value true enables the mock InfiniBand tools and shims",
+		},
+	}
+}
+
 // imexChannelFlags control the fabric opt-in, which is separate from the GPU
 // one because a ComputeDomain workload may want channels without mock GPUs.
 func imexChannelFlags(defaults nri.Config) []cli.Flag {
@@ -215,7 +242,7 @@ func imexChannelFlags(defaults nri.Config) []cli.Flag {
 		&cli.StringFlag{
 			Name:    "imex-channel-host-path",
 			Sources: cli.EnvVars("MOKKA_NRI_IMEX_CHANNEL_HOST_PATH"),
-			Usage:   "host path containing the mock IMEX channel nodes staged by imex.mockChannels (defaults to <overlay-host-path>/driver/dev/nvidia-caps-imex-channels)",
+			Usage:   "host path containing the mock IMEX channel nodes the node agent stages on multi-node NVLink profiles (defaults to <overlay-host-path>/driver/dev/nvidia-caps-imex-channels)",
 		},
 	}
 }
@@ -224,15 +251,20 @@ func imexChannelFlags(defaults nri.Config) []cli.Flag {
 // overlay roots by inject.Config's own defaulting, so the CLI does not have to
 // repeat that arithmetic.
 func configFrom(cmd *cli.Command) (nri.Config, error) {
+	if (cmd.String("agent-staged-url") == "") != (cmd.String("staging-lock-path") == "") {
+		return nri.Config{}, errors.New("--agent-staged-url and --staging-lock-path must be set together")
+	}
 	mode, err := inject.ParseDeviceInjectionMode(cmd.String("device-injection-mode"))
 	if err != nil {
 		return nri.Config{}, err
 	}
 
 	return nri.Config{
-		SocketPath:  cmd.String("socket-path"),
-		PluginName:  cmd.String("plugin-name"),
-		PluginIndex: cmd.String("plugin-index"),
+		SocketPath:      cmd.String("socket-path"),
+		PluginName:      cmd.String("plugin-name"),
+		PluginIndex:     cmd.String("plugin-index"),
+		AgentStagedURL:  cmd.String("agent-staged-url"),
+		StagingLockPath: cmd.String("staging-lock-path"),
 		Inject: inject.Config{
 			HostOverlayPath:       cmd.String("overlay-host-path"),
 			ContainerOverlayPath:  cmd.String("overlay-mount-path"),
@@ -247,6 +279,7 @@ func configFrom(cmd *cli.Command) (nri.Config, error) {
 			DeviceAnnotation:      cmd.String("device-annotation"),
 			ImexChannelAnnotation: cmd.String("imex-channel-annotation"),
 			ImexChannelHostPath:   cmd.String("imex-channel-host-path"),
+			InfiniBandAnnotation:  cmd.String("infiniband-annotation"),
 			ExcludedNamespaces:    cmd.StringSlice("excluded-namespaces"),
 			Shims:                 cmd.StringSlice("ld-preload-shims"),
 		},
@@ -266,6 +299,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	logger := logging.NewLogger(logging.Config{Level: level, Format: format})
 	defer func() { _ = logger.Sync() }()
+
+	if err := features.ConfigureFromCLI(cmd, logger); err != nil {
+		return err
+	}
 
 	cfg, err := configFrom(cmd)
 

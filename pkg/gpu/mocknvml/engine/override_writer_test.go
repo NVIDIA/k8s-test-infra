@@ -59,6 +59,34 @@ func (w *fileOverrideWriter) SetPowerLimit(index int, milliwatts uint32) error {
 	})
 }
 
+func (w *fileOverrideWriter) SetPersistenceMode(index int, enabled bool) error {
+	return w.mutate(index, func(bucket map[string]any) error {
+		bucket["persistence_mode"] = enableStateString(enabled)
+		return nil
+	})
+}
+
+func (w *fileOverrideWriter) SetDrainState(index int, draining bool) error {
+	return w.mutate(index, func(bucket map[string]any) error {
+		bucket["draining"] = draining
+		return nil
+	})
+}
+
+func (w *fileOverrideWriter) SetRemoved(index int, removed bool) error {
+	return w.mutate(index, func(bucket map[string]any) error {
+		bucket["removed"] = removed
+		return nil
+	})
+}
+
+func enableStateString(enabled bool) string {
+	if enabled {
+		return "enabled"
+	}
+	return "disabled"
+}
+
 func (w *fileOverrideWriter) UpdateWorkloadProfiles(
 	index int, apply func(base []uint32, present bool) ([]uint32, error),
 ) error {
@@ -79,27 +107,182 @@ func (w *fileOverrideWriter) UpdateWorkloadProfiles(
 	})
 }
 
+func (w *fileOverrideWriter) SetNvlinkBwMode(index int, mode uint8, allDevices bool) error {
+	patch := func(bucket map[string]any) error {
+		deepMergeMaps(bucket, map[string]any{"nvlink_bw_mode": mode})
+		return nil
+	}
+	if allDevices {
+		// Mirrors mockctl.SetNvlinkBwMode: the write lands in the `all:`
+		// bucket, and also drops the per-device copies, which would otherwise
+		// outrank `all:` in the merge and mask it.
+		return w.write(func(doc *ConfigOverrideDoc) (map[string]any, error) {
+			for _, bucket := range doc.Devices {
+				delete(bucket, "nvlink_bw_mode")
+			}
+			if doc.All == nil {
+				doc.All = map[string]any{}
+			}
+			return doc.All, nil
+		}, patch)
+	}
+	return w.mutate(index, patch)
+}
+
+func (w *fileOverrideWriter) SetNvlinkLowPowerThreshold(index int, threshold *uint32) error {
+	return w.mutate(index, func(bucket map[string]any) error {
+		if threshold == nil {
+			delete(bucket, "nvlink_low_power_threshold")
+			return nil
+		}
+		deepMergeMaps(bucket, map[string]any{"nvlink_low_power_threshold": *threshold})
+		return nil
+	})
+}
+
+func (w *fileOverrideWriter) SetApplicationsClocks(index int, memMHz, graphicsMHz uint32) error {
+	return w.mutate(index, func(bucket map[string]any) error {
+		deepMergeMaps(bucket, map[string]any{
+			"clocks": map[string]any{"memory_app": memMHz, "graphics_app": graphicsMHz},
+		})
+		return nil
+	})
+}
+
+func (w *fileOverrideWriter) SetLockedClocks(index int, domain ClockDomain, r *ClockRangeConfig) error {
+	key := "locked_" + string(domain)
+	return w.mutate(index, func(bucket map[string]any) error {
+		if r == nil {
+			if clocks, ok := bucket["clocks"].(map[string]any); ok {
+				delete(clocks, key)
+			}
+			return nil
+		}
+		deepMergeMaps(bucket, map[string]any{
+			"clocks": map[string]any{key: map[string]any{"min_mhz": r.MinMHz, "max_mhz": r.MaxMHz}},
+		})
+		return nil
+	})
+}
+
+func (w *fileOverrideWriter) SetClockOffset(index int, domain ClockDomain, offsetMHz int32) error {
+	return w.mutate(index, func(bucket map[string]any) error {
+		deepMergeMaps(bucket, map[string]any{
+			"clocks": map[string]any{"offsets": map[string]any{
+				string(domain): map[string]any{"offset_mhz": offsetMHz},
+			}},
+		})
+		return nil
+	})
+}
+
+func (w *fileOverrideWriter) UpdateFanControl(
+	index int, apply func(base []FanControlConfig, present bool) ([]FanControlConfig, error),
+) error {
+	return w.mutate(index, func(bucket map[string]any) error {
+		next, err := apply(fanControlsFromBucket(bucket))
+		if err != nil {
+			return err
+		}
+		if next == nil {
+			next = []FanControlConfig{}
+		}
+		deepMergeMaps(bucket, map[string]any{
+			"fan": map[string]any{"controls": next},
+		})
+		return nil
+	})
+}
+
+func (w *fileOverrideWriter) SetPowerMizerMode(index int, mode string) error {
+	return w.patch(index, map[string]any{"power": map[string]any{"power_mizer_mode": mode}})
+}
+
+func (w *fileOverrideWriter) SetPowerSmoothingState(index int, enabled bool) error {
+	return w.patch(index, map[string]any{
+		"power": map[string]any{"smoothing": map[string]any{"state": enableStateString(enabled)}},
+	})
+}
+
+func (w *fileOverrideWriter) SetPowerSmoothingActiveProfile(index int, profileID uint32) error {
+	return w.patch(index, map[string]any{
+		"power": map[string]any{"smoothing": map[string]any{"active_profile": profileID}},
+	})
+}
+
+func (w *fileOverrideWriter) SetPowerSmoothingProfileParam(
+	index int, profileID uint32, param PowerSmoothingParam, value float64,
+) error {
+	return w.patch(index, PowerSmoothingProfilePatch(profileID, param, value))
+}
+
+func (w *fileOverrideWriter) SetAccountingMode(index int, enabled bool) error {
+	accounting := map[string]any{"mode": enableStateString(enabled)}
+	if !enabled {
+		accounting["terminated"] = []any{}
+	}
+	return w.patch(index, map[string]any{"accounting": accounting})
+}
+
+func (w *fileOverrideWriter) ClearAccountingPids(index int) error {
+	return w.patch(index, map[string]any{"accounting": map[string]any{"terminated": []any{}}})
+}
+
+func (w *fileOverrideWriter) SetEccModePending(index int, enabled bool) error {
+	return w.patch(index, map[string]any{"ecc": map[string]any{"mode_pending": enableStateString(enabled)}})
+}
+
+func (w *fileOverrideWriter) ClearEccErrorCounts(index int, scope EccCounterScope) error {
+	return w.patch(index, EccClearPatch(scope))
+}
+
+func (w *fileOverrideWriter) SetDramEncryptionPending(index int, enabled bool) error {
+	return w.patch(index, map[string]any{"ecc": map[string]any{
+		"dram_encryption": map[string]any{"mode_pending": enableStateString(enabled)},
+	}})
+}
+
+func (w *fileOverrideWriter) patch(index int, patch map[string]any) error {
+	return w.mutate(index, func(bucket map[string]any) error {
+		deepMergeMaps(bucket, patch)
+		return nil
+	})
+}
+
 func (w *fileOverrideWriter) mutate(index int, patch func(bucket map[string]any) error) error {
+	return w.write(func(doc *ConfigOverrideDoc) (map[string]any, error) {
+		if doc.Devices == nil {
+			doc.Devices = map[string]map[string]any{}
+		}
+		key := strconv.Itoa(index)
+		if doc.Devices[key] == nil {
+			doc.Devices[key] = map[string]any{}
+		}
+		return doc.Devices[key], nil
+	}, patch)
+}
+
+func (w *fileOverrideWriter) write(
+	bucket func(*ConfigOverrideDoc) (map[string]any, error),
+	patch func(map[string]any) error,
+) error {
 	doc, err := w.load()
 	if err != nil {
 		return err
 	}
-	if doc.Devices == nil {
-		doc.Devices = map[string]map[string]any{}
-	}
-	key := strconv.Itoa(index)
-	if doc.Devices[key] == nil {
-		doc.Devices[key] = map[string]any{}
-	}
-	if err := patch(doc.Devices[key]); err != nil {
-		return err
-	}
-
-	b, err := yaml.Marshal(doc)
+	b, err := bucket(doc)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(w.path, b, 0o644)
+	if err := patch(b); err != nil {
+		return err
+	}
+
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(w.path, out, 0o644)
 }
 
 func (w *fileOverrideWriter) load() (*ConfigOverrideDoc, error) {
@@ -131,6 +314,16 @@ func requestedFromBucket(bucket map[string]any) (requested []uint32, present boo
 	return merged.Power.WorkloadProfiles.Requested, true
 }
 
+// fanControlsFromBucket reads the per-fan control state already recorded for a
+// device, typed, and reports whether any was recorded at all.
+func fanControlsFromBucket(bucket map[string]any) (controls []FanControlConfig, present bool) {
+	merged, err := MergeDeviceConfig(&DeviceConfig{}, bucket)
+	if err != nil || merged.Fan == nil || merged.Fan.Controls == nil {
+		return nil, false
+	}
+	return merged.Fan.Controls, true
+}
+
 // TestSetters_DeclineWithoutAWriter covers a consumer that links the engine
 // without the bridge that installs a writer. Reporting success for a cap that
 // was recorded nowhere is the failure this guards against.
@@ -139,4 +332,21 @@ func TestSetters_DeclineWithoutAWriter(t *testing.T) {
 
 	require.Equal(t, nvml.ERROR_NO_PERMISSION, dev.SetPowerManagementLimit(250000),
 		"a setter with nowhere to record the write must not report success")
+	require.Equal(t, nvml.ERROR_NO_PERMISSION, dev.SetPersistenceMode(nvml.FEATURE_DISABLED))
+}
+
+// TestNvlinkSetters_DeclineWithoutAWriter covers the same contract for the
+// NVLink setters. Each is gated on a different part of the profile's nvlink
+// block, so each needs its own device to get past the gate and reach the
+// writer lookup being asserted here.
+func TestNvlinkSetters_DeclineWithoutAWriter(t *testing.T) {
+	perDevice := bwDevice(t, bwFabric(t, deviceBwMode(nil, nil)))
+	require.Equal(t, nvml.ERROR_NO_PERMISSION, perDevice.SetMockNvlinkBwMode(3, false),
+		"bandwidth mode with nowhere to record the write")
+
+	require.Equal(t, nvml.ERROR_NO_PERMISSION, bwSwitchFabricDevice(t).SetMockNvLinkLowPowerThreshold(500),
+		"low-power threshold with nowhere to record the write")
+
+	require.Equal(t, nvml.ERROR_NO_PERMISSION, bwEngine(t, systemBwMode(nil, nil)).SystemSetNvlinkBwMode(3),
+		"node-wide bandwidth mode with nowhere to record the write")
 }

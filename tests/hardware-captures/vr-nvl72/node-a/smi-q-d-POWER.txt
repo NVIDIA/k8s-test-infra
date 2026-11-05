@@ -1,0 +1,146 @@
+
+==============NVSMI LOG==============
+
+Timestamp                                              : Wed Nov  4 04:53:49 2026
+Driver Version                                         : 615.71.09 [Deprecated; will be removed in CUDA 14.0. Use KMD Version instead]
+CUDA Version                                           : 13.4 [Deprecated; will be removed in CUDA 14.0. Use CUDA UMD Version instead]
+KMD Version                                            : 615.71.09
+CUDA UMD Version                                       : 13.4
+
+Attached GPUs                                          : 4
+GPU 00000002:81:00.0
+    GPU Power Readings
+        Average Power Draw                             : 418.36 W
+        Instantaneous Power Draw                       : 418.36 W
+        GPU Ceiling Power Limit
+            Current Power Limit                        : 2300.00 W
+            Requested Power Limit                      : 2300.00 W
+            Default Power Limit                        : 2300.00 W
+        GPU Base Power
+            Current Base Power                         : 2100.00 W
+            Requested Base Power                       : 2100.00 W
+            Default Base Power                         : 2100.00 W
+            Adaptive TGP Adjusted Base Power           : N/A
+        Min Power Limit                                : 200.00 W
+        Max Power Limit                                : 2300.00 W
+    Power Samples
+        Duration                                       : 2.36 sec
+        Number of Samples                              : 119
+        Max                                            : 418.36 W
+        Min                                            : 418.35 W
+        Avg                                            : 418.36 W
+    GPU Memory Power Readings 
+        Average Power Draw                             : 60.23 W
+        Instantaneous Power Draw                       : N/A
+    Module Power Readings
+        Average Power Draw                             : N/A
+        Instantaneous Power Draw                       : N/A
+        Current Power Limit                            : N/A
+        Requested Power Limit                          : N/A
+        Default Power Limit                            : N/A
+        Min Power Limit                                : N/A
+        Max Power Limit                                : N/A
+    EDPp Multiplier                                    : 100.00%
+
+GPU 00000002:C1:00.0
+    GPU Power Readings
+        Average Power Draw                             : 408.65 W
+        Instantaneous Power Draw                       : 408.51 W
+        GPU Ceiling Power Limit
+            Current Power Limit                        : 2300.00 W
+            Requested Power Limit                      : 2300.00 W
+            Default Power Limit                        : 2300.00 W
+        GPU Base Power
+            Current Base Power                         : 2100.00 W
+            Requested Base Power                       : 2100.00 W
+            Default Base Power                         : 2100.00 W
+            Adaptive TGP Adjusted Base Power           : N/A
+        Min Power Limit                                : 200.00 W
+        Max Power Limit                                : 2300.00 W
+    Power Samples
+        Duration                                       : 2.36 sec
+        Number of Samples                              : 119
+        Max                                            : 408.77 W
+        Min                                            : 408.51 W
+        Avg                                            : 408.68 W
+    GPU Memory Power Readings 
+        Average Power Draw                             : 53.80 W
+        Instantaneous Power Draw                       : N/A
+    Module Power Readings
+        Average Power Draw                             : N/A
+        Instantaneous Power Draw                       : N/A
+        Current Power Limit                            : N/A
+        Requested Power Limit                          : N/A
+        Default Power Limit                            : N/A
+        Min Power Limit                                : N/A
+        Max Power Limit                                : N/A
+    EDPp Multiplier                                    : 100.00%
+
+GPU 0000000A:81:00.0
+    GPU Power Readings
+        Average Power Draw                             : 409.15 W
+        Instantaneous Power Draw                       : 409.04 W
+        GPU Ceiling Power Limit
+            Current Power Limit                        : 2300.00 W
+            Requested Power Limit                      : 2300.00 W
+            Default Power Limit                        : 2300.00 W
+        GPU Base Power
+            Current Base Power                         : 2100.00 W
+            Requested Base Power                       : 2100.00 W
+            Default Base Power                         : 2100.00 W
+            Adaptive TGP Adjusted Base Power           : N/A
+        Min Power Limit                                : 200.00 W
+        Max Power Limit                                : 2300.00 W
+    Power Samples
+        Duration                                       : 2.36 sec
+        Number of Samples                              : 119
+        Max                                            : 409.30 W
+        Min                                            : 408.99 W
+        Avg                                            : 409.11 W
+    GPU Memory Power Readings 
+        Average Power Draw                             : 54.85 W
+        Instantaneous Power Draw                       : N/A
+    Module Power Readings
+        Average Power Draw                             : N/A
+        Instantaneous Power Draw                       : N/A
+        Current Power Limit                            : N/A
+        Requested Power Limit                          : N/A
+        Default Power Limit                            : N/A
+        Min Power Limit                                : N/A
+        Max Power Limit                                : N/A
+    EDPp Multiplier                                    : 100.00%
+
+GPU 0000000A:E1:00.0
+    GPU Power Readings
+        Average Power Draw                             : 404.42 W
+        Instantaneous Power Draw                       : 404.06 W
+        GPU Ceiling Power Limit
+            Current Power Limit                        : 2300.00 W
+            Requested Power Limit                      : 2300.00 W
+            Default Power Limit                        : 2300.00 W
+        GPU Base Power
+            Current Base Power                         : 2100.00 W
+            Requested Base Power                       : 2100.00 W
+            Default Base Power                         : 2100.00 W
+            Adaptive TGP Adjusted Base Power           : N/A
+        Min Power Limit                                : 200.00 W
+        Max Power Limit                                : 2300.00 W
+    Power Samples
+        Duration                                       : 2.36 sec
+        Number of Samples                              : 119
+        Max                                            : 409.25 W
+        Min                                            : 404.06 W
+        Avg                                            : 404.44 W
+    GPU Memory Power Readings 
+        Average Power Draw                             : 54.79 W
+        Instantaneous Power Draw                       : N/A
+    Module Power Readings
+        Average Power Draw                             : N/A
+        Instantaneous Power Draw                       : N/A
+        Current Power Limit                            : N/A
+        Requested Power Limit                          : N/A
+        Default Power Limit                            : N/A
+        Min Power Limit                                : N/A
+        Max Power Limit                                : N/A
+    EDPp Multiplier                                    : 100.00%
+

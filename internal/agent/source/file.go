@@ -9,10 +9,12 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"go.uber.org/zap"
 	"sigs.k8s.io/yaml"
 
@@ -30,26 +32,36 @@ func envIntOrDefault(key string, def int) int {
 	return def
 }
 
-const defaultPollInterval = 5 * time.Second
+// settleDelay coalesces the burst a single update produces. Kubernetes renames
+// a ConfigMap through a scratch directory and two symlinks, and an editor saves
+// by renaming a temporary file, so one change arrives as several events.
+const settleDelay = 100 * time.Millisecond
+
+// atomicWritePrefix names the scratch entries Kubernetes renames a ConfigMap
+// through: ..data, ..data_tmp and the timestamped directories.
+const atomicWritePrefix = ".."
 
 // FileSource watches the profile and the cluster topology document and emits a
-// State update when either changes. It polls the containing directories so
-// ConfigMap atomic ..data symlink swaps are detected correctly — watching a file
-// itself would pin the replaced inode.
+// State update when either changes. It watches the directories holding them:
+// both a ConfigMap swap and an editor's save replace the file's inode, so a
+// watch on the file would hold the one that was just replaced.
 type FileSource struct {
-	configPath   string
-	topologyPath string
-	pollInterval time.Duration
-	log          *zap.Logger
+	configPath     string
+	topologyPath   string
+	resyncInterval time.Duration
+	log            *zap.Logger
 }
 
 // NewFileSource returns a FileSource that watches configPath and topologyPath.
-func NewFileSource(configPath, topologyPath string, log *zap.Logger) *FileSource {
+// resyncInterval re-reads both documents regardless of events, covering a host
+// where inotify reports nothing — a profile on NFS, or a watch limit reached.
+// Zero leaves reloads entirely to events.
+func NewFileSource(configPath, topologyPath string, resyncInterval time.Duration, log *zap.Logger) *FileSource {
 	return &FileSource{
-		configPath:   configPath,
-		topologyPath: topologyPath,
-		pollInterval: defaultPollInterval,
-		log:          log,
+		configPath:     configPath,
+		topologyPath:   topologyPath,
+		resyncInterval: resyncInterval,
+		log:            log,
 	}
 }
 
@@ -61,28 +73,123 @@ func (f *FileSource) Watch(ctx context.Context) <-chan agent.Update {
 	return ch
 }
 
-// Close is a no-op for FileSource; it owns no external resources.
+// Close is a no-op for FileSource; run owns the watcher, and ctx bounds run.
 func (f *FileSource) Close() error { return nil }
 
 func (f *FileSource) run(ctx context.Context, ch chan<- agent.Update) {
 	defer close(ch)
 
-	var lastHash [32]byte
-	f.poll(ctx, ch, &lastHash) // emit immediately on subscribe
+	var (
+		events chan fsnotify.Event
+		errs   chan error
+	)
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		// A host can be out of inotify instances, and the agent is still
+		// useful there: the resync becomes the only trigger.
+		f.log.Error("cannot watch config directories; relying on the resync", zap.Error(err))
+	} else {
+		defer func() { _ = w.Close() }()
+		events, errs = w.Events, w.Errors // a nil channel parks in select
+	}
 
-	t := time.NewTicker(f.pollInterval)
-	defer t.Stop()
+	// Watch before the first read, so an edit landing during startup is queued
+	// by the watcher rather than lost between the two.
+	names := f.rewatch(w)
+
+	var lastHash [32]byte
+	f.reload(ctx, ch, &lastHash) // emit immediately on subscribe
+
+	settle := time.NewTimer(settleDelay)
+	settle.Stop()
+	defer settle.Stop()
+
+	var resync <-chan time.Time
+	if f.resyncInterval > 0 {
+		t := time.NewTicker(f.resyncInterval)
+		defer t.Stop()
+		resync = t.C
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
-			f.poll(ctx, ch, &lastHash)
+		case e := <-events:
+			if names.carries(e) {
+				settle.Reset(settleDelay)
+			}
+		case err := <-errs:
+			// Usually a queue overflow, which means events were dropped: the
+			// change behind them would otherwise go unseen until the resync.
+			f.log.Warn("config watch error", zap.Error(err))
+			settle.Reset(settleDelay)
+		case <-settle.C:
+			names = f.rewatch(w)
+			f.reload(ctx, ch, &lastHash)
+		case <-resync:
+			names = f.rewatch(w)
+			f.reload(ctx, ch, &lastHash)
 		}
 	}
 }
 
-func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash *[32]byte) {
+// watched is the set of file names whose events are worth a re-read.
+type watched map[string]bool
+
+// carries reports whether an event names one of the documents, or one of the
+// scratch entries Kubernetes renames a ConfigMap through. A config directory
+// shared with other processes, as on a host, churns with everything else.
+func (w watched) carries(e fsnotify.Event) bool {
+	name := filepath.Base(e.Name)
+
+	return w[name] || strings.HasPrefix(name, atomicWritePrefix)
+}
+
+// rewatch attaches the watcher to the directory holding each document and
+// returns the names to react to. It runs before every reload: a save can
+// retarget a symlink, and a directory that was missing — an unmounted topology
+// ConfigMap — may have appeared since.
+func (f *FileSource) rewatch(w *fsnotify.Watcher) watched {
+	// reload hashes the board's MIG table as well, and the chart mounts it in a
+	// directory of its own rather than beside the profile.
+	paths := []string{f.configPath, f.topologyPath, engine.MIGProfilesPathFor(f.configPath)}
+
+	names := watched{}
+	for _, path := range paths {
+		if path == "" {
+			continue // --topology is unset where the cluster declares none
+		}
+		f.watchDir(w, path, names)
+
+		// A profile is usually reached through a symlink, and edits land in the
+		// directory it resolves into rather than the one the path names: ..data
+		// inside a ConfigMap mount, /opt/profiles behind /etc on a host.
+		if resolved, err := filepath.EvalSymlinks(path); err == nil && resolved != path {
+			f.watchDir(w, resolved, names)
+		}
+	}
+
+	return names
+}
+
+func (f *FileSource) watchDir(w *fsnotify.Watcher, path string, names watched) {
+	names[filepath.Base(path)] = true
+	if w == nil {
+		return
+	}
+
+	dir := filepath.Dir(path)
+	if err := w.Add(dir); err != nil {
+		f.log.Warn("cannot watch directory; the resync still reloads it",
+			zap.String("dir", dir), zap.Error(err))
+	}
+}
+
+// reload reads both documents and emits a State when their contents differ from
+// the last emission. It is the only place a change is detected, whether an event
+// or the resync brought us here.
+func (f *FileSource) reload(ctx context.Context, ch chan<- agent.Update, lastHash *[32]byte) {
 	data, err := os.ReadFile(f.configPath)
 	if err != nil {
 		f.send(ctx, ch, agent.Update{Err: fmt.Errorf("read config: %w", err), At: time.Now()})
@@ -95,20 +202,23 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 		return
 	}
 
-	h := inputsHash(data, topology)
+	migTable := f.migTable()
+
+	h := inputsHash(data, topology, migTable)
 	if h == *lastHash {
-		f.log.Debug("config and topology unchanged; skipping reconcile")
+		f.log.Debug("watched documents unchanged; skipping reconcile")
 		return // content unchanged
 	}
 	*lastHash = h
 
-	state, err := compileState(data)
+	state, err := compileState(data, f.configPath)
 	if err != nil {
 		f.send(ctx, ch, agent.Update{Err: fmt.Errorf("%s: %w", f.configPath, err), At: time.Now()})
 		return
 	}
 	state.ConfigRaw = data
 	state.TopologyRaw = topology
+	state.MIGProfilesRaw = migTable
 	f.log.Info("state updated from config", zap.String("config", f.configPath))
 	f.send(ctx, ch, agent.Update{State: state, At: time.Now()})
 }
@@ -141,32 +251,93 @@ func readTopology(path string, log *zap.Logger) ([]byte, error) {
 	return data, nil
 }
 
-// inputsHash digests both documents so an edit to either is a change. Hashing
-// the fixed-width sums keeps a byte from shifting across the boundary.
-func inputsHash(config, topology []byte) [32]byte {
-	c, t := sha256.Sum256(config), sha256.Sum256(topology)
+// migTable returns the board's partition table bytes, or nil where the node has
+// none. The bytes are hashed to detect a change and carried on the State for
+// gpudriver to stage; parseProfile resolves and validates the document for the
+// agent's own use, so a read failure surfaces from there rather than here.
+//
+// The table has to be hashed because it is a mount of its own. It can arrive
+// after the first reload, and the config it belongs to does not change when it
+// does, so hashing the config alone would latch the compile that saw no table
+// and the node would stage no capability surface for the rest of its life.
+func (f *FileSource) migTable() []byte {
+	path := engine.MIGProfilesPathFor(f.configPath)
+	if path == "" {
+		return nil
+	}
 
-	return sha256.Sum256(append(c[:], t[:]...))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		f.log.Debug("MIG profile table not readable; treating the board as unpartitioned",
+			zap.String("path", path), zap.Error(err))
+		return nil
+	}
+
+	return data
 }
 
-// parseProfile decodes a profile and checks what the agent acts on before the
-// engine ever sees the file. The agent stages the character devices and writes
-// both CDI specs, so it cannot wait for the engine to reject minors that
-// collide. Only that check runs here: the rest of the engine's validation
-// demands fields the agent deliberately tolerates, driver_version among them.
-func parseProfile(data []byte) (engine.YAMLConfig, error) {
+// inputsHash digests every watched document so an edit to any of them is a
+// change. Hashing the fixed-width sums keeps a byte from shifting across a
+// boundary.
+func inputsHash(config, topology, migTable []byte) [32]byte {
+	c, t, m := sha256.Sum256(config), sha256.Sum256(topology), sha256.Sum256(migTable)
+
+	joined := make([]byte, 0, len(c)+len(t)+len(m))
+	joined = append(joined, c[:]...)
+	joined = append(joined, t[:]...)
+	joined = append(joined, m[:]...)
+
+	return sha256.Sum256(joined)
+}
+
+// parseProfile decodes a profile and holds it to the same rules the mock
+// library applies when it loads one. The agent stages the document the library
+// later reads, and the library answers a profile it rejects by falling back to
+// its built-in defaults rather than failing, so a profile the agent waved
+// through would leave the node simulating hardware that the character devices,
+// PCI tree, capability nodes and CDI entries staged beside it do not describe.
+// Colliding minors and PCI addresses are among those rules, and matter here
+// before anywhere else: the agent renders from them first.
+func parseProfile(data []byte, configPath string) (engine.YAMLConfig, error) {
 	var cfg engine.YAMLConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse yaml: %w", err)
 	}
-	return cfg, engine.ValidateMinorNumbers(&cfg)
+	// A board's partition table is a document of its own, and the agent has to
+	// join it exactly as the library does: the capability nodes it stages are
+	// keyed by the instance IDs the library derives from this table, so an
+	// agent that could not see it would compile a node with no MIG surface
+	// while NVML enumerated the partitions regardless.
+	if err := engine.ApplyMIGProfilesOverlay(&cfg, configPath); err != nil {
+		return cfg, fmt.Errorf("resolve MIG profile table: %w", err)
+	}
+	return cfg, engine.ValidateConfig(&cfg)
+}
+
+// compileIMEX gives a multi-node NVLink board the IMEX capability surface the
+// NVIDIA kernel module provides on a real node of such a board, which the DRA
+// driver's ComputeDomain plugin reads. The chart sets the device numbers the
+// agent prefers; the IMEX simulator replaces any the host already uses.
+func compileIMEX(nvlink *engine.NVLinkConfig) agent.IMEXState {
+	if nvlink == nil || !nvlink.MultiNode {
+		return agent.IMEXState{}
+	}
+	return agent.IMEXState{
+		Enabled:   true,
+		IMEXMajor: envIntOrDefault("IMEX_CHANNEL_MAJOR", 235),
+		CapsMajor: envIntOrDefault("IMEX_CAPS_MAJOR", 236),
+	}
 }
 
 // compileState parses raw YAML config bytes and builds the agent State.
 // Runtime telemetry fields (utilization, power, temperature, clocks) are
 // discarded — they belong to the runtime override file owned by nvml-mock-ctl.
-func compileState(data []byte) (*agent.State, error) {
-	cfg, err := parseProfile(data)
+//
+// configPath is where those bytes came from, because a board's partition table
+// is resolved relative to it. Callers with a config that carries its own table
+// inline pass "".
+func compileState(data []byte, configPath string) (*agent.State, error) {
+	cfg, err := parseProfile(data, configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -221,6 +392,7 @@ func compileState(data []byte) (*agent.State, error) {
 		state.Fabric.Enabled = true
 		state.Fabric.LinksPerGPU = cfg.NVLink.LinksPerGPU
 		state.Fabric.BandwidthPerLinkMbps = cfg.NVLink.BandwidthPerLinkMbps
+		state.Switches = compileSwitches(cfg.NVLink.Switches)
 	}
 	if defaults.Fabric != nil {
 		state.Fabric.ClusterUUID = defaults.Fabric.ClusterUUID
@@ -236,19 +408,49 @@ func compileState(data []byte) (*agent.State, error) {
 	}
 	state.NodeShape.Network = network
 
-	// IMEX mock surface: opt-in via IMEX_MOCK_CHANNELS=true, same shim
-	// pattern as GPU_COUNT until MEP-0001 embeds this in the profile.
-	if os.Getenv("IMEX_MOCK_CHANNELS") == "true" {
-		state.IMEX = agent.IMEXState{
-			Enabled:      true,
-			IMEXMajor:    envIntOrDefault("IMEX_CHANNEL_MAJOR", 235),
-			CapsMajor:    envIntOrDefault("IMEX_CAPS_MAJOR", 236),
-			ChannelCount: envIntOrDefault("IMEX_CHANNEL_COUNT", 2048),
-		}
-	}
+	state.IMEX = compileIMEX(cfg.NVLink)
+
+	state.MIG = compileMIG(&cfg, numDevices)
 
 	return state, nil
 }
+
+// compileMIG asks the NVML engine which partitions the profile boots with,
+// rather than re-reading the mig block here. The capability names the agent
+// stages are keyed by instance ID, so a second derivation that disagreed with
+// the library's would point a consumer at another partition's cap device.
+func compileMIG(cfg *engine.YAMLConfig, numDevices int) agent.MIGState {
+	ec := &engine.Config{NumDevices: numDevices, YAMLConfig: cfg}
+	layouts := engine.DeclaredMIGLayout(ec)
+	if len(layouts) == 0 {
+		return agent.MIGState{}
+	}
+
+	state := agent.MIGState{CapsMajor: envIntOrDefault("MIG_CAPS_MAJOR", defaultCapsMajor)}
+	for _, layout := range layouts {
+		// A capability name identifies its GPU by device-node minor, which a
+		// profile can set independently of the NVML index. Deriving it from
+		// the index instead would name cap devices for a GPU other than the
+		// one gpudriver mknod'd, whenever the two differ.
+		gpu := agent.MIGGPU{Minor: ec.GetDeviceMinorNumber(layout.GPUIndex)}
+		for _, gi := range layout.GPUInstances {
+			cis := make([]agent.MIGComputeInstance, 0, len(gi.ComputeInstances))
+			for _, ci := range gi.ComputeInstances {
+				cis = append(cis, agent.MIGComputeInstance{ID: ci.ID, UUID: ci.UUID})
+			}
+			gpu.GPUInstances = append(gpu.GPUInstances, agent.MIGGPUInstance{
+				ID:               gi.ID,
+				ComputeInstances: cis,
+			})
+		}
+		state.GPUs = append(state.GPUs, gpu)
+	}
+	return state
+}
+
+// defaultCapsMajor is the char-device major for nvidia-caps. It matches the
+// IMEX simulator's default so a node running both stages one consistent major.
+const defaultCapsMajor = 236
 
 // resolveDeviceCount returns the active GPU count from the profile, applying
 // system.num_devices and then the GPU_COUNT env var as successive overrides.
@@ -298,6 +500,12 @@ func buildDeviceSpec(i int, defaults engine.DeviceConfig, devices []engine.Devic
 		spec.PCISubsystemID = defaults.PCI.SubsystemID
 		spec.PCIBusID = defaults.PCI.BusID
 	}
+	if g := defaults.Virtualization.Guest(); g != nil {
+		spec.VGPUGuest = &agent.VGPUGuestSpec{
+			HostDriverVersion: g.HostDriverVersion,
+			HostDriverBranch:  g.HostDriverBranch,
+		}
+	}
 	for _, ov := range devices {
 		if ov.Index != i {
 			continue
@@ -331,6 +539,31 @@ func applyDeviceOverride(spec *agent.DeviceSpec, ov engine.DeviceOverride) {
 			spec.PCISubsystemID = ov.PCI.SubsystemID
 		}
 	}
+}
+
+// compileSwitches keeps the NVSwitches that sit on this node's PCIe bus, which
+// is the subset of nvlink.switches carrying a PCI identity. A switch without
+// one is an NVLink remote endpoint the node cannot see over PCIe — how a
+// rack-scale platform's switch trays present — and compiling it anyway would
+// put a bridge in lspci that no compute tray has.
+func compileSwitches(switches []engine.NVSwitchConfig) []agent.SwitchSpec {
+	out := make([]agent.SwitchSpec, 0, len(switches))
+
+	for _, sw := range switches {
+		if sw.DeviceID == 0 {
+			continue
+		}
+		out = append(out, agent.SwitchSpec{
+			PCIBusID:       sw.BDF,
+			PCIDeviceID:    sw.DeviceID,
+			PCISubsystemID: sw.SubsystemID,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
 }
 
 // compileNetwork resolves the profile's infiniband block into a NetworkShape.

@@ -52,7 +52,7 @@ delivery". The premise needs one correction before the design starts.
 **There is no mock device plugin in this repository.** There is no
 `cmd/device-plugin`, no `pkg/deviceplugin`, and no path matching
 `deviceplugin` anywhere in the tree. What exists is
-[`tests/e2e/go/assets/device-plugin-mock.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/go/assets/device-plugin-mock.yaml),
+[`tests/e2e/go/assets/device-plugin-mock.yaml`](../../../tests/e2e/go/assets/device-plugin-mock.yaml),
 a DaemonSet that deploys the **genuine** upstream plugin,
 `nvcr.io/nvidia/k8s-device-plugin:v0.18.2`, pointed at the mock driver root:
 
@@ -135,7 +135,7 @@ allocated against visible — passes today against the wrong reality.
 ### Finding 3: the mock already has the mechanism
 
 `detectVisibleDevicesAt` in
-[`pkg/gpu/mocknvml/engine/engine.go`](https://github.com/NVIDIA/k8s-test-infra/blob/main/pkg/gpu/mocknvml/engine/engine.go)
+[`pkg/gpu/mocknvml/engine/engine.go`](../../../pkg/gpu/mocknvml/engine/engine.go)
 scans `/dev/nvidia<N>` for `N < NumDevices` and filters the visible set to the
 subset present. Its own comment states the intent: it "mimics real NVML
 behavior where cgroup device permissions limit which GPUs a container can see."
@@ -289,8 +289,8 @@ args:
   - "--pass-device-specs=true"      # new
 ```
 
-- [`tests/e2e/go/assets/device-plugin-mock.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/go/assets/device-plugin-mock.yaml) — the embedded asset the Go e2e suite applies.
-- [`tests/e2e/device-plugin-mock.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/device-plugin-mock.yaml) — the copy the README tells users to `kubectl apply` from raw GitHub.
+- [`tests/e2e/go/assets/device-plugin-mock.yaml`](../../../tests/e2e/go/assets/device-plugin-mock.yaml) — the embedded asset the Go e2e suite applies.
+- [`tests/e2e/device-plugin-mock.yaml`](../../../tests/e2e/device-plugin-mock.yaml) — the copy the README tells users to `kubectl apply` from raw GitHub.
 
 The two files are currently identical. Keep them identical.
 
@@ -503,6 +503,12 @@ CDI-capable node image on the NRI legs, and today `e2e-nri` runs on the stock
 repository does carry are used by one other job and by nothing, respectively. It
 also inverts the dependency: #440 would wait on #436 rather than gate it. The
 constraints above keep the door open.
+
+> **Amended by [MEP-0006](../0006-automatic-cdi-setup/README.md).** The node
+> daemon now installs the NVIDIA container runtime on every node and makes it
+> containerd's default `nvidia` handler, as the custom Kind node image did, and
+> that image is gone: every CI job, the NRI legs included, runs on stock
+> `kindest/node`.
 
 **5. Build a mock device plugin.** Write our own plugin that advertises capacity
 and cooperates with the NRI plugin by construction.

@@ -76,6 +76,24 @@ func (t *tree) write(rel, contents string) error {
 	return nil
 }
 
+// symlink points rel at target, leaving a link that already does untouched:
+// replacing one opens a moment in which a reader finds nothing there.
+func (t *tree) symlink(rel, target string) error {
+	full := filepath.Join(t.root, rel)
+
+	t.keep(rel)
+
+	if current, err := os.Readlink(full); err == nil && current == target {
+		return nil
+	}
+
+	if err := fsutil.Symlink(target, full); err != nil {
+		return fmt.Errorf("symlink %s: %w", rel, err)
+	}
+
+	return nil
+}
+
 // prune removes everything under the root that this pass did not write, which
 // is how a shape that drops HCAs takes their directories with it. A pass that
 // wrote nothing retracts the whole tree, leaving the root itself in place.

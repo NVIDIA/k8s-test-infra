@@ -6,9 +6,15 @@ should match snapshot with b200 profile:
         Profile: b200
         GPUs per node: 4
         Available profiles: a100, h100, b200, gb200, gb300, l40s, t4
-        Driver version: 560.35.03
+        Driver version: 580.65.06
         Mock driver root: /var/lib/nvml-mock/driver
         Mock config: /var/lib/nvml-mock/config/config.yaml
+
+      NRI injection is on: containers that hold a GPU allocation, or whose pod opts
+      in by annotation, get the mock driver when they are created. Pods in these
+      namespaces never do: NAMESPACE, kube-system.
+      If a node pod stays NotReady, containerd on that node may have NRI disabled; see
+      https://nvidia.github.io/k8s-test-infra/troubleshooting/#the-node-pod-is-notready-and-nvml-mock-nri-crash-loops
 
       NOTE: If you installed from source (no published image yet), you built the
       image locally and loaded it into your cluster. See the chart README for
@@ -65,10 +71,7 @@ should match snapshot with b200 profile:
         nvml-mock, so both are disabled and CDI carries the devices instead.
         The overlay below carries that, plus the driver root the device plugin,
         GFD and dcgm-exporter each need in their environment.
-
-        Cluster prerequisites (KIND): the node needs CDI enabled in containerd
-        and the nvidia runtime handler registered.
-        Walkthrough, including that containerd setup:
+        Walkthrough:
           https://nvidia.github.io/k8s-test-infra/guides/gpu-operator/
         In a checkout of this repository: docs/guides/with-gpu-operator/
 
@@ -98,9 +101,15 @@ should match snapshot with default values:
         Profile: gb300
         GPUs per node: 4
         Available profiles: a100, h100, b200, gb200, gb300, l40s, t4
-        Driver version: 570.124.06
+        Driver version: 580.65.06
         Mock driver root: /var/lib/nvml-mock/driver
         Mock config: /var/lib/nvml-mock/config/config.yaml
+
+      NRI injection is on: containers that hold a GPU allocation, or whose pod opts
+      in by annotation, get the mock driver when they are created. Pods in these
+      namespaces never do: NAMESPACE, kube-system.
+      If a node pod stays NotReady, containerd on that node may have NRI disabled; see
+      https://nvidia.github.io/k8s-test-infra/troubleshooting/#the-node-pod-is-notready-and-nvml-mock-nri-crash-loops
 
       NOTE: If you installed from source (no published image yet), you built the
       image locally and loaded it into your cluster. See the chart README for
@@ -141,8 +150,21 @@ should match snapshot with default values:
             --create-namespace \
             --set nvidiaDriverRoot=/var/lib/nvml-mock/driver \
             --set gpuResourcesEnabledOverride=true \
-            --set resources.computeDomains.enabled=false \
+            --set resources.computeDomains.enabled=true \
+            --set altProcDevices=/var/lib/nvml-mock/imex/proc-devices \
             --wait --timeout 180s
+
+        ComputeDomains: the gb300 profile's NVLink spans nodes, so
+        the node agent stages IMEX and the driver runs ComputeDomains with its
+        upstream images. IMEX comes from imex.binaries.image or, while the
+        IMEXDownload feature gate is on, a download from NVIDIA. The driver's
+        kubelet plugin looks for IMEX only when it starts, so install the driver
+        once every node has it:
+
+          kubectl -n NAMESPACE exec <node pod> -- \
+            test -f /var/lib/nvml-mock/driver/usr/bin/nvidia-imex.real
+
+        and restart the plugin on a node that gets IMEX later.
 
         Verify ResourceSlices:
 
@@ -157,10 +179,7 @@ should match snapshot with default values:
         nvml-mock, so both are disabled and CDI carries the devices instead.
         The overlay below carries that, plus the driver root the device plugin,
         GFD and dcgm-exporter each need in their environment.
-
-        Cluster prerequisites (KIND): the node needs CDI enabled in containerd
-        and the nvidia runtime handler registered.
-        Walkthrough, including that containerd setup:
+        Walkthrough:
           https://nvidia.github.io/k8s-test-infra/guides/gpu-operator/
         In a checkout of this repository: docs/guides/with-gpu-operator/
 

@@ -4,7 +4,6 @@
 package daemon
 
 import (
-	"context"
 	"net"
 	"strconv"
 	"testing"
@@ -133,6 +132,6 @@ func startTestFabricListener(t *testing.T, srv *Server) net.Listener {
 	port, err := strconv.Atoi(portStr)
 	require.NoError(t, err)
 	srv.cfg.TCPPort = port
-	go srv.acceptFabric(context.Background(), ln)
+	go srv.acceptFabric(t.Context(), ln)
 	return ln
 }

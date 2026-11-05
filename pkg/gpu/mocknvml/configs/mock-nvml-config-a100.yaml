@@ -8,11 +8,11 @@ version: "1.0"
 # System-level configuration
 # =============================================================================
 system:
-  driver_version: "550.163.01"
-  nvml_version: "12.550.163.01"
-  cuda_version: "12.4"
-  cuda_version_major: 12
-  cuda_version_minor: 4
+  driver_version: "580.65.06"
+  nvml_version: "13.580.65"
+  cuda_version: "13.0"
+  cuda_version_major: 13
+  cuda_version_minor: 0
 
 # =============================================================================
 # Default device configuration (applied to all devices unless overridden)
@@ -64,7 +64,7 @@ device_defaults:
   # ---------------------------------------------------------------------------
   pci:
     device_id: 0x20B010DE           # A100 SXM4 40GB
-    subsystem_id: 0x134710DE
+    subsystem_id: 0x134F10DE
     # bus_id is auto-generated per device if not specified
 
   pcie:
@@ -114,8 +114,8 @@ device_defaults:
   clocks:
     graphics_current: 210           # Idle
     graphics_max: 1410
-    graphics_app: 1410              # Application clock setting
-    graphics_app_default: 1410
+    graphics_app: 1095              # Application clock setting
+    graphics_app_default: 1095
     sm_current: 210
     sm_max: 1410
     memory_current: 1215
@@ -140,12 +140,23 @@ device_defaults:
     display_clocks_setting: false
 
   # ---------------------------------------------------------------------------
-  # Supported clocks (for nvidia-smi -q -d SUPPORTED_CLOCKS)
+  # Supported clocks (nvidia-smi -q -d SUPPORTED_CLOCKS), copied from the real
+  # A100-SXM4-40GB capture in tests/e2e/go/assertions/nvidiasmi/testdata/hardware/.
+  # NVML returns both lists highest first, and nvidia-smi -ac accepts only a
+  # memory/graphics pair listed here.
   # ---------------------------------------------------------------------------
   supported_clocks:
     memory_clocks:
       - freq_mhz: 1215
-        graphics_clocks: [210, 420, 630, 840, 1050, 1215, 1275, 1335, 1410]
+        graphics_clocks: [
+          1410, 1395, 1380, 1365, 1350, 1335, 1320, 1305, 1290, 1275, 1260, 1245,
+          1230, 1215, 1200, 1185, 1170, 1155, 1140, 1125, 1110, 1095, 1080, 1065,
+          1050, 1035, 1020, 1005, 990, 975, 960, 945, 930, 915, 900, 885,
+          870, 855, 840, 825, 810, 795, 780, 765, 750, 735, 720, 705,
+          690, 675, 660, 645, 630, 615, 600, 585, 570, 555, 540, 525,
+          510, 495, 480, 465, 450, 435, 420, 405, 390, 375, 360, 345,
+          330, 315, 300, 285, 270, 255, 240, 225, 210
+        ]
 
   # ---------------------------------------------------------------------------
   # Performance state
@@ -256,13 +267,17 @@ device_defaults:
   compute_mode: "default"           # default, exclusive_thread, prohibited, exclusive_process
 
   # ---------------------------------------------------------------------------
+  # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+  # ---------------------------------------------------------------------------
+  addressing_mode: "hmm"           # x86 host kernel with HMM enabled, as on the captured node
+
+  # ---------------------------------------------------------------------------
   # MIG configuration
   # ---------------------------------------------------------------------------
   mig:
     mode_current: "disabled"
     mode_pending: "disabled"
     max_gpu_instances: 7            # A100 supports up to 7 MIG instances
-    # GPU instances would be defined here if MIG enabled
 
   # ---------------------------------------------------------------------------
   # GPU operation mode (GOM)
@@ -289,7 +304,7 @@ device_defaults:
   # Virtualization
   # ---------------------------------------------------------------------------
   virtualization:
-    mode: "none"                    # none, passthrough, vgpu
+    mode: "none"                    # none, passthrough, vgpu, host_vgpu
     host_vgpu_mode: "N/A"
 
   # ---------------------------------------------------------------------------
@@ -380,19 +395,30 @@ nvlink:
   # GPU pair. No fabricmanager coupling: A100 predates the GpuFabricInfo NVML
   # API (Hopper+), so there is deliberately no device_defaults.fabric block and
   # nvmlDeviceGetGpuFabricInfo returns NOT_SUPPORTED.
+  #
+  # device_id is what puts a switch on the node's PCI bus as well as its NVLink
+  # fabric: a DGX A100 baseboard's NVSwitches are PCIe endpoints, so `lspci`
+  # lists them as "Bridge: NVIDIA Corporation GA100 [A100 NVSwitch]" beside the
+  # GPUs. They must also appear under pcie_topology below to inherit a NUMA node.
   switches:
     - bdf: "0000:01:00.0"
       uuid: "NVSwitch-A100-0000-0000-0000-000000000000"
+      device_id: 0x1AF110DE         # 10de:1af1 GA100 [A100 NVSwitch]
     - bdf: "0000:02:00.0"
       uuid: "NVSwitch-A100-0000-0000-0000-000000000001"
+      device_id: 0x1AF110DE
     - bdf: "0000:03:00.0"
       uuid: "NVSwitch-A100-0000-0000-0000-000000000002"
+      device_id: 0x1AF110DE
     - bdf: "0000:04:00.0"
       uuid: "NVSwitch-A100-0000-0000-0000-000000000003"
+      device_id: 0x1AF110DE
     - bdf: "0000:05:00.0"
       uuid: "NVSwitch-A100-0000-0000-0000-000000000004"
+      device_id: 0x1AF110DE
     - bdf: "0000:06:00.0"
       uuid: "NVSwitch-A100-0000-0000-0000-000000000005"
+      device_id: 0x1AF110DE
 
 # =============================================================================
 # PCIe topology - 2 NUMA nodes (dual EPYC), 4 GPUs each.
@@ -412,6 +438,15 @@ pcie_topology:
         - "0000:0F:00.0"
         - "0000:47:00.0"
         - "0000:4E:00.0"
+        # The baseboard's six NVSwitches, PCIe-attached to socket 0 as on a real
+        # DGX A100. Listed here so they inherit this root's NUMA node; the
+        # switches themselves are declared under nvlink.switches.
+        - "0000:01:00.0"
+        - "0000:02:00.0"
+        - "0000:03:00.0"
+        - "0000:04:00.0"
+        - "0000:05:00.0"
+        - "0000:06:00.0"
     - id: "pci0000:80"
       numa_node: 1
       devices:

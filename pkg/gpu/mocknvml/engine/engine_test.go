@@ -424,7 +424,7 @@ func TestEngine_DefaultDeviceUUIDs(t *testing.T) {
 	defer func() { _ = e.Shutdown() }()
 
 	seen := make(map[string]int, MaxDevices)
-	for i := 0; i < MaxDevices; i++ {
+	for i := range MaxDevices {
 		handle, ret := e.DeviceGetHandleByIndex(i)
 		require.Equal(t, nvml.SUCCESS, ret, "DeviceGetHandleByIndex(%d) failed", i)
 		uuid, ret := e.LookupDevice(handle).GetUUID()
@@ -509,6 +509,22 @@ func TestEngine_DeviceGetHandleByPciBusIdInvalid(t *testing.T) {
 
 // --- Visibility filtering tests ---
 
+// TestVisibility_ExplicitNoneHidesEveryDevice covers a container that loads the
+// mock only for its InfiniBand tools. With no /dev/nvidiaN present the engine
+// would otherwise show every configured GPU.
+func TestVisibility_ExplicitNoneHidesEveryDevice(t *testing.T) {
+	t.Setenv("MOCK_NVML_VISIBLE_DEVICES", " None ")
+	e := NewEngine(&Config{NumDevices: 4, DriverVersion: "550.54.15"})
+	require.Equal(t, nvml.SUCCESS, e.Init())
+	defer func() { _ = e.Shutdown() }()
+
+	count, ret := e.DeviceGetCount()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Zero(t, count)
+	_, ret = e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret)
+}
+
 // TestDetectVisibleDevices_NonePresent verifies nil is returned when no device
 // nodes exist (typical host/driver-plugin context).
 func TestDetectVisibleDevices_NonePresent(t *testing.T) {
@@ -522,7 +538,7 @@ func TestDetectVisibleDevices_NonePresent(t *testing.T) {
 // device node exists (no filtering needed).
 func TestDetectVisibleDevices_AllPresent(t *testing.T) {
 	dir := t.TempDir()
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		f, err := os.Create(fmt.Sprintf("%s/nvidia%d", dir, i))
 		require.NoError(t, err)
 		require.NoError(t, f.Close())
@@ -719,7 +735,7 @@ func TestVisibility_IndexRoundTrip(t *testing.T) {
 				expected = len(uuids)
 			}
 			require.Equal(t, expected, count)
-			for i := 0; i < count; i++ {
+			for i := range count {
 				h, ret := e.DeviceGetHandleByIndex(i)
 				require.Equal(t, nvml.SUCCESS, ret)
 				d := e.LookupDevice(h)

@@ -19,15 +19,16 @@ import (
 //go:embed device-plugin-mock.yaml
 var DevicePluginManifest []byte
 
+// DevicePluginMIGManifest is the embedded device-plugin manifest for the MIG
+// scenario: the same DaemonSet configured with --mig-strategy=single.
+//
+//go:embed device-plugin-mock-mig.yaml
+var DevicePluginMIGManifest []byte
+
 // NRIGpuAgentManifest is the embedded NRI plugin manifest that injects nvml-mock.
 //
 //go:embed nri-gpu-agent.yaml
 var NRIGpuAgentManifest []byte
-
-// GFDManifest is the embedded GPU Feature Discovery DaemonSet manifest used by the NFD scenario.
-//
-//go:embed gfd-mock.yaml
-var GFDManifest []byte
 
 // WriteTemp writes content to a temp file with the given pattern and returns
 // the path. Used for `helm install -f <values>` which needs a file path.

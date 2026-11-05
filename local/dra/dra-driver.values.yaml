@@ -1,32 +1,16 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
-#
-# Helm values for dra-driver-nvidia-gpu when running against nvml-mock in the
-# 'dra' local dev scenario.
-#
-# Usage (via Tilt):
-#   tilt up -- --dra
-#
-# Prerequisites:
-#   - Cluster created with DRA feature gates (make cluster-create).
-#   - nvml-mock deployed first (Tilt handles ordering via resource_deps).
-#
-# Mirrors the DRA driver install used by the CI e2e-dra job
-# (.github/workflows/nvml-mock-e2e.yaml).
 
-# Point the DRA kubelet plugin at the mock driver tree instead of "/".
-# The mock DaemonSet lays down libnvidia-ml.so, device nodes, and nvidia-smi
-# under this path — the gpudriver simulator co-locates the device nodes under
-# the driver root specifically so getDevRoot() in the upstream DRA driver
-# resolves here rather than falling back to "/".
+# The mock's device nodes sit under the driver root so the upstream driver's
+# getDevRoot() resolves here rather than falling back to "/".
 nvidiaDriverRoot: /var/lib/nvml-mock/driver
 
-# Force-enable GPU resources: the driver's default gating expects NFD to have
-# detected physical NVIDIA devices, and no NFD runs in this scenario.
+# The driver's default gating waits for NFD to detect physical NVIDIA devices, and
+# plain --dra runs no NFD.
 gpuResourcesEnabledOverride: true
 
-# Pin the kubelet plugin to the simulated-GPU pool. The chart's default affinity
-# accepts only NFD/GFD-owned labels, which nothing in this scenario produces.
+# Pin the kubelet plugin to the simulated-GPU pool: the chart's default affinity
+# accepts only NFD/GFD-owned labels, which plain --dra does not produce.
 kubeletPlugin:
   affinity:
     nodeAffinity:
@@ -37,9 +21,8 @@ kubeletPlugin:
                 operator: In
                 values: ["sgpu"]
 
-# Compute Domains (IMEX / fabricmanager coordination) is not exercised by the
-# mock in the default local dev flow. Keep it off to avoid extra pods on the
-# single-node kind cluster. Enable if you're specifically iterating on IMEX.
+# Off by default: Compute Domains need the fabric of --compute-domain, whose
+# overlay (local/compute-domain/dra-driver.values.yaml) turns them on.
 resources:
   computeDomains:
     enabled: false

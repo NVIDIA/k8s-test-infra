@@ -2,12 +2,11 @@
 
 ## Supported Versions
 
-Fixes land on the current release line. Older lines receive no backports.
-
-| Version | Supported          |
-|---------|--------------------|
-| 0.3.x   | :white_check_mark: |
-| < 0.3   | :x:                |
+Only the latest release receives fixes. A security fix merges to `main` and
+ships in the next release; when it cannot wait, maintainers cut an out-of-cycle
+release from `main`. Older releases get no fixes, so upgrade to the latest
+release. The [support policy](docs/support-policy.md#life-cycle) describes the
+release life cycle.
 
 ## Reporting a Vulnerability
 
@@ -53,26 +52,33 @@ Mokka is a test double for CI and test clusters, not production.
 When enabled, the `control-plane` pod mounts a dedicated ServiceAccount token
 for Kubernetes API access. Its ClusterRole grants Node reads and patches and
 the Mokka resource permissions needed for reconciliation; its namespaced Role
-grants leader-election Lease access in the release namespace. The node-agent
-and NRI DaemonSets do not mount ServiceAccount tokens. See the
-[Mokka controller](docs/mokka-controller.md) for its reconciliation and
-single-writer lifecycle. No component runs privileged or in a host namespace.
+grants leader-election Lease access in the release namespace. The node
+DaemonSet, including its optional NRI sidecar, does not mount a ServiceAccount
+token. See the
+[Mokka Control Plane](docs/control-plane.md) for its reconciliation and
+single-writer lifecycle. The node agent runs privileged to use bidirectional
+mount propagation; the other chart containers are not privileged. The node pod
+shares the host's PID namespace to restart containerd; no component uses
+another host namespace.
 
 Privilege is scoped per container:
 
-| Container            | Capabilities                                               | Filesystem                              | User                                                |
-|----------------------|------------------------------------------------------------|-----------------------------------------|-----------------------------------------------------|
-| `node-agent`         | drops `ALL`, adds back only `MKNOD` to create device nodes | writable, to stage the mock driver tree | image default                                       |
-| `allocation-watcher` | drops `ALL`                                                | `readOnlyRootFilesystem`                | image default                                       |
-| `control-plane`      | drops `ALL`, `seccompProfile: RuntimeDefault`              | `readOnlyRootFilesystem`                | non-root, UID 65532                                 |
-| `nvml-mock-nri`      | container runtime default — **not dropped**                | writable                                | root (UID 0), to write the NRI socket and CDI specs |
+| Container            | Security context                                               | Filesystem                              | User                |
+|----------------------|----------------------------------------------------------------|-----------------------------------------|---------------------|
+| `node-agent`         | privileged                                                     | writable, to stage the mock driver tree | image default       |
+| `allocation-watcher` | drops `ALL`; disallows privilege escalation                    | `readOnlyRootFilesystem`                | image default       |
+| `control-plane`      | drops `ALL`; `RuntimeDefault` seccomp; no privilege escalation | `readOnlyRootFilesystem`                | non-root, UID 65532 |
+| `nvml-mock-nri`      | capabilities not dropped; no privilege escalation              | writable                                | root (UID 0)        |
 
-No container allows privilege escalation.
+The privileged node agent is the exception to the other containers' explicit
+`allowPrivilegeEscalation: false` setting.
 
 Mokka's reach into a node comes from its host mounts. The node agent writes to
 `/var/lib/nvml-mock`, `/run/nvidia`, `/run/cdi`, the fabricmanager state
-directory, and the Node Feature Discovery features directory. `/sys` and the
-pod-resources socket are mounted read-only.
+directory, and the Node Feature Discovery features directory, and, to set up
+the container runtime, to `/usr/bin`, `/usr/local/nvml-mock`,
+`/etc/nvidia-container-runtime` and `/etc/containerd`. `/sys`, the
+pod-resources socket and the host's root filesystem are mounted read-only.
 
 Inputs come from the operator installing the chart rather than from untrusted
 third parties, so validation is scoped accordingly: chart values are checked

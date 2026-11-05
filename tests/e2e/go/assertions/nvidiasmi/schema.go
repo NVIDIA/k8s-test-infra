@@ -107,10 +107,15 @@ type gpuElement struct {
 	UUID                     reading           `xml:"uuid"`
 	BoardID                  reading           `xml:"board_id"`
 	C2CMode                  reading           `xml:"c2c_mode"`
+	AddressingMode           reading           `xml:"addressing_mode"`
+	PDI                      reading           `xml:"pdi"`
+	Capabilities             capabilities      `xml:"capabilities"`
 	PlatformInfo             platformInfo      `xml:"platformInfo"`
 	PCI                      pciInfo           `xml:"pci"`
 	FanSpeed                 reading           `xml:"fan_speed"`
 	PerformanceState         reading           `xml:"performance_state"`
+	MIGMode                  migMode           `xml:"mig_mode"`
+	MIGDevices               migDevices        `xml:"mig_devices"`
 	FBMemoryUsage            memoryUsage       `xml:"fb_memory_usage"`
 	CCProtectedMemoryUsage   memoryUsage       `xml:"cc_protected_memory_usage"`
 	AccountingModeBufferSize reading           `xml:"accounting_mode_buffer_size"`
@@ -123,12 +128,16 @@ type gpuElement struct {
 	Clocks                   clocks            `xml:"clocks"`
 	MaxClocks                maxClocks         `xml:"max_clocks"`
 	MaxCustomerBoostClocks   customerBoostMax  `xml:"max_customer_boost_clocks"`
+	ApplicationsClocks       appClocks         `xml:"applications_clocks"`
+	DefaultAppClocks         appClocks         `xml:"default_applications_clocks"`
+	SupportedClocks          supportedClocks   `xml:"supported_clocks"`
 	ECCMode                  eccMode           `xml:"ecc_mode"`
 	ECCErrors                eccErrors         `xml:"ecc_errors"`
 	RemappedRows             remappedRows      `xml:"remapped_rows"`
 	ClocksEventReasons       eventReasons      `xml:"clocks_event_reasons"`
 	ClocksEventCounters      eventCounters     `xml:"clocks_event_reasons_counters"`
 	Fabric                   fabricBlock       `xml:"fabric"`
+	PowerSmoothing           powerSmoothing    `xml:"power_smoothing"`
 	Processes                struct {
 		Infos []processInfo `xml:"process_info"`
 	} `xml:"processes"`
@@ -143,6 +152,68 @@ type memoryUsage struct {
 	Reserved reading `xml:"reserved"`
 	Used     reading `xml:"used"`
 	Free     reading `xml:"free"`
+}
+
+// capabilities is <capabilities>, the optional features the driver reports a
+// GPU has turned on. EGM (Extended GPU Memory) is the only one NVML defines.
+type capabilities struct {
+	EGM reading `xml:"egm"`
+}
+
+// migMode is <mig_mode>: whether this GPU is partitioned. The pending reading
+// is decoded beside the current one because a mode switch only takes effect
+// after the GPU is reset, so the two disagree while a switch is outstanding —
+// a state that is neither "partitioned" nor "not partitioned" for a consumer.
+// Both read N/A on a board that cannot partition at all.
+type migMode struct {
+	Current reading `xml:"current_mig"`
+	Pending reading `xml:"pending_mig"`
+}
+
+// migDevices is <mig_devices>: the partitions carved out of one GPU.
+//
+// Body is kept beside the decoded children because an empty Devices slice has
+// two causes that must not look alike. A GPU with no partitions renders the
+// block as the literal "None", which is a valid state; a document whose
+// partition elements this schema no longer matches renders it as markup, which
+// is a rename. Every count over Devices would pass vacuously on the second.
+type migDevices struct {
+	Body    string             `xml:",innerxml"`
+	Devices []migDeviceElement `xml:"mig_device"`
+}
+
+// migDeviceElement is one <mig_device>.
+//
+// The block carries neither the partition's MIG UUID nor its profile name:
+// nvidia-smi emits neither anywhere in -q -x, which is why the assertions that
+// need those still read `nvidia-smi -L`. The instance IDs are what identifies a
+// partition here, and they are the keys the capability table under
+// /dev/nvidia-caps is named by.
+//
+// <index> is deliberately not decoded: in the documents this package is pinned
+// against its body repeats the parent GPU's index rather than the partition's
+// position, so it distinguishes nothing within a GPU.
+type migDeviceElement struct {
+	GPUInstanceID     reading             `xml:"gpu_instance_id"`
+	ComputeInstanceID reading             `xml:"compute_instance_id"`
+	DeviceAttributes  migDeviceAttributes `xml:"device_attributes"`
+	// FBMemoryUsage is the partition's own framebuffer, not its parent board's.
+	// The <bar1_memory_usage> sibling repeats the same child names and is
+	// deliberately not decoded.
+	FBMemoryUsage memoryUsage `xml:"fb_memory_usage"`
+}
+
+// migDeviceAttributes is <device_attributes>, which nests the partition's
+// engine counts under a <shared> child — the only child nvidia-smi emits.
+type migDeviceAttributes struct {
+	Shared migSharedAttributes `xml:"shared"`
+}
+
+// migSharedAttributes is <device_attributes><shared>. Only the SM count is
+// decoded; the copy-engine, encoder, decoder, OFA and JPG siblings beside it
+// are not read by any assertion.
+type migSharedAttributes struct {
+	MultiprocessorCount reading `xml:"multiprocessor_count"`
 }
 
 // platformInfo is <platformInfo> — the one camelCase container in the document.
@@ -233,11 +304,10 @@ type powerReadings struct {
 	MaxPowerLimit     reading `xml:"max_power_limit"`
 }
 
-// clocks is the <clocks> block: the clocks in effect now. Its <max_clocks> and
-// <max_customer_boost_clocks> siblings reuse graphics_clock and are decoded
-// separately below, so a reading always says which block it came from;
-// <applications_clocks> and <default_applications_clocks> reuse it too and are
-// deliberately not decoded, since no assertion reads them.
+// clocks is the <clocks> block: the clocks in effect now. Its <max_clocks>,
+// <max_customer_boost_clocks>, <applications_clocks> and
+// <default_applications_clocks> siblings reuse graphics_clock and are decoded
+// separately below, so a reading always says which block it came from.
 type clocks struct {
 	GraphicsClock reading `xml:"graphics_clock"`
 	SMClock       reading `xml:"sm_clock"`
@@ -259,6 +329,30 @@ type maxClocks struct {
 // getters behind it were generated stubs (#712).
 type customerBoostMax struct {
 	GraphicsClock reading `xml:"graphics_clock"`
+}
+
+// appClocks is <applications_clocks> or <default_applications_clocks>: the
+// pair `nvidia-smi -ac` sets and the pair `-rac` restores.
+type appClocks struct {
+	GraphicsClock reading `xml:"graphics_clock"`
+	MemClock      reading `xml:"mem_clock"`
+}
+
+// supportedClocks is <supported_clocks>, one <supported_mem_clock> per memory
+// clock with the graphics clocks it pairs with.
+//
+// Body is kept beside the decoded children for the reason migDevices keeps
+// it: an empty Memory slice is either the literal "N/A" a board without a
+// table renders, or markup this schema no longer matches, and only the first
+// is a state the mock can legitimately be in.
+type supportedClocks struct {
+	Body   string              `xml:",innerxml"`
+	Memory []supportedMemClock `xml:"supported_mem_clock"`
+}
+
+type supportedMemClock struct {
+	Value    reading   `xml:"value"`
+	Graphics []reading `xml:"supported_graphics_clock"`
 }
 
 type eccErrors struct {
@@ -356,6 +450,40 @@ type fabricBlock struct {
 	CliqueID    reading           `xml:"cliqueId"`
 	ClusterUUID reading           `xml:"clusterUuid"`
 	Health      fabricHealthBlock `xml:"health"`
+}
+
+// powerSmoothing is <power_smoothing>. A board without the feature renders the
+// whole block as one body ("N/A", or "Insufficient Permissions" on the real
+// Blackwell captures), so Body is kept beside the children for the same reason
+// migDevices keeps it: absent children must not read as a block of zeros.
+type powerSmoothing struct {
+	Body               string                    `xml:",innerxml"`
+	Enabled            reading                   `xml:"power_smoothing_enabled"`
+	CurrentTMP         reading                   `xml:"power_smoothing_curr_tmp"`
+	CurrentTMPFloor    reading                   `xml:"power_smoothing_curr_tmp_floor"`
+	MaxPercentTMPFloor reading                   `xml:"power_smoothing_max_percent_tmp_floor"`
+	MinPercentTMPFloor reading                   `xml:"power_smoothing_min_percent_tmp_floor"`
+	NumPresetProfiles  reading                   `xml:"power_smoothing_num_preset_profiles"`
+	CurrentProfile     powerSmoothingProfile     `xml:"power_smoothing_current_profile"`
+	ActiveProfile      reading                   `xml:"power_smoothing_active_profile"`
+	AdminOverrides     powerSmoothingAdminValues `xml:"power_smoothing_admin_overrides"`
+}
+
+// powerSmoothingProfile is <power_smoothing_current_profile>: the active
+// preset's parameters.
+type powerSmoothingProfile struct {
+	PercentTMPFloor    reading `xml:"power_smoothing_curr_profile_percent_tmp_floor"`
+	RampUpRate         reading `xml:"power_smoothing_curr_profile_ramp_up_rate"`
+	RampDownRate       reading `xml:"power_smoothing_curr_profile_ramp_down_rate"`
+	RampDownHysteresis reading `xml:"power_smoothing_curr_profile_ramp_down_hysteresis"`
+}
+
+// powerSmoothingAdminValues is <power_smoothing_admin_overrides>.
+type powerSmoothingAdminValues struct {
+	PercentTMPFloor    reading `xml:"power_smoothing_admin_override_percent_tmp_floor"`
+	RampUpRate         reading `xml:"power_smoothing_admin_override_ramp_up_rate"`
+	RampDownRate       reading `xml:"power_smoothing_admin_override_ramp_down_rate"`
+	RampDownHysteresis reading `xml:"power_smoothing_admin_override_ramp_down_hysteresis"`
 }
 
 // fabricHealthBlock is <fabric><health>. Each element carries one field of the

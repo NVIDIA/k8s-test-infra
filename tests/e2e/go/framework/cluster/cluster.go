@@ -9,11 +9,12 @@
 package cluster
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
@@ -114,7 +115,7 @@ func parseNodes(stdout []byte) ([]Node, error) {
 		})
 	}
 	// Deterministic ordering: scenarios pair workers[i] with a GPU profile.
-	sort.Slice(ns, func(i, j int) bool { return ns[i].Name < ns[j].Name })
+	slices.SortFunc(ns, func(a, b Node) int { return cmp.Compare(a.Name, b.Name) })
 	return ns, nil
 }
 

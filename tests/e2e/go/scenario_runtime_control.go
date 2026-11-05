@@ -90,6 +90,14 @@ func resetRuntimeOverrides(ctx SpecContext, h *harness.Harness) {
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 }
 
+// resetRuntimeOverridesOnNode is resetRuntimeOverrides for a scenario that
+// pins the node it asserts on. Overrides are staged per node, so an unpinned
+// reset can clear a different node's file and leave the asserted one live.
+func resetRuntimeOverridesOnNode(ctx SpecContext, h *harness.Harness, node string) {
+	GinkgoHelper()
+	nvmlMockCtlOnNode(ctx, h, node, "reset", "--gpu", "all")
+}
+
 // smiGPU returns one GPU's readings from a fresh `nvidia-smi -q -x` document.
 // A single exec carries every field these scenarios read, and the readings are
 // tri-state, so a lost GPU reads as lost rather than as a plausible zero.
@@ -946,7 +954,7 @@ func nvlinkErrorSum(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx in
 	res, err := h.Kube.Exec(ctx, pod, "nvidia-smi", "nvlink", "-e", "-i", strconv.Itoa(idx))
 	Expect(err).NotTo(HaveOccurred(), "nvidia-smi nvlink -e -i %d: %s", idx, res.Combined())
 	sum, surfaced := 0, false
-	for _, line := range strings.Split(res.Stdout, "\n") {
+	for line := range strings.SplitSeq(res.Stdout, "\n") {
 		// e.g. "\t Link 0: Replay Errors: 12"
 		if !strings.Contains(line, "Errors:") {
 			continue

@@ -41,7 +41,7 @@ It also runs a suite of **bridge edge-case tests** (`bridge_tests.go`): NVML ret
 
 ## Configuration
 
-The integration test runs against a profile config fixture, `util-test-config.yaml`, via `MOCK_NVML_CONFIG` (set by the Makefile). It is an A100 profile plus one compute process carrying `sm_util`, so the per-process utilization path is exercised.
+The integration test runs against a profile config fixture, `util-test-config.yaml`, via `MOCK_NVML_CONFIG` (set by the Makefile). It is an A100 profile plus one compute process carrying `sm_util`, so the per-process utilization path is exercised. Device 5 declares `power.smoothing.supported`, so the power smoothing setters are driven on it while every other device refuses them.
 
 Without a config file, the mock library falls back to environment variables:
 
@@ -70,7 +70,7 @@ Testing device lookup by UUID / PCI Bus ID...
   PASS  errstr/SUCCESS
   PASS  boundary/uuid_invalid (correctly returned: ERROR_NOT_FOUND)
   ... (additional bridge cases)
-=== Bridge Tests: 29 passed, 0 failed ===
+=== Bridge Tests: 29 passed, 0 skipped, 0 failed ===
 
 ✓ checkProcessUtilization: pid=4242 smUtil=75 memUtil=40
 
@@ -95,3 +95,8 @@ The test uses a multi-stage Docker build:
 3. **runtime**: Debian slim image with the library and test binary
 
 This ensures the library is built for Linux (ELF format) even when running on macOS.
+
+Build the test binary through Docker rather than with a bare `go build` here: the
+MIG ABI tests include the library's own `nvml_types.h`, which the **test-builder**
+stage copies in from `pkg/gpu/mocknvml/bridge/` and which is not present in this
+directory.

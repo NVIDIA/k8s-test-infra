@@ -35,7 +35,7 @@ type lsmodRow struct {
 func parseLsmod(out string) map[string]lsmodRow {
 	rows := make(map[string]lsmodRow)
 
-	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(out, "\n"), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 || fields[0] == "Module" {
 			continue

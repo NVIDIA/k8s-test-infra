@@ -22,7 +22,7 @@ type Simulator interface {
 
 // Applier is implemented by simulators whose staged artifacts something outside
 // the node acts on (containerd, NFD, the GPU Operator validator).
-// Only gpudriver, pcibus, and cdi implement this interface.
+// Only gpudriver, pcibus, and cri implement this interface.
 type Applier interface {
 	// Apply publishes artifacts after all Stage calls have completed (barrier).
 	Apply(ctx context.Context, state *State) error
@@ -41,4 +41,12 @@ type Daemon interface {
 	// Reload delivers later States to the running daemon, so a profile edit
 	// applies without a pod restart. No-op for daemons holding no staged state.
 	Reload(ctx context.Context, state *State) error
+}
+
+// Requeuer is implemented by simulators whose Stage publishes work they finish
+// in the background, such as a download. Each value on Requeue reconciles the
+// latest State again, so that work is staged under the same staging lock as
+// the rest of the tree instead of being written while NRI decides.
+type Requeuer interface {
+	Requeue() <-chan struct{}
 }

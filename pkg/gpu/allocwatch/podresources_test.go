@@ -85,7 +85,7 @@ func TestPodResourcesLister_ReportsOneClaimPerHoldingContainer(t *testing.T) {
 	}}
 	sock := startFakeKubelet(t, fake)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	lister, err := NewPodResourcesLister(ctx, sock)
 	require.NoError(t, err)
@@ -118,7 +118,7 @@ func TestPodResourcesLister_IgnoresNonGPUResources(t *testing.T) {
 	}}
 	sock := startFakeKubelet(t, fake)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	lister, err := NewPodResourcesLister(ctx, sock)
 	require.NoError(t, err)
@@ -151,7 +151,7 @@ func TestPodResourcesLister_KeepsDuplicateDeviceIDs(t *testing.T) {
 	}}
 	sock := startFakeKubelet(t, fake)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	lister, err := NewPodResourcesLister(ctx, sock)
 	require.NoError(t, err)
@@ -178,7 +178,7 @@ func TestPodResourcesLister_IgnoresPodsHoldingNoDevices(t *testing.T) {
 	}}
 	sock := startFakeKubelet(t, fake)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	lister, err := NewPodResourcesLister(ctx, sock)
 	require.NoError(t, err)
@@ -195,7 +195,7 @@ func TestPodResourcesLister_IgnoresPodsHoldingNoDevices(t *testing.T) {
 func TestPodResourcesLister_EmptyNodeIsNotAnError(t *testing.T) {
 	sock := startFakeKubelet(t, &fakeKubelet{resp: &podresourcesv1.ListPodResourcesResponse{}})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	lister, err := NewPodResourcesLister(ctx, sock)
 	require.NoError(t, err)
@@ -207,7 +207,7 @@ func TestPodResourcesLister_EmptyNodeIsNotAnError(t *testing.T) {
 }
 
 func TestNewPodResourcesLister_FailsOnMissingSocket(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	_, err := NewPodResourcesLister(ctx, filepath.Join(t.TempDir(), "absent.sock"))

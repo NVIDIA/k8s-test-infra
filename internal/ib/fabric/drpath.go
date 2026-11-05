@@ -3,7 +3,10 @@
 
 package fabric
 
-import "sort"
+import (
+	"cmp"
+	"slices"
+)
 
 // NeighborsExcept returns all ports other than p in stable graph order.
 func (g *Graph) NeighborsExcept(p Port) []Port {
@@ -58,8 +61,8 @@ func (g *Graph) peerNextHop(from Port, outPort uint8, hopIndex int) (Port, bool)
 	if len(candidates) == 0 {
 		return Port{}, false
 	}
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].PortGUID < candidates[j].PortGUID
+	slices.SortFunc(candidates, func(a, b Port) int {
+		return cmp.Compare(a.PortGUID, b.PortGUID)
 	})
 	idx := int(outPort) - 1 + hopIndex
 	if idx < 0 {
@@ -80,8 +83,8 @@ func (g *Graph) remotePorts(caName string) []Port {
 		}
 		remotes = append(remotes, c)
 	}
-	sort.Slice(remotes, func(i, j int) bool {
-		return remotes[i].PortGUID < remotes[j].PortGUID
+	slices.SortFunc(remotes, func(a, b Port) int {
+		return cmp.Compare(a.PortGUID, b.PortGUID)
 	})
 	return remotes
 }

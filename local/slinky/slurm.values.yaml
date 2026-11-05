@@ -1,0 +1,44 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+configFiles:
+  gres.conf: |
+    AutoDetect=nvidia
+
+controller:
+  extraConfMap:
+    # Without it slurmctld drops every gpu GRES a node reports, and nodes
+    # register with Gres=(null). Slinky's docs claim the chart sets it; 1.2.3
+    # does not.
+    GresTypes: ["gpu"]
+
+nodesets:
+  gpu:
+    # Follows the Kind cluster's worker count: 2 by default, 4 under compute-domain.
+    scalingMode: DaemonSet
+    slurmd:
+      resources:
+        limits:
+          # The allocation is what makes the NRI plugin serve slurmd the mock
+          # driver files AutoDetect reads. Matches gpu.count in
+          # local/slinky/nvml-mock.values.yaml.
+          nvidia.com/gpu: 4
+    # pam_slurm_adopt confines an ssh session to the job that owns the node.
+    ssh:
+      enabled: true
+    podSpec:
+      nodeSelector:
+        mokka.nvidia.com/type: sgpu
+
+loginsets:
+  slinky:
+    enabled: true
+    service:
+      spec:
+        # Kind has no load balancer, so the chart's LoadBalancer default would
+        # never get an address. Reach it with kubectl exec or port-forward.
+        type: ClusterIP
+
+partitions:
+  all:
+    enabled: true

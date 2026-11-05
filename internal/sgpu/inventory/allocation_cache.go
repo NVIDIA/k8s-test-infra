@@ -4,21 +4,33 @@
 package inventory
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"slices"
 	"sync"
 	"sync/atomic"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 )
 
-var errAllocationInputChanged = errors.New("allocation input changed during reconciliation")
+// ErrAllocationInputChanged requests a rate-limited retry when the allocation
+// inputs change while a reconciliation runs.
+var ErrAllocationInputChanged = errors.New("allocation input changed during reconciliation")
+
+// conflictedNodes names the Nodes whose placement a plan left unresolved,
+// such as a Node that several rack groups select.
+func conflictedNodes(plan allocate.Plan) []string {
+	names := make([]string, 0, len(plan.Conflicts))
+	for _, conflict := range plan.Conflicts {
+		names = append(names, conflict.Node.Name)
+	}
+
+	return names
+}
 
 type allocationRevision struct {
 	topology uint64
@@ -145,7 +157,7 @@ func (c *AllocationCache) BindingDesiredRevision(binding allocate.Binding) (bool
 	if err != nil {
 		return false, AllocationRevision{}, err
 	}
-	index, found := slices.BinarySearchFunc(plan.Retained, binding, compareAllocationBindings)
+	index, found := slices.BinarySearchFunc(plan.Retained, binding, allocate.Binding.Compare)
 	return found && plan.Retained[index] == binding, AllocationRevision{revision: revision}, nil
 }
 
@@ -175,7 +187,7 @@ func (c *AllocationCache) planRevision(
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if revision != c.revision() {
-		return allocate.Plan{}, errAllocationInputChanged
+		return allocate.Plan{}, ErrAllocationInputChanged
 	}
 	if c.snapshot == nil || c.snapshot.revision != revision {
 		input, err := allocationInputRevision(c.cache, c.admission, revision.capacity)
@@ -185,11 +197,17 @@ func (c *AllocationCache) planRevision(
 			c.computations.Add(1)
 		}
 		if revision != c.revision() {
-			return allocate.Plan{}, errAllocationInputChanged
+			return allocate.Plan{}, ErrAllocationInputChanged
 		}
 		if err != nil {
 			c.snapshot = &allocationSnapshot{revision: revision, err: err}
 		} else {
+			zap.L().Debug("Planned sGPU allocation",
+				zap.Int("retained", len(plan.Retained)),
+				zap.Int("assigned", len(plan.Assigned)),
+				zap.Int("released", len(plan.Released)),
+				zap.Int("pending", len(plan.Pending)),
+				zap.Strings("conflictedNodes", conflictedNodes(plan)))
 			c.snapshot = partitionAllocation(revision, input.Groups, plan)
 		}
 	}
@@ -259,13 +277,11 @@ func allocationGroups(
 			continue
 		}
 		for _, group := range resolved {
-			var selector *metav1.LabelSelector
-			if group.group.Placement != nil {
-				selector = group.group.Placement.NodeSelector
-			}
 			groups = append(groups, allocate.RackGroup{
-				Key: group.key, Selector: selector,
-				Racks: group.group.Count, NodesPerRack: group.profile.Spec.Rack.NodesPerRack,
+				Key:          group.key,
+				Selector:     group.group.NodeSelector(),
+				Racks:        group.group.Count,
+				NodesPerRack: group.profile.Spec.Rack.NodesPerRack,
 			})
 		}
 	}
@@ -453,33 +469,10 @@ func conflictGroups(conflict allocate.Conflict) []allocate.RackGroupKey {
 	for _, binding := range conflict.Bindings {
 		keys = append(keys, binding.Coordinate.Group)
 	}
-	slices.SortFunc(keys, compareGroupKeys)
+	slices.SortFunc(keys, allocate.RackGroupKey.Compare)
 	return slices.Compact(keys)
 }
 
 func instanceForGroup(key allocate.RackGroupKey) inventoryInstance {
 	return inventoryInstance{name: key.InventoryName, uid: key.InventoryUID}
-}
-
-func compareGroupKeys(a, b allocate.RackGroupKey) int {
-	if order := cmp.Compare(a.InventoryName, b.InventoryName); order != 0 {
-		return order
-	}
-	if order := cmp.Compare(string(a.InventoryUID), string(b.InventoryUID)); order != 0 {
-		return order
-	}
-	return cmp.Compare(a.RackGroup, b.RackGroup)
-}
-
-func compareAllocationBindings(a, b allocate.Binding) int {
-	if order := compareGroupKeys(a.Coordinate.Group, b.Coordinate.Group); order != 0 {
-		return order
-	}
-	if order := cmp.Compare(a.Coordinate.RackIndex, b.Coordinate.RackIndex); order != 0 {
-		return order
-	}
-	if order := cmp.Compare(a.Coordinate.NodeIndex, b.Coordinate.NodeIndex); order != 0 {
-		return order
-	}
-	return cmp.Compare(string(a.Node.UID), string(b.Node.UID))
 }

@@ -34,7 +34,7 @@ func TestServer_SMPPortInfoSelfResolveShort(t *testing.T) {
 
 	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir, Fabric: true})
 	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe(ctx) }()
@@ -97,7 +97,7 @@ func TestServer_SMPNodeInfoThenPortInfo(t *testing.T) {
 
 	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir, Fabric: true})
 	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe(ctx) }()
@@ -162,7 +162,7 @@ func TestServer_SMInfoMaster(t *testing.T) {
 
 	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir, Fabric: true})
 	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe(ctx) }()
