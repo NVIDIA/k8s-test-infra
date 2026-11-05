@@ -4,7 +4,6 @@
 package imex
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 )
 
 func testHost(t *testing.T) *host.Host {
@@ -25,10 +25,9 @@ func testState(enabled bool) *agent.State {
 	state := &agent.State{}
 	if enabled {
 		state.IMEX = agent.IMEXState{
-			Enabled:      true,
-			IMEXMajor:    235,
-			CapsMajor:    236,
-			ChannelCount: 3, // small count to keep tests fast
+			Enabled:   true,
+			IMEXMajor: 235,
+			CapsMajor: 236,
 		}
 	}
 	return state
@@ -56,9 +55,8 @@ func writeProcDevicesFixture(t *testing.T) string {
 
 func TestStageProcDevices_WritesRenderedFile(t *testing.T) {
 	h := testHost(t)
-	state := testState(true)
 
-	require.NoError(t, stageProcDevices(h, state, writeProcDevicesFixture(t)))
+	require.NoError(t, stageProcDevices(h, minimalProcDevices, 235, 236))
 
 	content, err := os.ReadFile(h.RootPath("imex/proc-devices"))
 	require.NoError(t, err)
@@ -68,11 +66,9 @@ func TestStageProcDevices_WritesRenderedFile(t *testing.T) {
 
 func TestStageProcDevices_Idempotent(t *testing.T) {
 	h := testHost(t)
-	state := testState(true)
-	src := writeProcDevicesFixture(t)
 
-	require.NoError(t, stageProcDevices(h, state, src))
-	require.NoError(t, stageProcDevices(h, state, src), "second call must not error")
+	require.NoError(t, stageProcDevices(h, minimalProcDevices, 235, 236))
+	require.NoError(t, stageProcDevices(h, minimalProcDevices, 235, 236), "second call must not error")
 }
 
 func TestStageFabricImexMgmt_WritesFile(t *testing.T) {
@@ -86,19 +82,22 @@ func TestStageFabricImexMgmt_WritesFile(t *testing.T) {
 	require.Contains(t, string(content), "DeviceFileMode: 438")
 }
 
-func TestStageChannelDevs_CreatesNodes(t *testing.T) {
+// A real node has channel0 at most, so that is all the agent stages, and a
+// node staged by an earlier version loses the rest.
+func TestStageChannelDevs_StagesOnlyChannel0(t *testing.T) {
 	skipUnlessRootLinux(t)
 
 	h := testHost(t)
-	state := testState(true)
-
-	require.NoError(t, stageChannelDevs(h, state))
-
 	dir := h.RootPath("driver/dev/nvidia-caps-imex-channels")
-	for i := range state.IMEX.ChannelCount {
-		_, err := os.Stat(filepath.Join(dir, fmt.Sprintf("channel%d", i)))
-		require.NoError(t, err, "channel%d must exist", i)
-	}
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "channel1"), nil, 0o644))
+
+	require.NoError(t, stageChannelDevs(h, 235))
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.Equal(t, "channel0", entries[0].Name())
 }
 
 // ─── Simulator lifecycle ──────────────────────────────────────────────────────
@@ -118,7 +117,7 @@ func TestStage_NoopWhenDisabled(t *testing.T) {
 	}
 }
 
-func TestDiscard_NopWhenNotReady(t *testing.T) {
+func TestDiscard_SucceedsWithNothingStaged(t *testing.T) {
 	sim := New(testHost(t))
 
 	require.NoError(t, sim.Discard(t.Context()))
@@ -153,4 +152,55 @@ func TestStage_WritesAndDiscardCleans(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 	_, err = os.Stat(h.RootPath("imex"))
 	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// imexSurface is what a successful Stage writes.
+var imexSurface = []string{
+	"driver/dev/nvidia-caps-imex-channels/channel0",
+	"imex/proc-devices",
+	"driver/proc/driver/nvidia/capabilities/fabric-imex-mgmt",
+}
+
+// seedSurface writes what a successful Stage leaves on h. The channel node is
+// a plain file: mknod needs root, and removal does not care.
+func seedSurface(t *testing.T, h *host.Host) {
+	t.Helper()
+	for _, rel := range imexSurface {
+		require.NoError(t, fsutil.Write(h.RootPath(rel), nil, 0o644))
+	}
+}
+
+func requireNoSurface(t *testing.T, h *host.Host) {
+	t.Helper()
+	require.NoDirExists(t, h.RootPath("driver/dev/nvidia-caps-imex-channels"))
+	require.NoDirExists(t, h.RootPath("imex"))
+	require.NoFileExists(t, h.RootPath("driver/proc/driver/nvidia/capabilities/fabric-imex-mgmt"))
+}
+
+// IMEX follows the profile: a node whose profile is no longer multi-node
+// NVLink loses the surface at the next Stage, not only at shutdown.
+func TestStage_DisabledRemovesTheSurface(t *testing.T) {
+	h := testHost(t)
+	seedSurface(t, h)
+	sim := New(h)
+
+	require.NoError(t, sim.Stage(t.Context(), testState(false)))
+
+	require.True(t, sim.Ready())
+	requireNoSurface(t, h)
+}
+
+// A node whose surface cannot be staged becomes a node without IMEX: Stage
+// removes what an earlier pass staged and stays ready, so the node agent does
+// too.
+func TestStage_FailsOpenWhenTheSurfaceCannotBeStaged(t *testing.T) {
+	h := testHost(t)
+	seedSurface(t, h)
+	sim := New(h)
+	sim.procDevicesPath = filepath.Join(t.TempDir(), "missing")
+
+	require.NoError(t, sim.Stage(t.Context(), testState(true)))
+
+	require.True(t, sim.Ready())
+	requireNoSurface(t, h)
 }

@@ -33,7 +33,7 @@ func TestServer_LoopbackOpenSendRecv(t *testing.T) {
 
 	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir})
 	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe(ctx) }()
@@ -100,7 +100,7 @@ func TestServer_handleSend_shortMADNoPanic(t *testing.T) {
 	t.Cleanup(func() { _ = os.Remove(sock) })
 	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir})
 	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe(ctx) }()
@@ -145,7 +145,7 @@ func TestServer_handleClose_unknownHandle(t *testing.T) {
 	t.Cleanup(func() { _ = os.Remove(sock) })
 	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir})
 	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe(ctx) }()
@@ -197,7 +197,7 @@ func TestServer_handleRecv_EmptyQueueTimesOut(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- srv.handleRecv(context.Background(), serverEnd, protocol.RecvReq{Handle: 1, TimeoutMS: 50})
+		done <- srv.handleRecv(t.Context(), serverEnd, protocol.RecvReq{Handle: 1, TimeoutMS: 50})
 	}()
 
 	resp := readRecvResp(t, clientEnd, 5*time.Second)
@@ -215,7 +215,7 @@ func TestServer_handleRecv_CtxCancelReturnsTimeout(t *testing.T) {
 	clientEnd, serverEnd := net.Pipe()
 	t.Cleanup(func() { _ = clientEnd.Close(); _ = serverEnd.Close() })
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	start := time.Now()

@@ -23,30 +23,15 @@ that cannot exist.
 
 Takes about 15 minutes, most of it pulling operator images.
 
-## Step 1 — Create a cluster with CDI enabled
-
-The operator resolves GPUs through the Container Device Interface, so
-containerd needs CDI turned on and the NVIDIA container toolkit present.
+## Step 1 — Create a cluster
 
 ```bash
 kind create cluster --name mokka-operator
-
-NODE=mokka-operator-control-plane
-
-docker exec "$NODE" bash -c '
-  apt-get update -qq && apt-get install -y -qq curl gpg
-  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-    | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-  curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-    | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" \
-    > /etc/apt/sources.list.d/nvidia-container-toolkit.list
-  apt-get update -qq && apt-get install -y -qq nvidia-container-toolkit
-'
-
-docker exec "$NODE" nvidia-ctk runtime configure \
-  --runtime=containerd --cdi.enabled --set-as-default
-docker exec "$NODE" systemctl restart containerd
 ```
+
+The operator resolves GPUs through the Container Device Interface (CDI), and its own
+pods run under the `nvidia` runtime handler. Mokka's node daemon sets both up in
+containerd when it starts in Step 2, so the cluster needs nothing more.
 
 ## Step 2 — Install Mokka
 
@@ -81,33 +66,22 @@ devicePlugin:
   enabled: true
   config:
     name: ""
-  env:
-    - name: NVIDIA_DRIVER_ROOT
-      value: "/var/lib/nvml-mock/driver"
 
 gfd:
   enabled: true
   env:
-    - name: NVIDIA_DRIVER_ROOT
-      value: "/var/lib/nvml-mock/driver"
     - name: GFD_MACHINE_TYPE_FILE
       value: "/etc/nvml-mock/machine-type"
 
 dcgmExporter:
   enabled: true
   env:
-    - name: NVIDIA_DRIVER_ROOT
-      value: "/var/lib/nvml-mock/driver"
     - name: DCGM_EXPORTER_COLLECT_INTERVAL
       value: "5000"
 
 validator:
   driver:
     env:
-      - name: DRIVER_INSTALL_DIR
-        value: "/run/nvidia/driver"
-      - name: LD_LIBRARY_PATH
-        value: "/run/nvidia/driver/usr/lib64"
       - name: DISABLE_DEV_CHAR_SYMLINK_CREATION
         value: "true"
   toolkit:
@@ -118,22 +92,20 @@ validator:
     env:
       - name: WITH_WORKLOAD
         value: "false"
-  plugin:
-    env:
-      - name: LD_LIBRARY_PATH
-        value: "/run/nvidia/driver/usr/lib64"
 EOF
 
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia && helm repo update
 
 helm install gpu-operator nvidia/gpu-operator \
   --namespace gpu-operator --create-namespace \
+  --version v26.3.3 \
   -f gpu-operator-values.yaml \
   --wait --timeout 600s
 ```
 
-Pin `--version` in anything you keep. The overlay tracks the operator's chart
-schema, and an unpinned install can pick up a release that renames a value.
+The version is deliberate. GPU Operator `v26.3.3` is the release CI validates
+for this workflow. Later releases can add hardware checks or change the chart
+schema, so validate them against Mokka before updating the pin.
 
 !!! warning "Use a values file, not `--set`"
 
@@ -164,21 +136,19 @@ driver root, exercises CDI injection, and checks the node advertises GPUs.
 | Value | Why |
 |---|---|
 | `driver.enabled: false` | Mokka is the driver. The real DaemonSet would try to build a kernel module |
-| `toolkit.enabled: false` | The mock libraries are staged on the host by Mokka's DaemonSet, so the toolkit has nothing to inject. CDI carries the devices instead |
+| `toolkit.enabled: false` | Mokka's node daemon installs the NVIDIA container runtime and registers the `nvidia` handler the operator's pods use. The operator's toolkit could not run here anyway: it needs the NVIDIA kernel module |
 | `cdi.enabled` / `cdi.default` | The runtime reads `/var/run/cdi/nvidia.yaml`, which Mokka generates. This is what replaces the toolkit operand |
 | `dcgm.enabled: false` | The separate nv-hostengine DaemonSet is redundant: `dcgm-exporter` embeds the host engine in-process |
 | `dcgmExporter.enabled: true` | Kept on deliberately — it reads the mock through libdcgm, which is part of what this proves |
-| `NVIDIA_DRIVER_ROOT` | Points every operand at `/var/lib/nvml-mock/driver` instead of the real driver root |
 | `GFD_MACHINE_TYPE_FILE` | GFD's default reads `/sys/class/dmi/id/product_name`, which says `kind` here and is absent on hosts with no DMI. Mokka writes a file of its own |
-| `mig.strategy: none` | MIG is not simulated. Without this the device plugin enumerates MIG devices, and the CDI spec generator treats any non-`NOT_FOUND` return as fatal |
+| `mig.strategy: none` | The install above does not partition the board, so there are no slices to advertise and whole GPUs are the right view. MIG itself is simulated: [MIG partitioning](mig/README.md) carves a board and serves the slices through the device plugin in `migStrategy=single` |
 | `validator.cuda.WITH_WORKLOAD: false` | The CUDA validation step launches a kernel, and [CUDA is not simulated](../faq.md#can-i-run-cuda-workloads-against-mokka) |
 | `DISABLE_DEV_CHAR_SYMLINK_CREATION` | The `/dev/char` symlink step runs `modprobe nvidia`, which cannot work in a Kind container. Mokka already staged those nodes |
 
 ## Three labels that look wrong and are not
 
 Inspecting the node labels after a run turns up three that seem to contradict
-the overlay. None of them breaks anything, and none is a claim about what the
-mock implements.
+the overlay. None of them breaks anything.
 
 - `nvidia.com/gpu.deploy.driver=true` and
   `nvidia.com/gpu.deploy.container-toolkit=true` are the operator's own
@@ -187,9 +157,10 @@ mock implements.
   `driver.enabled=false` and `toolkit.enabled=false` the DaemonSets are never
   created, so the labels have nothing to select. Confirm with
   `kubectl -n gpu-operator get ds`, which lists neither.
-- `nvidia.com/mig.capable=true` reports what the simulated board advertises,
-  not what the mock implements. The profile models a MIG-capable card, so GFD
-  labels it as one — which is exactly why `mig.strategy: none` has to stay.
+- `nvidia.com/mig.capable=true` looks like it contradicts `mig.strategy: none`,
+  and does not. The board really is MIG-capable and the mock really partitions
+  it; this install simply does not carve it, which is why the strategy stays
+  `none`. Carving it is the [MIG partitioning](mig/README.md) guide.
 
 ## Troubleshooting
 
@@ -198,7 +169,7 @@ shell, so a missing file in the staged driver root looks like a crash rather
 than an error. Check what is actually there:
 
 ```bash
-docker exec "$NODE" ls -la /run/nvidia/driver/usr/lib64/libnvidia-ml.so*
+docker exec mokka-operator-control-plane ls -la /run/nvidia/driver/usr/lib64/libnvidia-ml.so*
 ```
 
 **The device plugin reports 0 GPUs.** Almost always `driver.enabled` or
@@ -232,6 +203,7 @@ not tolerate the control-plane `NoSchedule` taint.
 | `GPU_PROFILE` | `gb300` | Any profile under the chart's `profiles/` directory |
 | `NAMESPACE` | `mokka-operator` | Namespace for the Mokka release |
 | `OPERATOR_NAMESPACE` | `gpu-operator` | Namespace for the GPU Operator release |
+| `GPU_OPERATOR_VERSION` | `v26.3.3` | GPU Operator chart version to install |
 | `NVML_MOCK_IMAGE` | `ghcr.io/nvidia/nvml-mock:latest` | Published image to install |
 | `BUILD_LOCAL` | `false` | Build the image from source and side-load it with `kind load` |
 | `HELM_TIMEOUT` | `15m` | Wait budget for each Helm install |

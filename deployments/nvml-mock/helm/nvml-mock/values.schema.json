@@ -110,7 +110,130 @@
               }
             }
           }
+        },
+        "mig": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "MIG partitioning. Boots the board partitioned as gpuInstances describes; no profile declares a layout of its own, so enabling this without one is rejected, because MIG on with nothing partitioned publishes no GPU resource at all under migStrategy=single.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "gpuInstances": {
+              "type": "array",
+              "description": "The partitioning to apply. Required when enabled is true; fill a board with its smallest slice to keep every partition on one profile name, which is what migStrategy=single requires.",
+              "items": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "profile": {
+                    "type": "string",
+                    "description": "Canonical MIG profile name, e.g. \"1g.5gb\". Mutually exclusive with profile_id."
+                  },
+                  "profile_id": {
+                    "type": "integer",
+                    "description": "The ID the board publishes the profile under, as printed in the ID column of \"nvidia-smi mig -lgip\" — not NVML's profile enum, which numbers the same profiles in the opposite order. The two overlap, so the difference is silent: ID 0 is the whole board on an A100, where NVML's enum 0 is a seventh of it. Mutually exclusive with profile.",
+                    "minimum": 0
+                  },
+                  "count": {
+                    "type": "integer",
+                    "description": "How many identical instances to create. Omit it for one. Zero is rejected rather than treated as none: the engine cannot tell an explicit zero from an omitted count, so a zeroed entry would come back as the single instance it asked not to be. Drop the entry instead.",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "vgpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "vGPU simulation. host makes every GPU a vGPU host running the declared instances; guest makes every GPU the vGPU a VM sees. Field reference in docs/vgpu.md; the node agent validates the contents.",
+          "properties": {
+            "mode": { "type": "string", "enum": ["", "host", "guest"] },
+            "hostVgpuMode": { "type": "string", "enum": ["sriov", "non_sriov"] },
+            "types": {
+              "type": "array",
+              "description": "Host only. vGPU types every GPU supports, in profile (snake_case) form: id, name, framebuffer_mib, max_instances, and optional class, max_instances_per_vm, license, num_display_heads, resolution, frame_rate_limit, gpu_instance_profile_id, device_id, subsystem_id.",
+              "items": { "type": "object" }
+            },
+            "instances": {
+              "type": "array",
+              "description": "Host only. Running instances on every GPU, all of one type.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["type"],
+                "properties": {
+                  "type": { "type": "string" },
+                  "count": { "type": "integer", "minimum": 1 }
+                }
+              }
+            },
+            "guest": {
+              "type": "object",
+              "description": "Guest only. host_driver_version and host_driver_branch (each at most 10 bytes), and an optional license {product, state, expiry}."
+            }
+          }
         }
+      }
+    },
+    "priorityClassName": {
+      "type": "string",
+      "description": "PriorityClass for the node DaemonSet pods, e.g. system-node-critical."
+    },
+    "affinity": {
+      "type": "object",
+      "description": "Pod affinity for the node DaemonSet pods."
+    },
+    "podAnnotations": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Annotations added to the node DaemonSet pods."
+    },
+    "podLabels": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Labels added to the node DaemonSet pods. Must not set the selector labels."
+    },
+    "extraObjects": {
+      "type": ["array", "object"],
+      "description": "Additional objects rendered with the release through tpl: a list, or a map keyed by name. Each entry is an object or a YAML string; an entry that renders empty is skipped."
+    },
+    "global": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "imageRegistry": {
+          "type": "string",
+          "description": "Registry every chart image is pulled from, replacing the registry host of each image repository."
+        },
+        "imagePullSecrets": {
+          "type": "array",
+          "description": "Pull secrets added to every chart pod, ahead of imagePullSecrets.",
+          "items": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              {
+                "type": "object",
+                "required": ["name"],
+                "properties": { "name": { "type": "string", "minLength": 1 } }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "description": "Pull secrets added to every chart pod.",
+      "items": {
+        "oneOf": [
+          { "type": "string", "minLength": 1 },
+          {
+            "type": "object",
+            "required": ["name"],
+            "properties": { "name": { "type": "string", "minLength": 1 } }
+          }
+        ]
       }
     },
     "image": {
@@ -118,14 +241,46 @@
       "additionalProperties": true,
       "properties": {
         "repository": { "type": "string" },
-        "tag": { "type": "string" },
+        "digest": {
+          "type": "string",
+          "pattern": "^(|sha256:[a-f0-9]{64})$",
+          "description": "Immutable image digest. When set, it pins the image and takes precedence over tag."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Image tag used when digest is empty. Defaults to the chart appVersion."
+        },
         "pullPolicy": {
           "type": "string",
-          "enum": ["Always", "IfNotPresent", "Never"]
+          "enum": ["", "Always", "IfNotPresent", "Never"]
         }
       }
     },
+    "featureGates": {
+      "type": "object",
+      "description": "Feature gate overrides passed to the node agent, NRI plugin and control plane as --feature-gates. Lists exactly the gates this chart version's services accept, so a stale or locked gate fails the Helm upgrade instead of the rollout.",
+      "additionalProperties": false,
+      "properties": {
+        "AllAlpha": { "type": "boolean" },
+        "AllBeta": { "type": "boolean" },
+        "IMEXDownload": { "type": "boolean" }
+      }
+    },
     "driverVersion": { "type": "string" },
+    "driverBranch": { "type": "string" },
+    "hic": {
+      "type": "array",
+      "description": "Host interface cards nvmlSystemGetHicVersion reports, which is what `nvidia-smi -q -u` prints.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "firmwareVersion": { "type": "string", "minLength": 1 }
+        },
+        "required": ["firmwareVersion"]
+      }
+    },
     "nodeSelector": { "type": "object" },
     "tolerations": { "type": "array" },
     "nodeLabels": {
@@ -143,8 +298,10 @@
     "nodeAgent": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Mokka Node Agent sidecar.",
+      "description": "Mokka node agent.",
       "properties": {
+        "livenessProbe": { "type": ["object", "null"] },
+        "readinessProbe": { "type": ["object", "null"] },
         "logging": {
           "type": "object",
           "additionalProperties": false,
@@ -165,12 +322,42 @@
           "pattern": "^[0-9]+(ns|us|ms|s|m|h)$",
           "description": "Go duration string passed to --shutdown-timeout."
         },
+        "nriStartupTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum seconds the node-agent /stagedz startup probe may fail while its first Stage wave completes before Kubernetes restarts it, when NRI uses native sidecars."
+        },
         "kernelLog": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Announce injected Xids on the node's kernel log. Closed to unknown keys because a typo here would leave the privileged container it grants in place while reading as if it had been turned off.",
+          "description": "Announce injected Xids on the node's kernel log. Closed to unknown keys because a typo here would silently leave the /dev/kmsg mount and announcement off while reading as if it had been turned on.",
           "properties": {
             "enabled": { "type": "boolean" }
+          }
+        },
+        "containerRuntime": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Set up the node's container runtime: install the NVIDIA container runtime and register it as the nvidia handler (MEP-0006). Closed to unknown keys because a typo here would silently leave a default path in place on a node that needs another.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "type": {
+              "type": "string",
+              "enum": ["containerd"]
+            },
+            "restartMode": {
+              "type": "string",
+              "enum": ["systemd", "none"]
+            },
+            "containerd": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "configPath": { "type": "string", "pattern": "^/.+" },
+                "configDir": { "type": "string", "pattern": "^/.+" },
+                "systemdUnit": { "type": "string", "minLength": 1 }
+              }
+            }
           }
         },
         "resources": { "type": "object" }
@@ -193,6 +380,10 @@
       "description": "Node-wide ambient injection via containerd NRI.",
       "properties": {
         "enabled": { "type": "boolean" },
+        "nativeSidecar": {
+          "type": "boolean",
+          "description": "Use the Kubernetes SidecarContainers layout on Kubernetes 1.29 and later. Disable when that feature gate is explicitly off."
+        },
         "logging": {
           "type": "object",
           "additionalProperties": false,
@@ -214,12 +405,17 @@
         "image": {
           "type": "object",
           "additionalProperties": true,
+          "description": "Overrides merged over the top-level image. The top-level digest is inherited only when neither repository nor tag is overridden here.",
           "properties": {
             "repository": { "type": "string" },
+            "digest": {
+              "type": "string",
+              "pattern": "^(|sha256:[a-f0-9]{64})$"
+            },
             "tag": { "type": "string" },
             "pullPolicy": {
               "type": "string",
-              "enum": ["Always", "IfNotPresent", "Never"]
+              "enum": ["", "Always", "IfNotPresent", "Never"]
             }
           }
         },
@@ -236,6 +432,7 @@
         "deviceInjectionMode": { "type": "string", "enum": ["raw", "cdi"] },
         "cdiSpecDir": { "type": "string", "minLength": 1 },
         "imexChannelAnnotation": { "type": "string", "minLength": 1 },
+        "infinibandAnnotation": { "type": "string", "minLength": 1 },
         "excludedNamespaces": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 }
@@ -269,30 +466,69 @@
     "imex": {
       "type": "object",
       "additionalProperties": true,
-      "description": "IMEX simulation. mockChannels covers the capability surface the NVIDIA DRA driver's compute-domain kubelet plugin reads.",
+      "description": "IMEX simulation, staged on multi-node NVLink profiles (nvlink.multi_node). deviceNumbers picks the device majors of the capability surface the NVIDIA DRA driver's compute-domain kubelet plugin reads; binaries delivers the IMEX node software its ComputeDomain daemon runs.",
       "properties": {
-        "mockChannels": {
+        "deviceNumbers": {
           "type": "object",
           "additionalProperties": true,
-          "description": "Renders a substitute /proc/devices, the fabric-imex-mgmt capability file, and the channel device nodes. Consumed via the DRA driver's altProcDevices value. See NVIDIA/k8s-test-infra#498.",
+          "description": "Device majors of the substitute /proc/devices and the channel0 device node. The substitute is consumed via the DRA driver's altProcDevices value. See NVIDIA/k8s-test-infra#498.",
           "properties": {
-            "enabled": { "type": "boolean" },
-            "channelCount": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Number of channel device nodes to create. 2048 matches getImexChannelCount() in the DRA driver's compute-domain kubelet plugin."
-            },
             "channelMajor": {
               "type": "integer",
               "minimum": 1,
               "maximum": 4095,
-              "description": "Character-device major advertised for nvidia-caps-imex-channels. Must differ from capsMajor and must not collide with a major already present on the node; the renderer rejects both cases."
+              "description": "Character-device major advertised for nvidia-caps-imex-channels. Must differ from capsMajor. A major the node's kernel already gives to another driver is replaced by a free one from 384 to 511."
             },
             "capsMajor": {
               "type": "integer",
               "minimum": 1,
               "maximum": 4095,
               "description": "Character-device major advertised for nvidia-caps. Must differ from channelMajor."
+            }
+          }
+        },
+        "binaries": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "IMEX node software for the DRA ComputeDomain daemon, from the archive pinned in the node agent's imex.lock.json.",
+          "properties": {
+            "image": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Image carrying the pinned IMEX archive under /imex, as make imex-binaries-image builds it. On multi-node NVLink profiles a copy-only init container puts the archive where the node agent finds it. An empty repository renders no init container.",
+              "properties": {
+                "repository": { "type": "string" },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^(|sha256:[a-f0-9]{64})$",
+                  "description": "Immutable image digest. When set, it pins the image and takes precedence over tag."
+                },
+                "tag": {
+                  "type": "string",
+                  "description": "The IMEX version the image carries. Required with repository unless digest is set."
+                },
+                "pullPolicy": {
+                  "type": "string",
+                  "enum": ["", "Always", "IfNotPresent", "Never"]
+                }
+              }
+            },
+            "resources": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Requests and limits of the copy-only init container. A namespace with a compute ResourceQuota admits a pod only if every container sets requests."
+            },
+            "download": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "The node agent's download of the pinned IMEX archive from NVIDIA, while the IMEXDownload feature gate is on.",
+              "properties": {
+                "timeout": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(ns|us|ms|s|m|h)$",
+                  "description": "Go duration string passed to --imex-download-timeout: the time limit of one download attempt."
+                }
+              }
             }
           }
         }
@@ -337,9 +573,14 @@
             "networkPolicy": {
               "type": "object",
               "additionalProperties": true,
-              "description": "NetworkPolicy restricting inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that do not enforce NetworkPolicy (e.g. Kind's kindnet).",
+              "description": "NetworkPolicy restricting inbound access to the fabric port to peer nvml-mock pods. Rendered only at the full mock InfiniBand tier, the only one that listens on the port. No-op on CNIs that do not enforce NetworkPolicy. Kind's default kindnet enforces it since Kind v0.24.0.",
               "properties": {
-                "enabled": { "type": "boolean" }
+                "enabled": { "type": "boolean" },
+                "peerNamespaces": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Namespaces besides the release's whose nvml-mock pods may reach the fabric port, for a fleet split across namespaces. Empty admits the release's namespace only."
+                }
               }
             }
           }
@@ -361,17 +602,13 @@
             "digest": {
               "type": "string",
               "pattern": "^(|sha256:[a-f0-9]{64})$",
-              "description": "Immutable image digest required when controlPlane.enabled is true outside the explicit local mutable-tag mode."
+              "description": "Immutable image digest. When set, it pins the image and takes precedence over tag."
             },
             "tag": {
               "type": "string",
-              "description": "Mutable image tag used only for local Tilt builds when allowMutableTag is true."
+              "description": "Image tag used when digest is empty. Defaults to the chart appVersion."
             },
-            "allowMutableTag": {
-              "type": "boolean",
-              "description": "Allows mutable image tags for local development; keep false for normal installs to enforce digest pinning."
-            },
-            "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+            "pullPolicy": { "type": "string", "enum": ["", "Always", "IfNotPresent", "Never"] }
           }
         },
         "logging": {
@@ -432,12 +669,53 @@
         "resources": { "type": "object" },
         "nodeSelector": { "type": "object" },
         "tolerations": { "type": "array" },
+        "priorityClassName": {
+          "type": "string",
+          "description": "PriorityClass for the control-plane pods, e.g. system-cluster-critical."
+        },
+        "affinity": {
+          "type": "object",
+          "description": "Pod affinity for the control-plane pods, e.g. anti-affinity that spreads replicas across nodes."
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Annotations added to the control-plane pods."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Labels added to the control-plane pods. Must not set the selector labels."
+        },
+        "topologySpreadConstraints": {
+          "type": "array",
+          "description": "Topology spread constraints for the control-plane pods, e.g. across zones."
+        },
+        "pdb": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "PodDisruptionBudget for the control-plane pods, rendered only with replicas > 1. maxUnavailable wins if both bounds are set; with neither, minAvailable is 1.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minAvailable": { "$ref": "#/$defs/disruptionBound" },
+            "maxUnavailable": { "$ref": "#/$defs/disruptionBound" }
+          }
+        },
         "terminationGracePeriodSeconds": {
           "type": "integer",
           "minimum": 0,
           "description": "Pod-level grace period. Must be >= preStop sleep + shutdownTimeout, otherwise kube SIGKILLs the drain window."
         }
       }
+    }
+  },
+  "$defs": {
+    "disruptionBound": {
+      "description": "A pod count or a percentage such as \"50%\".",
+      "oneOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "string", "pattern": "^[0-9]+%$" }
+      ]
     }
   }
 }

@@ -85,6 +85,7 @@ func nvmlDeviceGetFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
 
+	driverVersion := engine.GetEngine().GetConfig().DriverVersion
 	fields := unsafe.Slice(values, int(valuesCount))
 	ts := C.longlong(time.Now().UnixMicro())
 	for i := range fields {
@@ -93,7 +94,10 @@ func nvmlDeviceGetFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *
 		scopeID := uint32(C.fvScopeId(fv))
 		C.fvSetTimestamp(fv, ts)
 
-		vt, val, ret := dev.GetFieldValue(fieldID, scopeID)
+		vt, val, ret := engine.FieldValueUnsupported, uint64(0), nvml.ERROR_NOT_SUPPORTED
+		if servedID, ok := engine.CanonicalFieldID(fieldID, driverVersion); ok && engine.FieldAvailable(servedID, driverVersion) {
+			vt, val, ret = dev.GetFieldValue(servedID, scopeID)
+		}
 		if ret != nvml.SUCCESS {
 			// Named explicitly because a declined field is otherwise invisible:
 			// the overall call still succeeds, the consumer renders the entry as
@@ -121,5 +125,34 @@ func nvmlDeviceGetFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *
 		C.fvSetReturn(fv, C.NVML_SUCCESS)
 	}
 	debugLog("[NVML] nvmlDeviceGetFieldValues(count=%d) -> filled\n", int(valuesCount))
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceClearFieldValues
+func nvmlDeviceClearFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *C.nvmlFieldValue_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceClearFieldValues"); !ok {
+		return ret
+	}
+	if values == nil || valuesCount <= 0 {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+
+	fields := unsafe.Slice(values, int(valuesCount))
+	requests := make([]nvml.FieldValue, len(fields))
+	for i := range fields {
+		requests[i].FieldId = uint32(C.fvFieldId(&fields[i]))
+		requests[i].ScopeId = uint32(C.fvScopeId(&fields[i]))
+	}
+	if ret := dev.ClearFieldValues(requests); ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	for i := range fields {
+		C.fvSetTimestamp(&fields[i], C.longlong(requests[i].Timestamp))
+		C.fvSetReturn(&fields[i], C.nvmlReturn_t(requests[i].NvmlReturn))
+	}
 	return C.NVML_SUCCESS
 }

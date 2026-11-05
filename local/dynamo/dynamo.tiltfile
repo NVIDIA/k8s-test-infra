@@ -1,0 +1,74 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+load('ext://helm_resource', 'helm_resource')
+
+RELEASE = 'dynamo-platform'
+
+_NAMESPACE = 'dynamo-system'
+# The DGD below uses the v1beta1 API and the mocker image tag, both of which move
+# with the platform: bump all three together.
+_VERSION = '1.5.0'
+# The chart is published as a plain tarball on NGC; the OCI reference the
+# Dynamo docs mention does not resolve for 1.5.0.
+_CHART = 'https://helm.ngc.nvidia.com/nvidia/ai-dynamo/charts/dynamo-platform-%s.tgz' % _VERSION
+_HELM_TIMEOUT_S = 300
+UPSERT_TIMEOUT_S = _HELM_TIMEOUT_S + 60
+_DGD = 'local/dynamo/qwen3.yaml'
+_DGD_NAME = 'qwen3'
+# The Dynamo frontend's default HTTP port, which the operator also uses for the
+# <dgd>-frontend Service it generates.
+_FRONTEND_PORT = 8000
+
+
+def install(nvml_mock_releases):
+    helm_resource(
+        RELEASE,
+        _CHART,
+        namespace=_NAMESPACE,
+        flags=[
+            '--create-namespace',
+            # --wait is load-bearing: the operator's crd-apply init container
+            # installs the DynamoGraphDeployment CRD and the manager serves the
+            # validating webhook. Without it Tilt applies the DGD the moment
+            # `helm upgrade` returns and the apply fails on an unknown kind.
+            '--wait', '--timeout', '%ds' % _HELM_TIMEOUT_S,
+        ],
+        resource_deps=nvml_mock_releases,
+        labels=['dynamo'],
+    )
+
+    k8s_yaml(_DGD)
+    # Tilt does not know the DGD kind; the operator owns its pods through a
+    # Deployment, so let Tilt follow the ownership chain for logs and status.
+    k8s_kind('DynamoGraphDeployment', pod_readiness='wait')
+    k8s_resource(
+        _DGD_NAME,
+        # The GPU Operator is a hard dependency, not UI ordering: the worker
+        # stays Pending until the device plugin advertises nvidia.com/gpu.
+        resource_deps=[RELEASE, 'gpu-operator'] + nvml_mock_releases,
+        labels=['dynamo'],
+    )
+
+    # Forward the frontend Service by name: a port_forwards on the resource
+    # above would pick whichever of its frontend or worker pods Tilt saw first.
+    local_resource(
+        'dynamo-frontend',
+        serve_cmd='kubectl -n %s port-forward svc/%s-frontend %d:%d' % (
+            _NAMESPACE, _DGD_NAME, _FRONTEND_PORT, _FRONTEND_PORT),
+        resource_deps=[_DGD_NAME],
+        readiness_probe=probe(
+            period_secs=5,
+            http_get=http_get_action(port=_FRONTEND_PORT, path='/v1/models'),
+        ),
+        links=[link('http://localhost:%d/v1/models' % _FRONTEND_PORT, 'Dynamo — OpenAI API')],
+        labels=['dynamo'],
+    )
+
+    local_resource(
+        'dynamo-smoke',
+        cmd='bash local/dynamo/scenarios/smoke.sh',
+        resource_deps=[_DGD_NAME],
+        auto_init=False,
+        labels=['dynamo-tests'],
+    )

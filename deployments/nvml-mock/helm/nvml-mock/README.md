@@ -15,8 +15,12 @@ is a summary so that `helm show readme` stays useful.
 ## Install
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace
 ```
+
+Use a dedicated namespace: the NRI plugin never injects pods in the release
+namespace.
 
 ## GPU profiles
 
@@ -26,14 +30,15 @@ Set `gpu.profile` to one of the profiles shipped in `profiles/`:
 |---------|----------|------|--------------|
 | `a100` | A100-SXM4-40GB | 40 GiB | Ampere |
 | `h100` | H100 80GB HBM3 | 80 GiB | Hopper |
-| `b200` | B200 | 192 GiB | Blackwell |
-| `gb200` | GB200 | 192 GiB | Blackwell |
-| `gb300` (default) | GB300 NVL | 288 GiB | Blackwell Ultra |
+| `b200` | B200 | 180 GiB | Blackwell |
+| `gb200` | GB200 | 186 GiB | Blackwell |
+| `gb300` (default) | GB300 NVL | 278 GiB | Blackwell Ultra |
 | `l40s` | L40S | 48 GiB | Ada Lovelace |
 | `t4` | Tesla T4 | 16 GiB | Turing |
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace \
   --set gpu.profile=h100 \
   --set gpu.count=8
 ```
@@ -46,11 +51,13 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 |-----|---------|
 | `gpu` | Profile, device count, per-device overrides |
 | `image` | Repository, tag, pull policy |
+| `featureGates` | Feature gates for the node agent, NRI plugin and control plane |
 | `nodeSelector`, `tolerations` | Standard scheduling; `nodeAgent.resources` sets limits |
-| `nodeAgent.kernelLog` | Announce injected Xids on the node's `/dev/kmsg` (off; makes the agent privileged) |
+| `nodeAgent.kernelLog` | Announce injected Xids on the node's `/dev/kmsg` (off by default) |
+| `nodeAgent.containerRuntime` | Set up the node's container runtime: install the NVIDIA container runtime and make it containerd's default `nvidia` handler (on by default; reverted when the node pod stops) |
 | `nodeLabels` | Labels applied to nodes running the mock |
 | `allocationWatcher` | Tracks device-plugin allocations for utilization simulation |
-| `nri` | Node-wide NRI injection (see MEP-0002) |
+| `nri` | NRI injection into GPU workloads, on by default |
 | `topology` | Multi-node and multi-GPU interconnect layout |
 | `infiniband` | Mock IB devices and counters |
 | `imex`, `fabricmanager` | IMEX and fabric-manager simulation |
@@ -63,15 +70,20 @@ so a mistyped key fails fast rather than deploying a broken DaemonSet.
 ## Support matrix
 
 - Kubernetes >= 1.28.0
+- containerd with NRI enabled, which `nodeAgent.containerRuntime` turns on.
+  Without it, containerd 2.0 and later have NRI on; on containerd 1.7, enable
+  it or set `nri.enabled=false`
 - `controlPlane.enabled` requires Kubernetes >= 1.30.0 for its
   `ValidatingAdmissionPolicy`
-- `controlPlane.enabled` requires an immutable image digest in
-  `controlPlane.image.digest` for normal installs. Tilt explicitly enables
-  `controlPlane.image.allowMutableTag` only to inject locally built images.
+- `nodeAgent.containerRuntime` (on by default) requires containerd 1.7 or later,
+  restarted through systemd unless `restartMode: none`, and writable
+  `/usr/bin`, `/usr/local` and `/etc` on the node. Nodes without containerd,
+  such as CRI-O, k3s and rke2 nodes, are left alone; disable it on Bottlerocket
+  and read-only `/usr` hosts
 - Chart version: see `Chart.yaml`
 
 Before disabling the control plane or uninstalling its release, follow the
-[controller decommission procedure](../../../../docs/mokka-controller.md#disable-or-uninstall-safely).
+[controller decommission procedure](../../../../docs/control-plane.md#disable-or-uninstall-safely).
 The controller must remove its finalizers and Node projection metadata while
 its Deployment and RBAC still exist; retained CRDs cannot perform this cleanup.
 

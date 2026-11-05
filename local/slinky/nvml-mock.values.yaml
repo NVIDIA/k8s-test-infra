@@ -1,0 +1,8 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Every profile is capped to the same count so the slurmd GPU request in
+# slurm.values.yaml claims the whole node, whichever profile is selected. Keep the
+# two in step.
+gpu:
+  count: 4

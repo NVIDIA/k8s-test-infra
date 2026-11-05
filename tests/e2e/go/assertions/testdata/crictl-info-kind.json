@@ -1,0 +1,14 @@
+{
+  "status": {"conditions": [{"type": "RuntimeReady", "status": true}]},
+  "config": {
+    "containerd": {
+      "defaultRuntimeName": "nvidia",
+      "runtimes": {
+        "runc": {"runtimeType": "io.containerd.runc.v2", "options": {"BinaryName": "", "SystemdCgroup": true}},
+        "nvidia": {"runtimeType": "io.containerd.runc.v2", "options": {"BinaryName": "/usr/bin/nvidia-container-runtime", "SystemdCgroup": true}}
+      }
+    },
+    "enableCDI": true,
+    "cdiSpecDirs": ["/etc/cdi", "/var/run/cdi"]
+  }
+}

@@ -15,6 +15,7 @@
 //   - ExpectedHCAs  = infiniband.enabled ? GPUs*hcas_per_gpu : 0
 //   - ExpectedNV    = len(nvlink.switches) > 0 ? links_per_gpu : 0
 //   - FabricMgr     = len(nvlink.switches) > 0 || device_defaults.fabric.state == "auto"
+//   - ExpectedPCIBridges = nvlink.switches carrying a device_id
 //
 // NOTE on ExpectedNV: the signal is the PRESENCE of an NVSwitch list, NOT
 // links_per_gpu on its own. b200 ships links_per_gpu: 18 but switch_support:
@@ -47,9 +48,10 @@ var KnownProfiles = []string{"a100", "h100", "b200", "gb200", "gb300", "l40s", "
 // keys used in the profile files.
 type rawProfile struct {
 	DeviceDefaults struct {
-		Name         string `json:"name"`
-		Architecture string `json:"architecture"`
-		Fabric       *struct {
+		Name           string `json:"name"`
+		Architecture   string `json:"architecture"`
+		AddressingMode string `json:"addressing_mode"`
+		Fabric         *struct {
 			State string `json:"state"`
 		} `json:"fabric"`
 		Memory struct {
@@ -68,8 +70,16 @@ type rawProfile struct {
 			MaxLinkGen int `json:"max_link_gen"`
 		} `json:"pcie"`
 		Clocks *struct {
-			GraphicsMax int `json:"graphics_max"`
+			GraphicsMax        int `json:"graphics_max"`
+			GraphicsAppDefault int `json:"graphics_app_default"`
+			MemoryAppDefault   int `json:"memory_app_default"`
 		} `json:"clocks"`
+		SupportedClocks *struct {
+			MemoryClocks []struct {
+				FreqMHz        int   `json:"freq_mhz"`
+				GraphicsClocks []int `json:"graphics_clocks"`
+			} `json:"memory_clocks"`
+		} `json:"supported_clocks"`
 		Power *struct {
 			WorkloadProfiles *struct {
 				Supported []struct {
@@ -79,6 +89,11 @@ type rawProfile struct {
 				} `json:"supported"`
 				Requested []int `json:"requested"`
 			} `json:"workload_power_profiles"`
+			Smoothing *struct {
+				Supported     *bool  `json:"supported"`
+				State         string `json:"state"`
+				ActiveProfile int    `json:"active_profile"`
+			} `json:"smoothing"`
 		} `json:"power"`
 		Platform     *rawPlatform `json:"platform"`
 		RemappedRows *struct {
@@ -86,25 +101,46 @@ type rawProfile struct {
 				Max int `json:"max"`
 			} `json:"availability_histogram"`
 		} `json:"remapped_rows"`
+		MIG *struct {
+			MaxGPUInstances int `json:"max_gpu_instances"`
+		} `json:"mig"`
 	} `json:"device_defaults"`
 	Devices []struct {
 		Index    int          `json:"index"`
 		Platform *rawPlatform `json:"platform"`
+		PCI      struct {
+			BusID string `json:"bus_id"`
+		} `json:"pci"`
 	} `json:"devices"`
 	NVLink struct {
 		LinksPerGPU int  `json:"links_per_gpu"`
 		C2CEnabled  bool `json:"c2c_enabled"`
-		Switches    []struct {
-			BDF string `json:"bdf"`
+		MultiNode   bool `json:"multi_node"`
+		BwMode      struct {
+			Scope string `json:"scope"`
+		} `json:"bw_mode"`
+		Firmware struct {
+			MSE       string `json:"mse"`
+			NETIR     string `json:"netir"`
+			NETIRUPHY string `json:"netir_uphy"`
+			NETIRCLN  string `json:"netir_cln"`
+			NETIRDLN  string `json:"netir_dln"`
+		} `json:"firmware"`
+		Switches []struct {
+			BDF      string `json:"bdf"`
+			DeviceID uint32 `json:"device_id"`
 		} `json:"switches"`
 	} `json:"nvlink"`
 	Infiniband struct {
-		Enabled    bool `json:"enabled"`
-		HCAsPerGPU int  `json:"hcas_per_gpu"`
+		Enabled    bool   `json:"enabled"`
+		HCAsPerGPU int    `json:"hcas_per_gpu"`
+		LinkLayer  string `json:"link_layer"`
 	} `json:"infiniband"`
 	PCIeTopology struct {
 		RootComplexes []struct {
-			ID string `json:"id"`
+			ID       string   `json:"id"`
+			NUMANode int      `json:"numa_node"`
+			Devices  []string `json:"devices"`
 		} `json:"root_complexes"`
 	} `json:"pcie_topology"`
 	System struct {
@@ -146,13 +182,21 @@ type Profile struct {
 	gpuCount    int
 	ibEnabled   bool
 	hcasPerGPU  int
+	roce        bool
 	linksPerGPU int
 	hasSwitches bool
-	c2cEnabled  bool
-	fabricAuto  bool
-	hasFabric   bool
-	pciRoots    int
-	memoryBytes int64
+
+	nvlinkFirmware []NvlinkFirmwareRow
+	nvlinkBwScope  string
+	pciBridges     int
+	c2cEnabled     bool
+	multiNode      bool
+	fabricAuto     bool
+	hasFabric      bool
+	pciRoots       int
+	pciAddrs       []string
+	gpuNUMA        []int
+	memoryBytes    int64
 
 	arch               gpuarch.Arch
 	shutdownThresholdC int
@@ -162,16 +206,27 @@ type Profile struct {
 	ofaUtilizationPct  int
 	maxPCIeLinkGen     int
 	graphicsMaxMHz     int
+	appDefaultMemMHz   int
+	appDefaultGfxMHz   int
+	supportedClocks    []SupportedMemoryClock
 	rowRemapHistogram  bool
 	rowRemapBanks      int
 
 	platform    PlatformIdentity
 	hasPlatform bool
 
+	addressingMode string
+
 	driverVersion             string
 	workloadProfiles          []WorkloadPowerProfile
 	workloadProfilesRequested []int
 	workloadProfilesDeclared  bool
+
+	smoothingSupported     *bool
+	smoothingEnabled       bool
+	smoothingActiveProfile int
+
+	migMaxInstances int
 }
 
 // WorkloadPowerProfile is one profile a board advertises through
@@ -181,6 +236,14 @@ type WorkloadPowerProfile struct {
 	ID        int
 	Priority  int
 	Conflicts []int
+}
+
+// SupportedMemoryClock is one memory clock a board supports and the graphics
+// clocks it can pair with, in the order NVML returns them (highest first).
+// Every (MemoryMHz, GraphicsMHz[i]) pair is one `nvidia-smi -ac` accepts.
+type SupportedMemoryClock struct {
+	MemoryMHz   int
+	GraphicsMHz []int
 }
 
 // bytesPerMiB is the divisor GPU Feature Discovery uses when it publishes
@@ -235,14 +298,20 @@ func Load(profilesDir, name string) (Profile, error) {
 		gpuCount:    len(raw.Devices),
 		ibEnabled:   raw.Infiniband.Enabled,
 		hcasPerGPU:  raw.Infiniband.HCAsPerGPU,
+		roce:        strings.EqualFold(raw.Infiniband.LinkLayer, "Ethernet"),
 		linksPerGPU: raw.NVLink.LinksPerGPU,
 		hasSwitches: len(raw.NVLink.Switches) > 0,
+		pciBridges:  pcieVisibleSwitches(raw),
 		c2cEnabled:  raw.NVLink.C2CEnabled,
+		multiNode:   raw.NVLink.MultiNode,
 		memoryBytes: raw.DeviceDefaults.Memory.TotalBytes,
 		arch:        parsedArch,
 
-		driverVersion: strings.TrimSpace(raw.System.DriverVersion),
+		addressingMode: strings.TrimSpace(raw.DeviceDefaults.AddressingMode),
+		driverVersion:  strings.TrimSpace(raw.System.DriverVersion),
 	}
+	p.nvlinkFirmware = nvlinkFirmwareRows(raw)
+	p.nvlinkBwScope = raw.NVLink.BwMode.Scope
 	p.applyOptionalDeviceDefaults(raw)
 	// pcibus simulator falls back to a flat single-root layout when a profile
 	// declares no pcie_topology block, so an empty list still means 1 root.
@@ -250,6 +319,7 @@ func Load(profilesDir, name string) (Profile, error) {
 	if p.pciRoots == 0 {
 		p.pciRoots = 1
 	}
+	p.pciAddrs, p.gpuNUMA = pciLocality(raw)
 	// An IB-enabled profile that forgot hcas_per_gpu would silently expect 0
 	// HCAs; the shipped profiles all set 1. Default to 1 when enabled but
 	// unset so a missing key does not weaken the assertion.
@@ -257,6 +327,46 @@ func Load(profilesDir, name string) (Profile, error) {
 		p.hcasPerGPU = 1
 	}
 	return p, nil
+}
+
+// pciLocality returns every PCI address pcie_topology declares, lowercased, and
+// the sorted NUMA nodes its GPUs sit on, as the node agent resolves them. A
+// profile without the block gets the single NUMA-0 root the pcibus simulator
+// synthesizes. A GPU no declared root lists, or a profile whose GPUs have no
+// address at all, has unknown locality (-1).
+func pciLocality(raw rawProfile) ([]string, []int) {
+	var addrs []string
+	rootNUMA := map[string]int{}
+	for _, rc := range raw.PCIeTopology.RootComplexes {
+		for _, addr := range rc.Devices {
+			addr = strings.ToLower(addr)
+			addrs = append(addrs, addr)
+			rootNUMA[addr] = rc.NUMANode
+		}
+	}
+
+	var numa []int
+	for _, d := range raw.Devices {
+		addr := strings.ToLower(d.PCI.BusID)
+		if addr == "" {
+			continue
+		}
+		n, declared := rootNUMA[addr]
+		switch {
+		case len(raw.PCIeTopology.RootComplexes) == 0:
+			n = 0
+		case !declared:
+			n = -1
+		}
+		if !slices.Contains(numa, n) {
+			numa = append(numa, n)
+		}
+	}
+	if len(numa) == 0 {
+		return addrs, []int{-1}
+	}
+	slices.Sort(numa)
+	return addrs, numa
 }
 
 // applyOptionalDeviceDefaults copies the device_defaults sub-blocks a profile
@@ -275,10 +385,9 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	if pcie := raw.DeviceDefaults.PCIe; pcie != nil {
 		p.maxPCIeLinkGen = pcie.MaxLinkGen
 	}
-	if c := raw.DeviceDefaults.Clocks; c != nil {
-		p.graphicsMaxMHz = c.GraphicsMax
-	}
+	p.applyClocks(raw)
 	p.applyWorkloadPowerProfiles(raw)
+	p.applyPowerSmoothing(raw)
 	if r := raw.DeviceDefaults.RemappedRows; r != nil && r.AvailabilityHistogram != nil {
 		p.rowRemapHistogram = true
 		p.rowRemapBanks = r.AvailabilityHistogram.Max
@@ -286,6 +395,9 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	if f := raw.DeviceDefaults.Fabric; f != nil {
 		p.hasFabric = true
 		p.fabricAuto = strings.EqualFold(strings.TrimSpace(f.State), "auto")
+	}
+	if mig := raw.DeviceDefaults.MIG; mig != nil {
+		p.migMaxInstances = mig.MaxGPUInstances
 	}
 	if pl := raw.DeviceDefaults.Platform; pl != nil {
 		p.hasPlatform = true
@@ -296,6 +408,23 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 			HostID:              pl.HostID,
 			PeerType:            pl.PeerType,
 			ModuleIDs:           deviceModuleIDs(raw, pl.ModuleID),
+		}
+	}
+}
+
+// applyClocks copies the clocks and supported_clocks blocks.
+func (p *Profile) applyClocks(raw rawProfile) {
+	if c := raw.DeviceDefaults.Clocks; c != nil {
+		p.graphicsMaxMHz = c.GraphicsMax
+		p.appDefaultMemMHz = c.MemoryAppDefault
+		p.appDefaultGfxMHz = c.GraphicsAppDefault
+	}
+	if sc := raw.DeviceDefaults.SupportedClocks; sc != nil {
+		for _, mc := range sc.MemoryClocks {
+			p.supportedClocks = append(p.supportedClocks, SupportedMemoryClock{
+				MemoryMHz:   mc.FreqMHz,
+				GraphicsMHz: mc.GraphicsClocks,
+			})
 		}
 	}
 }
@@ -337,8 +466,58 @@ func All(profilesDir string) ([]Profile, error) {
 // ExpectedGPUs is the number of GPUs the profile exposes (len of devices).
 func (p Profile) ExpectedGPUs() int { return p.gpuCount }
 
+// pcieVisibleSwitches counts the NVSwitches that sit on the node's own PCIe
+// bus, which is the subset of nvlink.switches carrying a PCI identity. Mirrors
+// internal/agent/source compileSwitches.
+func pcieVisibleSwitches(raw rawProfile) int {
+	n := 0
+	for _, sw := range raw.NVLink.Switches {
+		if sw.DeviceID != 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// ExpectedPCIBridges is the number of NVSwitches the rendered PCI tree should
+// carry as bridge-class devices: the HGX baseboard profiles (a100, h100) put
+// their switches on the node's PCIe bus, so `lspci` lists them beside the GPUs.
+//
+// Zero for every other profile, and two different reasons produce it. b200/l40s/
+// t4 declare no NVSwitches at all. gb200/gb300 declare them for NVLink topology
+// but give them no PCI identity, because on NVL72 the switches are in their own
+// trays and the compute tray never enumerates them — which makes those profiles
+// the negative control that keeps this from being satisfiable by "any switch".
+func (p Profile) ExpectedPCIBridges() int { return p.pciBridges }
+
+// ExpectedPCIFunctions is the total number of entries the rendered
+// /sys/bus/pci/devices should hold: the GPUs plus any PCIe-visible NVSwitch.
+func (p Profile) ExpectedPCIFunctions() int { return p.gpuCount + p.pciBridges }
+
 // IBEnabled reports whether the profile ships InfiniBand enabled.
 func (p Profile) IBEnabled() bool { return p.ibEnabled }
+
+// PCIAddresses lists every PCI function pcie_topology declares, GPUs and
+// NVSwitches alike, lowercased as sysfs names them.
+func (p Profile) PCIAddresses() []string { return p.pciAddrs }
+
+// GPUNUMANodes is the sorted set of NUMA nodes the profile's GPUs sit on.
+func (p Profile) GPUNUMANodes() []int { return p.gpuNUMA }
+
+// ExpectedNetdevs is the number of RoCE netdevs the IB tree renders under
+// sys/class/net: one per HCA on an Ethernet link layer, none on InfiniBand.
+func (p Profile) ExpectedNetdevs() int {
+	if !p.roce {
+		return 0
+	}
+	return p.ExpectedHCAs()
+}
+
+// MIGCapable reports whether the board can partition at all. That is a
+// property of the hardware, so it reads max_gpu_instances: no profile declares
+// a layout, since how a board is carved is a deployment choice supplied at
+// install through gpu.mig.gpuInstances.
+func (p Profile) MIGCapable() bool { return p.migMaxInstances > 0 }
 
 // ExpectedHCAs is the number of InfiniBand HCAs the profile should expose:
 // one per GPU when IB is enabled, otherwise 0 (l40s/t4 negative control).
@@ -389,6 +568,12 @@ func (p Profile) HasFabric() bool { return p.hasFabric }
 // elsewhere. Absent key means false, i.e. N/A.
 func (p Profile) C2CEnabled() bool { return p.c2cEnabled }
 
+// MultiNodeNVLink reports whether the board's NVLink domain spans nodes
+// (nvlink.multi_node), which is what makes the node agent stage the IMEX
+// surface. gb200 and gb300 set it today. HasFabric is also true on h100, whose
+// NVLink stays on one baseboard, so it cannot stand in for this.
+func (p Profile) MultiNodeNVLink() bool { return p.multiNode }
+
 // PlatformIdentity returns the platform identity the profile configures and
 // whether it declares one at all. Only the rack-scale profiles (gb200, gb300)
 // do: NVML answers nvmlDeviceGetPlatformInfo for a board whose platform can
@@ -432,6 +617,46 @@ func (p Profile) MaxPCIeLinkGen() int { return p.maxPCIeLinkGen }
 // (#712). 0 when the profile declares no clocks block, in which case both rows
 // read N/A.
 func (p Profile) GraphicsMaxClockMHz() int { return p.graphicsMaxMHz }
+
+// SupportedClocks is device_defaults.supported_clocks, the table nvidia-smi
+// renders under Supported Clocks and validates `-ac` against. nil when the
+// profile declares none, in which case the section reads N/A. The result is a
+// copy, so a caller sorting or trimming it cannot reach the profile.
+func (p Profile) SupportedClocks() []SupportedMemoryClock {
+	out := make([]SupportedMemoryClock, 0, len(p.supportedClocks))
+	for _, mc := range p.supportedClocks {
+		out = append(out, SupportedMemoryClock{MemoryMHz: mc.MemoryMHz, GraphicsMHz: slices.Clone(mc.GraphicsMHz)})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// DefaultApplicationsClocksMHz is the (memory, graphics) pair `nvidia-smi
+// -rac` restores: clocks.memory_app_default and clocks.graphics_app_default.
+// Both are 0 when the profile declares no clocks block.
+func (p Profile) DefaultApplicationsClocksMHz() (memMHz, graphicsMHz int) {
+	return p.appDefaultMemMHz, p.appDefaultGfxMHz
+}
+
+// AlternateApplicationsClocksMHz picks a supported (memory, graphics) pair
+// that differs from the default in both clocks where the table allows it, so
+// a test setting it can tell the write landed from the defaults. It takes the
+// lowest memory clock and the graphics clock halfway down its list. ok is
+// false when the table has no pair other than the default.
+func (p Profile) AlternateApplicationsClocksMHz() (memMHz, graphicsMHz int, ok bool) {
+	if len(p.supportedClocks) == 0 {
+		return 0, 0, false
+	}
+	mc := p.supportedClocks[len(p.supportedClocks)-1]
+	for i := len(mc.GraphicsMHz) / 2; i < len(mc.GraphicsMHz); i++ {
+		if mc.MemoryMHz != p.appDefaultMemMHz || mc.GraphicsMHz[i] != p.appDefaultGfxMHz {
+			return mc.MemoryMHz, mc.GraphicsMHz[i], true
+		}
+	}
+	return 0, 0, false
+}
 
 // applyWorkloadPowerProfiles decodes power.workload_power_profiles. Declaring
 // the block is what separates a board that models the feature from one that
@@ -482,6 +707,40 @@ func (p Profile) SupportsWorkloadPowerProfiles() bool {
 	return p.workloadProfilesDeclared && p.DriverMajor() >= workloadPowerProfileMinDriver
 }
 
+// applyPowerSmoothing decodes power.smoothing. Absent, the board keeps the
+// architecture default and starts disabled on preset 0.
+func (p *Profile) applyPowerSmoothing(raw rawProfile) {
+	pw := raw.DeviceDefaults.Power
+	if pw == nil || pw.Smoothing == nil {
+		return
+	}
+	p.smoothingSupported = pw.Smoothing.Supported
+	p.smoothingEnabled = pw.Smoothing.State == "enabled"
+	p.smoothingActiveProfile = pw.Smoothing.ActiveProfile
+}
+
+// powerSmoothingMinDriver is the driver that introduced the
+// nvmlDevicePowerSmoothing* setters, matching the mock's version registry.
+const powerSmoothingMinDriver = 570
+
+// SupportsPowerSmoothing reports whether `nvidia-smi -q` should render a
+// populated Power Smoothing block and `nvidia-smi power-smoothing` should
+// accept writes. The feature is Blackwell and later unless the profile's
+// power.smoothing.supported says otherwise, and needs a 570-or-newer driver.
+func (p Profile) SupportsPowerSmoothing() bool {
+	supported := p.arch.AtLeast(gpuarch.Blackwell)
+	if p.smoothingSupported != nil {
+		supported = *p.smoothingSupported
+	}
+	return supported && p.DriverMajor() >= powerSmoothingMinDriver
+}
+
+// PowerSmoothingEnabled is power.smoothing.state == "enabled".
+func (p Profile) PowerSmoothingEnabled() bool { return p.smoothingEnabled }
+
+// PowerSmoothingActiveProfile is power.smoothing.active_profile.
+func (p Profile) PowerSmoothingActiveProfile() int { return p.smoothingActiveProfile }
+
 // IndependentWorkloadProfilePair returns two advertised profiles that do not
 // conflict with each other, so requesting both leaves both enforced. Used to
 // tell a cleared profile from its neighbour: clearing one must leave the other.
@@ -525,6 +784,29 @@ func workloadProfilesConflict(a, b WorkloadPowerProfile) bool {
 	return slices.Contains(a.Conflicts, b.ID) || slices.Contains(b.Conflicts, a.ID)
 }
 
+// The drivers that introduced the device identity queries nvidia-smi -q
+// renders. As with workloadPowerProfileMinDriver, an older driver has no symbol,
+// so nvidia-smi fails to find the function rather than being told the device
+// declines; both must match the mock's version registry.
+const (
+	capabilitiesMinDriver      = 560 // nvmlDeviceGetCapabilities, the EGM row
+	addressingModePDIMinDriver = 580 // nvmlDeviceGetAddressingMode and nvmlDeviceGetPdi
+)
+
+// AddressingMode is device_defaults.addressing_mode in profile spelling ("hmm",
+// "ats", "none"), or "" when the profile declares none.
+func (p Profile) AddressingMode() string { return p.addressingMode }
+
+// ReportsCapabilities reports whether the profile's driver answers the
+// capabilities query, which nvidia-smi renders as the EGM row.
+func (p Profile) ReportsCapabilities() bool { return p.DriverMajor() >= capabilitiesMinDriver }
+
+// ReportsAddressingModeAndPDI reports whether the profile's driver exports the
+// addressing mode and PDI queries.
+func (p Profile) ReportsAddressingModeAndPDI() bool {
+	return p.DriverMajor() >= addressingModePDIMinDriver
+}
+
 // DriverMajor is the major component of system.driver_version, or 0 when the
 // profile declares none or it does not parse.
 func (p Profile) DriverMajor() int {
@@ -561,3 +843,69 @@ func (p Profile) RowRemapHistogramBanks() int { return p.rowRemapBanks }
 // GPU T.Limit temperature field IDs (Ada and later). Pre-Ada profiles keep the
 // legacy absolute threshold rows via nvmlDeviceGetTemperatureThreshold.
 func (p Profile) ReportsTLimitTemp() bool { return p.arch.AtLeast(gpuarch.Ada) }
+
+// ReportsNvlinkBwMode is true when `nvidia-smi nvlink -gBwMode` and -sBwMode
+// answer on this profile. This nvidia-smi routes both to
+// nvmlSystemGet/SetNvlinkBwMode and never calls the per-device trio, so they
+// answer only on a profile whose nvlink.bw_mode.scope selects that pair.
+func (p Profile) ReportsNvlinkBwMode() bool { return p.nvlinkBwScope == "system" }
+
+// nvlinkInfoMinDriver is the driver that introduced nvmlDeviceGetNvLinkInfo.
+// Below it the mock's version registry reports the symbol as absent, so
+// nvidia-smi cannot find the function rather than being told the device
+// declines — which is what every profile below the 580 line hits first.
+const nvlinkInfoMinDriver = 580
+
+// NvlinkFirmwareRow is one of the rows `nvidia-smi nvlink --info` prints under
+// "Firmware Version:": the label it gives a microcontroller, and the version
+// the profile declared for it.
+type NvlinkFirmwareRow struct {
+	Label   string
+	Version string
+}
+
+// nvlinkFirmwareRows reads nvlink.firmware into the order nvidia-smi renders
+// it. That order follows its own ucodeType index rather than the order the
+// profile lists the keys in, so it is fixed here rather than read from the
+// YAML; an omitted key prints no row.
+func nvlinkFirmwareRows(raw rawProfile) []NvlinkFirmwareRow {
+	fw := raw.NVLink.Firmware
+	var rows []NvlinkFirmwareRow
+	for _, r := range []NvlinkFirmwareRow{
+		{"MSE", fw.MSE},
+		{"NETIR", fw.NETIR},
+		{"NETIR UPHY", fw.NETIRUPHY},
+		{"NETIR CLN", fw.NETIRCLN},
+		{"NETIR DLN", fw.NETIRDLN},
+	} {
+		if r.Version != "" {
+			rows = append(rows, r)
+		}
+	}
+	return rows
+}
+
+// ExpectedNvlinkFirmware returns the firmware rows this profile should render,
+// in print order. Empty means the profile declares none, which `nvidia-smi`
+// renders as "Firmware Version: N/A".
+func (p Profile) ExpectedNvlinkFirmware() []NvlinkFirmwareRow { return p.nvlinkFirmware }
+
+// ReportsNvlinkEncryption is true when `nvidia-smi nvlink --info` prints the
+// NVLE row on this profile. Two axes have to hold: the driver must expose
+// nvmlDeviceGetNvLinkInfo, and the board must have NVLink, since nvidia-smi
+// prints no per-device section for a GPU without it. There is no architecture
+// axis — the header states no requirement, and a Hopper H100 on a 580 driver
+// prints the row with NVLE off and no firmware table.
+func (p Profile) ReportsNvlinkEncryption() bool {
+	return p.DriverMajor() >= nvlinkInfoMinDriver &&
+		p.ExpectedNV() > 0
+}
+
+// ReportsNvlinkLowPowerThreshold is true when `nvidia-smi nvlink
+// -sLowPwrThres` accepts a value on this profile. The threshold is a Hopper
+// and later feature, and nvidia-smi refuses it on an older board with "Not
+// supported" before calling NVML, even where the board has NVLink and prints
+// the NVLE row.
+func (p Profile) ReportsNvlinkLowPowerThreshold() bool {
+	return p.arch.AtLeast(gpuarch.Hopper) && p.ExpectedNV() > 0
+}

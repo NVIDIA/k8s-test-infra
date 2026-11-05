@@ -61,7 +61,7 @@ func IBNetDiscover(ctx context.Context, k *kube.Client, local, peer kube.PodRef,
 
 	res, _ := k.ExecSh(ctx, local, caGUIDsCmd)
 	localGUIDs := map[string]struct{}{}
-	for _, line := range strings.Split(res.Combined(), "\n") {
+	for line := range strings.SplitSeq(res.Combined(), "\n") {
 		if g := normGUID(line); g != "" {
 			localGUIDs[g] = struct{}{}
 		}

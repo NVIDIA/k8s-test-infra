@@ -7,13 +7,13 @@ package e2e
 
 import (
 	"context"
-	"sort"
-	"strings"
+	"slices"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/nfd"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
@@ -45,7 +45,7 @@ const (
 
 	// Container path of the feature file the node agent writes
 	// (internal/agent/pcibus); the hostPath behind it is nodeLabels.featuresDir.
-	nfdFeatureFile = "/host/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features"
+	nfdFeatureFile = "/host/etc/" + nfd.FeaturesDir + "/nvml-mock.features"
 
 	// Named explicitly so the read stays pinned to the container that mounts
 	// featuresDir even if the pod grows another one.
@@ -105,21 +105,15 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 
 		res, err := h.Kube.ExecSh(ctx, agent, "cat "+nfdFeatureFile)
 		Expect(err).NotTo(HaveOccurred(), "reading %s: %s", nfdFeatureFile, res.Combined())
-		Expect(strings.TrimSpace(res.Stdout)).To(Equal("pci-10de.present=true"),
+		features := nfd.Decode([]byte(res.Stdout))
+		Expect(features.Has(pciVendorFeature)).To(BeTrue(),
+			"feature file %s must publish %s, got %q", nfdFeatureFile, pciVendorFeature, res.Stdout)
+		Expect(features[pciVendorFeature]).To(Equal("true"),
 			"feature file contents drive the label NFD creates")
 	})
 
 	It("gets the label from NFD once NFD is installed", Label("nfd-provenance"), func(ctx SpecContext) {
-		Expect(h.Helm.RepoAdd(ctx, "nfd", nfdRepoURL)).To(Succeed(), "add NFD Helm repo")
-		Expect(h.Helm.UpgradeInstall(ctx, helm.Release{
-			Name:            nfdRelease,
-			Chart:           nfdChart,
-			Version:         nfdVersion,
-			Namespace:       nfdNamespace,
-			CreateNamespace: true,
-			Wait:            true,
-			Timeout:         config.HelmTimeout(),
-		})).To(Succeed(), "install NFD")
+		installNFD(ctx, h)
 
 		assertions.WaitNodeLabelsPresent(ctx, h.Kube, node,
 			[]string{pciVendorLabel}, nfdLabelTimeout, nfdLabelPoll)
@@ -133,6 +127,22 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 			nfdOwnedLabelsAnnotation, pciVendorFeature)
 	})
 })
+
+// installNFD installs the pinned NFD chart and waits for it. NFD's local source
+// is what turns the node agent's feature file into node labels.
+func installNFD(ctx context.Context, h *harness.Harness) {
+	GinkgoHelper()
+	Expect(h.Helm.RepoAdd(ctx, "nfd", nfdRepoURL)).To(Succeed(), "add NFD Helm repo")
+	Expect(h.Helm.UpgradeInstall(ctx, helm.Release{
+		Name:            nfdRelease,
+		Chart:           nfdChart,
+		Version:         nfdVersion,
+		Namespace:       nfdNamespace,
+		CreateNamespace: true,
+		Wait:            true,
+		Timeout:         config.HelmTimeout(),
+	})).To(Succeed(), "install NFD")
+}
 
 // nvmlMockPodOnWorker returns a running nvml-mock pod scheduled on a Kind
 // WORKER node, plus that node's name.
@@ -149,7 +159,7 @@ func nvmlMockPodOnWorker(ctx context.Context, h *harness.Harness) (kube.PodRef, 
 	GinkgoHelper()
 	workers, err := h.Cluster.Workers(ctx)
 	Expect(err).NotTo(HaveOccurred(), "list Kind worker nodes")
-	Expect(workers).NotTo(BeEmpty(), "NFD label provenance needs at least one Kind worker node")
+	Expect(workers).NotTo(BeEmpty(), "NFD-derived labels need at least one Kind worker node")
 	isWorker := make(map[string]bool, len(workers))
 	for _, w := range workers {
 		isWorker[w.Name] = true
@@ -164,7 +174,7 @@ func nvmlMockPodOnWorker(ctx context.Context, h *harness.Harness) (kube.PodRef, 
 		if err != nil {
 			return "", err
 		}
-		sort.Strings(names)
+		slices.Sort(names)
 		for _, name := range names {
 			n, err := h.Kube.PodNode(ctx, nvmlMockNamespace, name)
 			if err != nil {

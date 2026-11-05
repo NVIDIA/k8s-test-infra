@@ -8,11 +8,11 @@ version: "1.0"
 # System-level configuration
 # =============================================================================
 system:
-  driver_version: "560.35.03"
-  nvml_version: "12.560.35.03"
-  cuda_version: "12.6"
-  cuda_version_major: 12
-  cuda_version_minor: 6
+  driver_version: "580.65.06"
+  nvml_version: "13.580.65"
+  cuda_version: "13.0"
+  cuda_version_major: 13
+  cuda_version_minor: 0
 
 # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
 # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
@@ -53,12 +53,12 @@ device_defaults:
     pwr_object: "1.0"
 
   # ---------------------------------------------------------------------------
-  # Memory configuration - 192 GiB HBM3e
+  # Memory configuration - 180 GiB HBM3e
   # ---------------------------------------------------------------------------
   memory:
-    total_bytes: 206158430208       # 192 GiB HBM3e
+    total_bytes: 193273528320       # 180 GiB HBM3e
     reserved_bytes: 1073741824      # ~1 GiB reserved
-    free_bytes: 205084688384        # total - reserved at idle
+    free_bytes: 192199786496        # total - reserved at idle
     used_bytes: 0
     memory_bus_width: 8192
 
@@ -71,12 +71,12 @@ device_defaults:
   # PCI configuration
   # ---------------------------------------------------------------------------
   pci:
-    device_id: 0x234010DE           # B200 standalone
-    subsystem_id: 0x181810DE
+    device_id: 0x290110DE           # B200 standalone (10de:2901 GB100 [B200])
+    subsystem_id: 0x199910DE
 
   pcie:
-    max_link_gen: 6                 # PCIe Gen6
-    current_link_gen: 6
+    max_link_gen: 5                 # PCIe Gen5
+    current_link_gen: 5
     max_link_width: 16              # x16
     current_link_width: 16
     replay_counter: 0
@@ -126,10 +126,10 @@ device_defaults:
     graphics_app_default: 1965
     sm_current: 345
     sm_max: 1965
-    memory_current: 2500            # HBM3e
-    memory_max: 2500
-    memory_app: 2500
-    memory_app_default: 2500
+    memory_current: 3996            # HBM3e
+    memory_max: 3996
+    memory_app: 3996
+    memory_app_default: 3996
     video_current: 1200
     video_max: 2100
 
@@ -148,12 +148,61 @@ device_defaults:
     display_clocks_setting: false
 
   # ---------------------------------------------------------------------------
-  # Supported clocks
+  # Supported clocks (nvidia-smi -q -d SUPPORTED_CLOCKS), copied from the real
+  # B200 capture in tests/e2e/go/assertions/nvidiasmi/testdata/hardware/.
+  # NVML returns both lists highest first, and nvidia-smi -ac accepts only a
+  # memory/graphics pair listed here.
   # ---------------------------------------------------------------------------
   supported_clocks:
     memory_clocks:
-      - freq_mhz: 2500
-        graphics_clocks: [345, 690, 1035, 1380, 1725, 1890, 1965]
+      - freq_mhz: 3996
+        graphics_clocks: [
+          1965, 1957, 1950, 1942, 1935, 1927, 1920, 1912, 1905, 1897, 1890, 1882,
+          1875, 1867, 1860, 1852, 1845, 1837, 1830, 1822, 1815, 1807, 1800, 1792,
+          1785, 1777, 1770, 1762, 1755, 1747, 1740, 1732, 1725, 1717, 1710, 1702,
+          1695, 1687, 1680, 1672, 1665, 1657, 1650, 1642, 1635, 1627, 1620, 1612,
+          1605, 1597, 1590, 1582, 1575, 1567, 1560, 1552, 1545, 1537, 1530, 1522,
+          1515, 1507, 1500, 1492, 1485, 1477, 1470, 1462, 1455, 1447, 1440, 1432,
+          1425, 1417, 1410, 1402, 1395, 1387, 1380, 1372, 1365, 1357, 1350, 1342,
+          1335, 1327, 1320, 1312, 1305, 1297, 1290, 1282, 1275, 1267, 1260, 1252,
+          1245, 1237, 1230, 1222, 1215, 1207, 1200, 1192, 1185, 1177, 1170, 1162,
+          1155, 1147, 1140, 1132, 1125, 1117, 1110, 1102, 1095, 1087, 1080, 1072,
+          1065, 1057, 1050, 1042, 1035, 1027, 1020, 1012, 1005, 997, 990, 982,
+          975, 967, 960, 952, 945, 937, 930, 922, 915, 907, 900, 892,
+          885, 877, 870, 862, 855, 847, 840, 832, 825, 817, 810, 802,
+          795, 787, 780, 772, 765, 757, 750, 742, 735, 727, 720, 712,
+          705, 697, 690, 682, 675, 667, 660, 652, 645, 637, 630, 622,
+          615, 607, 600, 592, 585, 577, 570, 562, 555, 547, 540, 532,
+          525, 517, 510, 502, 495, 487, 480, 472, 465, 457, 450, 442,
+          435, 427, 420, 412, 405, 397, 390, 382, 375, 367, 360, 352,
+          345, 337, 330, 322, 315, 307, 300, 292, 285, 277, 270, 262,
+          255, 247, 240, 232, 225, 217, 210, 202, 195, 187, 180, 172,
+          165, 157, 150, 142, 135, 127, 120
+        ]
+      - freq_mhz: 3402
+        graphics_clocks: [
+          1965, 1957, 1950, 1942, 1935, 1927, 1920, 1912, 1905, 1897, 1890, 1882,
+          1875, 1867, 1860, 1852, 1845, 1837, 1830, 1822, 1815, 1807, 1800, 1792,
+          1785, 1777, 1770, 1762, 1755, 1747, 1740, 1732, 1725, 1717, 1710, 1702,
+          1695, 1687, 1680, 1672, 1665, 1657, 1650, 1642, 1635, 1627, 1620, 1612,
+          1605, 1597, 1590, 1582, 1575, 1567, 1560, 1552, 1545, 1537, 1530, 1522,
+          1515, 1507, 1500, 1492, 1485, 1477, 1470, 1462, 1455, 1447, 1440, 1432,
+          1425, 1417, 1410, 1402, 1395, 1387, 1380, 1372, 1365, 1357, 1350, 1342,
+          1335, 1327, 1320, 1312, 1305, 1297, 1290, 1282, 1275, 1267, 1260, 1252,
+          1245, 1237, 1230, 1222, 1215, 1207, 1200, 1192, 1185, 1177, 1170, 1162,
+          1155, 1147, 1140, 1132, 1125, 1117, 1110, 1102, 1095, 1087, 1080, 1072,
+          1065, 1057, 1050, 1042, 1035, 1027, 1020, 1012, 1005, 997, 990, 982,
+          975, 967, 960, 952, 945, 937, 930, 922, 915, 907, 900, 892,
+          885, 877, 870, 862, 855, 847, 840, 832, 825, 817, 810, 802,
+          795, 787, 780, 772, 765, 757, 750, 742, 735, 727, 720, 712,
+          705, 697, 690, 682, 675, 667, 660, 652, 645, 637, 630, 622,
+          615, 607, 600, 592, 585, 577, 570, 562, 555, 547, 540, 532,
+          525, 517, 510, 502, 495, 487, 480, 472, 465, 457, 450, 442,
+          435, 427, 420, 412, 405, 397, 390, 382, 375, 367, 360, 352,
+          345, 337, 330, 322, 315, 307, 300, 292, 285, 277, 270, 262,
+          255, 247, 240, 232, 225, 217, 210, 202, 195, 187, 180, 172,
+          165, 157, 150, 142, 135, 127, 120
+        ]
 
   # ---------------------------------------------------------------------------
   # Performance state
@@ -292,8 +341,19 @@ device_defaults:
   compute_mode: "default"
 
   # ---------------------------------------------------------------------------
+  # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+  # ---------------------------------------------------------------------------
+  addressing_mode: "none"           # as the captured node reports: its host ran without HMM
+
+  # ---------------------------------------------------------------------------
   # MIG configuration
   # ---------------------------------------------------------------------------
+  # MIG ships off because a partitioned board stops publishing nvidia.com/gpu
+  # under migStrategy=single. How a board is carved is a deployment choice
+  # rather than a property of the silicon, so no layout is declared here:
+  # --set gpu.mig.enabled=true needs gpu.mig.gpuInstances to supply one.
+  # This is the 180 GB B200 NVIDIA publishes profiles for, so its smallest
+  # slice is 1g.23gb and seven of them fills it.
   mig:
     mode_current: "disabled"
     mode_pending: "disabled"
@@ -332,7 +392,7 @@ device_defaults:
   # ---------------------------------------------------------------------------
   gsp_firmware:
     mode: "enabled"
-    version: "560.35.03"
+    version: "580.65.06"
 
   # ---------------------------------------------------------------------------
   # Blackwell-specific features (standalone B200 - no NVLink-C2C)
@@ -417,6 +477,11 @@ nvlink:
   links_per_gpu: 18
   bandwidth_per_link_mbps: 53125    # NVLink5 53.125 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
   c2c_enabled: false                # no Grace C2C
+  # Bandwidth mode answers on the per-device trio, nvmlDeviceGet/SetNvlinkBwMode;
+  # the node-wide pair `nvidia-smi nvlink -gBwMode` calls reports it unsupported,
+  # as a real GB300 does.
+  bw_mode:
+    scope: device
   # Standalone B200: negative-control profile -- no NVSwitch, no fabricmanager.
   # topo -m shows PCIe paths only (no NV#); nvmlDeviceGetGpuFabricInfo returns
   # NOT_SUPPORTED.

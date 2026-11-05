@@ -52,7 +52,6 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 	})
 
 	for _, name := range selectedProfiles {
-		name := name
 		Context("profile "+name, Label(name), Ordered, func() {
 			var (
 				p   profile.Profile
@@ -156,6 +155,16 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.PlatformIdentity(ctx, h.Kube, pod, p)
 			})
 
+			It("reports the profile's addressing mode, PDI and EGM via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #1042: the three getters were generated stubs, so the
+				// rows read N/A on every board where real hardware reports the
+				// host's addressing mode, a per-GPU identifier and EGM disabled.
+				// The expectation comes from the profile's driver and declared
+				// mode, so a pre-580 profile pins the Function Not Found a driver
+				// without the symbols renders instead.
+				nvidiasmi.DeviceIdentity(ctx, h.Kube, pod, p)
+			})
+
 			It("reports a healthy fabric via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Issue #677: every element of the fabric health block read
 				// N/A, which says the driver answered nothing rather than that
@@ -185,6 +194,22 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.ConfComputeMemory(ctx, h.Kube, pod)
 			})
 
+			It("reports no S-class units via nvidia-smi -q -u", Label("nvidia-smi"), func(ctx SpecContext) {
+				// The subcommand died with "Unable to determine number of
+				// available units" and exit 3 while nvmlUnitGetCount was a
+				// generated stub, which reads as a driver too broken to answer
+				// rather than as a node with no S-class chassis. Nothing Mokka
+				// models has one, and nor does any GPU a modern driver sees, so
+				// 0 is the expectation on every profile.
+				//
+				// This is also the only nvidia-smi surface the fan and cooling
+				// entry points reach: 575 and 580 reference exactly
+				// nvmlDeviceGetFanSpeed, already covered by the fan command
+				// above, and nvmlUnitGetFanSpeedInfo, which the empty
+				// enumeration here is what makes correctly unreachable.
+				nvidiasmi.UnitInventory(ctx, h.Kube, pod)
+			})
+
 			It("reports the OEM boost ceiling via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Issue #712: Max Customer Boost Clocks read N/A because both
 				// nvmlDeviceGetMaxCustomerBoostClock and nvmlDeviceGetClock were
@@ -203,6 +228,17 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.ProcessMonitorAndTopology(ctx, h.Kube, pod)
 			})
 
+			It("lists the profile's supported clocks via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// The expectation is the profile's table, which a unit test
+				// pins to the hardware captures. N/A here says the driver
+				// cannot list a single clock, and leaves `nvidia-smi -ac` no
+				// pair it would accept.
+				if len(p.SupportedClocks()) == 0 {
+					Skip("profile " + name + " declares no supported_clocks, so the section is N/A")
+				}
+				nvidiasmi.SupportedClocks(ctx, h.Kube, pod, p)
+			})
+
 			It("lists the workload power profiles via nvidia-smi power-profiles", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Both getters behind the subcommand were generated stubs, so
 				// `nvidia-smi power-profiles -l` answered "Workload Power
@@ -213,6 +249,20 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				// spec pins the configured list on gb200/gb300 and a refusal
 				// everywhere else.
 				nvidiasmi.PowerProfiles(ctx, h.Kube, pod, p)
+			})
+
+			It("reports power smoothing via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// The expectation comes from the profile, so this spec pins a
+				// populated block on b200/gb200/gb300 and N/A elsewhere.
+				nvidiasmi.PowerSmoothing(ctx, h.Kube, pod, p)
+			})
+
+			It("reports the node's host interface cards via nvidia-smi -q -u -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// The only nvidia-smi surface that renders
+				// nvmlSystemGetHicVersion. Every shipped profile models a
+				// modern board, so the honest answer is a unit query that
+				// succeeds and reports no cards.
+				nvidiasmi.HICInfo(ctx, h.Kube, pod, nil)
 			})
 
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
@@ -231,8 +281,16 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				}
 			})
 
+			It("renders the NIC sysfs files health monitors read", Label("ib", "nic-sysfs"), func(ctx SpecContext) {
+				if !p.IBEnabled() {
+					Skip("InfiniBand disabled for profile " + name)
+				}
+				assertions.NICSysfs(ctx, h.Kube, pod, p)
+			})
+
 			It("renders the PCI sysfs topology", Label("pcisysfs"), func(ctx SpecContext) {
-				assertions.PCISysfs(ctx, h.Kube, pod, p.ExpectedGPUs(), p.ExpectedPCIRoots())
+				assertions.PCISysfs(ctx, h.Kube, pod,
+					p.ExpectedGPUs(), p.ExpectedPCIBridges(), p.ExpectedPCIRoots())
 			})
 
 			It("renders the kernel-module surface", Label("kmod"), func(ctx SpecContext) {
@@ -319,6 +377,18 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					assertRuntimeClocksCommand(ctx, h, pod)
 				})
 
+				It("sets and resets applications clocks via nvidia-smi -ac/-rac", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					assertApplicationsClocksViaNvidiaSmi(ctx, h, pod, p)
+				})
+
+				It("locks and unlocks GPU and memory clocks via nvidia-smi -lgc/-lmc", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					assertLockedClocksViaNvidiaSmi(ctx, h, pod, p)
+				})
+
+				It("tunes, activates and toggles power smoothing via nvidia-smi power-smoothing", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					assertPowerSmoothingViaNvidiaSmi(ctx, h, pod, p)
+				})
+
 				It("sets a throttle reason via the nvml-mock-ctl throttle command", Label("runtime-control"), func(ctx SpecContext) {
 					assertRuntimeThrottleCommand(ctx, h, pod)
 				})
@@ -372,6 +442,19 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					assertRuntimeFabricMisconfiguration(ctx, h, pod)
 				})
 
+				It("hides excluded and draining GPUs from new nvidia-smi processes", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					// A draining GPU and one the driver must never manage are
+					// both driver state, so a fresh process must see them.
+					assertRuntimeExclusionAndDrain(ctx, h, pod)
+				})
+
+				It("disables persistence mode across processes via nvidia-smi -pm 0", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					// A GPU in persistence mode refuses to drain, so the
+					// upgrade turns it off first; the next process must read it
+					// off rather than the profile's value.
+					assertPersistenceModeAcrossProcesses(ctx, h, pod)
+				})
+
 				It("injects ECC uncorrectable errors", func(ctx SpecContext) {
 					assertECCUncorrectableFailure(ctx, h, p.ExpectedGPUs())
 				})
@@ -383,6 +466,17 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				It("injects fallen-off-bus errors", func(ctx SpecContext) {
 					assertFallenOffBusFailure(ctx, h)
 				})
+			})
+
+			// Last, next to the Helm-driven injections: the upgrade restarts
+			// the DaemonSet pods, so any spec after it would exec into a pod
+			// that no longer exists.
+			It("reports the cards a release declares via nvidia-smi -q -u -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// The chart's hic[] entries reach NVML only through the config
+				// the library reads at load, so this is what proves the
+				// system overlay lands in the library rather than only in the
+				// DaemonSet's environment.
+				nvidiasmi.HICInfo(ctx, h.Kube, upgradeWithHICs(ctx, h), configuredHICs())
 			})
 		})
 	}

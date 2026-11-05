@@ -5,6 +5,7 @@ package pcisysfs
 
 import (
 	"encoding/binary"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,8 +103,9 @@ func TestRender_PCIAttributeFiles(t *testing.T) {
 		}},
 	}
 	ids := map[string]PCI{
-		// H100 SXM: device_id 0x233010DE, subsystem_id 0x165810DE.
-		"0000:1a:00.0": {BusID: "0000:1A:00.0", DeviceID: 0x233010DE, SubsystemID: 0x165810DE},
+		// H100 SXM, as qx-h100.xml reports it: device_id 0x233010DE,
+		// subsystem_id 0x16C110DE.
+		"0000:1a:00.0": {BusID: "0000:1A:00.0", DeviceID: 0x233010DE, SubsystemID: 0x16C110DE},
 	}
 	require.NoError(t, Render(Options{Topology: topo, Identities: ids, OverlayRoot: dir}), "Render")
 
@@ -117,7 +119,7 @@ func TestRender_PCIAttributeFiles(t *testing.T) {
 	mustRead("vendor", "0x10de\n")
 	mustRead("device", "0x2330\n")
 	mustRead("subsystem_vendor", "0x10de\n")
-	mustRead("subsystem_device", "0x1658\n")
+	mustRead("subsystem_device", "0x16c1\n")
 	mustRead("class", "0x030200\n")
 	mustRead("revision", "0x00\n")
 	mustRead("irq", "0\n")
@@ -141,7 +143,7 @@ func TestRender_PCIAttributeFiles(t *testing.T) {
 	require.Equal(t, byte(0x03), cfg[0x0b], "config class base")
 	require.Equal(t, byte(0x02), cfg[0x0a], "config subclass")
 	require.Equal(t, uint16(0x10de), binary.LittleEndian.Uint16(cfg[0x2c:]), "config subsystem vendor")
-	require.Equal(t, uint16(0x1658), binary.LittleEndian.Uint16(cfg[0x2e:]), "config subsystem device")
+	require.Equal(t, uint16(0x16c1), binary.LittleEndian.Uint16(cfg[0x2e:]), "config subsystem device")
 }
 
 // TestRender_PCIAttributeFilesDefaultVendor ensures a device present in the
@@ -164,6 +166,130 @@ func TestRender_PCIAttributeFilesDefaultVendor(t *testing.T) {
 	got, err = os.ReadFile(filepath.Join(devDir, "device"))
 	require.NoError(t, err, "read device")
 	require.Equal(t, "0x0000\n", string(got), "device without identity")
+	got, err = os.ReadFile(filepath.Join(devDir, "class"))
+	require.NoError(t, err, "read class")
+	require.Equal(t, "0x030200\n", string(got), "class should default to a GPU's")
+}
+
+// TestRender_BridgeClass covers the NVSwitches an HGX baseboard puts on the
+// node's PCIe bus: the text and binary class must both say bridge, which is
+// what makes `lspci` print "Bridge: NVIDIA Corporation GH100 [H100 NVSwitch]"
+// rather than filing the switch under the node's GPUs.
+func TestRender_BridgeClass(t *testing.T) {
+	dir := t.TempDir()
+	topo := &PCIeTopology{
+		RootComplexes: []RootComplex{{
+			ID: "pci0000:00", NUMANode: 0,
+			Devices: []string{"0000:05:00.0"},
+		}},
+	}
+	ids := map[string]PCI{
+		// H100 NVSwitch: 10de:22a3, no subsystem of its own.
+		"0000:05:00.0": {BusID: "0000:05:00.0", DeviceID: 0x22a310de, Class: PCIClassBridge},
+	}
+	require.NoError(t, Render(Options{Topology: topo, Identities: ids, OverlayRoot: dir}), "Render")
+
+	devDir := filepath.Join(dir, "sys/devices/pci0000:00/0000:05:00.0")
+	class, err := os.ReadFile(filepath.Join(devDir, "class"))
+	require.NoError(t, err, "read class")
+	require.Equal(t, "0x068000\n", string(class))
+
+	device, err := os.ReadFile(filepath.Join(devDir, "device"))
+	require.NoError(t, err, "read device")
+	require.Equal(t, "0x22a3\n", string(device))
+
+	cfg, err := os.ReadFile(filepath.Join(devDir, "config"))
+	require.NoError(t, err, "read config")
+	require.Equal(t, byte(0x06), cfg[0x0b], "config class base")
+	require.Equal(t, byte(0x80), cfg[0x0a], "config subclass")
+	require.Equal(t, byte(0x00), cfg[0x0e],
+		"an NVSwitch is a PCI endpoint despite the bridge class, so header type stays 0")
+}
+
+// Slurm's gres AutoDetect=nvidia finds each GPU's CPU affinity through the
+// driver's binding, /sys/bus/pci/drivers/nvidia/<bdf>/local_cpulist. The
+// kernel writes local_cpulist for every PCI function, but only GPUs are bound
+// to nvidia: an NVSwitch binds to nvidia-nvswitch.
+func TestRender_BindsGPUsToTheNvidiaDriver(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{{
+		ID: "pci0000:00", NUMANode: 0, CPUList: "0-63",
+		Devices: []string{"0000:07:00.0", "0000:05:00.0"},
+	}}}
+	ids := map[string]PCI{
+		"0000:07:00.0": {BusID: "0000:07:00.0", Class: PCIClass3DController},
+		"0000:05:00.0": {BusID: "0000:05:00.0", Class: PCIClassBridge},
+	}
+	require.NoError(t, Render(Options{Topology: topo, Identities: ids, OverlayRoot: dir}))
+
+	for _, bdf := range []string{"0000:07:00.0", "0000:05:00.0"} {
+		got, err := os.ReadFile(filepath.Join(dir, "sys/devices/pci0000:00", bdf, "local_cpulist"))
+		require.NoError(t, err)
+		require.Equal(t, "0-63\n", string(got), "local_cpulist of %s", bdf)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, PCIDriverNvidiaRelPath, "0000:07:00.0", "local_cpulist"))
+	require.NoError(t, err, "the GPU must resolve through the nvidia driver binding")
+	require.Equal(t, "0-63\n", string(got))
+
+	_, err = os.Lstat(filepath.Join(dir, PCIDriverNvidiaRelPath, "0000:05:00.0"))
+	require.True(t, os.IsNotExist(err), "an NVSwitch is not bound to the nvidia driver")
+}
+
+// A root complex with no known CPU set leaves local_cpulist out rather than
+// asserting an affinity nothing declared.
+func TestRender_NoLocalCPUListWithoutACPUSet(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{{
+		ID: "pci0000:00", NUMANode: -1, Devices: []string{"0000:07:00.0"},
+	}}}
+	require.NoError(t, Render(Options{Topology: topo, OverlayRoot: dir}))
+
+	require.NoFileExists(t, filepath.Join(dir, "sys/devices/pci0000:00/0000:07:00.0/local_cpulist"))
+	info, err := os.Stat(filepath.Join(dir, PCIDriverNvidiaRelPath, "0000:07:00.0"))
+	require.NoError(t, err, "the binding itself does not depend on a CPU set")
+	require.True(t, info.IsDir())
+}
+
+func TestRender_DropsLocalCPUListWhenTheCPUSetIsRemoved(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	rc := func(cpus string) *PCIeTopology {
+		return &PCIeTopology{RootComplexes: []RootComplex{{
+			ID: "pci0000:00", CPUList: cpus, Devices: []string{"0000:07:00.0"},
+		}}}
+	}
+	require.NoError(t, Render(Options{Topology: rc("0-63"), OverlayRoot: dir}))
+	require.NoError(t, Render(Options{Topology: rc(""), OverlayRoot: dir}))
+
+	require.NoFileExists(t, filepath.Join(dir, "sys/devices/pci0000:00/0000:07:00.0/local_cpulist"),
+		"a stale CPU set would keep binding the GPU to CPUs the profile no longer declares")
+}
+
+func TestRender_PrunesDriverBindingsOfRemovedGPUs(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	rc := func(devs ...string) *PCIeTopology {
+		return &PCIeTopology{RootComplexes: []RootComplex{{ID: "pci0000:00", Devices: devs}}}
+	}
+	require.NoError(t, Render(Options{Topology: rc("0000:07:00.0", "0000:0f:00.0"), OverlayRoot: dir}))
+	require.NoError(t, Render(Options{Topology: rc("0000:07:00.0"), OverlayRoot: dir}))
+
+	entries, err := os.ReadDir(filepath.Join(dir, PCIDriverNvidiaRelPath))
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "only the surviving GPU stays bound")
+	require.Equal(t, "0000:07:00.0", entries[0].Name())
+
+	require.NoError(t, Clear(dir))
+	entries, err = os.ReadDir(filepath.Join(dir, PCIDriverNvidiaRelPath))
+	require.NoError(t, err)
+	require.Empty(t, entries, "Clear unbinds every GPU")
 }
 
 func TestRender_IdempotentRerender(t *testing.T) {
@@ -392,4 +518,101 @@ func TestRender_RejectsANameThatEscapesOutput(t *testing.T) {
 				"the render escaped OverlayRoot")
 		})
 	}
+}
+
+// gfdVGPUHostDriver is a test copy of how GPU Feature Discovery reads a vGPU
+// guest's host driver from PCI config space
+// (NVIDIA/k8s-device-plugin internal/vgpu: GetVendorSpecificCapability,
+// IsVGPUDevice, GetInfo). Parsing with the consumer's own walk is what makes
+// the render's bytes mean something.
+func gfdVGPUHostDriver(cfg []byte) (version, branch string, err error) {
+	if len(cfg) < 256 {
+		return "", "", errors.New("incomplete config space")
+	}
+	if cfg[0x06]&0x10 == 0 {
+		return "", "", errors.New("no capability list")
+	}
+	capability := gfdVendorSpecificCapability(cfg)
+	if len(capability) < 5 || capability[3] != 'V' || capability[4] != 'F' {
+		return "", "", errors.New("no vGPU capability")
+	}
+	return gfdDriverRecord(capability)
+}
+
+// gfdVendorSpecificCapability returns the first vendor-specific capability in
+// the list, or nil when the list has none or is malformed.
+func gfdVendorSpecificCapability(cfg []byte) []byte {
+	var visited [256]byte
+	for pos := cfg[0x34]; pos != 0; {
+		if int(pos)+3 > len(cfg) || visited[pos] != 0 || cfg[pos] == 0xff {
+			return nil
+		}
+		id, next, length := cfg[pos], cfg[pos+1], cfg[pos+2]
+		if id == 0x09 {
+			if int(pos)+int(length) > len(cfg) {
+				return nil
+			}
+			return cfg[pos : int(pos)+int(length)]
+		}
+		visited[pos]++
+		pos = next
+	}
+	return nil
+}
+
+// gfdDriverRecord walks the vGPU capability's records to the host driver one.
+func gfdDriverRecord(capability []byte) (version, branch string, err error) {
+	pos := 5
+	for {
+		if pos >= len(capability) {
+			return "", "", errors.New("no driver version record")
+		}
+		if capability[pos] == 0 {
+			break
+		}
+		if len(capability)-pos < 2 || int(capability[pos+1]) < 2 || int(capability[pos+1]) > len(capability)-pos {
+			return "", "", errors.New("bad record")
+		}
+		pos += int(capability[pos+1])
+	}
+	if len(capability)-pos < 2 || int(capability[pos+1]) < 22 || int(capability[pos+1]) > len(capability)-pos {
+		return "", "", errors.New("bad driver record")
+	}
+	payload := capability[pos+2:]
+	return strings.Trim(string(payload[0:10]), "\x00"), strings.Trim(string(payload[10:20]), "\x00"), nil
+}
+
+func renderOneGPU(t *testing.T, id PCI) []byte {
+	t.Helper()
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{{ID: "pci0000:00", Devices: []string{id.BusID}}}}
+	require.NoError(t, Render(Options{Topology: topo, Identities: map[string]PCI{strings.ToLower(id.BusID): id}, OverlayRoot: dir}))
+	cfg, err := os.ReadFile(filepath.Join(dir, "sys/devices/pci0000:00", strings.ToLower(id.BusID), "config"))
+	require.NoError(t, err)
+	return cfg
+}
+
+func TestRender_VGPUGuestCapabilityParsesAsGFDReadsIt(t *testing.T) {
+	t.Parallel()
+	cfg := renderOneGPU(t, PCI{
+		BusID: "0000:07:00.0", DeviceID: 0x20B010DE, SubsystemID: 0x134F10DE,
+		VGPUHostDriver: &VGPUHostDriver{Version: "550.163.01", Branch: "r550_00"},
+	})
+	version, branch, err := gfdVGPUHostDriver(cfg)
+	require.NoError(t, err)
+	require.Equal(t, "550.163.01", version)
+	require.Equal(t, "r550_00", branch)
+	require.Equal(t, uint16(0x20b0), binary.LittleEndian.Uint16(cfg[0x02:]), "identity unchanged")
+}
+
+// A GPU that is not a vGPU guest must not grow a capability list: GFD would
+// label the node nvidia.com/vgpu.present.
+func TestRender_NoVGPUCapabilityByDefault(t *testing.T) {
+	t.Parallel()
+	cfg := renderOneGPU(t, PCI{BusID: "0000:07:00.0", DeviceID: 0x20B010DE})
+	require.Zero(t, cfg[0x06], "status")
+	require.Zero(t, cfg[0x34], "capability pointer")
+	require.Equal(t, make([]byte, 0x100-0x40), cfg[0x40:], "device-specific region")
+	_, _, err := gfdVGPUHostDriver(cfg)
+	require.Error(t, err)
 }

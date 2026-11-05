@@ -8,7 +8,7 @@ package v1alpha1
 import (
 	http "net/http"
 
-	apiv1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	apiv1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	scheme "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/scheme"
 	rest "k8s.io/client-go/rest"
 )

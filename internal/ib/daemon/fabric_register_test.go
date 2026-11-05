@@ -98,7 +98,7 @@ func TestRegisterWithPeers_CancelledCtxMakesNoDials(t *testing.T) {
 		registerWarned: make(map[string]struct{}),
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	srv.registerWithPeers(ctx)
 
@@ -148,7 +148,7 @@ func TestServer_sendRegister(t *testing.T) {
 
 	srv, err := NewServer(Config{IBRoot: dir, TCPPort: tcpPort, Fabric: true})
 	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	go srv.acceptFabric(ctx, ln)
 

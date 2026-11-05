@@ -35,6 +35,9 @@ spec:
     - jsonPath: .status.gpuIndexesSummary
       name: GPUs
       type: string
+    - jsonPath: .status.conditions[?(@.type=="Accepted")].status
+      name: Accepted
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -63,70 +66,88 @@ spec:
           metadata:
             type: object
           spec:
-            description: SGPURuntimePolicySpec pairs a target selector with the RuntimeState
-              to apply.
+            description: Spec defines the target selection and runtime settings to
+              apply.
             properties:
               runtime:
-                description: |-
-                  RuntimeState is the effective runtime settings of a simulated GPU.
-                  Sparse: omitted fields inherit; explicit zero is a set value.
+                description: Runtime contains sparse settings to apply to the selected
+                  GPUs.
                 properties:
                   deviceState:
-                    description: DeviceState is a simulated GPU health state.
+                    description: DeviceState is the simulated health state of the
+                      GPU.
                     enum:
                     - Healthy
                     - Degraded
                     - Failed
                     type: string
                   modes:
-                    description: RuntimeModes is the persistent NVML/CUDA mode settings.
+                    description: Modes contains persistent NVML/CUDA mode settings.
                     properties:
                       accounting:
+                        description: Accounting controls whether GPU accounting mode
+                          is enabled.
                         enum:
                         - Enabled
                         - Disabled
                         type: string
                       compute:
+                        description: Compute selects the simulated compute mode.
                         enum:
                         - Default
                         - Exclusive
                         - Prohibited
                         type: string
                       ecc:
+                        description: ECC controls whether error-correcting code is
+                          enabled.
                         enum:
                         - Enabled
                         - Disabled
                         type: string
                       mig:
+                        description: MIG controls whether Multi-Instance GPU mode
+                          is enabled.
                         enum:
                         - Enabled
                         - Disabled
                         type: string
                       persistence:
+                        description: Persistence controls the simulated persistence
+                          mode.
                         enum:
                         - Enabled
                         - Disabled
                         type: string
                     type: object
                   telemetry:
-                    description: RuntimeTelemetry is the synthetic NVML telemetry.
+                    description: Telemetry contains synthetic utilization, power,
+                      temperature, and clock values.
                     properties:
                       clocks:
-                        description: ClocksTelemetry reports current clock rates.
+                        description: Clocks defines the current simulated clock rates.
                         properties:
                           graphicsMHz:
+                            description: GraphicsMHz is the simulated graphics clock
+                              rate in MHz.
                             format: int32
                             minimum: 0
                             type: integer
                           memoryMHz:
+                            description: MemoryMHz is the simulated memory clock rate
+                              in MHz.
                             format: int32
                             minimum: 0
                             type: integer
                           smMHz:
+                            description: SMMHz is the simulated streaming-multiprocessor
+                              clock rate in MHz.
                             format: int32
                             minimum: 0
                             type: integer
                           videoMHz:
+                            description: VideoMHz is the simulated video clock rate
+                              in MHz.
                             format: int32
                             minimum: 0
                             type: integer
@@ -136,57 +157,73 @@ spec:
                         pattern: ^P[0-9]+$
                         type: string
                       power:
-                        description: PowerTelemetry drives synthetic power draw.
+                        description: Power defines synthetic power draw values.
                         properties:
                           drawMilliWatts:
+                            description: DrawMilliWatts is the simulated GPU power
+                              draw in milliwatts.
                             format: int64
                             minimum: 0
                             type: integer
                           mode:
+                            description: Mode selects a constant or generated power
+                              draw.
                             enum:
                             - Fixed
                             - Pattern
                             type: string
                         type: object
                       temperature:
-                        description: TemperatureTelemetry drives synthetic GPU/memory
-                          temperature.
+                        description: Temperature defines synthetic GPU and memory
+                          temperature values.
                         properties:
                           gpuCelsius:
+                            description: GPUCelsius is the simulated GPU temperature
+                              in degrees Celsius.
                             format: int32
                             type: integer
                           memoryCelsius:
+                            description: MemoryCelsius is the simulated memory temperature
+                              in degrees Celsius.
                             format: int32
                             type: integer
                           mode:
+                            description: Mode selects constant or generated temperature
+                              values.
                             enum:
                             - Fixed
                             - Pattern
                             type: string
                         type: object
                       utilization:
-                        description: UtilizationTelemetry drives synthetic GPU/memory
-                          utilization.
+                        description: Utilization defines synthetic GPU and memory
+                          utilization values.
                         properties:
                           mode:
+                            description: Mode selects pattern-generated or fixed utilization
+                              values.
                             enum:
                             - Pattern
                             - Fixed
                             type: string
                           pattern:
-                            description: UtilizationPattern shapes the generated utilization
-                              curve.
+                            description: Pattern defines the utilization values generated
+                              over time.
                             properties:
                               gpuPercent:
-                                description: PercentRange is a min/max percentage
-                                  bound.
+                                description: GPUPercent sets the minimum and maximum
+                                  GPU utilization percentages.
                                 properties:
                                   maximum:
+                                    description: Maximum is the upper utilization
+                                      percentage bound.
                                     format: int32
                                     maximum: 100
                                     minimum: 0
                                     type: integer
                                   minimum:
+                                    description: Minimum is the lower utilization
+                                      percentage bound.
                                     format: int32
                                     maximum: 100
                                     minimum: 0
@@ -196,15 +233,19 @@ spec:
                                 - minimum
                                 type: object
                               memoryPercent:
-                                description: PercentRange is a min/max percentage
-                                  bound.
+                                description: MemoryPercent sets the minimum and maximum
+                                  memory utilization percentages.
                                 properties:
                                   maximum:
+                                    description: Maximum is the upper utilization
+                                      percentage bound.
                                     format: int32
                                     maximum: 100
                                     minimum: 0
                                     type: integer
                                   minimum:
+                                    description: Minimum is the lower utilization
+                                      percentage bound.
                                     format: int32
                                     maximum: 100
                                     minimum: 0
@@ -214,6 +255,8 @@ spec:
                                 - minimum
                                 type: object
                               type:
+                                description: Type selects the shape of the generated
+                                  utilization curve.
                                 enum:
                                 - Steady
                                 - Bursty
@@ -224,38 +267,48 @@ spec:
                     type: object
                 type: object
               targetRef:
-                description: |-
-                  PolicyTargetRef selects the fan-out scope. Each optional slice narrows
-                  the level above.
+                description: TargetRef selects the inventory and optional rack, Node,
+                  and GPU subset.
                 properties:
                   gpuIndexes:
+                    description: GPUIndexes optionally limits the policy to these
+                      GPU indexes.
                     items:
                       format: int32
+                      minimum: 0
                       type: integer
                     maxItems: 64
                     minItems: 1
                     type: array
                     x-kubernetes-list-type: set
                   group:
+                    description: Group is the API group containing the target resource.
                     enum:
                     - mokka.nvidia.com
                     type: string
                   kind:
+                    description: Kind is the target resource kind.
                     enum:
                     - SGPUInventory
                     type: string
                   name:
+                    description: Name is the name of the target SGPUInventory.
                     minLength: 1
                     type: string
                   nodeIndexes:
+                    description: NodeIndexes optionally limits the policy to these
+                      logical Node indexes.
                     items:
                       format: int32
+                      minimum: 0
                       type: integer
                     maxItems: 64
                     minItems: 1
                     type: array
                     x-kubernetes-list-type: set
                   rackGroups:
+                    description: RackGroups optionally limits the policy to these
+                      rack-group IDs.
                     items:
                       type: string
                     maxItems: 64
@@ -263,8 +316,11 @@ spec:
                     type: array
                     x-kubernetes-list-type: set
                   rackIndexes:
+                    description: RackIndexes optionally limits the policy to these
+                      rack indexes.
                     items:
                       format: int32
+                      minimum: 0
                       type: integer
                     maxItems: 64
                     minItems: 1
@@ -279,17 +335,83 @@ spec:
             - targetRef
             type: object
           status:
-            description: |-
-              SGPURuntimePolicyStatus holds comma-joined denormalizations of
-              spec.targetRef axes for print columns.
+            description: Status summarizes the target scope selected for this policy.
             properties:
+              conditions:
+                description: Conditions report whether the policy is accepted.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               gpuIndexesSummary:
+                description: GPUIndexesSummary is the comma-separated selected GPU
+                  indexes.
                 type: string
               nodeIndexesSummary:
+                description: NodeIndexesSummary is the comma-separated selected logical
+                  Node indexes.
                 type: string
               rackGroupsSummary:
+                description: RackGroupsSummary is the comma-separated selected rack-group
+                  IDs.
                 type: string
               rackIndexesSummary:
+                description: RackIndexesSummary is the comma-separated selected rack
+                  indexes.
                 type: string
             type: object
         required:

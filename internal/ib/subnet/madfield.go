@@ -53,7 +53,7 @@ func SetField(buf []byte, bitOff, bitLen int, val uint32) {
 		idx++
 	}
 
-	for n := 0; n < byteLen; n++ {
+	for n := range byteLen {
 		i := 3 ^ (idx + n)
 		if i < len(buf) {
 			buf[i] = byte(val & 0xff)

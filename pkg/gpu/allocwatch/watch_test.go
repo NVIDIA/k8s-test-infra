@@ -129,7 +129,7 @@ func TestWatcher_PublishesOnEachTick(t *testing.T) {
 		Interval:     5 * time.Millisecond,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
 	defer cancel()
 	require.NoError(t, w.Run(ctx), "a cancelled context is a clean shutdown, not an error")
 
@@ -157,7 +157,7 @@ func TestWatcher_SurvivesAListerError(t *testing.T) {
 		Interval:     5 * time.Millisecond,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
 	require.NoError(t, w.Run(ctx))
 

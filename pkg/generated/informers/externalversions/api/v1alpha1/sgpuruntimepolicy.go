@@ -9,7 +9,7 @@ import (
 	context "context"
 	time "time"
 
-	controlplaneapiv1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	k8stestinfraapiv1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	versioned "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned"
 	internalinterfaces "github.com/NVIDIA/k8s-test-infra/pkg/generated/informers/externalversions/internalinterfaces"
 	apiv1alpha1 "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
@@ -38,22 +38,22 @@ type TypedSGPURuntimePolicyInformer interface {
 
 // SGPURuntimePolicyIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
 // with type-safe variants of several methods.
-type SGPURuntimePolicyIndexInformer cache.TypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURuntimePolicy]
+type SGPURuntimePolicyIndexInformer cache.TypedSharedIndexInformer[*k8stestinfraapiv1alpha1.SGPURuntimePolicy]
 
 // SGPURuntimePolicyHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for SGPURuntimePolicy.
-type SGPURuntimePolicyHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*controlplaneapiv1alpha1.SGPURuntimePolicy]
+type SGPURuntimePolicyHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*k8stestinfraapiv1alpha1.SGPURuntimePolicy]
 
 // SGPURuntimePolicyDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for SGPURuntimePolicy.
-type SGPURuntimePolicyDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*controlplaneapiv1alpha1.SGPURuntimePolicy]
+type SGPURuntimePolicyDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*k8stestinfraapiv1alpha1.SGPURuntimePolicy]
 
 // SGPURuntimePolicyFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for SGPURuntimePolicy.
-type SGPURuntimePolicyFilteringHandler = cache.TypedFilteringResourceEventHandler[*controlplaneapiv1alpha1.SGPURuntimePolicy]
+type SGPURuntimePolicyFilteringHandler = cache.TypedFilteringResourceEventHandler[*k8stestinfraapiv1alpha1.SGPURuntimePolicy]
 
 // SGPURuntimePolicyIndexers is a specialization of [cache.TypedIndexers] for SGPURuntimePolicy.
-type SGPURuntimePolicyIndexers = cache.TypedIndexers[*controlplaneapiv1alpha1.SGPURuntimePolicy]
+type SGPURuntimePolicyIndexers = cache.TypedIndexers[*k8stestinfraapiv1alpha1.SGPURuntimePolicy]
 
 // DeletedSGPURuntimePolicy is a specialization of [cache.DeletedObject] for SGPURuntimePolicy.
-type DeletedSGPURuntimePolicy = cache.DeletedObject[*controlplaneapiv1alpha1.SGPURuntimePolicy]
+type DeletedSGPURuntimePolicy = cache.DeletedObject[*k8stestinfraapiv1alpha1.SGPURuntimePolicy]
 
 type sGPURuntimePolicyInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -105,7 +105,7 @@ func NewTypedSGPURuntimePolicyInformerWithOptions(client versioned.Interface, op
 	gvr := schema.GroupVersionResource{Group: "mokka.nvidia.com", Version: "v1alpha1", Resource: "sgpuruntimepolicys"}
 	identifier := options.InformerName.WithResource(gvr)
 	tweakListOptions := options.TweakListOptions
-	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURuntimePolicy](cache.NewSharedIndexInformerWithOptions(
+	return cache.NewTypedSharedIndexInformer[*k8stestinfraapiv1alpha1.SGPURuntimePolicy](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
@@ -132,7 +132,7 @@ func NewTypedSGPURuntimePolicyInformerWithOptions(client versioned.Interface, op
 				return client.MokkaV1alpha1().SGPURuntimePolicies().Watch(ctx, opts)
 			},
 		}, client),
-		&controlplaneapiv1alpha1.SGPURuntimePolicy{},
+		&k8stestinfraapiv1alpha1.SGPURuntimePolicy{},
 		cache.SharedIndexInformerOptions{
 			ResyncPeriod: options.ResyncPeriod,
 			Indexers:     options.Indexers,
@@ -150,7 +150,7 @@ func (f *sGPURuntimePolicyInformer) Informer() cache.SharedIndexInformer {
 }
 
 func (f *sGPURuntimePolicyInformer) TypedInformer() SGPURuntimePolicyIndexInformer {
-	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURuntimePolicy](f.factory.InformerFor(&controlplaneapiv1alpha1.SGPURuntimePolicy{}, f.defaultInformer))
+	return cache.NewTypedSharedIndexInformer[*k8stestinfraapiv1alpha1.SGPURuntimePolicy](f.factory.InformerFor(&k8stestinfraapiv1alpha1.SGPURuntimePolicy{}, f.defaultInformer))
 }
 
 func (f *sGPURuntimePolicyInformer) Lister() apiv1alpha1.SGPURuntimePolicyLister {
@@ -176,7 +176,7 @@ type sGPURuntimePolicyTypedInformerAdapter struct {
 }
 
 func (a *sGPURuntimePolicyTypedInformerAdapter) TypedInformer() SGPURuntimePolicyIndexInformer {
-	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURuntimePolicy](a.Informer())
+	return cache.NewTypedSharedIndexInformer[*k8stestinfraapiv1alpha1.SGPURuntimePolicy](a.Informer())
 }
 
 // ToSGPURuntimePolicyIndexInformer converts an untyped informer into a SGPURuntimePolicyIndexInformer.
@@ -190,5 +190,5 @@ func ToSGPURuntimePolicyIndexInformer(informer cache.SharedIndexInformer) SGPURu
 	if informer, ok := informer.(SGPURuntimePolicyIndexInformer); ok {
 		return informer
 	}
-	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURuntimePolicy](informer)
+	return cache.NewTypedSharedIndexInformer[*k8stestinfraapiv1alpha1.SGPURuntimePolicy](informer)
 }

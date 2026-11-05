@@ -59,7 +59,63 @@ docker exec "$NODE" cat /var/lib/nvml-mock/driver/config/config.yaml
 kubectl logs -n mokka -l app.kubernetes.io/name=nvml-mock | grep -i cdi
 ```
 
-### A pod gets no ambient GPUs even though NRI is enabled
+### The node pod is NotReady and `nvml-mock-nri` crash-loops
+
+```text
+nri-plugin: nri stub: failed to connect to NRI service: dial unix /var/run/nri/nri.sock: connect: no such file or directory
+```
+
+containerd on that node has NRI off, the default in containerd 1.7. The node
+daemon turns NRI on as part of its
+[container runtime setup](components/node-daemon.md#container-runtime-setup),
+so here the setup is off, failed, left the node alone, or waits for a
+containerd restart under `restartMode: none`; the node agent's log says which.
+The node agent keeps running and workloads still start, but without the mock,
+and `helm install --wait` times out.
+
+Restart containerd if a restart is pending. Otherwise, set `nri.enabled=false`,
+or turn NRI on in containerd's configuration and restart containerd:
+
+```toml
+[plugins."io.containerd.nri.v1.nri"]
+  disable = false
+```
+
+`containerd config dump | grep -A1 'io.containerd.nri.v1.nri'` on the node
+shows the setting containerd runs with.
+
+### Pods get no mock driver, or the node pod is not ready
+
+The node daemon makes the `nvidia` runtime handler containerd's default, and its
+log says why when that fails or when it leaves the node's runtime alone:
+
+```bash
+POD=$(kubectl -n mokka get pods -l app.kubernetes.io/name=nvml-mock \
+  --field-selector spec.nodeName=<node> -o jsonpath='{.items[0].metadata.name}')
+kubectl -n mokka logs "$POD" -c node-agent | grep 'container runtime\|containerd'
+```
+
+A `container runtime setup failed` line names the step that failed, for
+example `nvidia-ctk` failing to write the configuration, or containerd failing
+to restart with it. On the node, `crictl info` shows whether the running
+containerd has the handler as its default, and `journalctl -u containerd` shows
+why a restart failed. Until the setup succeeds, containers start under the
+node's own default handler without the mock driver, and a pod that sets
+`runtimeClassName: nvidia` cannot start. See
+[Container runtime setup](components/node-daemon.md#container-runtime-setup)
+for what the setup needs, how to remove it by hand, and how to turn it off.
+
+### A pod gets no mock GPUs even though NRI is enabled
+
+First check that the pod is meant to receive GPUs. The plugin gives mock GPUs
+only to containers that hold a GPU allocation from the device plugin or the
+NVIDIA DRA driver, or whose pod carries the `nvml-mock.nvidia.com/devices:
+"true"` annotation. The `nvml-mock.nvidia.com/infiniband` and
+`nvml-mock.nvidia.com/imex-channels` annotations add only their own surface,
+never GPUs. A pod that requested no GPU and has no annotation is left untouched
+by design. A device plugin that runs without `--pass-device-specs=true` or the
+`cdi-cri` strategy leaves no allocation the plugin can recognise, so its pods
+also receive nothing.
 
 The NRI plugin fails open: when it cannot inject, containers are created
 without the mock rather than failing. That makes a silent window possible, so
@@ -67,12 +123,12 @@ check the plugin's probes rather than whether the process is alive — a plugin
 containerd has unregistered stays running and simply stops injecting.
 
 ```bash
-kubectl get pods -n mokka -l app.kubernetes.io/name=nvml-mock-nri
-kubectl describe pod -n mokka -l app.kubernetes.io/name=nvml-mock-nri | grep -A3 Readiness
+kubectl get pods -n mokka -l app.kubernetes.io/name=nvml-mock
+kubectl describe pod -n mokka -l app.kubernetes.io/name=nvml-mock | grep -A3 Readiness
 ```
 
-Injection is also skipped by design when the container opts out, its namespace
-is excluded, or it already carries GPU devices from the device plugin. See
+Injection is also skipped by design when the pod opts out or its namespace is
+excluded. See
 [NRI plugin failure modes](helm-chart.md#nri-plugin-failure-modes) and the
 [NRI Plugin](components/nri-plugin.md) page.
 
@@ -84,6 +140,45 @@ re-reads on a TTL — about a second by default. Wait one interval and re-check.
 If it never applies, confirm you targeted the right node: overrides are
 per-node files, so changing state on one node has no effect on a consumer
 running on another. See [Runtime Control](nvml-mock-ctl.md).
+
+### Mounts pile up on a node with NRI enabled
+
+Up to and including 0.4.1, an injected container that also had a
+`Bidirectional` volume, such as a DRA kubelet plugin or the GPU Operator's
+validator, copied the overlay's writable config bind onto the node. Each such
+container doubled the copies at `/var/lib/nvml-mock/driver/config`, and they
+stay after the pods are gone. A large stack slows container starts and anything
+else that reads the node's mount table. See
+[Mount propagation](components/nri-plugin.md#mount-propagation).
+
+On a Kind cluster, count them in each node container. Kubernetes node names
+can differ from the container names, so list the containers with `kind`. A
+healthy node prints 0:
+
+```bash
+for NODE in $(kind get nodes --name mokka); do
+  echo "${NODE}: $(docker exec "${NODE}" awk '$5 == "/var/lib/nvml-mock/driver/config" { n++ } END { print n + 0 }' /proc/self/mountinfo)"
+done
+```
+
+To stay on 0.4.x without the growth, keep the plugin out of the namespace
+those pods run in, for example `--set 'nri.excludedNamespaces={gpu-operator}'`
+for the GPU Operator. Pods in an excluded namespace get no overlay, so leave
+out only namespaces whose pods do not need the node's GPU profile.
+
+Upgrading stops the growth but leaves the copies in place. Rebooting the node
+clears them; on Kind, recreate the cluster. To clear them in place, first make
+sure no container injected before the upgrade still runs on the node:
+unmounting the copies takes its writable config directory with it, and its
+writes then fail as read-only. Then unmount them until none is left. A node
+without copies is left as it is, and a node whose unmount fails is named:
+
+```bash
+for NODE in $(kind get nodes --name mokka); do
+  docker exec "${NODE}" sh -c 'while mountpoint -q /var/lib/nvml-mock/driver/config; do umount /var/lib/nvml-mock/driver/config || exit 1; done' \
+    || echo "${NODE}: unmount failed"
+done
+```
 
 ### `kind load docker-image` fails with "content digest not found"
 

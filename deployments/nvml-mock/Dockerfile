@@ -20,7 +20,7 @@
 #
 # Both default to the public path, so `docker build` with no arguments still
 # works. The publish workflow overrides GOPROXY and mounts the secret.
-ARG GOLANG_VERSION=1.26.6
+ARG GOLANG_VERSION=1.27.3
 FROM golang:${GOLANG_VERSION}-bookworm AS builder
 ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=${GOPROXY} \
@@ -34,22 +34,35 @@ COPY go.mod go.sum ./
 RUN --mount=type=secret,id=goauth,mode=0500 \
     if [ -f /run/secrets/goauth ]; then export GOAUTH=/run/secrets/goauth; fi; \
     go mod download
+COPY api/ api/
 COPY pkg/ pkg/
 COPY cmd/ cmd/
 COPY internal/ internal/
 COPY shims/ shims/
 COPY Makefile ./
 RUN cd pkg/gpu/mocknvml && make clean && make
-RUN cd pkg/gpu/mockcuda && make clean && make
+RUN cd shims/libcuda && make clean && make
 RUN cd shims/libibmock && make clean && make
 RUN cd shims/libmockfs && make clean && make
 
 RUN make build
 
+# The NVIDIA Container Toolkit binaries the node daemon installs on each node
+# (MEP-0006): the runtime, its CDI hook and nvidia-ctk, taken from the toolkit's
+# own image. Its rpm tree is built on CentOS 7, so the binaries need glibc 2.17
+# or later on the host. Pinned by the multi-architecture index digest.
+FROM nvcr.io/nvidia/k8s/container-toolkit:v1.19.1@sha256:c927adbc9b7755c5cb90022fdcc5c1295f5fe5fe1f38200a2dc65e85632b029c AS container-toolkit
+
 FROM debian:bookworm-slim
 ARG TARGETARCH
+COPY --from=container-toolkit \
+    /artifacts/rpm/usr/bin/nvidia-container-runtime \
+    /artifacts/rpm/usr/bin/nvidia-ctk \
+    /artifacts/rpm/usr/bin/nvidia-cdi-hook \
+    /usr/local/libexec/nvml-mock/container-toolkit/
+COPY --from=container-toolkit /licenses/LICENSE /usr/local/libexec/nvml-mock/container-toolkit/LICENSE
 COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
-COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
+COPY --from=builder /src/shims/libcuda/libcuda.so.* /usr/local/lib/
 COPY --from=builder /src/shims/libibmock/libibmocksys.so.* /usr/local/lib/
 COPY --from=builder /src/shims/libibmock/libibmockumad.so.* /usr/local/lib/
 COPY --from=builder /src/shims/libibmock/libibmockverbs.so.* /usr/local/lib/
@@ -58,6 +71,7 @@ COPY --from=builder /src/dist/nri-plugin /usr/local/bin/nri-plugin
 COPY --from=builder /src/dist/nvml-mock-ctl /usr/local/bin/nvml-mock-ctl
 COPY --from=builder /src/dist/check-fabric     /usr/local/bin/check-fabric
 COPY --from=builder /src/dist/node-agent /usr/local/bin/node-agent
+COPY --from=builder /src/dist/nvidia-imex-shim /usr/local/bin/nvidia-imex-shim
 # Build-time only: it needs ldd and patchelf, both purged from the final image.
 COPY deployments/nvml-mock/build/bundle-ib-tools.sh /usr/local/bin/bundle-ib-tools.sh
 RUN set -eux; \
@@ -103,7 +117,14 @@ RUN set -eux; \
     # minimal image that ships no IB libraries at all.
     # See NVIDIA/k8s-test-infra#438.
     sh /usr/local/bin/bundle-ib-tools.sh; \
+    # The loader reaches /usr/local/lib only through ld.so.cache, which apt's
+    # triggers happen to rebuild in this layer. Do it explicitly so a client
+    # that dlopens libnvidia-ml.so.1, nvidia-smi included, keeps resolving it
+    # if these apt steps ever move or go away.
+    ldconfig; \
     rm -rf /var/lib/apt/lists/*; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
-    apt-get purge -y --auto-remove curl ca-certificates gnupg2 patchelf
+    # ca-certificates stays: the node agent verifies NVIDIA's TLS certificate
+    # when it downloads IMEX (the IMEXDownload feature gate).
+    apt-get purge -y --auto-remove curl gnupg2 patchelf

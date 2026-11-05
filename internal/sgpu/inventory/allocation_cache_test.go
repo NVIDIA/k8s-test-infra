@@ -14,9 +14,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/allocate"
-	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory/nodecatalog"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
 )
 
 func TestAllocationCacheCoalescesConcurrentGroupViews(t *testing.T) {
@@ -270,7 +270,7 @@ func TestAllocationCacheRejectsGenerationChangedDuringComputation(t *testing.T) 
 	source.nodeGeneration++
 	source.mu.Unlock()
 	close(release)
-	require.ErrorIs(t, <-result, errAllocationInputChanged)
+	require.ErrorIs(t, <-result, ErrAllocationInputChanged)
 
 	planner.allocate = allocate.Allocate
 	view, err := planner.plan(&key, instanceForGroup(key))
@@ -356,8 +356,7 @@ func BenchmarkAllocationCache100KNodes64Groups(b *testing.B) {
 	require.LessOrEqual(b, declaredSlots, MaxInventoryNodes)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		planner.Invalidate()
 		for index := range groupCount {
 			view, err := planner.plan(&keys[index], instanceForGroup(keys[index]))
@@ -384,7 +383,6 @@ func BenchmarkAllocationCache100KNodes64Groups(b *testing.B) {
 			b.Fatalf("got %d pending Nodes, want %d", len(view.Pending), nodeCount-expectedBindings)
 		}
 	}
-	b.StopTimer()
 	require.EqualValues(b, b.N, planner.Stats().Computations)
 	b.ReportMetric(float64(planner.Stats().Computations)/float64(b.N), "global-plans/op")
 }

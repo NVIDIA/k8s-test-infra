@@ -373,10 +373,10 @@ rm -f "${SHIMDIR}/kind"
 check "BUILD_LOCAL without kind exits 3" 3 "$(run_preflight BUILD_LOCAL=true)"
 check_stderr "missing kind names the tool" "kind not found on PATH"
 
-# Case 19: a digest-pinned image is rejected. The chart renders
-# "{{ repository }}:{{ tag }}" and has no image.digest, so splitting on the
-# digest's colon would render an invalid reference that only fails at pull
-# time. Exit 5 is the documented code for config the chart cannot express.
+# Case 19: a digest-pinned image is rejected. Demos pass only image.repository
+# and image.tag, so splitting on the digest's colon would render an invalid
+# reference that only fails at pull time. Exit 5 is the documented code for
+# config the demo cannot express.
 make_shims
 check "digest ref is rejected with 5" 5 "$(run_image_parts 'ghcr.io/nvidia/nvml-mock@sha256:abc123')"
 check_stderr "digest rejection explains why" "cannot express"
@@ -711,7 +711,7 @@ for _me in ${DEMO_RECORDS}; do
 done
 
 # Case 30: the co-location refusal. Selector pinning keeps each demo's kubectl
-# calls on its own pods, but nothing scopes the hostPaths both DaemonSets
+# calls on its own pods, but nothing scopes the hostPaths both releases' DaemonSets
 # mount, so a co-located run leaves the shared mock config failure-injected and
 # any real GPU workload on those nodes reads it. Both demos exited 0 while that
 # happened on a live cluster, which is why this refuses rather than warns.

@@ -23,7 +23,7 @@ locals {
 
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "6.7.2"
+  version = "6.7.3"
 
   name = var.cluster_name
   cidr = local.vpc_cidr
@@ -46,7 +46,7 @@ module "vpc" {
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "21.25.0"
+  version = "21.29.0"
 
   name               = var.cluster_name
   kubernetes_version = var.kubernetes_version
@@ -70,7 +70,7 @@ module "eks" {
 
   eks_managed_node_groups = {
     mokka = {
-      ami_type            = "AL2023_x86_64_NVIDIA"
+      ami_type            = "AL2023_x86_64_STANDARD"
       ami_release_version = var.eks_ami_release_version
       instance_types      = var.worker_instance_types
 
@@ -79,30 +79,6 @@ module "eks" {
       desired_size = var.worker_count
 
       disk_size = 30
-
-      # Own the full AL2023 nodeadm document so a post-nodeadm runtime setup
-      # can run after containerd's base configuration has been generated.
-      enable_bootstrap_user_data = true
-
-      # The accelerated AL2023 image already installs and registers the NVIDIA
-      # runtime. Its auto mode probes physical hardware before Mokka can supply
-      # a CDI spec, so force CDI mode after nodeadm has finished.
-      cloudinit_post_nodeadm = [
-        {
-          content_type = "text/x-shellscript"
-          content      = <<-EOT
-            #!/bin/bash
-            set -euxo pipefail
-
-            sed -i 's/^mode = "auto"$/mode = "cdi"/' \
-              /etc/nvidia-container-runtime/config.toml
-            grep -q '^mode = "cdi"$' \
-              /etc/nvidia-container-runtime/config.toml
-
-            systemctl restart containerd
-          EOT
-        }
-      ]
 
       labels = {
         "mokka.nvidia.com/type" = "sgpu"

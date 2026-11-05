@@ -24,6 +24,13 @@ function validateLogin(value, field) {
   return value.toLowerCase();
 }
 
+function normalizeAuthor(value) {
+  if (isSafeText(value) && value.endsWith("[bot]")) {
+    return `${validateLogin(value.slice(0, -5), "author")}[bot]`;
+  }
+  return validateLogin(value, "author");
+}
+
 function normalizeLogins(values, field) {
   if (!Array.isArray(values)) {
     throw new TypeError(`${field} must be an array`);
@@ -213,7 +220,7 @@ function selectReviewers(options) {
   if (!Number.isSafeInteger(options.target) || options.target <= 0) {
     throw new TypeError("target must be a positive safe integer");
   }
-  const author = validateLogin(options.author, "author");
+  const author = normalizeAuthor(options.author);
   const requested = normalizeLogins(options.requested, "requested");
 
   const eligibleLogins = candidates.filter((login) => login !== author);

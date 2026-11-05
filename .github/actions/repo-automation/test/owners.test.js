@@ -211,6 +211,7 @@ test("uses the root OWNERS declaration as fallback", () => {
     reviewerCandidates: ["root-reviewer", "shared-reviewer"],
     approverCandidates: ["root-approver", "shared-approver"],
     uncoveredPaths: [],
+    authorApprovalPaths: [],
   });
 });
 
@@ -243,6 +244,7 @@ test("inherits parent owners, expands aliases, and deduplicates logins case-inse
     ],
     approverCandidates: ["nested-approver", "root-approver", "shared-approver"],
     uncoveredPaths: [],
+    authorApprovalPaths: [],
   });
 });
 
@@ -308,6 +310,12 @@ test("requires a valid invocation-only pull request author before resolving owne
     ["unsafe control", "alice\u001b[31m", true],
     ["malformed login", "alice--admin", true],
   ];
+  for (const author of [
+    "[bot]", "bad--login[bot]", "bad_login[bot]", "-bad[bot]", "bad-[bot]",
+    "a".repeat(40) + "[bot]", "alice[bot][bot]", "alice[bot]\n", "alice[BOT]",
+  ]) {
+    invalidAuthors.push([`malformed bot ${JSON.stringify(author)}`, author, true]);
+  }
   const ownerFiles = [parseOwnersFile(
     "reviewers: [pr-author]\napprovers: [PR-AUTHOR]\n",
     "/OWNERS",
@@ -338,6 +346,32 @@ test("requires a valid invocation-only pull request author before resolving owne
   }
 });
 
+test("a bot PR author is context and does not change human OWNERS candidates", () => {
+  const ownerFiles = [parseOwnersFile(
+    "reviewers: [dependabot, alice]\napprovers: [bob]\n",
+    "/OWNERS",
+  )];
+  assert.deepEqual(resolveOwners(
+    ["file.go"],
+    ownerFiles,
+    new Map(),
+    resolutionPolicy(["/OWNERS"], "Dependabot[bot]"),
+  ), {
+    files: [{ path: "file.go", reviewers: ["alice", "dependabot"], approvers: ["bob"] }],
+    reviewerCandidates: ["alice", "dependabot"],
+    approverCandidates: ["bob"],
+    uncoveredPaths: [],
+    authorApprovalPaths: [],
+  });
+});
+
+test("bot author context does not permit bot OWNERS or alias authority", () => {
+  for (const field of ["reviewers", "approvers"]) {
+    assert.throws(() => parseOwnersFile(`${field}: ["dependabot[bot]"]\n`, "/OWNERS"), /GitHub login/i);
+  }
+  assert.throws(() => parseAliases('aliases: {bots: ["dependabot[bot]"]}\n'), /GitHub login/i);
+});
+
 test("excludes the PR author case-insensitively and reports author-only coverage missing", () => {
   const ownerFiles = [
     parseOwnersFile(
@@ -363,6 +397,56 @@ test("excludes the PR author case-insensitively and reports author-only coverage
   assert.deepEqual(result.reviewerCandidates, ["other-reviewer"]);
   assert.deepEqual(result.approverCandidates, ["other-approver"]);
   assert.deepEqual(result.uncoveredPaths, ["author-only/file.go"]);
+});
+
+test("author approval covers applicable paths without making the author a reviewer candidate", () => {
+  const ownership = resolveOwners(
+    ["root.go", "isolated/file.go"],
+    [
+      parseOwnersFile("reviewers: [alice]\napprovers: [author]\n", "/OWNERS"),
+      parseOwnersFile("approvers: [bob]\noptions: {no_parent_owners: true}\n", "/isolated/OWNERS"),
+    ],
+    new Map(),
+    resolutionPolicy(["/OWNERS", "/isolated/OWNERS"], "Author"),
+  );
+  const { hasApprovalCoverage } = require("../src/owners.js");
+  assert.deepEqual(ownership.authorApprovalPaths, ["root.go"]);
+  assert.deepEqual(ownership.approverCandidates, ["bob"]);
+  assert.deepEqual(ownership.reviewerCandidates, ["alice"]);
+  assert.equal(hasApprovalCoverage(ownership, new Set(), true), false);
+  assert.equal(hasApprovalCoverage(ownership, new Set(["bob"]), true), true);
+  assert.equal(hasApprovalCoverage(ownership, new Set(["bob"]), false), false);
+});
+
+test("author approval expands trusted aliases and covers inherited and author-only paths", () => {
+  const ownership = resolveOwners(
+    ["root.go", "nested/file.go"],
+    [parseOwnersFile("approvers: [maintainers]\n", "/OWNERS")],
+    parseAliases("aliases: {maintainers: [Author]}\n"),
+    resolutionPolicy(["/OWNERS"], "author"),
+  );
+  const { hasApprovalCoverage } = require("../src/owners.js");
+  assert.deepEqual(ownership.authorApprovalPaths, ["nested/file.go", "root.go"]);
+  assert.deepEqual(ownership.approverCandidates, []);
+  assert.equal(hasApprovalCoverage(ownership, new Set(), true), true);
+  assert.equal(hasApprovalCoverage(ownership, new Set(), false), false);
+});
+
+test("inactive PR OWNERS cannot grant author approval and reviewers cannot approve as authors", () => {
+  for (const root of ["reviewers: [author]\n", "approvers: [bob]\n"]) {
+    const ownership = resolveOwners(
+      ["nested/file.go"],
+      [
+        parseOwnersFile(root, "/OWNERS"),
+        parseOwnersFile("approvers: [author]\n", "/nested/OWNERS"),
+      ],
+      new Map(),
+      resolutionPolicy(["/OWNERS"], "author"),
+    );
+    const { hasApprovalCoverage } = require("../src/owners.js");
+    assert.deepEqual(ownership.authorApprovalPaths, []);
+    assert.equal(hasApprovalCoverage(ownership, new Set(), true), false);
+  }
 });
 
 test("fails closed on an unresolvable alias reference", () => {

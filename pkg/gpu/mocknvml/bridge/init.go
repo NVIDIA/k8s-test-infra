@@ -51,11 +51,13 @@ func nvmlInitWithFlags(flags C.uint) C.nvmlReturn_t {
 	return toReturn(ret)
 }
 
+// nvmlShutdown tears the engine down. The nvmlErrorString cache deliberately
+// survives it: those strings are static in a real driver and consumers keep
+// reading them after shutdown.
+//
 //export nvmlShutdown
 func nvmlShutdown() C.nvmlReturn_t {
 	ret := engine.GetEngine().Shutdown()
-	// Clear cached error strings to prevent memory leaks
-	ClearErrorStringCache()
 	return toReturn(ret)
 }
 

@@ -31,3 +31,23 @@ func TestRenderCapsGracePeriod(t *testing.T) {
 	require.LessOrEqual(t, *rendered.Spec.TerminationGracePeriodSeconds, int64(1),
 		"a grace period above 1s puts pod teardown back on the suite's critical path")
 }
+
+// Privileged is opt-in: an unprivileged spec must not carry a security context,
+// which would override what the runtime applies by default.
+func TestRenderPrivileged(t *testing.T) {
+	for _, privileged := range []bool{false, true} {
+		manifest := Spec{Name: "probe", Image: "debian:bookworm-slim", Privileged: privileged}.Render()
+
+		var rendered corev1.Pod
+		require.NoError(t, yaml.UnmarshalStrict(manifest, &rendered), "manifest:\n%s", manifest)
+
+		securityContext := rendered.Spec.Containers[0].SecurityContext
+		if !privileged {
+			require.Nil(t, securityContext)
+			continue
+		}
+		require.NotNil(t, securityContext)
+		require.NotNil(t, securityContext.Privileged)
+		require.True(t, *securityContext.Privileged)
+	}
+}

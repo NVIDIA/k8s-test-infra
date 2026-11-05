@@ -5,8 +5,9 @@
 package fabric
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/gid"
@@ -55,8 +56,8 @@ func Build(local []protocol.PortAdvert, peers map[string]registry.Peer) *Graph {
 			Local:    false,
 		})
 	}
-	sort.Slice(ports, func(i, j int) bool {
-		return ports[i].PortGUID < ports[j].PortGUID
+	slices.SortFunc(ports, func(a, b Port) int {
+		return cmp.Compare(a.PortGUID, b.PortGUID)
 	})
 	g := &Graph{
 		ports:  ports,
