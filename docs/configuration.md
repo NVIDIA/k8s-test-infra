@@ -148,7 +148,7 @@ reading identity out of sysfs gets the full picture.
 
 Where the node's boards sit in a rack, which `nvidia-smi -q` renders as its
 `Platform Info` block. Rack-scale fault correlation reads it to turn a GPU fault
-into a physical location. Only `gb200` and `gb300` ship it; on every other
+into a physical location. Only `gb200`, `gb300` and `vrnvl72` ship it; on every other
 profile the whole block reads `N/A`, which is the correct reading for a board
 whose platform reports no location.
 
@@ -904,14 +904,14 @@ nvlink:
 on every attached GPU: `true` reports `Enabled`, while `false` or an absent key
 reports `N/A` — never `Disabled`, because NVML answers
 `NVML_ERROR_NOT_SUPPORTED`, the correct reading for a board with no NVLink-C2C
-link to a host CPU. Only `gb200` and `gb300` enable it. This is the only key that
+link to a host CPU. Only `gb200`, `gb300` and `vrnvl72` enable it. This is the only key that
 drives the row: `device_defaults.features.nvlink_c2c` is descriptive metadata and
 is not read.
 
 `multi_node` marks a board whose NVLink domain spans nodes, as in a rack-scale
 NVLink system, as opposed to an NVLink fabric that stays on one baseboard, such
-as HGX H100 or B200. Of the shipped profiles, `gb200` and `gb300` set it; Vera
-Rubin and NVL576 profiles would set it too. On such a node the
+as HGX H100 or B200. Of the shipped profiles, `gb200`, `gb300` and `vrnvl72`
+set it. On such a node the
 node agent stages the IMEX capability surface the DRA driver's ComputeDomain
 plugin reads: a substitute `/proc/devices` entry, the `fabric-imex-mgmt`
 capability file and the `channel0` device node, the only channel the driver of
@@ -946,7 +946,7 @@ that names neither is warned about and treated as an absent block.
 |---|---|---|
 | NVML | `nvmlSystemGetNvlinkBwMode`, `nvmlSystemSetNvlinkBwMode` | `nvmlDeviceGetNvlinkBwMode`, `nvmlDeviceSetNvlinkBwMode`, `nvmlDeviceGetNvlinkSupportedBwModes` |
 | `nvidia-smi` | `nvlink -gBwMode`, `nvlink -sBwMode` | no flag reaches it — NVML callers only |
-| Shipped profiles | `h100` | `b200`, `gb200`, `gb300` |
+| Shipped profiles | `h100` | `b200`, `gb200`, `gb300`, `vrnvl72` |
 
 Either way, `supported` is the set the setter accepts, and the reported mode is
 the last value a setter recorded, else `mode`, else the best supported mode.
@@ -1159,10 +1159,11 @@ Standalone configuration files are provided for each supported GPU model:
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml` | NVIDIA A100-SXM4-40GB | 40 GiB | Ampere |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-l40s.yaml` | NVIDIA L40S | 48 GiB | Ada Lovelace |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-t4.yaml` | NVIDIA T4 | 16 GiB | Turing |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-vrnvl72.yaml` | NVIDIA Graphics Device (Vera Rubin) | 288 GiB | Rubin |
 
 Each file contains a complete configuration with every device configured: 8 for
-the baseboard profiles, 4 for the Grace-Blackwell ones (`gb200`, `gb300`), which
-model one NVL72 compute tray, the unit a real node reports.
+the baseboard profiles, 4 for the rack-scale ones (`gb200`, `gb300`, `vrnvl72`),
+which model one compute tray, the unit a real node reports.
 
 ## Integration Values
 

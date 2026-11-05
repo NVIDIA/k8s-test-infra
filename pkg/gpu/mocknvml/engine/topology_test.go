@@ -334,9 +334,10 @@ func TestNodeFabric_BuiltinProfiles(t *testing.T) {
 	}{
 		{"gb200", 18, true, NVLinkBwModeScopeDevice}, // NVLink5, 4 NVSwitches -> NV18 all-to-all
 		{"gb300", 18, true, NVLinkBwModeScopeDevice},
-		{"h100", 18, true, NVLinkBwModeScopeSystem}, // HGX H100, 4 NVSwitches -> NV18
-		{"a100", 12, true, noBwMode},                // DGX A100, 6 NVSwitches -> NV12
-		{"b200", 0, false, NVLinkBwModeScopeDevice}, // standalone: negative control, no NVLink fabric
+		{"vrnvl72", 18, true, NVLinkBwModeScopeDevice}, // NVLink6, 4 NVSwitches -> NV18
+		{"h100", 18, true, NVLinkBwModeScopeSystem},    // HGX H100, 4 NVSwitches -> NV18
+		{"a100", 12, true, noBwMode},                   // DGX A100, 6 NVSwitches -> NV12
+		{"b200", 0, false, NVLinkBwModeScopeDevice},    // standalone: negative control, no NVLink fabric
 	}
 	for _, c := range cases {
 		t.Run(c.profile, func(t *testing.T) {
