@@ -43,6 +43,11 @@ func Inventory(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.P
 	gomega.Expect(problems).To(gomega.BeEmpty(), "nvidia-smi inventory wrong:\n%s",
 		strings.Join(problems, "\n"))
 
+	ginkgo.By("nvidia-smi -q -x reports architecture " + ArchitectureName(p.Architecture()))
+	problems = ArchitectureProblems(out, p.Architecture())
+	gomega.Expect(problems).To(gomega.BeEmpty(), "nvidia-smi architecture wrong:\n%s",
+		strings.Join(problems, "\n"))
+
 	ginkgo.By("nvidia-smi -q -x reports no phantom processes")
 	problems = PhantomProcessProblems(out)
 	gomega.Expect(problems).To(gomega.BeEmpty(), "phantom processes:\n%s",

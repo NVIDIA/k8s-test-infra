@@ -85,7 +85,6 @@ func TestProfilePCIeLinkGenMatchesHardwareCapture(t *testing.T) {
 					t.Skip("gb200 capture reports Max below Device Max, which one max_link_gen key cannot answer")
 				}
 
-				skipAwaitingCapture(t, sku)
 				want := readCapturedPCIeGen(t, sku)
 
 				cfg, err := LoadYAMLConfig(path)
