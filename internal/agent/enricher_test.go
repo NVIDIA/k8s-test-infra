@@ -22,8 +22,7 @@ type enricherFunc struct {
 func (e enricherFunc) Name() string                             { return e.name }
 func (e enricherFunc) Enrich(_ context.Context, s *State) error { return e.fn(s) }
 
-// Enrichers run in order on a copy of the source's State. A failed enricher
-// does not stop the ones after it, or the reconcile.
+// Enrichers run in order on a copy of the source's State.
 func TestEnrichersRunInOrderOnACopyBeforeStage(t *testing.T) {
 	t.Parallel()
 
@@ -37,10 +36,6 @@ func TestEnrichersRunInOrderOnACopyBeforeStage(t *testing.T) {
 			s.NodeShape.NUMA = layout
 			return nil
 		}},
-		enricherFunc{"failing", func(*State) error {
-			order = append(order, "failing")
-			return errors.New("node unreadable")
-		}},
 		enricherFunc{"last", func(s *State) error {
 			order = append(order, "last")
 			seenByLast = s.NodeShape.NUMA
@@ -51,7 +46,7 @@ func TestEnrichersRunInOrderOnACopyBeforeStage(t *testing.T) {
 	a := New(Config{Simulators: []Simulator{sim}, Enrichers: enrichers, Source: newChanSource(Update{State: source}), Log: zap.NewNop()})
 	require.NoError(t, a.Run(t.Context()))
 
-	require.Equal(t, []string{"first", "failing", "last"}, order)
+	require.Equal(t, []string{"first", "last"}, order)
 	require.Same(t, layout, seenByLast, "a later enricher sees an earlier one's result")
 	require.Nil(t, source.NodeShape.NUMA, "the source's State is not changed")
 	require.Same(t, layout, sim.staged.NodeShape.NUMA)
@@ -81,6 +76,55 @@ func TestRequeueDoesNotEnrichAgain(t *testing.T) {
 	sim.requeue <- struct{}{}
 	require.Same(t, enriched, <-sim.staged)
 	require.EqualValues(t, 1, calls.Load())
+
+	cancel()
+	require.NoError(t, <-done)
+}
+
+// A failed enrichment is retried. Until it succeeds, the agent stages nothing
+// before the first success, and after that it restages the last fully
+// enriched State.
+func TestFailedEnrichmentKeepsTheLastStateAndRetries(t *testing.T) {
+	t.Parallel()
+
+	var fail atomic.Bool
+	var calls atomic.Int32
+	flaky := enricherFunc{"flaky", func(*State) error {
+		calls.Add(1)
+		if fail.Load() {
+			return errors.New("node unreadable")
+		}
+		return nil
+	}}
+	sim := &requeueSim{
+		readySim: readySim{name: "requeue", ready: true},
+		requeue:  make(chan struct{}),
+		staged:   make(chan *State, 4),
+	}
+	updates := make(chan Update, 1)
+	a := New(Config{Simulators: []Simulator{sim}, Enrichers: []Enricher{flaky}, Source: &chanSource{ch: updates}, Log: zap.NewNop()})
+	a.enrichRetryFirst = time.Millisecond
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+
+	fail.Store(true)
+	updates <- Update{State: &State{Generation: 1}}
+	require.Eventually(t, func() bool { return calls.Load() >= 3 }, 5*time.Second, time.Millisecond, "enrichment is retried")
+	require.Empty(t, sim.staged, "nothing is staged before the first enrichment succeeds")
+	fail.Store(false)
+	first := <-sim.staged
+	require.EqualValues(t, 1, first.Generation)
+
+	fail.Store(true)
+	before := calls.Load()
+	updates <- Update{State: &State{Generation: 2}}
+	require.Eventually(t, func() bool { return calls.Load() >= before+2 }, 5*time.Second, time.Millisecond, "enrichment is retried")
+	sim.requeue <- struct{}{}
+	require.Same(t, first, <-sim.staged, "a requeue restages the last fully enriched State")
+	fail.Store(false)
+	require.EqualValues(t, 2, (<-sim.staged).Generation)
 
 	cancel()
 	require.NoError(t, <-done)

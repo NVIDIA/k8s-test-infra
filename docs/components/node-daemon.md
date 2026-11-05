@@ -54,7 +54,9 @@ flowchart LR
     source[Source builds desired state] --> valid{{Build succeeded?}}
     valid -->|no| invalid[Report source error<br/>keep the last valid state]
     valid -->|yes| enrich[Enrich<br/>in order, once per state]
-    enrich --> stage[Stage<br/>all simulators, in parallel]
+    enrich --> enriched{{All enriched?}}
+    enriched -->|no| retry[Keep the last enriched state<br/>retry with backoff]
+    enriched -->|yes| stage[Stage<br/>all simulators, in parallel]
     stage --> barrier{{All staged?}}
     barrier -->|no| fail[Report failing simulators<br/>no daemon starts, no Apply]
     barrier -->|yes| daemons[Supervise<br/>start once, or Reload]
@@ -63,9 +65,12 @@ flowchart LR
 
 Enrichers run in a fixed order on a copy of the source's state, so a later
 enricher can use an earlier one's result. They run once for each new state; a
-requeue restages the enriched state without reading the node again. A failed
-enricher leaves its fields empty and the rest still run: only the simulators
-that need its result report not ready.
+requeue restages the enriched state without reading the node again. If an
+enricher fails, the agent drops the new state, like a source error: the node
+keeps the last fully enriched state, and the agent retries the enrichment with
+a delay that starts at 5 seconds and doubles up to 5 minutes. Before the first
+success, nothing is staged. Simulators share enriched fields, so none of them
+ever sees a state with some of those fields missing.
 
 With NUMA simulation enabled, the NUMA topology enricher reads the node's real
 CPUs and RAM and resolves one layout in `State.NodeShape.NUMA`. The NUMA
@@ -95,9 +100,8 @@ profile edit does not need a pod restart.
 ## NUMA simulation
 
 The optional NUMA simulator renders the layout the NUMA topology enricher
-resolved. Without a layout, it leaves the node unchanged and reports not ready.
-It exposes the same zone placement to kubelet, the device plugin, and NFD through
-`/sys/devices/system/node` and `/sys/bus/node/devices`. The privileged pod uses
+resolved. It exposes the same zone placement to kubelet, the device plugin, and
+NFD through `/sys/devices/system/node` and `/sys/bus/node/devices`. The privileged pod uses
 bidirectional host volumes to apply and remove mounts from its own mount
 namespace. Each mount is made read-only in a private staging area before it is
 attached, so the node receives a read-only view. Mounts stay on the selected
@@ -114,6 +118,10 @@ that kubelet is active and answers a PodResources `List` request before deleting
 recovery files. The chart retains host access
 for this restore step even when NUMA and container runtime setup are disabled.
 Failed restoration keeps the backup and pending marker for a retry.
+
+If applying or restoring fails, the simulator requeues a reconcile, because the
+agent otherwise runs `Apply` again only when the state changes. The delay starts
+at 5 seconds, doubles up to 5 minutes, and resets after a success.
 
 The pod installs the persistent [kubelet helper](mokka-kubelet-helper.md) and its
 systemd dependency to prepare kubelet after node reboot. The helper performs

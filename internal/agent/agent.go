@@ -31,8 +31,10 @@ type Agent struct {
 	log             *zap.Logger
 	shutdownTimeout time.Duration
 	stagingLockPath string
-	live            atomic.Pointer[health.Probe] // last Stage wave outcome, served on /healthz
-	staged          atomic.Bool                  // latest Stage wave completed; false while restaging and during teardown
+	// enrichRetryFirst is the first delay before a failed enrichment is retried.
+	enrichRetryFirst time.Duration
+	live             atomic.Pointer[health.Probe] // last Stage wave outcome, served on /healthz
+	staged           atomic.Bool                  // latest Stage wave completed; false while restaging and during teardown
 
 	// Daemons launch into this group from reconcile but bind to supervisorCtx,
 	// so they outlive the reconcile that started them.
@@ -59,13 +61,14 @@ func New(cfg Config) *Agent {
 		cfg.ShutdownTimeout = 30 * time.Second
 	}
 	a := &Agent{
-		simulators:      cfg.Simulators,
-		enrichers:       cfg.Enrichers,
-		source:          cfg.Source,
-		log:             cfg.Log,
-		shutdownTimeout: cfg.ShutdownTimeout,
-		stagingLockPath: cfg.StagingLockPath,
-		started:         make(map[string]bool),
+		simulators:       cfg.Simulators,
+		enrichers:        cfg.Enrichers,
+		source:           cfg.Source,
+		log:              cfg.Log,
+		shutdownTimeout:  cfg.ShutdownTimeout,
+		stagingLockPath:  cfg.StagingLockPath,
+		enrichRetryFirst: enrichRetryFirst,
+		started:          make(map[string]bool),
 	}
 	a.setLive(health.OK())
 	return a
@@ -150,7 +153,8 @@ func (a *Agent) Run(ctx context.Context) error {
 func (a *Agent) reconcileLoop(ctx context.Context) error {
 	updates := a.source.Watch(ctx)
 	requeues := a.requeues(ctx)
-	var latest *State
+	var latest *State // the last fully enriched State
+	var pending pendingState
 	for {
 		select {
 		case <-ctx.Done():
@@ -161,6 +165,8 @@ func (a *Agent) reconcileLoop(ctx context.Context) error {
 			if latest != nil {
 				a.reconcileLogged(ctx, latest)
 			}
+		case <-pending.retry:
+			latest = a.enrichOrRetry(ctx, &pending, latest)
 		case u, ok := <-updates:
 			if !ok {
 				return nil // source closed
@@ -170,9 +176,10 @@ func (a *Agent) reconcileLoop(ctx context.Context) error {
 				continue
 			}
 			// Enrich once per new State: a requeue reuses the result, so a
-			// node change alone never produces a different layout.
-			latest = a.enrich(ctx, u.State)
-			a.reconcileLogged(ctx, latest)
+			// node change alone never produces a different layout. A new
+			// State replaces one that is still waiting to be enriched.
+			pending = pendingState{state: u.State}
+			latest = a.enrichOrRetry(ctx, &pending, latest)
 		}
 	}
 }

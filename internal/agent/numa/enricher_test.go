@@ -46,20 +46,14 @@ func TestEnricherFailureLeavesTheLayoutEmpty(t *testing.T) {
 	require.Nil(t, state.NodeShape.NUMA)
 }
 
-// Without a layout, the NUMA simulator must not fail Stage, which would stop
-// every other simulator; it leaves the node unchanged and stays not ready.
-func TestMissingLayoutLeavesTheNodeUnchangedAndNotReady(t *testing.T) {
+// The agent stages only fully enriched States, so a missing layout is a bug.
+func TestMissingLayoutFailsStage(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
-	runner := hostRunnerFunc(func(context.Context, HostAction, bool) error {
-		t.Error("the node must not change without a layout")
-		return nil
-	})
-	sim, err := newTestSimulator(h, Options{Enabled: true, Runner: runner})
+	sim, err := newTestSimulator(h, Options{Enabled: true})
 	require.NoError(t, err)
-	require.NoError(t, sim.Stage(t.Context(), testState()))
+	require.Error(t, sim.Stage(t.Context(), testState()))
 	require.NoDirExists(t, h.RootPath("numa/sysnode"))
-	require.NoError(t, sim.Apply(t.Context(), testState()))
 	require.False(t, sim.Ready())
 }
 
