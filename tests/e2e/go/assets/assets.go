@@ -46,3 +46,13 @@ func WriteTemp(pattern string, content []byte) (string, error) {
 	}
 	return f.Name(), nil
 }
+
+// NUMAValues enables the two-zone fixture's real kubelet managers.
+//
+//go:embed numa-values.yaml
+var NUMAValues []byte
+
+// NUMANFDValues deploys the real topology updater without container injection.
+//
+//go:embed numa-nfd-values.yaml
+var NUMANFDValues []byte

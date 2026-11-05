@@ -1,0 +1,18 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+# Only the upstream topology updater is needed; it writes the NRTs itself.
+master:
+  enable: false
+worker:
+  enable: false
+gc:
+  enable: false
+topologyUpdater:
+  enable: true
+  createCRDs: true
+  kubeletConfigPath: /var/lib/kubelet/config.yaml
+  updateInterval: 3s
+  nodeSelector:
+    mokka.nvidia.com/type: sgpu
+  annotations:
+    nvml-mock.nvidia.com/inject: "false"
