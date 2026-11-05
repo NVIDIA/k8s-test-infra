@@ -73,7 +73,7 @@ hca_id:	mlx5_0
 					SUPPORT_READ
 					SUPPORT_ATOMIC
 					SUPPORT_SRQ
-	completion timestamp_mask:			0x0000000000000025
+	completion timestamp_mask:			0x7fffffffffffffff
 	hca_core_clock:			1000000kHZ
 	raw packet caps:
 					C-VLAN stripping offload
@@ -132,7 +132,7 @@ hca_id:	mlx5_0
 			active_speed:		200.0 Gbps (256)
 			phys_state:		LINK_UP (5)
 			GID[  0]:		fe80:0000:0000:0000:0000:0000:0000:0001, RoCE v1
-			GID[  1]:		fe80::0000:0000:0000:0026, RoCE v2
+			GID[  1]:		fe80:0000:0000:0000:0000:0000:0000:0001, RoCE v2
 
 hca_id:	mlx5_1
 	transport:			InfiniBand (0)
@@ -209,7 +209,7 @@ hca_id:	mlx5_1
 					SUPPORT_READ
 					SUPPORT_ATOMIC
 					SUPPORT_SRQ
-	completion timestamp_mask:			0x0000000000000025
+	completion timestamp_mask:			0x7fffffffffffffff
 	hca_core_clock:			1000000kHZ
 	raw packet caps:
 					C-VLAN stripping offload
@@ -268,7 +268,7 @@ hca_id:	mlx5_1
 			active_speed:		200.0 Gbps (256)
 			phys_state:		LINK_UP (5)
 			GID[  0]:		fe80:0000:0000:0000:0000:0000:0000:0002, RoCE v1
-			GID[  1]:		fe80::0000:0000:0000:0027, RoCE v2
+			GID[  1]:		fe80:0000:0000:0000:0000:0000:0000:0002, RoCE v2
 
 hca_id:	mlx5_2
 	transport:			InfiniBand (0)
@@ -345,7 +345,7 @@ hca_id:	mlx5_2
 					SUPPORT_READ
 					SUPPORT_ATOMIC
 					SUPPORT_SRQ
-	completion timestamp_mask:			0x0000000000000025
+	completion timestamp_mask:			0x7fffffffffffffff
 	hca_core_clock:			1000000kHZ
 	raw packet caps:
 					C-VLAN stripping offload
@@ -404,7 +404,7 @@ hca_id:	mlx5_2
 			active_speed:		200.0 Gbps (256)
 			phys_state:		LINK_UP (5)
 			GID[  0]:		fe80:0000:0000:0000:0000:0000:0000:0003, RoCE v1
-			GID[  1]:		fe80::0000:0000:0000:0028, RoCE v2
+			GID[  1]:		fe80:0000:0000:0000:0000:0000:0000:0003, RoCE v2
 
 hca_id:	mlx5_3
 	transport:			InfiniBand (0)
@@ -481,7 +481,7 @@ hca_id:	mlx5_3
 					SUPPORT_READ
 					SUPPORT_ATOMIC
 					SUPPORT_SRQ
-	completion timestamp_mask:			0x0000000000000025
+	completion timestamp_mask:			0x7fffffffffffffff
 	hca_core_clock:			1000000kHZ
 	raw packet caps:
 					C-VLAN stripping offload
@@ -539,7 +539,7 @@ hca_id:	mlx5_3
 			active_speed:		100.0 Gbps (128)
 			phys_state:		LINK_UP (5)
 			GID[  0]:		fe80:0000:0000:0000:0000:0000:0000:0004, RoCE v1
-			GID[  1]:		fe80::0000:0000:0000:0029, RoCE v2
+			GID[  1]:		fe80:0000:0000:0000:0000:0000:0000:0004, RoCE v2
 
 hca_id:	mlx5_4
 	transport:			InfiniBand (0)
@@ -616,7 +616,7 @@ hca_id:	mlx5_4
 					SUPPORT_READ
 					SUPPORT_ATOMIC
 					SUPPORT_SRQ
-	completion timestamp_mask:			0x0000000000000025
+	completion timestamp_mask:			0x7fffffffffffffff
 	hca_core_clock:			1000000kHZ
 	raw packet caps:
 					C-VLAN stripping offload
@@ -674,7 +674,7 @@ hca_id:	mlx5_4
 			active_speed:		100.0 Gbps (128)
 			phys_state:		LINK_UP (5)
 			GID[  0]:		fe80:0000:0000:0000:0000:0000:0000:0005, RoCE v1
-			GID[  1]:		fe80::0000:0000:0000:002a, RoCE v2
+			GID[  1]:		fe80:0000:0000:0000:0000:0000:0000:0005, RoCE v2
 
 hca_id:	mlx5_5
 	transport:			InfiniBand (0)
@@ -751,7 +751,7 @@ hca_id:	mlx5_5
 					SUPPORT_READ
 					SUPPORT_ATOMIC
 					SUPPORT_SRQ
-	completion timestamp_mask:			0x0000000000000025
+	completion timestamp_mask:			0x7fffffffffffffff
 	hca_core_clock:			1000000kHZ
 	raw packet caps:
 					C-VLAN stripping offload
@@ -810,7 +810,7 @@ hca_id:	mlx5_5
 			active_speed:		200.0 Gbps (256)
 			phys_state:		LINK_UP (5)
 			GID[  0]:		fe80:0000:0000:0000:0000:0000:0000:0006, RoCE v1
-			GID[  1]:		fe80::0000:0000:0000:002b, RoCE v2
+			GID[  1]:		fe80:0000:0000:0000:0000:0000:0000:0006, RoCE v2
 
 hca_id:	mlx5_6
 	transport:			InfiniBand (0)
@@ -887,7 +887,7 @@ hca_id:	mlx5_6
 					SUPPORT_READ
 					SUPPORT_ATOMIC
 					SUPPORT_SRQ
-	completion timestamp_mask:			0x0000000000000025
+	completion timestamp_mask:			0x7fffffffffffffff
 	hca_core_clock:			1000000kHZ
 	raw packet caps:
 					C-VLAN stripping offload
@@ -946,7 +946,7 @@ hca_id:	mlx5_6
 			active_speed:		200.0 Gbps (256)
 			phys_state:		LINK_UP (5)
 			GID[  0]:		fe80:0000:0000:0000:0000:0000:0000:0007, RoCE v1
-			GID[  1]:		fe80::0000:0000:0000:002c, RoCE v2
+			GID[  1]:		fe80:0000:0000:0000:0000:0000:0000:0007, RoCE v2
 
 hca_id:	mlx5_7
 	transport:			InfiniBand (0)
@@ -1023,7 +1023,7 @@ hca_id:	mlx5_7
 					SUPPORT_READ
 					SUPPORT_ATOMIC
 					SUPPORT_SRQ
-	completion timestamp_mask:			0x0000000000000025
+	completion timestamp_mask:			0x7fffffffffffffff
 	hca_core_clock:			1000000kHZ
 	raw packet caps:
 					C-VLAN stripping offload
@@ -1082,7 +1082,7 @@ hca_id:	mlx5_7
 			active_speed:		200.0 Gbps (256)
 			phys_state:		LINK_UP (5)
 			GID[  0]:		fe80:0000:0000:0000:0000:0000:0000:0008, RoCE v1
-			GID[  1]:		fe80::0000:0000:0000:002d, RoCE v2
+			GID[  1]:		fe80:0000:0000:0000:0000:0000:0000:0008, RoCE v2
 
 hca_id:	mlx5_8
 	transport:			InfiniBand (0)
@@ -1159,7 +1159,7 @@ hca_id:	mlx5_8
 					SUPPORT_READ
 					SUPPORT_ATOMIC
 					SUPPORT_SRQ
-	completion timestamp_mask:			0x0000000000000025
+	completion timestamp_mask:			0x7fffffffffffffff
 	hca_core_clock:			1000000kHZ
 	raw packet caps:
 					C-VLAN stripping offload
@@ -1218,7 +1218,7 @@ hca_id:	mlx5_8
 			active_speed:		200.0 Gbps (256)
 			phys_state:		LINK_UP (5)
 			GID[  0]:		fe80:0000:0000:0000:0000:0000:0000:0009, RoCE v1
-			GID[  1]:		fe80::0000:0000:0000:002e, RoCE v2
+			GID[  1]:		fe80:0000:0000:0000:0000:0000:0000:0009, RoCE v2
 
 hca_id:	mlx5_9
 	transport:			InfiniBand (0)
@@ -1295,7 +1295,7 @@ hca_id:	mlx5_9
 					SUPPORT_READ
 					SUPPORT_ATOMIC
 					SUPPORT_SRQ
-	completion timestamp_mask:			0x0000000000000025
+	completion timestamp_mask:			0x7fffffffffffffff
 	hca_core_clock:			1000000kHZ
 	raw packet caps:
 					C-VLAN stripping offload
@@ -1353,7 +1353,7 @@ hca_id:	mlx5_9
 			active_speed:		100.0 Gbps (128)
 			phys_state:		LINK_UP (5)
 			GID[  0]:		fe80:0000:0000:0000:0000:0000:0000:000a, RoCE v1
-			GID[  1]:		fe80::0000:0000:0000:002f, RoCE v2
+			GID[  1]:		fe80:0000:0000:0000:0000:0000:0000:000a, RoCE v2
 
 hca_id:	mlx5_10
 	transport:			InfiniBand (0)
@@ -1430,7 +1430,7 @@ hca_id:	mlx5_10
 					SUPPORT_READ
 					SUPPORT_ATOMIC
 					SUPPORT_SRQ
-	completion timestamp_mask:			0x0000000000000025
+	completion timestamp_mask:			0x7fffffffffffffff
 	hca_core_clock:			1000000kHZ
 	raw packet caps:
 					C-VLAN stripping offload
@@ -1488,7 +1488,7 @@ hca_id:	mlx5_10
 			active_speed:		100.0 Gbps (128)
 			phys_state:		LINK_UP (5)
 			GID[  0]:		fe80:0000:0000:0000:0000:0000:0000:000b, RoCE v1
-			GID[  1]:		fe80::0000:0000:0000:0030, RoCE v2
+			GID[  1]:		fe80:0000:0000:0000:0000:0000:0000:000b, RoCE v2
 
 hca_id:	mlx5_11
 	transport:			InfiniBand (0)
@@ -1565,7 +1565,7 @@ hca_id:	mlx5_11
 					SUPPORT_READ
 					SUPPORT_ATOMIC
 					SUPPORT_SRQ
-	completion timestamp_mask:			0x0000000000000025
+	completion timestamp_mask:			0x7fffffffffffffff
 	hca_core_clock:			1000000kHZ
 	raw packet caps:
 					C-VLAN stripping offload
@@ -1624,5 +1624,5 @@ hca_id:	mlx5_11
 			active_speed:		200.0 Gbps (256)
 			phys_state:		LINK_UP (5)
 			GID[  0]:		fe80:0000:0000:0000:0000:0000:0000:000c, RoCE v1
-			GID[  1]:		fe80::0000:0000:0000:0031, RoCE v2
+			GID[  1]:		fe80:0000:0000:0000:0000:0000:0000:000c, RoCE v2
 

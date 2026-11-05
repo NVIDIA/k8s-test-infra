@@ -27,7 +27,7 @@ GPU 00000002:81:00.0
         Pending                                        : N/A
     Serial Number                                      : 1650000000006
     GPU UUID                                           : GPU-00000000-0000-0000-0000-000000000000
-    GPU PDI                                            : 0x000000000000004c
+    GPU PDI                                            : 0x0000000000000033
     Minor Number                                       : 0
     VBIOS Version                                      : 99.00.16.55.13
     MultiGPU Board                                     : No
@@ -42,7 +42,7 @@ GPU 00000002:81:00.0
         Host ID                                        : 1
         Peer Type                                      : Switch Connected
         Module Id                                      : 1
-        GPU Fabric GUID                                : 0x000000000000004d
+        GPU Fabric GUID                                : 0x0000000000000034
     Inforom Version
         Image Version                                  : G558.0200.00.02
         OEM Object                                     : 2.1
@@ -304,7 +304,7 @@ GPU 00000002:C1:00.0
         Pending                                        : N/A
     Serial Number                                      : 1650000000006
     GPU UUID                                           : GPU-00000001-0000-0000-0000-000000000001
-    GPU PDI                                            : 0x000000000000004e
+    GPU PDI                                            : 0x0000000000000035
     Minor Number                                       : 1
     VBIOS Version                                      : 99.00.16.55.13
     MultiGPU Board                                     : No
@@ -319,7 +319,7 @@ GPU 00000002:C1:00.0
         Host ID                                        : 1
         Peer Type                                      : Switch Connected
         Module Id                                      : 2
-        GPU Fabric GUID                                : 0x000000000000004f
+        GPU Fabric GUID                                : 0x0000000000000036
     Inforom Version
         Image Version                                  : G558.0200.00.02
         OEM Object                                     : 2.1
@@ -581,7 +581,7 @@ GPU 0000000A:81:00.0
         Pending                                        : N/A
     Serial Number                                      : 1650000000007
     GPU UUID                                           : GPU-00000002-0000-0000-0000-000000000002
-    GPU PDI                                            : 0x0000000000000050
+    GPU PDI                                            : 0x0000000000000037
     Minor Number                                       : 2
     VBIOS Version                                      : 99.00.16.55.13
     MultiGPU Board                                     : No
@@ -596,7 +596,7 @@ GPU 0000000A:81:00.0
         Host ID                                        : 1
         Peer Type                                      : Switch Connected
         Module Id                                      : 3
-        GPU Fabric GUID                                : 0x0000000000000051
+        GPU Fabric GUID                                : 0x0000000000000038
     Inforom Version
         Image Version                                  : G558.0200.00.02
         OEM Object                                     : 2.1
@@ -858,7 +858,7 @@ GPU 0000000A:E1:00.0
         Pending                                        : N/A
     Serial Number                                      : 1650000000007
     GPU UUID                                           : GPU-00000003-0000-0000-0000-000000000003
-    GPU PDI                                            : 0x0000000000000052
+    GPU PDI                                            : 0x0000000000000039
     Minor Number                                       : 3
     VBIOS Version                                      : 99.00.16.55.13
     MultiGPU Board                                     : No
@@ -873,7 +873,7 @@ GPU 0000000A:E1:00.0
         Host ID                                        : 1
         Peer Type                                      : Switch Connected
         Module Id                                      : 4
-        GPU Fabric GUID                                : 0x0000000000000053
+        GPU Fabric GUID                                : 0x000000000000003a
     Inforom Version
         Image Version                                  : G558.0200.00.02
         OEM Object                                     : 2.1

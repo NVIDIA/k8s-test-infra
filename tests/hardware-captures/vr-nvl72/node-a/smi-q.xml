@@ -33,7 +33,7 @@
 		</driver_model>
 		<serial>1650000000006</serial>
 		<uuid>GPU-00000000-0000-0000-0000-000000000000</uuid>
-		<pdi>0x0000000000000001</pdi>
+		<pdi>0x0000000000000033</pdi>
 		<minor_number>0</minor_number>
 		<vbios_version>99.00.16.55.13</vbios_version>
 		<multigpu_board>No</multigpu_board>
@@ -48,7 +48,7 @@
 			<host_id>1</host_id>
 			<peer_type>Switch Connected</peer_type>
 			<module_id>1</module_id>
-			<gpu_fabric_guid>0x0000000000000002</gpu_fabric_guid>
+			<gpu_fabric_guid>0x0000000000000034</gpu_fabric_guid>
 		</platformInfo>
 		<inforom_version>
 			<img_version>G558.0200.00.02</img_version>
@@ -987,7 +987,7 @@
 		</driver_model>
 		<serial>1650000000006</serial>
 		<uuid>GPU-00000001-0000-0000-0000-000000000001</uuid>
-		<pdi>0x0000000000000003</pdi>
+		<pdi>0x0000000000000035</pdi>
 		<minor_number>1</minor_number>
 		<vbios_version>99.00.16.55.13</vbios_version>
 		<multigpu_board>No</multigpu_board>
@@ -1002,7 +1002,7 @@
 			<host_id>1</host_id>
 			<peer_type>Switch Connected</peer_type>
 			<module_id>2</module_id>
-			<gpu_fabric_guid>0x0000000000000004</gpu_fabric_guid>
+			<gpu_fabric_guid>0x0000000000000036</gpu_fabric_guid>
 		</platformInfo>
 		<inforom_version>
 			<img_version>G558.0200.00.02</img_version>
@@ -1941,7 +1941,7 @@
 		</driver_model>
 		<serial>1650000000007</serial>
 		<uuid>GPU-00000002-0000-0000-0000-000000000002</uuid>
-		<pdi>0x0000000000000005</pdi>
+		<pdi>0x0000000000000037</pdi>
 		<minor_number>2</minor_number>
 		<vbios_version>99.00.16.55.13</vbios_version>
 		<multigpu_board>No</multigpu_board>
@@ -1956,7 +1956,7 @@
 			<host_id>1</host_id>
 			<peer_type>Switch Connected</peer_type>
 			<module_id>3</module_id>
-			<gpu_fabric_guid>0x0000000000000006</gpu_fabric_guid>
+			<gpu_fabric_guid>0x0000000000000038</gpu_fabric_guid>
 		</platformInfo>
 		<inforom_version>
 			<img_version>G558.0200.00.02</img_version>
@@ -2895,7 +2895,7 @@
 		</driver_model>
 		<serial>1650000000007</serial>
 		<uuid>GPU-00000003-0000-0000-0000-000000000003</uuid>
-		<pdi>0x0000000000000007</pdi>
+		<pdi>0x0000000000000039</pdi>
 		<minor_number>3</minor_number>
 		<vbios_version>99.00.16.55.13</vbios_version>
 		<multigpu_board>No</multigpu_board>
@@ -2910,7 +2910,7 @@
 			<host_id>1</host_id>
 			<peer_type>Switch Connected</peer_type>
 			<module_id>4</module_id>
-			<gpu_fabric_guid>0x0000000000000008</gpu_fabric_guid>
+			<gpu_fabric_guid>0x000000000000003a</gpu_fabric_guid>
 		</platformInfo>
 		<inforom_version>
 			<img_version>G558.0200.00.02</img_version>

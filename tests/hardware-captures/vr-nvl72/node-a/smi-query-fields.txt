@@ -48,7 +48,7 @@ gom.current: [N/A],[N/A],[N/A],[N/A]
 gom.pending: [N/A],[N/A],[N/A],[N/A]
 fan.speed: [N/A],[N/A],[N/A],[N/A]
 pstate: P0,P0,P0,P0
-clocks_event_reasons.supported: 0x0000000000000054,0x0000000000000054,0x0000000000000054,0x0000000000000054
+clocks_event_reasons.supported: 0x00000000000007FF,0x00000000000007FF,0x00000000000007FF,0x00000000000007FF
 clocks_event_reasons.active: 0x0000000000000001,0x0000000000000001,0x0000000000000001,0x0000000000000001
 clocks_event_reasons.gpu_idle: Active,Active,Active,Active
 clocks_event_reasons.applications_clocks_setting: Not Active,Not Active,Not Active,Not Active
@@ -251,7 +251,7 @@ platform.tray_index: 3,3,3,3
 platform.host_id: 1,1,1,1
 platform.peer_type: Switch Connected,Switch Connected,Switch Connected,Switch Connected
 platform.module_id: 1,2,3,4
-platform.gpu_fabric_guid: 0x000000000000004d,0x000000000000004f,0x0000000000000051,0x0000000000000053
+platform.gpu_fabric_guid: 0x0000000000000034,0x0000000000000036,0x0000000000000038,0x000000000000003a
 hostname: GR100 Nvidia Technologies,GR100 Nvidia Technologies,GR100 Nvidia Technologies,GR100 Nvidia Technologies
 bbx.time_run: 7055272 seconds,7055286 seconds,7055259 seconds,7055277 seconds
 remapped_banks.active_remappings: 0,0,0,0
