@@ -36,9 +36,8 @@ outlive a reconcile.
 
 ## The reconcile lifecycle
 
-The agent can first run an optional `StatePreparer` to resolve data shared by
-several simulators. Each simulator then implements its staging, publication,
-and daemon interfaces.
+The state source builds the complete state shared by all simulators. Each
+simulator then implements its staging, publication, and daemon interfaces.
 
 | Interface | Implemented by | Purpose |
 |---|---|---|
@@ -46,13 +45,12 @@ and daemon interfaces.
 | `Applier` | `gpudriver`, `pcibus`, `cri` | `Apply` publishes artifacts that something *outside* the node acts on — containerd, NFD, the GPU Operator validator |
 | `Daemon` | `fabricmanager`, `ib`, `kernellog` | `Run` supervises a long-lived process; `Reload` delivers later state to it without a restart |
 
-One reconcile pass prepares shared state, then runs three waves:
+Each state update runs through three waves:
 
 ```mermaid
 flowchart LR
-    state[State update] --> prepare[Prepare shared state]
-    prepare --> valid{{Prepared?}}
-    valid -->|no| invalid[Report preparation error<br/>no Stage or Apply]
+    source[Source builds complete state] --> valid{{Build succeeded?}}
+    valid -->|no| invalid[Report source error<br/>keep the last valid state]
     valid -->|yes| stage[Stage<br/>all simulators, in parallel]
     stage --> barrier{{All staged?}}
     barrier -->|no| fail[Report failing simulators<br/>no daemon starts, no Apply]
@@ -60,17 +58,18 @@ flowchart LR
     daemons --> apply[Apply<br/>appliers, in parallel]
 ```
 
-With NUMA simulation enabled, preparation reads the node's real CPUs and RAM,
-resolves one layout, and stores it in `State.NodeShape.NUMA`. The same CPU
-placement is copied into the PCI topology and NVML engine configuration. The
-NUMA simulator consumes this prepared layout instead of calculating it again.
+With NUMA simulation enabled, the file source reads the node's real CPUs and RAM
+and resolves one layout in `State.NodeShape.NUMA`. It copies the same CPU
+placement into the PCI topology and NVML engine configuration. All simulators,
+daemon reloads, and appliers receive this complete state and treat it as
+read-only. The NUMA simulator renders the supplied layout; it does not calculate
+it again.
 
-Preparation returns a separate state without changing the source observation,
-which the agent retains for later reconciles. Every simulator, daemon reload,
-and applier receives the prepared state and must treat it as read-only.
-Preparation and staging hold the same exclusive staging lock. A preparation
-failure closes the staging gate, fails liveness, and prevents the remaining
-waves. With no preparer configured, the agent passes the source state through.
+State construction does not change the node. If it fails, the source reports an
+error and the agent keeps its last valid state. A later source refresh retries
+the build even if the profile has not changed. With NUMA enabled, refreshes also
+check for changes to host CPU and memory inputs. The source emits an update only
+when the profile, auxiliary documents, or resolved layout changes.
 
 The split between `Stage` and `Apply` is the important part. Staging is private:
 files exist but nothing outside the node is looking at them yet. Publishing is
@@ -92,13 +91,42 @@ socket or a port, so a second instance would contend for it rather than converge
 with it. Later state reaches a running daemon through `Reload`, which is why a
 profile edit does not need a pod restart.
 
+## NUMA simulation
+
+The optional NUMA simulator uses the shared topology built by the source.
+It exposes the same zone placement to kubelet, the device plugin, and NFD through
+`/sys/devices/system/node` and `/sys/bus/node/devices`. The privileged pod uses
+bidirectional host volumes to apply and remove mounts from its own mount
+namespace. Each mount is made read-only in a private staging area before it is
+attached, so the node receives a read-only view. Mounts stay on the selected
+node even when Kind nodes share a VM.
+
+With kubelet management enabled, the pod bind-mounts a modified configuration
+over `/var/lib/kubelet/config.yaml` and restarts kubelet. The original file on
+disk remains unchanged. Recovery copies, manager checkpoints, and applied or
+pending markers live under `/run/mokka/numa/`; they survive pod replacement but
+not a node reboot. Repeated setup preserves existing allocations.
+
+Explicit disable removes owned mounts, restores saved checkpoints, and checks
+that kubelet is active and answers a PodResources `List` request before deleting
+recovery files. The chart retains host access
+for this restore step even when NUMA and container runtime setup are disabled.
+Failed restoration keeps the backup and pending marker for a retry.
+
+The pod installs the persistent [kubelet helper](mokka-kubelet-helper.md) and its
+systemd dependency to prepare kubelet after node reboot. The helper performs
+boot cleanup only; simulation setup and restoration remain in the pod.
+
+For configuration, requirements, and removal, see
+[NUMA filesystem simulation](../helm-chart.md#numa-filesystem-simulation).
+
 ## Health
 
 Both probes are served on port 9091 and answer different questions:
 
 | Probe | Passes when | Reports |
 |---|---|---|
-| `/healthz` | preparation and the last `Stage` wave completed without error | a preparation error or the simulators that failed. Recovers on the next successful preparation and staging |
+| `/healthz` | the last `Stage` wave completed without error | the simulators that failed. Recovers on the next successful staging |
 | `/readyz` | every simulator reports itself ready | which simulator is not serving |
 
 Neither consults the state source. Liveness reflects what staging did, not

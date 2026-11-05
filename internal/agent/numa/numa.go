@@ -25,7 +25,7 @@ const name = "numa"
 
 const helperSource = "/usr/local/bin/mokka-kubelet-helper"
 
-// HostRunner applies or restores NUMA setup in the node's mount namespace.
+// HostRunner applies or restores NUMA setup through propagated host volumes.
 type HostRunner interface {
 	Run(context.Context, HostAction, bool) error
 }
@@ -85,9 +85,6 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	if !s.opts.Enabled {
 		return nil
 	}
-	if err := s.rejectLegacySetup(); err != nil {
-		return err
-	}
 	plan := state.NodeShape.NUMA
 	if plan == nil {
 		return errors.New("NUMA topology is not prepared")
@@ -109,19 +106,10 @@ func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	if err := s.stageKubeletConfig(plan); err != nil {
 		return err
 	}
-	return s.stageFiles(data)
-}
-
-func (s *Simulator) stageFiles(data []byte) error {
 	if err := s.stageHelper(); err != nil {
 		return err
 	}
-	for name, body := range map[string][]byte{"desired": []byte(s.desired + "\n"), "plan.json": append(data, '\n')} {
-		if err := fsutil.Write(s.host.RootPath("numa", name), body, 0700); err != nil {
-			return err
-		}
-	}
-	return nil
+	return fsutil.Write(s.host.RootPath("numa", "desired"), []byte(s.desired+"\n"), 0700)
 }
 
 func (s *Simulator) matchApplied() (bool, error) {
@@ -137,9 +125,6 @@ func (s *Simulator) matchApplied() (bool, error) {
 
 // Apply installs or restores the node setup from the privileged agent pod.
 func (s *Simulator) Apply(ctx context.Context, _ *agent.State) error {
-	if err := s.rejectLegacySetup(); err != nil {
-		return err
-	}
 	_, err := readApplied(s.host)
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -230,21 +215,9 @@ func (opts Options) validateManagers() error {
 }
 
 func (s *Simulator) configurationKey(topology []byte) string {
-	// A staged tree from before the node-bus view must be restored before upgrade.
-	key := fmt.Sprintf("sysbus-v1:%x:%t:%s:%s:%s:%s:%s", sha256.Sum256(topology), s.opts.ConfigureKubelet, s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs, kubeletMemoryPolicy(s.opts.MemoryManagerPolicy), s.opts.SystemReservedMemory)
+	key := fmt.Sprintf("%x:%t:%s:%s:%s:%s:%s", sha256.Sum256(topology), s.opts.ConfigureKubelet, s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs, kubeletMemoryPolicy(s.opts.MemoryManagerPolicy), s.opts.SystemReservedMemory)
 	if s.opts.SystemReservedCPU != "" {
 		key += ":system-cpu=" + s.opts.SystemReservedCPU
 	}
 	return key
-}
-
-func (s *Simulator) rejectLegacySetup() error {
-	for _, path := range []string{"numa/.applied", "numa/applied"} {
-		if _, err := os.Stat(s.host.RootPath(path)); err == nil {
-			return errors.New("restore NUMA with the previous Mokka version before upgrading, or use a fresh node")
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-	}
-	return nil
 }

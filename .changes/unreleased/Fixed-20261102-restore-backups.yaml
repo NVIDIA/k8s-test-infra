@@ -1,4 +1,0 @@
-kind: Fixed
-body: |-
-  node-agent: keep saved kubelet configuration and checkpoints when NUMA restoration fails; remove backups only after successful recovery.
-time: 2026-11-02T17:01:00Z

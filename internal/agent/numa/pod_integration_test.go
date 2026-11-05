@@ -15,7 +15,9 @@ import (
 )
 
 // Run only in a disposable, privileged hostPID pod with the node mounted at
-// /host. The explicit action prevents the integration suite changing a node
+// /host with bidirectional /host/sys and /host/var/lib/kubelet volumes, plus
+// writable /host/run/mokka and /host/etc/systemd/system volumes.
+// The explicit action prevents the integration suite changing a node
 // unless its caller has prepared the dedicated lifecycle test environment.
 func TestPrivilegedPodLifecycle(t *testing.T) {
 	action := os.Getenv("MOKKA_NUMA_TEST_ACTION")
@@ -24,8 +26,6 @@ func TestPrivilegedPodLifecycle(t *testing.T) {
 	}
 	h := host.New("/host")
 	baseline := h.RootPath("numa-test/original-config")
-	beforeRoot, err := os.Stat("/tmp")
-	require.NoError(t, err)
 	switch action {
 	case "apply":
 		original, err := os.ReadFile(h.HostPath(kubeletConfig))
@@ -66,19 +66,11 @@ func TestPrivilegedPodLifecycle(t *testing.T) {
 	default:
 		t.Fatalf("unknown lifecycle action %q", action)
 	}
-	afterRoot, err := os.Stat("/tmp")
-	require.NoError(t, err)
-	require.True(t, os.SameFile(beforeRoot, afterRoot), "node operations must not change the pod filesystem root")
 }
 
 func readNodeFile(t *testing.T, h *host.Host, path string) []byte {
 	t.Helper()
-	var data []byte
-	err := h.InMountNamespace(func(node *host.Host) error {
-		var err error
-		data, err = os.ReadFile(node.HostPath(path))
-		return err
-	})
+	data, err := os.ReadFile(h.HostPath(path))
 	require.NoError(t, err)
 	return data
 }

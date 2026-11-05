@@ -1,4 +1,0 @@
-kind: Changed
-body: |-
-  **Breaking:** helm: move NUMA settings from numaSimulation to nodeAgent.numa. Use lowercase none/static for memoryManagerPolicy and the node-agent --numa-memory-manager-policy flag.
-time: 2026-11-02T21:07:52Z

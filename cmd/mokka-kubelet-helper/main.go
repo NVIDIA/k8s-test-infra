@@ -37,11 +37,11 @@ func newCLI() *cli.Command {
 			return cli.ShowAppHelp(cmd)
 		},
 		Commands: []*cli.Command{{
-			Name:  "reset-for-boot",
+			Name:  "prestart",
 			Usage: "reset registered kubelet state before kubelet starts",
 			Action: func(_ context.Context, cmd *cli.Command) error {
 				if cmd.Args().Len() != 0 {
-					return errors.New("reset-for-boot takes no arguments")
+					return errors.New("prestart takes no arguments")
 				}
 				return kubelet.ResetForBoot(host.New(cmd.String("host-root")))
 			},

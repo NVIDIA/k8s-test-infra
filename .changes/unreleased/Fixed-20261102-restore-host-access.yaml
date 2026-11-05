@@ -1,4 +1,0 @@
-kind: Fixed
-body: |-
-  node-agent: retain host access when NUMA simulation is disabled so saved node state can be restored with runtime management off.
-time: 2026-11-02T17:00:00Z

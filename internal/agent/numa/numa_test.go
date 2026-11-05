@@ -10,11 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/numatopology"
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 	"github.com/NVIDIA/k8s-test-infra/internal/kubelet"
 	"github.com/stretchr/testify/require"
@@ -50,9 +50,7 @@ func testState() *agent.State {
 func TestResolveSharesTopologyAndKeepsThreadsTogether(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
-	state := testState()
-	state, err := NewPreparer(h).Prepare(t.Context(), state)
-	require.NoError(t, err)
+	state := testPreparedState(t, h)
 	plan := state.NodeShape.NUMA
 	require.Len(t, plan.Zones, 2)
 	require.Equal(t, []int{0, 1, 4, 5}, plan.Zones[0].CPUs)
@@ -73,7 +71,7 @@ func TestResolveRejectsInvalidCPUAssignments(t *testing.T) {
 			s := testState()
 			s.NodeShape.Topology.RootComplexes[0].CPUAffinity = tc.a
 			s.NodeShape.Topology.RootComplexes[1].CPUAffinity = tc.b
-			_, err := resolve(h, s)
+			_, err := numatopology.Resolve(h, s)
 			require.Error(t, err)
 		})
 	}
@@ -83,7 +81,7 @@ func TestRenderCreatesCPUReferencesAndMemoryWithoutTouchingPCI(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
 	s := testState()
-	plan, err := resolve(h, s)
+	plan, err := numatopology.Resolve(h, s)
 	require.NoError(t, err)
 	require.NoError(t, Render(h, plan))
 	for _, tc := range []struct{ path, want string }{
@@ -115,7 +113,7 @@ func TestResolveRejectsSparseOrUnknownNUMAIDs(t *testing.T) {
 			t.Parallel()
 			s := testState()
 			s.NodeShape.Topology.RootComplexes[1].NUMANode = id
-			_, err := resolve(testHost(t), s)
+			_, err := numatopology.Resolve(testHost(t), s)
 			require.Error(t, err)
 		})
 	}
@@ -157,7 +155,7 @@ func TestPersistentSetupIsNotRestartedOrRemovedOnPodTeardown(t *testing.T) {
 func TestRenderAfterRestoreRemovesOldZones(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
-	plan, err := resolve(h, testState())
+	plan, err := numatopology.Resolve(h, testState())
 	require.NoError(t, err)
 	require.NoError(t, Render(h, plan))
 	require.DirExists(t, h.RootPath("numa/sysnode/node1"))
@@ -238,6 +236,30 @@ func TestStaticMemoryReservationsMatchNodeReservations(t *testing.T) {
 	}
 }
 
+// The expected values come from kubelet's eviction formula, which keeps
+// float32 precision; reservedMemory must match it exactly or kubelet refuses
+// to start with the static Memory Manager.
+func TestMemoryEvictionPercentMatchesKubeletRounding(t *testing.T) {
+	t.Parallel()
+	const capacity = 16 << 30
+	for _, tc := range []struct {
+		threshold string
+		want      int64
+	}{
+		{threshold: "1%", want: 171798688},
+		{threshold: "5%", want: 858993472},
+		{threshold: "7.5%", want: 1288490240},
+		{threshold: "10%", want: 1717986944},
+	} {
+		t.Run(tc.threshold, func(t *testing.T) {
+			t.Parallel()
+			got, err := memoryEviction(&kubeletSettings{EvictionHard: map[string]string{"memory.available": tc.threshold}}, capacity)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestStaticMemoryRejectsImpossibleReservations(t *testing.T) {
 	t.Parallel()
 	for _, value := range []string{"invalid", "0", "1Gi"} {
@@ -297,25 +319,6 @@ func TestStageRefreshesHostHelper(t *testing.T) {
 	requireFileContent(t, h.RootPath("kubelet/mokka-kubelet-helper"), "updated executable")
 }
 
-func TestLegacySetupMustBeRestoredWithPreviousVersion(t *testing.T) {
-	t.Parallel()
-	for _, enabled := range []bool{true, false} {
-		t.Run(strconv.FormatBool(enabled), func(t *testing.T) {
-			t.Parallel()
-			h := testHost(t)
-			require.NoError(t, os.MkdirAll(h.RootPath("numa"), 0755))
-			require.NoError(t, os.WriteFile(h.RootPath("numa/.applied"), []byte("legacy"), 0600))
-			sim, err := newTestSimulator(h, Options{Enabled: enabled})
-			require.NoError(t, err)
-			require.ErrorContains(t, sim.Apply(t.Context(), nil), "previous Mokka version")
-			if enabled {
-				require.ErrorContains(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)), "previous Mokka version")
-			}
-			requireFileContent(t, h.RootPath("numa/.applied"), "legacy")
-		})
-	}
-}
-
 func TestLowercaseMemoryPolicyUsesKubeletSpellingInAppliedConfiguration(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
@@ -325,7 +328,7 @@ func TestLowercaseMemoryPolicyUsesKubeletSpellingInAppliedConfiguration(t *testi
 	require.NoError(t, err)
 	require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
 	// User settings are lowercase; the stored policy uses kubelet spelling.
-	const previous = "sysbus-v1:339badff2f87bb98162abc14e5e739ff2a7a0fb192e5987be55339009087961f:true:single-numa-node:static::Static:2Mi"
+	const previous = "339badff2f87bb98162abc14e5e739ff2a7a0fb192e5987be55339009087961f:true:single-numa-node:static::Static:2Mi"
 	requireFileContent(t, h.RootPath("numa/desired"), previous+"\n")
 	require.NoError(t, fsutil.Write(h.RunPath(appliedRel), []byte(previous+"\n"), 0600))
 	require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
@@ -483,19 +486,7 @@ func TestDisableRecoversPendingSetupAndBootRegistration(t *testing.T) {
 
 func testPreparedState(t *testing.T, h *host.Host) *agent.State {
 	t.Helper()
-	state, err := NewPreparer(h).Prepare(t.Context(), testState())
+	state, err := numatopology.ResolveState(t.Context(), h, testState())
 	require.NoError(t, err)
 	return state
-}
-
-func TestStageRequiresRestoreForPreviousFilesystemSchema(t *testing.T) {
-	t.Parallel()
-	h := testHost(t)
-	sim, err := newTestSimulator(h, Options{Enabled: true})
-	require.NoError(t, err)
-	state := testPreparedState(t, h)
-	require.NoError(t, sim.Stage(t.Context(), state))
-	previous := strings.TrimPrefix(sim.desired, "sysbus-v1:")
-	require.NoError(t, fsutil.Write(h.RunPath(appliedRel), []byte(previous+"\n"), 0600))
-	require.ErrorContains(t, sim.Stage(t.Context(), state), "disable NUMA simulation")
 }

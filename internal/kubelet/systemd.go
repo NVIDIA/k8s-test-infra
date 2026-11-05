@@ -24,7 +24,7 @@ RequiresMountsFor=/var/lib/kubelet /var/lib/nvml-mock/kubelet
 Before=kubelet.service
 [Service]
 Type=oneshot
-ExecStart=` + HelperPath + ` reset-for-boot
+ExecStart=` + HelperPath + ` prestart
 RemainAfterExit=yes
 `
 

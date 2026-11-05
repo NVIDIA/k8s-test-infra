@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -36,8 +37,14 @@ func newHostSetup(h *host.Host) *hostSetup {
 		if name == "systemctl" {
 			return cri.Systemctl(ctx, chroot, args...)
 		}
-		_, err := chroot.Run(ctx, nil, name, args...)
-		return err
+		cmd := exec.CommandContext(ctx, name, args...)
+		// Mount paths are in the pod view; only systemctl needs the host root.
+		cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s %v: %w: %s", name, args, err, output)
+		}
+		return nil
 	}
 
 	s.waitHealthy = s.waitForKubelet

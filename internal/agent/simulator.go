@@ -50,11 +50,3 @@ type Daemon interface {
 type Requeuer interface {
 	Requeue() <-chan struct{}
 }
-
-// StatePreparer resolves shared node data before parallel simulator staging.
-// Prepare must return a new state for changed data and leave its input unchanged:
-// the source observation is retained for later reconciles. The returned state
-// is read-only throughout Stage, daemon supervision, and Apply.
-type StatePreparer interface {
-	Prepare(context.Context, *State) (*State, error)
-}

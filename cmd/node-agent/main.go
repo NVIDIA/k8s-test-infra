@@ -299,10 +299,8 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	var preparer agent.StatePreparer
-	if cmd.Bool("numa-simulation") {
-		preparer = numa.NewPreparer(h)
-	}
+	stateSource := source.NewFileSource(cmd.String("config"), cmd.String("topology"), cmd.Duration("resync-interval"), log)
+	stateSource.WithNUMA(h, cmd.Bool("numa-simulation"))
 
 	a := agent.New(agent.Config{
 		Simulators: []agent.Simulator{
@@ -327,8 +325,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 				Fabric:  cmd.Bool("ib-fabric"),
 			}),
 		},
-		Source:          source.NewFileSource(cmd.String("config"), cmd.String("topology"), cmd.Duration("resync-interval"), log),
-		Preparer:        preparer,
+		Source:          stateSource,
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,
 		StagingLockPath: cmd.String("staging-lock-path"),
