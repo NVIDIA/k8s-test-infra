@@ -358,7 +358,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				})
 
 				It("pins temperature via the nvml-mock-ctl temp command", Label("runtime-control"), func(ctx SpecContext) {
-					assertRuntimeTempCommand(ctx, h, pod)
+					assertRuntimeTempCommand(ctx, h, pod, p)
 				})
 
 				It("resets a GPU via nvidia-smi -r, clearing its overrides", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {

@@ -247,7 +247,9 @@ func resolveNvlinkBwMode(cfg *Config) (nvlinkBwModeSpec, []string) {
 }
 
 // checkNvlinkBwModes warns about the modes of a bw_mode block that nvidia-smi
-// cannot render.
+// cannot render. Only the node-wide family reaches nvidia-smi, so a per-device
+// list may hold any index the driver advertises (a Vera Rubin tray lists 0, 4,
+// ... 36) without a warning.
 //
 // A mode the effective supported list does not contain is dropped rather than
 // reported. The setters answer INVALID_ARGUMENT for exactly that value, so
@@ -258,7 +260,7 @@ func resolveNvlinkBwMode(cfg *Config) (nvlinkBwModeSpec, []string) {
 func checkNvlinkBwModes(spec nvlinkBwModeSpec) (nvlinkBwModeSpec, []string) {
 	var warnings []string
 	for _, m := range spec.supported {
-		if m > maxNameableNvlinkBwMode {
+		if spec.scope == NVLinkBwModeScopeSystem && m > maxNameableNvlinkBwMode {
 			warnings = append(warnings, fmt.Sprintf(
 				"nvlink.bw_mode.supported contains %d, past the last mode nvidia-smi can name (%d); it will render as an unnamed mode",
 				m, maxNameableNvlinkBwMode))

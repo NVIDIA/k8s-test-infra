@@ -43,6 +43,11 @@ func Inventory(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.P
 	gomega.Expect(problems).To(gomega.BeEmpty(), "nvidia-smi inventory wrong:\n%s",
 		strings.Join(problems, "\n"))
 
+	ginkgo.By("nvidia-smi -q -x reports architecture " + ArchitectureName(p.Architecture()))
+	problems = ArchitectureProblems(out, p.Architecture())
+	gomega.Expect(problems).To(gomega.BeEmpty(), "nvidia-smi architecture wrong:\n%s",
+		strings.Join(problems, "\n"))
+
 	ginkgo.By("nvidia-smi -q -x reports no phantom processes")
 	problems = PhantomProcessProblems(out)
 	gomega.Expect(problems).To(gomega.BeEmpty(), "phantom processes:\n%s",
@@ -183,6 +188,13 @@ func TemperatureThresholds(ctx context.Context, k *kube.Client, pod kube.PodRef,
 	gomega.Expect(problems).To(gomega.BeEmpty(),
 		"temperature threshold presentation wrong for profile %s:\n%s",
 		p.Name, strings.Join(problems, "\n"))
+
+	if tl, ok := p.TLimit(); ok && p.ReportsTLimitTemp() {
+		ginkgo.By(fmt.Sprintf("nvidia-smi -q -x T.Limit rows on %s match thermal.tlimit", p.Name))
+		problems = TLimitValueProblems(query(ctx, k, pod), tl.ShutdownC, tl.SlowdownC, tl.MaxOperatingC)
+		gomega.Expect(problems).To(gomega.BeEmpty(),
+			"T.Limit rows wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+	}
 }
 
 // C2CMode asserts nvidia-smi -q -x reports the C2C state the profile declares:
