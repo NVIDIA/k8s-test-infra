@@ -204,6 +204,7 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 		{"GB300", "gb300.yaml", "blackwell", 10, 0, 278, 4, NVLinkBwModeScopeDevice},
 		{"L40S", "l40s.yaml", "ada_lovelace", 8, 9, 48, 8, noBwMode},
 		{"T4", "t4.yaml", "turing", 7, 5, 16, 4, noBwMode},
+		{"VRNVL72", "vrnvl72.yaml", "rubin", 10, 7, 288, 4, NVLinkBwModeScopeDevice},
 	}
 
 	for _, p := range profiles {
@@ -245,6 +246,18 @@ func repoRoot() string {
 func hardwareCaptureDir() string {
 	return filepath.Join(repoRoot(), "tests", "e2e", "go", "assertions",
 		"nvidiasmi", "testdata", "hardware")
+}
+
+// awaitingCapture names profiles authored from public documentation before
+// their board could be captured. The capture cross-checks skip them, by name,
+// until a capture lands; any other profile without one still fails.
+var awaitingCapture = map[string]bool{"vrnvl72": true}
+
+func skipAwaitingCapture(t *testing.T, sku string) {
+	t.Helper()
+	if awaitingCapture[sku] {
+		t.Skipf("%s has no hardware capture yet", sku)
+	}
 }
 
 // profileSource is one of the two directories that ship GPU profiles. The
@@ -380,6 +393,7 @@ func TestProfilePCIDeviceIDMatchesHardwareCapture(t *testing.T) {
 			t.Run(src.label+"/"+sku, func(t *testing.T) {
 				t.Parallel()
 
+				skipAwaitingCapture(t, sku)
 				want := readCapture(t, sku)
 
 				cfg, err := LoadYAMLConfig(path)
