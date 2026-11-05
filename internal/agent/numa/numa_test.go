@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
@@ -479,6 +480,49 @@ func TestDisableRecoversPendingSetupAndBootRegistration(t *testing.T) {
 			require.NoError(t, sim.Apply(t.Context(), nil))
 			require.True(t, called)
 		})
+	}
+}
+
+// A failed Apply requeues with a doubling delay until it succeeds, because the
+// agent does not retry it on its own.
+func TestFailedApplyRequeuesUntilItSucceeds(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	fail := true
+	runner := hostRunnerFunc(func(context.Context, HostAction, bool) error {
+		if fail {
+			return errors.New("test host runner failed")
+		}
+		return nil
+	})
+	sim, err := newTestSimulator(h, Options{Enabled: true, Runner: runner})
+	require.NoError(t, err)
+	sim.retryFirst = time.Millisecond
+	state := testEnrichedState(t, h)
+	require.NoError(t, sim.Stage(t.Context(), state))
+	requeued := func() bool {
+		select {
+		case <-sim.Requeue():
+			return true
+		case <-time.After(time.Second):
+			return false
+		}
+	}
+
+	require.Error(t, sim.Apply(t.Context(), state))
+	require.True(t, requeued())
+	require.Error(t, sim.Apply(t.Context(), state))
+	require.Equal(t, 4*time.Millisecond, sim.retryDelay, "the delay doubles")
+	require.True(t, requeued())
+
+	fail = false
+	require.NoError(t, sim.Apply(t.Context(), state))
+	require.True(t, sim.Ready())
+	require.Zero(t, sim.retryDelay, "a success resets the delay")
+	select {
+	case <-sim.Requeue():
+		t.Fatal("a successful Apply must not requeue")
+	case <-time.After(20 * time.Millisecond):
 	}
 }
 

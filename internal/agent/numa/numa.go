@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
@@ -24,6 +25,13 @@ import (
 const name = "numa"
 
 const helperSource = "/usr/local/bin/mokka-kubelet-helper"
+
+// After a failed Apply, the retry delay starts at applyRetryFirst and doubles
+// up to applyRetryLimit.
+const (
+	applyRetryFirst = 5 * time.Second
+	applyRetryLimit = 5 * time.Minute
+)
 
 // HostRunner applies or restores NUMA setup through propagated host volumes.
 type HostRunner interface {
@@ -52,6 +60,13 @@ type Simulator struct {
 	desired      string
 	runner       HostRunner
 	helperSource string
+
+	// Only Apply uses the retry fields, and the agent never runs two Apply
+	// calls at once.
+	requeue    chan struct{}
+	retryFirst time.Duration
+	retryDelay time.Duration
+	retryTimer *time.Timer
 }
 
 // New constructs a simulator without changing the node.
@@ -68,9 +83,16 @@ func New(h *host.Host, opts Options) (*Simulator, error) {
 		opts:         opts,
 		helperSource: helperSource,
 		runner:       opts.Runner,
+		requeue:      make(chan struct{}, 1),
+		retryFirst:   applyRetryFirst,
 	}
 	return sim, nil
 }
+
+// Requeue fires after a failed Apply. The agent runs Apply again only when the
+// State changes, but a host failure is often brief, and a failed restore can
+// leave kubelet stopped.
+func (s *Simulator) Requeue() <-chan struct{} { return s.requeue }
 
 // Name identifies this simulator in health reports.
 func (s *Simulator) Name() string { return name }
@@ -81,17 +103,13 @@ func (s *Simulator) Ready() bool { return s.ready.Load() }
 // Stage validates and renders the topology without changing the node mount.
 func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	s.ready.Store(false)
-	s.desired = ""
 	zap.L().Info("staging simulator", zap.String("simulator", name))
 	if !s.opts.Enabled {
 		return nil
 	}
 	plan := state.NodeShape.NUMA
 	if plan == nil {
-		// The NUMA enricher logged why it has no layout. Failing Stage would
-		// stop every simulator, so leave the node unchanged and stay not ready.
-		zap.L().Warn("no NUMA layout resolved; leaving the node unchanged", zap.String("simulator", name))
-		return nil
+		return errors.New("NUMA layout is not resolved")
 	}
 	data, err := json.Marshal(plan)
 	if err != nil {
@@ -127,43 +145,64 @@ func (s *Simulator) matchApplied() (bool, error) {
 	return len(previous) > 0, nil
 }
 
-// Apply installs or restores the node setup from the privileged agent pod.
+// Apply installs or restores the node setup from the privileged agent pod. A
+// failure schedules a retry with backoff; see Requeue.
 func (s *Simulator) Apply(ctx context.Context, _ *agent.State) error {
-	if s.opts.Enabled && s.desired == "" {
-		return nil // Stage had no layout to render.
+	err := s.apply(ctx)
+	s.scheduleRetry(err)
+	return err
+}
+
+// scheduleRetry requeues after a failed Apply, doubling the delay each time,
+// and resets the delay after a success.
+func (s *Simulator) scheduleRetry(err error) {
+	if s.retryTimer != nil {
+		s.retryTimer.Stop()
+		s.retryTimer = nil
 	}
-	if !s.opts.Enabled {
-		clean, err := s.nothingToRestore()
-		if err != nil || clean {
-			s.ready.Store(clean)
+	if err == nil {
+		s.retryDelay = 0
+		return
+	}
+	if s.retryDelay == 0 {
+		s.retryDelay = s.retryFirst
+	}
+	zap.L().Warn("NUMA apply failed; retrying", zap.String("simulator", name), zap.Duration("retry_in", s.retryDelay))
+	s.retryTimer = time.AfterFunc(s.retryDelay, func() {
+		select {
+		case s.requeue <- struct{}{}:
+		default: // a requeue is already pending
+		}
+	})
+	s.retryDelay = min(2*s.retryDelay, applyRetryLimit)
+}
+
+func (s *Simulator) apply(ctx context.Context) error {
+	_, err := readApplied(s.host)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if !s.opts.Enabled && os.IsNotExist(err) {
+		registered, err := kubelet.BootResetRegistered(s.host)
+		if err != nil {
 			return err
+		}
+		if !registered {
+			s.ready.Store(true)
+			return nil
 		}
 	}
 	action := ActionApply
 	if !s.opts.Enabled {
 		action = ActionRestore
 	}
-	err := s.runHost(ctx, action)
+	err = s.runHost(ctx, action)
 	if err != nil {
 		return fmt.Errorf("%s node NUMA filesystem: %w", action, err)
 	}
 	s.ready.Store(true)
 	zap.L().Info("node NUMA simulation reconciled", zap.String("simulator", name), zap.String("action", string(action)), zap.String("policy", s.opts.Policy))
 	return nil
-}
-
-// nothingToRestore reports whether this node carries no NUMA setup: none is
-// applied and no boot-reset unit is registered.
-func (s *Simulator) nothingToRestore() (bool, error) {
-	_, err := readApplied(s.host)
-	if err == nil {
-		return false, nil
-	}
-	if !os.IsNotExist(err) {
-		return false, err
-	}
-	registered, err := kubelet.BootResetRegistered(s.host)
-	return err == nil && !registered, err
 }
 
 func (s *Simulator) runHost(ctx context.Context, action HostAction) error {
@@ -182,6 +221,7 @@ func (s *Simulator) Discard(context.Context) error { return nil }
 
 var _ agent.Simulator = (*Simulator)(nil)
 var _ agent.Applier = (*Simulator)(nil)
+var _ agent.Requeuer = (*Simulator)(nil)
 
 func (opts Options) withDefaults() Options {
 	if opts.Policy == "" {
