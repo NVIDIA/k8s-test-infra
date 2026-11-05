@@ -8,6 +8,7 @@ updates:
     directories:
     - "/"
     - "/tests/mocknvml"
+    - "/hack/codegen"
     schedule:
       interval: "weekly"
     cooldown:

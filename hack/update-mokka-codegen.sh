@@ -10,13 +10,13 @@ api_package="${module}/api/v1alpha1"
 generated_package="${module}/pkg/generated"
 header="${repo_root}/hack/boilerplate.go.txt"
 tool_dir="$(mktemp -d)"
-code_generator_version="v0.37.0"
 
 trap 'rm -rf "${tool_dir}"' EXIT
 
-GOBIN="${tool_dir}" GOFLAGS=-mod=mod go install k8s.io/code-generator/cmd/client-gen@"${code_generator_version}"
-GOBIN="${tool_dir}" GOFLAGS=-mod=mod go install k8s.io/code-generator/cmd/lister-gen@"${code_generator_version}"
-GOBIN="${tool_dir}" GOFLAGS=-mod=mod go install k8s.io/code-generator/cmd/informer-gen@"${code_generator_version}"
+# The generator versions are pinned in hack/codegen/go.mod.
+for tool in client-gen lister-gen informer-gen; do
+	GOBIN="${tool_dir}" go -C "${repo_root}/hack/codegen" install "k8s.io/code-generator/cmd/${tool}"
+done
 
 export GOFLAGS=-mod=mod
 

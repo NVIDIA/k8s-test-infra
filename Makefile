@@ -103,7 +103,10 @@ kwok-scale-matrix:
 		KWOK_NODE_COUNT=$$count KWOK_CLUSTER_NAME=mokka-controller-kwok-$$count ./tests/kwok/run.sh || exit; \
 	done
 
-CONTROLLER_GEN_VERSION ?= v0.20.1
+# Code generators are pinned in hack/codegen/go.mod rather than installed with
+# `go install pkg@version`: its go.sum verifies them, so building them needs no
+# checksum-database lookup through the Go proxy.
+CODEGEN_MOD := hack/codegen
 # CI installs this exact version too (see .github/workflows/golang.yaml), so a
 # new golangci-lint release cannot fail the check job on code nobody changed.
 GOLANGCI_LINT_VERSION ?= v2.14.0
@@ -119,14 +122,15 @@ tools: ## Install static checkers & other binaries
 	@ \
 	$(BIN_DIR)/golangci-lint version 2>/dev/null | grep -q " $(GOLANGCI_LINT_VERSION:v%=%) " || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) $(GOLANGCI_LINT_VERSION) & \
 	test -x $(BIN_DIR)/govulncheck || go install golang.org/x/vuln/cmd/govulncheck@latest & \
-	test -x $(BIN_DIR)/controller-gen || go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION) & \
+	test -x $(BIN_DIR)/controller-gen || go -C $(CODEGEN_MOD) install sigs.k8s.io/controller-tools/cmd/controller-gen & \
 	wait
 
 .PHONY: lint
 lint: tools gen-check ## Lint the source code
 	@echo "🧹 Tidying go.mod.."
 	@go mod tidy
-	@git diff --exit-code -- go.mod go.sum || { \
+	@go -C $(CODEGEN_MOD) mod tidy
+	@git diff --exit-code -- go.mod go.sum $(CODEGEN_MOD)/go.mod $(CODEGEN_MOD)/go.sum || { \
 		echo "ERROR: go.mod / go.sum are out of sync. Run 'make lint-fix' and commit the result."; \
 		exit 1; }
 	@echo "🧹 Checking that no vendor directory has reappeared.."
@@ -156,6 +160,7 @@ lint: tools gen-check ## Lint the source code
 lint-fix: tools gen ## Same checks as `lint`, but auto-fix what can be fixed; report the rest
 	@echo "🔧 Tidying go.mod.."
 	@go mod tidy
+	@go -C $(CODEGEN_MOD) mod tidy
 	@echo "🔧 golangci-lint --fix.."
 	@$(BIN_DIR)/golangci-lint run --fix ./...
 	@echo "🧹 Vetting.."
@@ -167,7 +172,8 @@ lint-fix: tools gen ## Same checks as `lint`, but auto-fix what can be fixed; re
 deps-verify: ## Re-download every module into a throwaway cache and re-verify it against go.sum
 	@echo "🛡️ Verifying modules against go.sum.."
 	@cache=$$(mktemp -d); \
-	GOMODCACHE="$$cache" GOFLAGS=-mod=readonly go mod download; \
+	GOMODCACHE="$$cache" GOFLAGS=-mod=readonly go mod download && \
+	GOMODCACHE="$$cache" GOFLAGS=-mod=readonly go -C $(CODEGEN_MOD) mod download; \
 	status=$$?; \
 	GOMODCACHE="$$cache" go clean -modcache >/dev/null 2>&1 || true; \
 	exit $$status
