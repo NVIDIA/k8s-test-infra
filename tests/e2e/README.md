@@ -166,7 +166,7 @@ use the matching Tilt mode before running a scenario or one of its checks:
 
 ```bash
 # DRA needs the driver installed, even when selecting only nvidia-smi.
-tilt ci -- --dra --nvmlmock-image=nvml-mock:e2e
+tilt ci -- --dra --gpu-profile=gb200 --nvmlmock-image=nvml-mock:e2e
 make e2e E2E_GINKGO_FLAGS='--label-filter="dra && nvidia-smi"'
 
 # Multi-node needs exactly two workers and the A100/T4 releases.
