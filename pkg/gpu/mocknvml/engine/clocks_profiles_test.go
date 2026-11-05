@@ -69,6 +69,7 @@ func TestProfileSupportedClocksMatchHardwareCapture(t *testing.T) {
 			path := profiles[sku]
 			t.Run(src.label+"/"+sku, func(t *testing.T) {
 				t.Parallel()
+				skipAwaitingCapture(t, sku)
 
 				cfg, err := LoadYAMLConfig(path)
 				require.NoError(t, err, "load profile %s", path)
