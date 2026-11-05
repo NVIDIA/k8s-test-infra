@@ -497,9 +497,11 @@ fabric traffic only from peer nvml-mock pods in the release's namespace. A
 fleet split across namespaces lists the others in
 `infiniband.ping.networkPolicy.peerNamespaces`. Below `full` nothing listens
 on the port, so no policy is rendered. NetworkPolicy is enforced only by CNIs
-that implement it, which includes Kind's default `kindnet` (since Kind v0.24),
-Calico, and Cilium. mock-ib is a test fixture — don't deploy it to a shared or
-production cluster.
+that implement it, which includes Kind's default `kindnet` (since
+[Kind v0.24.0](https://github.com/kubernetes-sigs/kind/releases/tag/v0.24.0)),
+Calico, and Cilium. Older Kind releases and CNIs without NetworkPolicy support
+do not enforce this policy. mock-ib is a test fixture — don't deploy it to a
+shared or production cluster.
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
@@ -684,10 +686,9 @@ A wedged handler is the case that defeats every simpler check: `pgrep
 nri-plugin` finds the process, and a plain TCP check finds the socket bound,
 in exactly the state where nothing is being injected.
 
-Losing the connection is deliberately *not* a liveness failure. The NRI stub's
-`Run` returns when the connection drops and the plugin exits on its own, so the
-kubelet already restarts it; failing liveness on "not registered" as well would
-only add restart loops whenever containerd is slow to come up.
+Losing the connection is deliberately *not* a liveness failure: the plugin
+re-registers in-process every 500 ms, without the kubelet's crash backoff, during
+which new containers would come up unmocked.
 
 ### containerd `plugin_request_timeout`
 
