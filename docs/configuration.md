@@ -37,7 +37,7 @@ LD_LIBRARY_PATH=. nvidia-smi
 version: "1.0"                    # Config format version (required)
 
 system:                           # System-level settings
-  driver_version: "550.163.01"    # Required; also gates which NVML functions exist
+  driver_version: "550.163.01"    # Required; also gates which NVML functions exist and picks the nvidia-smi
   nvml_version: "12.550.163.01"
   cuda_version: "12.4"
   cuda_version_major: 12
@@ -1139,8 +1139,8 @@ set it.
 The mock reports this field as `NOT_SUPPORTED`, which is what a real GB300 tray
 in a healthy rack reports (the driver does not answer it). Whether the row
 appears at all is up to the `nvidia-smi` build: 580.173.02 prints
-`Partition Assigned : N/A`, while the 580.65.06 binary the mock image bundles has
-no such label and omits the row for every mask value.
+`Partition Assigned : N/A`, while the 580.65.06 binary the mock image runs for
+580 profiles has no such label and omits the row for every mask value.
 
 Fabric health can also be degraded and restored at runtime with
 [`nvml-mock-ctl fabric-health`](nvml-mock-ctl.md#fabric-health--degrade-nvlink-fabric-health),
