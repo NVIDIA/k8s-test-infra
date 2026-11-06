@@ -58,14 +58,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "dump":
 		return nvmldump.Dump(rest, stdout, stderr)
 	case "diff":
-		if len(rest) > 0 && rest[0] == "smi" {
-			return smidiff.Run(rest[1:], stdout, stderr)
-		}
-		if len(rest) > 0 && rest[0] == "nvml" {
-			return nvmldump.Diff(rest[1:], stdout, stderr)
-		}
-		_, _ = io.WriteString(stderr, "usage: mokka-capture diff smi|nvml [flags] real mock\n")
-		return 2
+		return diff(rest, stdout, stderr)
 	case "-h", "--help", "help":
 		_, _ = io.WriteString(stdout, usage)
 		return 0
@@ -73,4 +66,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "unknown command %q\n\n%s", cmd, usage)
 		return 2
 	}
+}
+
+func diff(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "smi" {
+		return smidiff.Run(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "nvml" {
+		return nvmldump.Diff(args[1:], stdout, stderr)
+	}
+	_, _ = io.WriteString(stderr, "usage: mokka-capture diff smi|nvml [flags] real mock\n")
+	return 2
 }

@@ -76,7 +76,6 @@ func (c *collector) captureDriver(node string) {
 		c.capture(f.file, nil, c.drv(sh(f.script)...)...)
 	}
 
-	// Plain reads, run without a shell.
 	for _, f := range []struct{ file, path string }{
 		{"proc-nvidia-version.txt", "/proc/driver/nvidia/version"},
 		{"proc-nvidia-params.txt", "/proc/driver/nvidia/params"},
@@ -169,12 +168,14 @@ func (c *collector) startHostPod(node string) bool {
 	return true
 }
 
-// stopHostPod deletes the host pod, also after an interrupt.
-func (c *collector) stopHostPod() {
+// stopHostPod deletes the host pod. The deletion must still run after an
+// interrupt has cancelled ctx, so it keeps ctx's values but not its
+// cancellation, and has a timeout of its own.
+func (c *collector) stopHostPod(ctx context.Context) {
 	if c.hostPod == "" {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, c.kubectl, "-n", c.cfg.hostPodNS, "delete", "pod", c.hostPod, "--wait=false")
 	_ = cmd.Run()
@@ -184,7 +185,7 @@ func (c *collector) stopHostPod() {
 func (c *collector) captureHost(node string) {
 	c.enter(node)
 	c.logf("== %s: host pod", node)
-	defer c.stopHostPod()
+	defer c.stopHostPod(c.ctx)
 	if !c.startHostPod(node) {
 		return
 	}
@@ -279,7 +280,7 @@ func (c *collector) captureNetworkSurfaces() {
 func (c *collector) captureNetwork(node string) {
 	c.enter(node)
 	c.logf("== %s: network surfaces (host pod)", node)
-	defer c.stopHostPod()
+	defer c.stopHostPod(c.ctx)
 	if !c.startHostPod(node) {
 		return
 	}

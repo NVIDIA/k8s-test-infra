@@ -37,6 +37,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -122,9 +123,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, kubectl s
 		flags.Usage()
 		return 2
 	}
-	c := &collector{cfg: cfg, ctx: ctx, stderr: stderr, kubectl: kubectl, suffix: fmt.Sprint(os.Getpid())}
+	c := &collector{cfg: cfg, ctx: ctx, stderr: stderr, kubectl: kubectl, suffix: strconv.Itoa(os.Getpid())}
 	// An interrupted run must not leave a privileged pod on the node.
-	defer c.stopHostPod()
+	defer c.stopHostPod(ctx)
 
 	command, nodes := flags.Arg(0), flags.Args()[1:]
 	needsNodes := map[string]bool{"driver": true, "host": true, "network": true, "all": true}
