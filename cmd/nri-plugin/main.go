@@ -23,6 +23,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 	"github.com/NVIDIA/k8s-test-infra/internal/nri"
 	"github.com/NVIDIA/k8s-test-infra/internal/nri/inject"
+	"github.com/NVIDIA/k8s-test-infra/internal/seccompnotify"
 )
 
 func main() {
@@ -48,6 +49,7 @@ func newCLI() *cli.Command {
 			gpuFlags(defaults),
 			infiniBandFlags(defaults),
 			imexChannelFlags(defaults),
+			driverManagerFlags(defaults),
 		),
 		Action: run,
 	}
@@ -247,6 +249,23 @@ func imexChannelFlags(defaults nri.Config) []cli.Flag {
 	}
 }
 
+// driverManagerFlags serve the GPU Operator's driver manager simulated modules.
+func driverManagerFlags(defaults nri.Config) []cli.Flag {
+	return []cli.Flag{
+		&cli.StringFlag{
+			Name:    "driver-modules-host-path",
+			Sources: cli.EnvVars("MOKKA_NRI_DRIVER_MODULES_HOST_PATH"),
+			Usage:   "host directory laid out as /sys/module that the GPU Operator's k8s-driver-manager sees as the loaded modules and unloads from; empty leaves it unmodified",
+		},
+		&cli.StringFlag{
+			Name:    "module-unload-listener-path",
+			Value:   defaults.Inject.ModuleUnloadListenerPath,
+			Sources: cli.EnvVars("MOKKA_NRI_MODULE_UNLOAD_LISTENER_PATH"),
+			Usage:   "host socket runc hands the driver manager's delete_module calls to; must be the same path in this container",
+		},
+	}
+}
+
 // configFrom reads the parsed flags. Paths left empty here are derived from the
 // overlay roots by inject.Config's own defaulting, so the CLI does not have to
 // repeat that arithmetic.
@@ -282,6 +301,9 @@ func configFrom(cmd *cli.Command) (nri.Config, error) {
 			InfiniBandAnnotation:  cmd.String("infiniband-annotation"),
 			ExcludedNamespaces:    cmd.StringSlice("excluded-namespaces"),
 			Shims:                 cmd.StringSlice("ld-preload-shims"),
+
+			DriverModulesHostPath:    cmd.String("driver-modules-host-path"),
+			ModuleUnloadListenerPath: cmd.String("module-unload-listener-path"),
 		},
 	}, nil
 }
@@ -334,5 +356,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	group, groupCtx := errgroup.WithContext(signalCtx)
 	group.Go(func() error { return probes.Run(groupCtx) })
 	group.Go(func() error { return plugin.Run(groupCtx) })
+	// A failed listener takes the plugin down rather than going unnoticed.
+	if root := cfg.Inject.DriverModulesHostPath; root != "" {
+		unloads := seccompnotify.NewServer(cfg.Inject.ModuleUnloadListenerPath, nri.UnloadModule(root))
+		group.Go(func() error { return unloads.Run(groupCtx) })
+	}
 	return group.Wait()
 }
