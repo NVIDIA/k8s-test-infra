@@ -198,11 +198,12 @@ func ConfigOverridePathFor(configPath string) string {
 //  4. nriConfigPath, when that file exists
 //
 // Step 3 serves containers given the library through the nvidia.com/gpu CDI
-// spec: the toolkit resolving it applies the spec's mounts but drops its env
-// (#747), and it mounts the library at /usr/lib64, outside the driver root
-// that maps discovery walks up to. Step 4 serves processes in an NRI-served
-// container whose launcher rebuilt the environment, such as a Slurm job, which
-// gets the env of whoever ran srun rather than of the slurmd it runs under.
+// spec, which mounts it at /usr/lib64, outside the driver root that maps
+// discovery walks up to. The spec also sets MOCK_NVML_CONFIG, but that reaches
+// only the container's own processes, not `kubectl exec` sessions. Step 4
+// serves processes in an NRI-served container whose launcher rebuilt the
+// environment, such as a Slurm job, which gets the env of whoever ran srun
+// rather than of the slurmd it runs under.
 func resolveConfigPath() string {
 	if configPath := os.Getenv("MOCK_NVML_CONFIG"); configPath != "" {
 		return configPath

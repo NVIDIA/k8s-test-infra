@@ -122,13 +122,15 @@ func buildNvidiaSpec(state *agent.State, imexStaged bool) cdiSpec {
 				Args:     []string{"nvidia-cdi-hook", "update-ldcache", "--folder", "/usr/lib64"},
 			},
 		},
-		// None of this currently reaches a container. The toolkit resolving this
-		// spec applies the mounts from the same block and drops its env (#747) —
-		// unlike buildNRISpec's, which containerd resolves natively and whose env
-		// does arrive. Kept because the values are correct and the mock library
-		// falls back to the /etc/nvml-mock mount above when MOCK_NVML_CONFIG is
-		// unset, so nothing depends on the channel working — do not add a key
-		// that would.
+		// This env reaches the container's own processes: nvidia-container-runtime
+		// writes it into the OCI spec runc starts the container from. It does not
+		// reach `kubectl exec` sessions, which containerd builds from its own copy
+		// of the spec, one the runtime never edited. An exec'd tool still finds the
+		// node's config: the mock library falls back to the /etc/nvml-mock mount
+		// above when MOCK_NVML_CONFIG is unset, and resolves overrides.yaml beside
+		// it. MOCK_FABRICMANAGER_STATE_DIR, appended below, has no such fallback:
+		// in an exec session fabric-state coupling is off, so a fabric state of
+		// auto reports COMPLETED even before fabricmanager is ready.
 		Env: []string{
 			// void tells the container toolkit to skip its own device enumeration;
 			// without it the toolkit would override our mock nodes with an empty set.
