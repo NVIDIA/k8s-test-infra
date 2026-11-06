@@ -29,8 +29,9 @@ gpu:
   # Per-field resolution, highest priority last:
   #   chart baseline  <  GPU profile default  <  user override (below / --set)
   # Leave a field unset to inherit. Profiles set a power base that fits their
-  # TDP envelope (t4 ~65W, b200/gb200 ~600W, gb300/vrnvl72 ~800W; others
-  # use the 250W baseline) so it isn't force-clamped to a bound.
+  # TDP envelope (t4 ~65W, b200/gb200 ~600W, gb300 ~800W, vrnvl72 ~420W, its
+  # idle draw; others use the 250W baseline) so it isn't force-clamped to a
+  # bound.
   dynamicMetrics:
     # -- Enable time-varying synthetic temperature, power, and utilization values.
     enabled: false
