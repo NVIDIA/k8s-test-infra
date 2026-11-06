@@ -6,14 +6,14 @@ commit, and then to a check of how closely a Mokka profile reproduces it. Use it
 when adding a GPU type, when a new driver branch ships, and to find out how much
 of a platform Mokka can already simulate.
 
-The procedure produces three things:
+Every step uses one tool, [`mokka-capture`](../tools/mokka-capture.md), run on
+your machine. The procedure produces three things:
 
-- a directory of raw outputs per node and for the cluster, taken by
-  [`hack/capture-node.sh`](https://github.com/NVIDIA/k8s-test-infra/blob/main/hack/capture-node.sh);
-- an NVML recording of every getter the driver answers, taken by
-  [`nvml-dump`](tools/nvml-dump.md);
-- a scrubbed copy of both, made by [`scrub-capture`](tools/scrub-capture.md),
-  that is safe to commit under `tests/hardware-captures/`.
+- a directory of raw outputs per node and for the cluster (`mokka-capture collect`);
+- an NVML recording of every getter the driver answers, taken in the driver
+  container as part of the same run (`mokka-capture dump`);
+- a scrubbed copy of both (`mokka-capture scrub`) that is safe to commit under
+  `tests/hardware-captures/`.
 
 ## What the capture covers
 
@@ -48,17 +48,18 @@ You need:
 - a kubeconfig for a cluster whose GPU nodes you may inspect, with permission to
   run `exec` in the GPU Operator namespace and to create a privileged pod. The
   host pod mounts the node's root filesystem and runs as root. Its image
-  (`HOST_POD_IMAGE`) is pinned by digest and the script deletes the pod on every
+  (`-host-pod-image`) is pinned by digest and the pod is deleted on every
   way out, but the pin does not cover the tools it installs: the pod runs
   `apt-get install` for `pciutils`, `rdma-core` and others from the image's
   distribution mirrors. On a cluster where that is not acceptable, set
-  `HOST_POD_IMAGE` to an image that already has those tools;
+  `-host-pod-image` to an image that already has those tools;
 - the nodes running the GPU Operator's driver container. The driver and
   `nvidia-smi` live in that container, not on the host. If the driver is
   installed on the host instead, run the `nvidia-smi` and `/proc` commands in
-  [hack/capture-node.sh](https://github.com/NVIDIA/k8s-test-infra/blob/main/hack/capture-node.sh)
+  [`internal/capture/collect`](https://github.com/NVIDIA/k8s-test-infra/blob/main/internal/capture/collect/surfaces.go)
   there directly;
-- `kubectl`, and Docker to build `nvml-dump` for the nodes' architecture.
+- `kubectl`, Go to build `mokka-capture`, and Docker to build its Linux copy for
+  the driver container.
 
 Capture at least two nodes of the same kind. Two nodes show which fields vary per
 unit and which describe the model. The values that differ between them (tray
@@ -67,20 +68,22 @@ index, slot number, minors) belong in the profile as per-node fields.
 Take the capture with the node idle. Readings that move with load, such as
 utilisation, temperature and power draw, are excluded from comparisons.
 
-## Step 1: build `nvml-dump`
+## Step 1: build `mokka-capture`
 
-`nvml-dump` loads the driver's own `libnvidia-ml.so.1`, so it must run inside the
-driver container, and it must be built for the node's architecture. go-nvml loads
-the library at run time, so the binary is dynamically linked. Build it on a host of
-the node's architecture:
+Build the tool for your machine, then a Linux copy for the driver container. The
+NVML dump loads the driver's own `libnvidia-ml.so.1`, so it must run inside the
+driver container, built for the node's architecture. go-nvml loads the library
+at run time, so the binary is dynamically linked: build it on a host of the
+node's architecture.
 
 ```bash
 export OUT=$PWD/capture
-hack/capture-node.sh build-dump
+go build -o bin/mokka-capture ./cmd/mokka-capture
+bin/mokka-capture collect -out "$OUT" build-dump
 ```
 
-This writes `$OUT/bin/nvml-dump-linux`. If Docker hangs while pulling the image,
-point it at an anonymous configuration first with
+This writes `$OUT/bin/mokka-capture-linux-<arch>`. If Docker hangs while pulling
+the image, point it at an anonymous configuration first with
 `export DOCKER_CONFIG=$(mktemp -d)`.
 
 ## Step 2: capture
@@ -90,11 +93,11 @@ container captures, the host captures and, once, the cluster captures:
 
 ```bash
 kubectl get nodes
-export NVML_DUMP=$OUT/bin/nvml-dump-linux
-hack/capture-node.sh all <node-a> <node-b>
+bin/mokka-capture collect -out "$OUT" -dump-binary "$OUT/bin/mokka-capture-linux-<arch>" \
+  all <node-a> <node-b>
 ```
 
-Every command runs in the cluster and every redirect happens on your machine, so
+Every command runs in the cluster and every output is written on your machine, so
 each output is a file under `$OUT/<node>/` with nothing to copy out of a pod.
 The commands are split so you can rerun one part:
 
@@ -108,13 +111,13 @@ The commands are split so you can rerun one part:
 The host commands create a pod named `capture-<node>-<pid>` (one per run) in the `default` namespace
 and delete it when they finish. Its tools (`pciutils`, `numactl`, the RDMA
 utilities) come from `apt`. If the cluster has no egress to the Ubuntu mirrors,
-the sysfs captures still work and the rest fail; set `HOST_POD_NAMESPACE` if the
-default namespace forbids privileged pods. The other settings are environment
-variables listed by `hack/capture-node.sh --help`.
+the sysfs captures still work and the rest fail; set `-host-pod-namespace` if the
+default namespace forbids privileged pods. The other flags are listed by
+`mokka-capture collect -h`.
 
 ## Step 3: check the capture
 
-The script ends by listing empty files. An empty file nearly always means the
+`collect` ends by listing empty files. An empty file nearly always means the
 connection dropped, not that the answer was empty; rerun the command that produced
 it. A failed command also leaves a line in `errors.log` beside the output, and a
 failure is data: an unsupported `nvidia-smi` option or a getter that answers
@@ -138,11 +141,11 @@ Check at least:
 
 The raw capture names the machines it came from: GPU and fabric UUIDs, serial
 numbers, GUIDs, MAC addresses, host names. **Do not commit or post it.**
-`scrub-capture` writes a copy with a placeholder for each, one per distinct value
+`mokka-capture scrub` writes a copy with a placeholder for each, one per distinct value
 across the whole run, so a GPU keeps the same placeholder in every file:
 
 ```bash
-scrub-capture -out scrubbed \
+bin/mokka-capture scrub -out scrubbed \
   -replace <node-a-name>=node-a -replace <node-b-name>=node-b \
   -replace <cluster-name>=tenant \
   -seed "$OUT/<node-a>/smi-L.txt" -seed "$OUT/<node-b>/smi-L.txt" \
@@ -154,9 +157,9 @@ scrub-capture -out scrubbed \
 network names. `-seed` numbers GPUs in index order. Binary files and
 `errors.log` are skipped. The NVML recording is the exception to scrubbing by
 shape: NVML returns serials, GUIDs and the fabric cluster UUID as byte arrays and
-a PDI as an integer, which no text rule matches, so `nvml-dump` redacts them by
-field name as it writes, and `scrub-capture` does the same to a recording it is
-given (plain or `.json.gz`). `go build ./hack/tools/scrub-capture` builds the tool.
+a PDI as an integer, which no text rule matches, so the dump redacts them by
+field name as it writes, and `scrub` does the same to a recording it is given
+(plain or `.json.gz`).
 
 Then review the result. The scrub is a best effort, not a guarantee:
 
@@ -187,12 +190,12 @@ Then review the result. The scrub is a best effort, not a guarantee:
 4. Do not commit proprietary binaries. The driver's `libnvidia-ml.so` is
    NVIDIA's; keep only the symbol list.
 
-Take the `nvidia-smi -q -x` capture separately for the hardware fixtures. The
-[`scrub-smi-xml`](tools/scrub-smi-xml.md) tool applies the rules the fixtures
-require and `-check` verifies them; `TestHardwareCapturesAreScrubbed` enforces
-them in CI.
+The scrubbed `smi-q.xml` is also the hardware fixture for
+`tests/e2e/go/assertions/nvidiasmi/testdata/hardware/`.
+`mokka-capture scrub -check <file>` verifies it holds only the placeholders the
+fixtures require; `TestHardwareCapturesAreScrubbed` enforces them in CI.
 
-Finally run `go test ./hack/tools/scrub-capture -run TestCommittedCapturesAreScrubbed`
+Finally run `go test ./internal/capture/scrub -run TestCommittedCapturesAreScrubbed`
 once the capture is under `tests/hardware-captures/`; CI runs it on every change.
 It checks shapes and field names only, so the reading above still matters.
 
@@ -212,7 +215,7 @@ Keep the committed set small. A repository is cloned far more often than a
 capture is read, and git keeps every version of a file for good. Commit what a
 profile or a test is built from, and leave out the rest:
 
-- **Gzip the NVML dump** (`gzip -9 -n nvml-dump.json`); `nvml-dump diff` reads
+- **Gzip the NVML dump** (`gzip -9 -n nvml-dump.json`); `mokka-capture diff nvml` reads
   `.json.gz` directly.
 - **Commit one node of each kind in full.** A second node of the same kind is how
   you learn which fields vary per unit (tray index, slot number, device minors),
@@ -235,7 +238,7 @@ taken from the mock. In the commands, `REAL` is the real node's directory (a raw
 capture, or a committed one) and `MOCK` is a directory holding the mock's files.
 
 Getting the mock's files is not automated here. Run the mock's `nvidia-smi` and
-the same `nvml-dump` binary in an nvml-mock pod on a node of the profile under
+the same Linux `mokka-capture dump` in an nvml-mock pod on a node of the profile under
 test, built for that node's architecture, and save the outputs under `MOCK`.
 
 1. **Symbols.** Which of the real library's functions does the bridge answer?
@@ -256,7 +259,7 @@ test, built for that node's architecture, and save the outputs under `MOCK`.
    match rates and lists every difference:
 
    ```bash
-   go run ./hack/tools/nvml-dump diff "$REAL/nvml-dump.json.gz" "$MOCK/nvml-dump.json"
+   bin/mokka-capture diff nvml "$REAL/nvml-dump.json.gz" "$MOCK/nvml-dump.json"
    ```
 
    Field IDs differ between driver branches; the dump probes each ID and records
@@ -264,7 +267,7 @@ test, built for that node's architecture, and save the outputs under `MOCK`.
 3. **`nvidia-smi`.** Compare the two `-q -x` documents element by element:
 
    ```bash
-   go run ./hack/tools/smi-xml-diff "$REAL/smi-q.xml" "$MOCK/smi-q.xml"
+   bin/mokka-capture diff smi "$REAL/smi-q.xml" "$MOCK/smi-q.xml"
    ```
 
    The report says how many of the real document's elements the mock has, how
@@ -309,10 +312,10 @@ it has no MIG partitioning, no vGPU mode and no leftover processes.
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `TLS handshake timeout` or `connection refused` in `errors.log` | The API connection dropped. Restore it and rerun the part that failed; `capture-node.sh` checks the connection before each node. |
+| `TLS handshake timeout` or `connection refused` in `errors.log` | The API connection dropped. Restore it and rerun the part that failed; `collect` checks the connection before each node. |
 | `nvidia-smi: ... not recognized` for an option | The driver's `nvidia-smi` lacks it. The failure is the answer; keep it. |
 | `-q -d <section>` reports `Failed to parse` | The section name is not valid on this driver. Sections are captured one per file so one invalid name costs one file. |
-| `GLIBC` error running `nvml-dump` | The driver container's libc is older than the build image's. Build `nvml-dump` on an image with an older base. |
+| `GLIBC` error running the dump | The driver container's libc is older than the build image's. Build the Linux `mokka-capture` on an image with an older base. |
 | `nvidia-ctk` not found | It is not in the driver container. The capture reads the CDI specs from the host and runs `nvidia-ctk` from the toolkit container. |
-| The host pod stays `Pending` | Pod security forbids privileged pods in the namespace. Set `HOST_POD_NAMESPACE` to one that allows them. |
+| The host pod stays `Pending` | Pod security forbids privileged pods in the namespace. Set `-host-pod-namespace` to one that allows them. |
 | `/var/run/cdi` appears empty from the pod | `/var/run` is a symlink to `/run`, which resolves inside the pod. Read `/host/run/cdi`. |

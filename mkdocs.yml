@@ -167,10 +167,7 @@ nav:
       - Gating New Behavior: contributing/feature-gates.md
       - Capturing a Real Node:
           - Guide: contributing/capturing-a-real-node.md
-          - nvml-dump: contributing/tools/nvml-dump.md
-          - scrub-capture: contributing/tools/scrub-capture.md
-          - scrub-smi-xml: contributing/tools/scrub-smi-xml.md
-          - smi-xml-diff: contributing/tools/smi-xml-diff.md
+          - mokka-capture: tools/mokka-capture.md
       - Tools:
           - check-fabric: tools/check-fabric.md
           - generate-bridge: tools/generate-bridge.md

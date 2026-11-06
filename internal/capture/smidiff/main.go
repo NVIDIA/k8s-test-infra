@@ -11,9 +11,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// smi-xml-diff compares two `nvidia-smi -q -x` documents element by element.
+// Package smidiff compares two `nvidia-smi -q -x` documents element by element.
+// It backs `mokka-capture diff smi`.
 //
-//	smi-xml-diff [-ignore regexp] [-max n] real.xml mock.xml
+//	mokka-capture diff smi [-ignore regexp] [-max n] real.xml mock.xml
 //
 // Each document is flattened to path=value pairs, where a repeated element
 // carries its position (gpu[1]/clocks[0]/graphics_clock[0]). The report says how many
@@ -21,7 +22,7 @@
 // the paths only one side has and the values that differ. Paths that move with
 // load or name a machine (temperatures, utilisation, power draw, identifiers)
 // are matched on presence only; -ignore changes that set.
-package main
+package smidiff
 
 import (
 	"encoding/xml"
@@ -49,12 +50,11 @@ var loadOrIdentity = []string{
 // defaultIgnore matches a path in which any segment is one of those elements.
 var defaultIgnore = `(?:^|/)(?:` + strings.Join(loadOrIdentity, "|") + `)\[[0-9]+\](?:/|$)`
 
-func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
-}
+// Run runs the comparison with the given arguments.
+func Run(args []string, stdout, stderr io.Writer) int { return run(args, stdout, stderr) }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("smi-xml-diff", flag.ContinueOnError)
+	fs := flag.NewFlagSet("diff smi", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	ignore := fs.String("ignore", defaultIgnore, "regexp of paths whose value is not compared (presence still is)")
 	limit := fs.Int("max", 40, "maximum entries to list per kind")
@@ -62,7 +62,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if fs.NArg() != 2 {
-		_, _ = fmt.Fprintln(stderr, "usage: smi-xml-diff [-ignore regexp] [-max n] real.xml mock.xml")
+		_, _ = fmt.Fprintln(stderr, "usage: mokka-capture diff smi [-ignore regexp] [-max n] real.xml mock.xml")
 		return 2
 	}
 	re, err := regexp.Compile(*ignore)

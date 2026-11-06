@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package nvmldump
 
 import (
 	"bytes"
@@ -82,7 +82,7 @@ func runDiff(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if fs.NArg() != 2 {
-		_, _ = fmt.Fprintln(stderr, "usage: nvml-dump diff [-ignore regexp] [-max n] real.json mock.json")
+		_, _ = fmt.Fprintln(stderr, "usage: mokka-capture diff nvml [-ignore regexp] [-max n] real.json mock.json")
 		return 2
 	}
 	re, err := regexp.Compile(*ignore)

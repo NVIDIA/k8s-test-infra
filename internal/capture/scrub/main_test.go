@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package scrub
 
 import (
 	"bytes"
@@ -334,7 +334,7 @@ func TestRunScrubsNestedFileAndDirectoryNames(t *testing.T) {
 }
 
 // Two nodes scrubbed in one run: the second node's dump numbers its GPUs from 0,
-// as nvml-dump does, but its text files continue from the first node's. After
+// as the NVML dump does, but its text files continue from the first node's. After
 // scrubbing, each GPU has the same UUID and serial in its dump and its XML.
 func TestDumpPlaceholdersFollowTheNodesTextFiles(t *testing.T) {
 	gpu := func(bus, uuid, serial string) string {

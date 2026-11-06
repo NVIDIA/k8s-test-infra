@@ -11,10 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// nvml-dump records what an NVML library answers, and compares two recordings.
-//
-//	nvml-dump [dump]                          dump the library on the loader path
-//	nvml-dump diff [flags] real.json mock.json
+// Package nvmldump records what an NVML library answers, and compares two
+// recordings. It backs `mokka-capture dump` and `mokka-capture diff nvml`.
 //
 // The dump calls every argument-free getter on every device, by reflection
 // over go-nvml's device handle, so a getter added in a newer go-nvml is picked
@@ -34,25 +32,20 @@
 // A dump of real hardware contains identifiers (the GPU UUID, the serial
 // number, fabric UUIDs). Keep it out of the repository until it has been
 // reviewed.
-package main
+package nvmldump
 
-import (
-	"fmt"
-	"io"
-	"os"
-)
+import "io"
 
-func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+// Dump writes a recording of the NVML library on the loader path to stdout.
+func Dump(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		_, _ = io.WriteString(stderr, "usage: mokka-capture dump\n")
+		return 2
+	}
+	return runDump(stdout, stderr)
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] == "dump" {
-		return runDump(stdout, stderr)
-	}
-	if args[0] == "diff" {
-		return runDiff(args[1:], stdout, stderr)
-	}
-	_, _ = fmt.Fprintln(stderr, "usage: nvml-dump [dump] | nvml-dump diff [-ignore regexp] [-max n] real.json mock.json")
-	return 2
+// Diff compares two recordings.
+func Diff(args []string, stdout, stderr io.Writer) int {
+	return runDiff(args, stdout, stderr)
 }

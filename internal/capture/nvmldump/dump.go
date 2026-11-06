@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package nvmldump
 
 import (
 	"encoding/json"
@@ -23,7 +23,7 @@ import (
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 
-	"github.com/NVIDIA/k8s-test-infra/hack/tools/internal/redact"
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/redact"
 )
 
 // call is one recorded NVML call.

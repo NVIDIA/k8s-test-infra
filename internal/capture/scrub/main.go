@@ -11,11 +11,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// scrub-capture copies a directory of real-node captures, such as the one
-// hack/capture-node.sh writes, replacing everything that names a particular
-// machine with a placeholder, so the copy can be committed.
+// Package scrub copies a directory of real-node captures, such as the one
+// `mokka-capture collect` writes, replacing everything that names a particular
+// machine with a placeholder, so the copy can be committed. It backs
+// `mokka-capture scrub`.
 //
-//	scrub-capture -out scrubbed -replace worker-7=node-a raw/worker-7 raw/cluster
+//	mokka-capture scrub -out scrubbed -replace worker-7=node-a raw/worker-7 raw/cluster
+//	mokka-capture scrub -check smi-q.xml
 //
 // It rewrites, in every text file:
 //
@@ -48,7 +50,7 @@
 // anything specific to the machine before committing. -report writes a table of
 // every substitution made (original and placeholder) for that audit; the table
 // contains the originals, so never commit it.
-package main
+package scrub
 
 import (
 	"bytes"
@@ -65,7 +67,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/NVIDIA/k8s-test-infra/hack/tools/internal/redact"
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/redact"
 )
 
 type listFlag []string
@@ -566,7 +568,7 @@ func (s *scrubber) seedGPUs(text string) {
 	}
 }
 
-// isDump reports whether a file is an nvml-dump recording, plain or gzipped.
+// isDump reports whether a file is an NVML dump, plain or gzipped.
 func isDump(name string) bool {
 	return name == "nvml-dump.json" || name == "nvml-dump.json.gz"
 }
@@ -653,8 +655,8 @@ func sourceHolding(out string, srcs []string) string {
 }
 
 //nolint:cyclop // flag parsing and the walk over the capture, in the order they run
-func run(args []string, _, stderr io.Writer) int {
-	flags := flag.NewFlagSet("scrub-capture", flag.ContinueOnError)
+func run(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("scrub", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	var replaces, excludes, seeds listFlag
 	out := flags.String("out", "", "directory to write the scrubbed copy to (required, must not exist or be empty)")
@@ -662,11 +664,15 @@ func run(args []string, _, stderr io.Writer) int {
 	flags.Var(&replaces, "replace", "old=new literal replacement, for host and cluster names (repeatable)")
 	flags.Var(&excludes, "exclude", "file name pattern to skip (repeatable; default errors.log and *.so*)")
 	flags.Var(&seeds, "seed", "file whose GPU UUIDs are numbered first, in file order (repeatable)")
+	checkOnly := flags.Bool("check", false, "check nvidia-smi -q -x files for identifiers left unscrubbed instead; exit 1 if any")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
+	if *checkOnly && flags.NArg() > 0 {
+		return runCheck(flags.Args(), stdout, stderr)
+	}
 	if *out == "" || flags.NArg() == 0 {
-		_, _ = fmt.Fprintln(stderr, "usage: scrub-capture -out DIR [-replace old=new]... [-seed FILE]... SRC_DIR...")
+		_, _ = fmt.Fprintln(stderr, "usage: mokka-capture scrub -out DIR [-replace old=new]... [-seed FILE]... SRC_DIR...\n       mokka-capture scrub -check FILE...")
 		return 2
 	}
 	if len(excludes) == 0 {
@@ -787,4 +793,5 @@ func run(args []string, _, stderr io.Writer) int {
 	return status
 }
 
-func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
+// Run runs the scrubber with the given arguments.
+func Run(args []string, stdout, stderr io.Writer) int { return run(args, stdout, stderr) }

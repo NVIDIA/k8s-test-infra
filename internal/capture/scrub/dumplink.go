@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package scrub
 
 import (
 	"bytes"
@@ -21,7 +21,7 @@ import (
 	"strings"
 )
 
-// nvml-dump redacts identifiers as it writes, numbering each node's GPUs from 0,
+// The NVML dump redacts identifiers as it writes, numbering each node's GPUs from 0,
 // while the text captures are numbered across every node in one run. linkDump
 // renames a dump's placeholders to the ones the same node's text files get, so a
 // GPU keeps one UUID, serial, PDI and fabric GUID in every file. It pairs the

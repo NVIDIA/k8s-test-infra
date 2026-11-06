@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package redact replaces the identifiers in an nvml-dump recording.
+// Package redact replaces the identifiers in an NVML dump (mokka-capture dump).
 //
 // A dump holds decoded NVML structures, and NVML hands identifiers back as C
 // byte arrays (a chassis serial is a list of character codes, a fabric cluster
@@ -46,7 +46,7 @@ func New() *Redactor { return &Redactor{seen: map[string]map[string]int{}} }
 
 // number returns the placeholder number of a value, handing out the next one
 // the first time it is seen. GPU UUIDs count from 0, in the order the GPUs are
-// met (the dump lists devices by index), as the other captures and scrub-capture
+// met (the dump lists devices by index), as the other captures and mokka-capture scrub
 // do; every other kind counts from 1, because zero is how NVML says "none".
 func (r *Redactor) number(kind, value string) int {
 	m := r.seen[kind]

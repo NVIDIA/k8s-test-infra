@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package scrub
 
 import (
 	"bytes"
@@ -26,7 +26,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/NVIDIA/k8s-test-infra/hack/tools/internal/redact"
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/redact"
 )
 
 // capturesDir is where real-node captures are committed.
@@ -84,14 +84,14 @@ func TestCommittedCapturesAreScrubbed(t *testing.T) {
 			got, err := redact.Canonical(again)
 			require.NoError(t, err, rel)
 			if !bytes.Equal(want, got) {
-				t.Errorf("%s still carries identifiers (UUIDs, serials, PDIs or GUIDs); run scrub-capture over the capture again", rel)
+				t.Errorf("%s still carries identifiers (UUIDs, serials, PDIs or GUIDs); run mokka-capture scrub over the capture again", rel)
 			}
 		}
 		text := string(raw)
 		s := newScrubber(nil)
 		s.seedGPUs(text)
 		if got := s.scrub(text); got != text {
-			t.Errorf("%s still carries identifiers the scrubber replaces; run scrub-capture over the capture again:\n%s",
+			t.Errorf("%s still carries identifiers the scrubber replaces; run mokka-capture scrub over the capture again:\n%s",
 				rel, firstDifference(text, got))
 		}
 		return nil

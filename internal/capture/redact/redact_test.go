@@ -32,7 +32,7 @@ var (
 	pdiValue    = uint64(16078824392434643224)
 )
 
-// dumpOf builds a document in nvml-dump's layout from go-nvml's own structures,
+// dumpOf builds a document in the NVML dump's layout from go-nvml's own structures,
 // so the field names under test are the ones the library really has.
 func dumpOf(t *testing.T, calls map[string]any) []byte {
 	t.Helper()
