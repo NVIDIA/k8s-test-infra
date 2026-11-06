@@ -99,7 +99,15 @@ static int isDebugEnabled() {
 // The versioned parameter blocks those entries take, tagged the way NVML tags
 // its versioned structs: version in the top byte, size in bytes below it.
 #define MOCK_UNLISTED_GPU_COUNT_V1 0x01000008u // { version, count }
-#define MOCK_RESET_GROUP_RUN_V1 0x01000030u    // { version, pad, group, results... }
+#define MOCK_RESET_GROUP_RUN_V1 0x01000030u    // { version, pad, group, buf, buf, scope*, word }
+
+// The words of the run block, counted in pointers. Of everything the block
+// reaches, a 615 nvidia-smi reads back one word after a successful run: the
+// first behind MOCK_RESET_GROUP_RUN_SCOPE, which, nonzero, makes it report that
+// the reset took the NVSwitches along with the GPUs. Poisoning each word of the
+// two buffers before it changes nothing nvidia-smi prints, so those stay its own.
+#define MOCK_RESET_GROUP_RUN_GROUP 1
+#define MOCK_RESET_GROUP_RUN_SCOPE 4
 
 // The group slot 272 hands out. The reset itself happened at slot 20, so the
 // group holds nothing; its address is only a handle nvidia-smi passes back.
@@ -131,9 +139,9 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
     }
 
     // Reset group: fn(group* out, nvmlPciInfo_t* gpus, unsigned int count,
-    // flags), then fn({ version, pad, group, results... }*) to run it.
-    // Leaving the run's per-GPU result words at zero is what nvidia-smi reads as
-    // every GPU in the group having reset.
+    // flags), then fn({ version, pad, group, buf, buf, scope*, word }*) to run
+    // it. A successful run is every GPU in the group reset; the mock resets no
+    // NVSwitch, so it writes the scope word 0.
     if (slot == MOCK_SLOT_RESET_GROUP_ALLOC) {
         if (arg0 == NULL || arg1 == NULL || rawArg2 == 0) {
             return NVML_ERROR_INVALID_ARGUMENT;
@@ -150,8 +158,13 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
         if (block == NULL || block[0] != MOCK_RESET_GROUP_RUN_V1) {
             return NVML_ERROR_ARGUMENT_VERSION_MISMATCH;
         }
-        if (((void**)arg0)[1] != (void*)&mockResetGroup) {
+        void** words = (void**)arg0;
+        if (words[MOCK_RESET_GROUP_RUN_GROUP] != (void*)&mockResetGroup) {
             return NVML_ERROR_INVALID_ARGUMENT;
+        }
+        unsigned int* scope = (unsigned int*)words[MOCK_RESET_GROUP_RUN_SCOPE];
+        if (scope != NULL) {
+            scope[0] = 0;
         }
         if (isDebugEnabled()) {
             fprintf(stderr, "[C-STUB] slot %u reset group run -> SUCCESS\n", slot);
@@ -439,11 +452,25 @@ func internalSlotBlockCallForTest(slot uint, block []uint64, arg1Words int, arg2
 	return slices.Clone(view), ret
 }
 
+// resetGroupRunForTest runs the reset group as a 615 nvidia-smi does, with
+// the scope word nvidia-smi reads back prefilled, and returns that word as the
+// run left it.
+func resetGroupRunForTest(version uint32, group uint64, scopePrefill uint32) (uint32, nvml.Return) {
+	scope := (*C.uint)(C.calloc(2, C.size_t(unsafe.Sizeof(C.uint(0)))))
+	defer C.free(unsafe.Pointer(scope))
+	*scope = C.uint(scopePrefill)
+	block := make([]uint64, (C.MOCK_RESET_GROUP_RUN_V1&0xffffff)/8)
+	block[0] = uint64(version)
+	block[C.MOCK_RESET_GROUP_RUN_GROUP] = group
+	block[C.MOCK_RESET_GROUP_RUN_SCOPE] = uint64(uintptr(unsafe.Pointer(scope)))
+	_, ret := internalSlotBlockCallForTest(C.MOCK_SLOT_RESET_GROUP_RUN, block, 0, 0, 0)
+	return uint32(*scope), ret
+}
+
 // The 615 entry points and their parameter-block tags, for the tests.
 const (
 	unlistedGPUCountSlotForTest = C.MOCK_SLOT_UNLISTED_GPU_COUNT
 	resetGroupAllocSlotForTest  = C.MOCK_SLOT_RESET_GROUP_ALLOC
-	resetGroupRunSlotForTest    = C.MOCK_SLOT_RESET_GROUP_RUN
 	unlistedGPUCountV1ForTest   = C.MOCK_UNLISTED_GPU_COUNT_V1
 	resetGroupRunV1ForTest      = C.MOCK_RESET_GROUP_RUN_V1
 	firstSlotPast580ForTest     = C.MOCK_SLOT_580_TABLE_END

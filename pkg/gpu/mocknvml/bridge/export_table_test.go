@@ -49,7 +49,8 @@ func TestUnlistedGPUCountSlot_ReportsNone(t *testing.T) {
 
 // `nvidia-smi --gpu-reset` on a 615 binary allocates a group of the GPUs it
 // resets, runs the group and frees it. The run only succeeds on the group the
-// allocation handed out.
+// allocation handed out, and then reports a reset of the GPUs alone, whatever
+// the caller left in the scope word.
 func TestResetGroupSlots_RunTheGroupTheyAllocate(t *testing.T) {
 	const pciInfoWords = 12 // room for one nvmlPciInfo_t, which the slot only checks for
 
@@ -61,14 +62,18 @@ func TestResetGroupSlots_RunTheGroupTheyAllocate(t *testing.T) {
 	group := out[0]
 	require.NotZero(t, group, "the allocation hands out a group")
 
-	run := func(version, group uint64) nvml.Return {
-		t.Helper()
-		_, ret := internalSlotBlockCallForTest(resetGroupRunSlotForTest, []uint64{version, group, 0, 0, 0, 1}, 0, 0, 0)
-		return ret
-	}
-	require.Equal(t, nvml.SUCCESS, run(uint64(resetGroupRunV1ForTest), group))
-	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, run(uint64(resetGroupRunV1ForTest), group+1), "a group it never handed out")
-	require.Equal(t, nvml.ERROR_ARGUMENT_VERSION_MISMATCH, run(0x02000040, group))
+	const prefill = 0xdeadbeef
+	scope, ret := resetGroupRunForTest(resetGroupRunV1ForTest, group, prefill)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Zero(t, scope, "no NVSwitch was reset")
+
+	scope, ret = resetGroupRunForTest(resetGroupRunV1ForTest, group+1, prefill)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret, "a group it never handed out")
+	require.Equal(t, uint32(prefill), scope, "a failed run writes nothing")
+
+	scope, ret = resetGroupRunForTest(0x02000040, group, prefill)
+	require.Equal(t, nvml.ERROR_ARGUMENT_VERSION_MISMATCH, ret)
+	require.Equal(t, uint32(prefill), scope, "a failed run writes nothing")
 }
 
 // Entry points of a newer nvidia-smi that the mock does not implement decline
