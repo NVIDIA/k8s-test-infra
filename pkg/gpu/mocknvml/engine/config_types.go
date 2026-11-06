@@ -124,6 +124,11 @@ type DeviceConfig struct {
 	PersistenceMode string `json:"persistence_mode,omitempty"`
 	ComputeMode     string `json:"compute_mode,omitempty"`
 
+	// MultiGPUBoard marks the GPU as one of several on a single board, as on a
+	// dual-GPU card. The default is a board of its own. A pointer, so a device
+	// can say false over defaults that say true.
+	MultiGPUBoard *bool `json:"multi_gpu_board,omitempty"`
+
 	// AddressingMode is how the GPU reaches system-allocated memory: "hmm",
 	// "ats" or "none". It is a property of the host as much as the board —
 	// HMM needs kernel support, ATS a Grace CPU — so the same GPU on the same
