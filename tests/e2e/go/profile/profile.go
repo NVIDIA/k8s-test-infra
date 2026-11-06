@@ -894,6 +894,18 @@ func (p Profile) ReportsAddressingModeAndPDI() bool {
 	return p.DriverMajor() >= addressingModePDIMinDriver
 }
 
+// applicationsClocksDeprecatedDriver is the first driver whose nvidia-smi
+// reports applications clocks as deprecated: -ac and -rac only print the
+// notice, and nvidia-smi -q shows it in place of the clocks, as the real 615
+// tray does.
+const applicationsClocksDeprecatedDriver = 615
+
+// ApplicationsClocksDeprecated reports whether the profile's driver has
+// deprecated applications clocks.
+func (p Profile) ApplicationsClocksDeprecated() bool {
+	return p.DriverMajor() >= applicationsClocksDeprecatedDriver
+}
+
 // DriverMajor is the major component of system.driver_version, or 0 when the
 // profile declares none or it does not parse.
 func (p Profile) DriverMajor() int {
