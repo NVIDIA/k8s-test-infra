@@ -106,7 +106,7 @@ arrives too.
 node whose kernel reports none: a profile on NFS, or a host at its inotify
 watch limit.
 
-A control-plane source is stubbed for [MEP-0001](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0001-mokka-control-plane),
+A control-plane source is stubbed for [MEP-0001](../meps/0001-mokka-control-plane/README.md),
 which would let a cluster-wide component drive node state instead of a
 ConfigMap. It is not implemented; the file source is the only path in use.
 

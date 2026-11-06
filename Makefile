@@ -826,7 +826,7 @@ DOCS_PYTHON_VERSION ?= 3.12
 # works for someone who has mkdocs on PATH by other means.
 DOCS_PATH := PATH="$(DOCS_VENV)/bin:$$PATH"
 
-.PHONY: docs-deps docs-build docs-serve docs-check-exclusion docs managed-eks-terraform-check
+.PHONY: docs-deps docs-build docs-serve docs-test docs-check-exclusion docs managed-eks-terraform-check
 
 # Missing uv is a hard failure, not a pip fallback. A fallback would let CI and
 # a developer resolve different interpreters while both report success, which is
@@ -846,6 +846,9 @@ docs-deps: ## Install the pinned MkDocs toolchain into .venv-docs using uv
 	$(UV) pip install --python $(DOCS_VENV) -r requirements-docs.txt
 	@echo "MkDocs installed into $(DOCS_VENV); make docs picks it up with no activation."
 
+docs-test: ## Test virtual MEP publishing without network or a cluster
+	$(DOCS_PATH) python hack/test_mkdocs_meps.py
+
 docs-build: ## Build the documentation site (strict: broken links fail)
 	$(DOCS_PATH) $(MKDOCS) build --strict
 
@@ -859,17 +862,22 @@ docs-serve: ## Serve the documentation site locally on :8000
 docs-check-exclusion: ## Verify gitignored internal plans cannot reach the site
 	@set -eu; \
 	export PATH="$(DOCS_VENV)/bin:$$PATH"; \
-	mkdir -p docs/plans; \
-	printf '# Internal\n\nPAGES_EXCLUSION_CANARY\n' > docs/plans/_canary.md; \
-	trap 'rm -rf docs/plans/_canary.md "$(CURDIR)/tmp/canary-site"; rmdir docs/plans 2>/dev/null || true' EXIT; \
-	$(MKDOCS) build --strict --site-dir "$(CURDIR)/tmp/canary-site" >/dev/null; \
-	if grep -rq 'PAGES_EXCLUSION_CANARY' "$(CURDIR)/tmp/canary-site"/; then \
+	mkdir -p "$(CURDIR)/tmp"; \
+	canary=$$(mktemp -d "$(CURDIR)/tmp/docs-canary.XXXXXX"); \
+	trap 'rm -rf -- "$$canary"' EXIT; \
+	cp -R docs "$$canary/docs"; \
+	mkdir -p "$$canary/docs/plans" "$$canary/docs/superpowers"; \
+	printf '# Internal\n\nPAGES_EXCLUSION_CANARY\n' > "$$canary/docs/plans/_canary.md"; \
+	cp "$$canary/docs/plans/_canary.md" "$$canary/docs/superpowers/_canary.md"; \
+	printf 'INHERIT: %s/mkdocs.yml\ndocs_dir: %s/docs\nsite_dir: %s/site\nhooks: [%s/hack/mkdocs_meps.py]\nwatch: [%s/enhancements/meps]\n' "$(CURDIR)" "$$canary" "$$canary" "$(CURDIR)" "$(CURDIR)" > "$$canary/mkdocs.yml"; \
+	$(MKDOCS) build --strict --config-file "$$canary/mkdocs.yml" >/dev/null; \
+	if grep -rq 'PAGES_EXCLUSION_CANARY' "$$canary/site"/; then \
 		echo "ERROR: docs/plans/ leaked into the site; check exclude_docs in mkdocs.yml"; \
 		exit 1; \
 	fi; \
 	echo "exclude_docs verified: internal plans are not published"
 
-docs: docs-check-exclusion docs-build ## Verify exclusion then build the site
+docs: docs-test docs-check-exclusion docs-build ## Verify exclusion then build the site
 
 MANAGED_EKS_TERRAFORM_DIR := docs/guides/install/aws/eks/terraform
 TERRAFORM                 ?= terraform

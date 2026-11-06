@@ -576,7 +576,7 @@ containerd reject container creation outright.
 Neither mode changes *which* GPUs an allocated container gets. A container
 that holds a device-plugin or NVIDIA DRA allocation keeps exactly that
 allocation in both modes, even with the annotation, per
-[MEP-0002](https://github.com/NVIDIA/k8s-test-infra/blob/main/enhancements/meps/0002-device-plugin-nri-composition/README.md).
+[MEP-0002](meps/0002-device-plugin-nri-composition/README.md).
 
 ## NRI pod lifecycle
 

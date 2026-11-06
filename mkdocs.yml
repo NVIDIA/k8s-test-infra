@@ -24,6 +24,11 @@ edit_uri: edit/main/docs/
 
 docs_dir: docs
 
+hooks:
+  - hack/mkdocs_meps.py
+watch:
+  - enhancements/meps
+
 # Internal design notes and working plans live under docs/ but are not part of
 # the published site. Listing them here drops them from the build entirely, so
 # --strict does not then fail them for being absent from the nav.

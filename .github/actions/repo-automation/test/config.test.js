@@ -192,7 +192,7 @@ test("declares the required CI that merge-ci.js hard-coded at 809294d", () => {
       },
       {
         path: ".github/workflows/deploy-pages.yaml",
-        files: ["docs/**", "mkdocs.yml", "requirements-docs.txt", "Makefile", ".github/workflows/deploy-pages.yaml"],
+        files: ["docs/**", "enhancements/**", "hack/mkdocs_meps.py", "hack/test_mkdocs_meps.py", "mkdocs.yml", "requirements-docs.txt", "Makefile", ".github/workflows/deploy-pages.yaml"],
       },
     ],
     checks: [{ name: "DCO", appId: 1861 }],
