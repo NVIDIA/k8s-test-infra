@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  **Breaking:** nvml-mock: bundled nvidia-smi no longer applies application clocks with -ac or -rac; use -lgc/-lmc to lock clocks and -rgc/-rmc to reset them.
+time: 2026-10-30T10:10:33Z
+custom:
+  Issue: "377"

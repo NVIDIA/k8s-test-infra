@@ -377,7 +377,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					assertRuntimeClocksCommand(ctx, h, pod)
 				})
 
-				It("sets and resets applications clocks via nvidia-smi -ac/-rac", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+				It("reports applications clocks as deprecated through nvidia-smi -ac/-rac", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
 					assertApplicationsClocksViaNvidiaSmi(ctx, h, pod, p)
 				})
 

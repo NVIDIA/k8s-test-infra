@@ -58,7 +58,7 @@ type presetWrite struct{ flag, value, what string }
 func presetWrites(p nvidiasmi.PowerSmoothingPreset) []presetWrite {
 	format := func(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
 	return []presetWrite{
-		{"-ptf", format(p.PercentTMPFloor), "Percent TMP floor"},
+		{"-ptf", format(p.PercentTMPFloor), "Percent TMP Floor"},
 		{"-rur", format(p.RampUpWPerS * 1000), "Ramp Up Rate"},
 		{"-rdr", format(p.RampDownWPerS * 1000), "Ramp Down Rate"},
 		{"-rdh", strconv.Itoa(p.RampDownHysteresisMS), "Ramp Down Hysteresis"},

@@ -110,11 +110,9 @@ func PowerProfileCurrentProblems(requestedOut string, requestedExit int, enforce
 	return problems
 }
 
-// Confirmation lines nvidia-smi prints once per GPU for an accepted write.
-const (
-	powerProfileSetConfirmation   = "Successfully set the requested profiles."
-	powerProfileClearConfirmation = "Successfully cleared the requested profiles."
-)
+// powerProfileUpdateConfirmation is the line nvidia-smi 615 prints once per GPU
+// for each accepted write, a set and a clear alike.
+const powerProfileUpdateConfirmation = "Successfully updated the requested profiles."
 
 // PowerProfileRoundTripProblems checks a set, a clear and a read carried out in
 // one `nvidia-smi power-profiles` invocation, e.g. `-sr 6,13 -cr 6 -ge`.
@@ -135,12 +133,11 @@ func PowerProfileRoundTripProblems(out string, exitCode, wantGPUs int, wantEnfor
 	}
 
 	var problems []string
-	for _, want := range []string{powerProfileSetConfirmation, powerProfileClearConfirmation} {
-		if got := strings.Count(out, want); got != wantGPUs {
-			problems = append(problems, fmt.Sprintf(
-				"nvidia-smi power-profiles printed %q %d time(s), want %d (one per GPU): %s",
-				want, got, wantGPUs, strings.TrimSpace(out)))
-		}
+	// One confirmation per GPU for the set and another for the clear.
+	if got, want := strings.Count(out, powerProfileUpdateConfirmation), 2*wantGPUs; got != want {
+		problems = append(problems, fmt.Sprintf(
+			"nvidia-smi power-profiles printed %q %d time(s), want %d (a set and a clear per GPU): %s",
+			powerProfileUpdateConfirmation, got, want, strings.TrimSpace(out)))
 	}
 
 	// A clear that removed everything, not just the profile it was given,
@@ -223,10 +220,10 @@ func PowerProfileArbitrationProblems(out string, exitCode, wantGPUs, wantWinner,
 	}
 
 	var problems []string
-	if got := strings.Count(out, powerProfileSetConfirmation); got != wantGPUs {
+	if got := strings.Count(out, powerProfileUpdateConfirmation); got != wantGPUs {
 		problems = append(problems, fmt.Sprintf(
 			"nvidia-smi power-profiles printed %q %d time(s), want %d (one per GPU): %s",
-			powerProfileSetConfirmation, got, wantGPUs, strings.TrimSpace(out)))
+			powerProfileUpdateConfirmation, got, wantGPUs, strings.TrimSpace(out)))
 	}
 
 	problems = append(problems, profileListProblems(out, wantGPUs, []int{wantWinner}, "enforced",

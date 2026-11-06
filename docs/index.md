@@ -73,10 +73,14 @@ topology, counters and failures are synthesised.
   firmware interfaces.
 - Reproducing hardware faults, race conditions and timing with physical
   fidelity.
-- Running a workload *on* a MIG slice, and Confidential Computing. Creating,
-  destroying and enumerating partitions is simulated — see
-  [MIG partitioning](guides/mig/README.md) — but there is no CUDA, so a slice admits a
-  pod without running kernels for it.
+- Running a workload *on* a MIG slice. Creating, destroying and enumerating
+  partitions is simulated — see [MIG partitioning](guides/mig/README.md) — but
+  there is no CUDA, so a slice admits a pod without running kernels for it.
+- Confidential Computing protection and attestation. The CC mode, ready state
+  and memory split are simulated — see
+  [Confidential Computing](configuration.md#confidential-computing) — but no
+  memory is encrypted, and the attestation report and certificates are
+  placeholders that no verifier accepts.
 
 ## Tested consumers
 

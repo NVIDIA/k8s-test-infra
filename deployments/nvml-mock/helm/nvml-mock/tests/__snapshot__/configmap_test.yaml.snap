@@ -13,11 +13,11 @@ should match snapshot with a100 profile:
         # System-level configuration
         # =============================================================================
         system:
-          driver_version: "580.65.06"
-          nvml_version: "13.580.65"
-          cuda_version: "13.0"
+          driver_version: "615.71.10"
+          nvml_version: "13.615.71"
+          cuda_version: "13.4"
           cuda_version_major: 13
-          cuda_version_minor: 0
+          cuda_version_minor: 4
 
         # =============================================================================
         # Default device configuration (applied to all devices unless overridden)
@@ -536,11 +536,11 @@ should match snapshot with b200 profile:
         # System-level configuration
         # =============================================================================
         system:
-          driver_version: "580.65.06"
-          nvml_version: "13.580.65"
-          cuda_version: "13.0"
+          driver_version: "615.71.10"
+          nvml_version: "13.615.71"
+          cuda_version: "13.4"
           cuda_version_major: 13
-          cuda_version_minor: 0
+          cuda_version_minor: 4
 
         # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
         # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
@@ -1080,11 +1080,11 @@ should match snapshot with default gb300 profile:
         # System-level configuration
         # =============================================================================
         system:
-          driver_version: "580.65.06"
-          nvml_version: "13.580.65"
-          cuda_version: "13.0"
+          driver_version: "615.71.10"
+          nvml_version: "13.615.71"
+          cuda_version: "13.4"
           cuda_version_major: 13
-          cuda_version_minor: 0
+          cuda_version_minor: 4
 
         # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
         # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
@@ -1685,11 +1685,11 @@ should match snapshot with gb200 profile:
         # System-level configuration
         # =============================================================================
         system:
-          driver_version: "580.65.06"
-          nvml_version: "13.580.65"
-          cuda_version: "13.0"
+          driver_version: "615.71.10"
+          nvml_version: "13.615.71"
+          cuda_version: "13.4"
           cuda_version_major: 13
-          cuda_version_minor: 0
+          cuda_version_minor: 4
 
         # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
         # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
@@ -2286,11 +2286,11 @@ should match snapshot with h100 profile:
         # System-level configuration
         # =============================================================================
         system:
-          driver_version: "580.65.06"
-          nvml_version: "13.580.65"
-          cuda_version: "13.0"
+          driver_version: "615.71.10"
+          nvml_version: "13.615.71"
+          cuda_version: "13.4"
           cuda_version_major: 13
-          cuda_version_minor: 0
+          cuda_version_minor: 4
 
         # =============================================================================
         # Default device configuration (applied to all devices unless overridden)
@@ -2838,11 +2838,11 @@ should match snapshot with l40s profile:
         # System-level configuration
         # =============================================================================
         system:
-          driver_version: "580.65.06"
-          nvml_version: "13.580.65"
-          cuda_version: "13.0"
+          driver_version: "615.71.10"
+          nvml_version: "13.615.71"
+          cuda_version: "13.4"
           cuda_version_major: 13
-          cuda_version_minor: 0
+          cuda_version_minor: 4
 
         # =============================================================================
         # Default device configuration (applied to all devices unless overridden)
@@ -3301,11 +3301,11 @@ should match snapshot with t4 profile:
         # System-level configuration
         # =============================================================================
         system:
-          driver_version: "580.65.06"
-          nvml_version: "13.580.65"
-          cuda_version: "13.0"
+          driver_version: "615.71.10"
+          nvml_version: "13.615.71"
+          cuda_version: "13.4"
           cuda_version_major: 13
-          cuda_version_minor: 0
+          cuda_version_minor: 4
 
         # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
         # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.

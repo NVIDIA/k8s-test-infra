@@ -1087,3 +1087,119 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/hic/0': missing property 'firmwareVersion'\n"
+
+  # ── Confidential Computing (gpu.confidentialCompute) ────────────────
+  - it: should switch Confidential Computing on for a Hopper profile
+    set:
+      gpu:
+        profile: h100
+        confidentialCompute:
+          mode: "on"
+          environment: sim
+          multiGpuMode: none
+          cpuCaps: amd_sev_snp
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^confidential_compute:\\n(  .*\\n)*  mode: \"on\""
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^  multi_gpu_mode: none$"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^  cpu_caps: amd_sev_snp$"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^  environment: sim$"
+
+  - it: should leave the profile untouched when Confidential Computing is not set
+    set:
+      gpu:
+        profile: h100
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "confidential_compute"
+
+  # The architecture check is the engine's: it judges every GPU's merged
+  # config, so Hopper overrides over Ampere defaults must still render.
+  - it: should render Confidential Computing over a custom config with Hopper overrides
+    set:
+      gpu:
+        customConfig: |
+          version: "1.0"
+          system:
+            driver_version: "615.71.10"
+            num_devices: 2
+          device_defaults:
+            architecture: ampere
+          devices:
+            - index: 0
+              architecture: hopper
+            - index: 1
+              architecture: hopper
+        confidentialCompute:
+          mode: "on"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^  mode: \"on\"$"
+
+  - it: should render Protected PCIe with the CC feature off
+    set:
+      gpu:
+        profile: h100
+        confidentialCompute:
+          mode: "off"
+          multiGpuMode: protected_pcie
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^  mode: \"off\"$"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^  multi_gpu_mode: protected_pcie$"
+
+  - it: should refuse an unknown Confidential Computing mode
+    set:
+      gpu:
+        profile: h100
+        confidentialCompute:
+          mode: maybe
+    asserts:
+      - failedTemplate:
+          errorPattern: "/gpu/confidentialCompute/mode"
+
+  - it: should render Protected PCIe without an explicit CC mode
+    set:
+      gpu:
+        profile: h100
+        confidentialCompute:
+          multiGpuMode: protected_pcie
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^  multi_gpu_mode: protected_pcie$"
+
+  - it: should overlay CC capabilities and preserve a custom profile mode
+    set:
+      gpu:
+        customConfig: |
+          version: "1.0"
+          device_defaults:
+            architecture: hopper
+          confidential_compute:
+            mode: devtools
+        confidentialCompute:
+          environment: sim
+          cpuCaps: intel_tdx
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^  mode: devtools$"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^  environment: sim$"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^  cpu_caps: intel_tdx$"

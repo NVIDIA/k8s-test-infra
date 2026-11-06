@@ -152,10 +152,35 @@ func SetEccModePending(path string, index int, enabled bool) error {
 	})
 }
 
+// SetConfComputeGpusReady persists the Confidential Compute GPUs ready state
+// nvmlSystemSetConfComputeGpusReadyState applied. It is node-wide, so it lands
+// in the `all:` bucket the system getter reads.
+func SetConfComputeGpusReady(path string, ready bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{All: true}, map[string]any{confComputeGpusReadyKey: ready})
+		return nil
+	})
+}
+
 // ClearEccErrorCounts persists the zeroing of one scope of ECC counters.
 func ClearEccErrorCounts(path string, index int, scope engine.EccCounterScope) error {
 	return mutateDevice(path, func(d *Doc) error {
 		d.SetFields(Target{Index: index}, engine.EccClearPatch(scope))
+		return nil
+	})
+}
+
+// SetConfComputeKeyRotationThreshold persists the key rotation attacker
+// advantage nvmlSystemSetConfComputeKeyRotationThresholdInfo applied, in the
+// `all:` bucket for the same reason as the ready state. It refuses with
+// engine.ErrConfComputeGpusReady while the GPUs are ready; see
+// confComputeGpusReady.
+func SetConfComputeKeyRotationThreshold(path string, advantage uint64, profileReady bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		if confComputeGpusReady(d, profileReady) {
+			return engine.ErrConfComputeGpusReady
+		}
+		d.SetFields(Target{All: true}, map[string]any{confComputeKeyRotationKey: advantage})
 		return nil
 	})
 }
@@ -169,6 +194,37 @@ func SetDramEncryptionPending(path string, index int, enabled bool) error {
 		})
 		return nil
 	})
+}
+
+// SetConfComputeUnprotectedMemSize persists the unprotected memory size, in
+// KiB, nvmlDeviceSetConfComputeUnprotectedMemSize applied to one GPU. It
+// refuses while the GPUs are ready, as SetConfComputeKeyRotationThreshold does.
+func SetConfComputeUnprotectedMemSize(path string, index int, kib uint64, profileReady bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		if confComputeGpusReady(d, profileReady) {
+			return engine.ErrConfComputeGpusReady
+		}
+		d.SetFields(Target{Index: index}, map[string]any{"conf_compute_unprotected_mem_kib": kib})
+		return nil
+	})
+}
+
+// Override keys of the node-wide Confidential Compute state.
+const (
+	confComputeGpusReadyKey   = "conf_compute_gpus_ready"
+	confComputeKeyRotationKey = "conf_compute_key_rotation_attacker_advantage"
+)
+
+// confComputeGpusReady reports whether the GPUs are accepting work, read from
+// the document under the caller's lock: the recorded ready state, or the
+// profile's when none is recorded. The engine has already checked a cached
+// snapshot, but another process may have made the GPUs ready since, and only
+// a decision made under the lock that commits the write is current.
+func confComputeGpusReady(d *Doc, profileReady bool) bool {
+	if v, ok := d.All[confComputeGpusReadyKey].(bool); ok {
+		return v
+	}
+	return profileReady
 }
 
 // accountingTerminatedKey is the accounting field both accounting setters

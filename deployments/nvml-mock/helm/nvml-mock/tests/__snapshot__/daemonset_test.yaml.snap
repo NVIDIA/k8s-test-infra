@@ -19,7 +19,7 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: cb1f51fccbc83fd08a84ae76dc38708fa7eff2a00948ba98d50d2a6c09ae287f
+            checksum/config: ac155a23ce79453521b2ae01af2205357c885e8cfc8725b38000ada9348a8728
             checksum/mig-profiles: 7f5c00954886487b5209e5d1724a12cb1c9555a6c1fbf79d10f385fed9923237
             kubectl.kubernetes.io/default-container: node-agent
           labels:
@@ -322,7 +322,7 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: e28f41ed0e57460590ad7b25c2da4aa57d9e668316804cf6ab2ae9a3f7675cce
+            checksum/config: 2cb29d85a8582618fd353f223130b6222a66fca60e97207bc3800a7eef67d781
             checksum/mig-profiles: 872e4e600afe92907f403d7ba38f14a091ffb356dc113d23c5c136a0284625d1
             kubectl.kubernetes.io/default-container: node-agent
           labels:
@@ -429,7 +429,7 @@ should match snapshot with b200 profile:
                 - name: GPU_COUNT
                   value: "4"
                 - name: DRIVER_VERSION
-                  value: 580.65.06
+                  value: 615.71.10
                 - name: IMEX_CHANNEL_MAJOR
                   value: "235"
                 - name: IMEX_CAPS_MAJOR
@@ -613,7 +613,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: 1d50ed420646840e3c0818dae1a9fdbaf8a81b6c16c48f7493d7c41483b5dee0
+            checksum/config: a0fce9e63300ac6e1dba2a01c4dbd4a9761a91e5ed48a94f1695c62f5a4af0a7
             checksum/mig-profiles: fb2ebf8b158ede295783bcc2f137d194ef2e4f7648855ea626d419f41e62cf2d
             kubectl.kubernetes.io/default-container: node-agent
           labels:
@@ -720,7 +720,7 @@ should match snapshot with default values:
                 - name: GPU_COUNT
                   value: "4"
                 - name: DRIVER_VERSION
-                  value: 580.65.06
+                  value: 615.71.10
                 - name: MOCK_FABRICMANAGER_STATE_DIR
                   value: /var/lib/nvml-mock/fabric-state
                 - name: IMEX_CHANNEL_MAJOR

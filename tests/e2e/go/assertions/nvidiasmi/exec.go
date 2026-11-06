@@ -463,8 +463,8 @@ func powerProfileCrossProcessWrite(ctx context.Context, k *kube.Client, pod kube
 }
 
 // clearRequestedProfiles returns GPU 0 to asking for nothing, the state every
-// profile ships with. It clears every advertised id rather than the ones a
-// particular assertion set, so the reset does not depend on which of them ran
+// profile ships with. It clears whatever GPU 0 requests now rather than the ids
+// a particular assertion set, so the reset does not depend on which of them ran
 // or on one of them having failed part-way through.
 func clearRequestedProfiles(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
 	ginkgo.GinkgoHelper()
@@ -473,9 +473,18 @@ func clearRequestedProfiles(ctx context.Context, k *kube.Client, pod kube.PodRef
 	if len(declared) == 0 {
 		return
 	}
-	ids := make([]string, 0, len(declared))
-	for _, wp := range declared {
-		ids = append(ids, strconv.Itoa(wp.ID))
+	// nvidia-smi 615 refuses to clear a profile that is not requested and
+	// then clears nothing, so only what is requested now is cleared.
+	current, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-gr", "-i", "0")
+	gomega.Expect(current.ExitCode).To(gomega.Equal(0),
+		"could not read the requested profiles on %s: %s", p.Name, current.Combined())
+	blocks := powerProfileBlocks(current.Combined())
+	if len(blocks) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(blocks[0]))
+	for _, id := range blocks[0] {
+		ids = append(ids, strconv.Itoa(id))
 	}
 
 	res, _ := k.Exec(ctx, pod, "nvidia-smi", "power-profiles", "-cr", strings.Join(ids, ","), "-i", "0")

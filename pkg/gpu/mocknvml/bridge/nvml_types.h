@@ -380,9 +380,35 @@ typedef struct nvmlComputeInstanceInfo_st
     unsigned int                   profileId;
     nvmlComputeInstancePlacement_t placement;
 } nvmlComputeInstanceInfo_t;
-typedef struct nvmlConfComputeGetKeyRotationThresholdInfo_st nvmlConfComputeGetKeyRotationThresholdInfo_t;
-typedef struct nvmlConfComputeGpuAttestationReport_st       nvmlConfComputeGpuAttestationReport_t;
-typedef struct nvmlConfComputeGpuCertificate_st             nvmlConfComputeGpuCertificate_t;
+/* Confidential Compute structs — full definitions, copied from upstream
+ * nvml.h, so conf_compute.go can read and fill the caller's buffers. Callers
+ * allocate them from go-nvml's types, so each size is pinned: a drifted field
+ * would make the bridge read or write past the caller's allocation. */
+typedef struct nvmlConfComputeGetKeyRotationThresholdInfo_st {
+    unsigned int version;
+    unsigned long long attackerAdvantage;
+} nvmlConfComputeGetKeyRotationThresholdInfo_v1_t;
+typedef nvmlConfComputeGetKeyRotationThresholdInfo_v1_t nvmlConfComputeGetKeyRotationThresholdInfo_t;
+_Static_assert(sizeof(nvmlConfComputeGetKeyRotationThresholdInfo_t) == 16,
+               "nvmlConfComputeGetKeyRotationThresholdInfo_t must stay 16 bytes to match the go-nvml ABI");
+typedef struct nvmlConfComputeGpuAttestationReport_st {
+    unsigned int isCecAttestationReportPresent;
+    unsigned int attestationReportSize;
+    unsigned int cecAttestationReportSize;
+    unsigned char nonce[0x20];
+    unsigned char attestationReport[0x2000];
+    unsigned char cecAttestationReport[0x1000];
+} nvmlConfComputeGpuAttestationReport_t;
+_Static_assert(sizeof(nvmlConfComputeGpuAttestationReport_t) == 12332,
+               "nvmlConfComputeGpuAttestationReport_t must stay 12332 bytes to match the go-nvml ABI");
+typedef struct nvmlConfComputeGpuCertificate_st {
+    unsigned int certChainSize;
+    unsigned int attestationCertChainSize;
+    unsigned char certChain[0x1000];
+    unsigned char attestationCertChain[0x1400];
+} nvmlConfComputeGpuCertificate_t;
+_Static_assert(sizeof(nvmlConfComputeGpuCertificate_t) == 9224,
+               "nvmlConfComputeGpuCertificate_t must stay 9224 bytes to match the go-nvml ABI");
 /* How device memory splits across a Confidential Compute partition. Full
  * definition needed by bridge so conf_compute.go can fill the caller's buffer. */
 typedef struct nvmlConfComputeMemSizeInfo_st
@@ -394,9 +420,26 @@ typedef struct nvmlConfComputeMemSizeInfo_st
  * field added here would make the bridge write past the caller's allocation. */
 _Static_assert(sizeof(nvmlConfComputeMemSizeInfo_t) == 16,
                "nvmlConfComputeMemSizeInfo_t must stay two unsigned long longs to match the go-nvml ABI");
-typedef struct nvmlConfComputeSetKeyRotationThresholdInfo_st nvmlConfComputeSetKeyRotationThresholdInfo_t;
-typedef struct nvmlConfComputeSystemCaps_st                 nvmlConfComputeSystemCaps_t;
-typedef struct nvmlConfComputeSystemState_st                nvmlConfComputeSystemState_t;
+typedef struct nvmlConfComputeSetKeyRotationThresholdInfo_st {
+    unsigned int version;
+    unsigned long long maxAttackerAdvantage;
+} nvmlConfComputeSetKeyRotationThresholdInfo_v1_t;
+typedef nvmlConfComputeSetKeyRotationThresholdInfo_v1_t nvmlConfComputeSetKeyRotationThresholdInfo_t;
+_Static_assert(sizeof(nvmlConfComputeSetKeyRotationThresholdInfo_t) == 16,
+               "nvmlConfComputeSetKeyRotationThresholdInfo_t must stay 16 bytes to match the go-nvml ABI");
+typedef struct nvmlConfComputeSystemCaps_st {
+    unsigned int cpuCaps;
+    unsigned int gpusCaps;
+} nvmlConfComputeSystemCaps_t;
+_Static_assert(sizeof(nvmlConfComputeSystemCaps_t) == 8,
+               "nvmlConfComputeSystemCaps_t must stay 8 bytes to match the go-nvml ABI");
+typedef struct nvmlConfComputeSystemState_st {
+    unsigned int environment;
+    unsigned int ccFeature;
+    unsigned int devToolsMode;
+} nvmlConfComputeSystemState_t;
+_Static_assert(sizeof(nvmlConfComputeSystemState_t) == 12,
+               "nvmlConfComputeSystemState_t must stay 12 bytes to match the go-nvml ABI");
 /* What one cooler drives and how — full definition so
  * nvmlDeviceGetCoolerInfo can populate the caller's buffer. version and index
  * are inputs: the caller stamps the NVML_STRUCT_VERSION tag and names the
@@ -1143,7 +1186,16 @@ typedef struct nvmlSample_st
 } nvmlSample_t;
 _Static_assert(sizeof(nvmlSample_t) == 16,
                "nvmlSample_t must stay 16 bytes to match the go-nvml ABI");
-typedef struct nvmlSystemConfComputeSettings_st             nvmlSystemConfComputeSettings_t;
+typedef struct nvmlSystemConfComputeSettings_st {
+    unsigned int version;
+    unsigned int environment;
+    unsigned int ccFeature;
+    unsigned int devToolsMode;
+    unsigned int multiGpuMode;
+} nvmlSystemConfComputeSettings_v1_t;
+typedef nvmlSystemConfComputeSettings_v1_t nvmlSystemConfComputeSettings_t;
+_Static_assert(sizeof(nvmlSystemConfComputeSettings_t) == 20,
+               "nvmlSystemConfComputeSettings_t must stay 20 bytes to match the go-nvml ABI");
 typedef struct nvmlSystemDriverBranchInfo_st                nvmlSystemDriverBranchInfo_t;
 typedef struct nvmlSystemEventSetCreateRequest_st           nvmlSystemEventSetCreateRequest_t;
 typedef struct nvmlSystemEventSetFreeRequest_st             nvmlSystemEventSetFreeRequest_t;
