@@ -72,6 +72,10 @@ func smiCurrentClocks(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx 
 // without disturbing it, and restores the defaults with `-rac`.
 func assertApplicationsClocksViaNvidiaSmi(ctx SpecContext, h *harness.Harness, consumer kube.PodRef, p profile.Profile) {
 	GinkgoHelper()
+	if p.ApplicationsClocksDeprecated() {
+		assertApplicationsClocksDeprecated(ctx, h, consumer, p)
+		return
+	}
 	mem, gfx, ok := p.AlternateApplicationsClocksMHz()
 	if !ok {
 		Skip("profile " + p.Name + " has no supported clock pair other than the default")
@@ -111,6 +115,24 @@ func assertApplicationsClocksViaNvidiaSmi(ctx SpecContext, h *harness.Harness, c
 		return smiAppClocks(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(defaults), "GPU %d applications clocks should return to the defaults after -rac", target)
+}
+
+// applicationsClocksDeprecatedNotice is what nvidia-smi prints for -ac and
+// -rac, and in place of each applications clock in -q -x, from driver 615.
+const applicationsClocksDeprecatedNotice = "deprecated"
+
+// assertApplicationsClocksDeprecated checks the 615 behaviour: -ac and -rac
+// print the deprecation notice and change nothing.
+func assertApplicationsClocksDeprecated(ctx SpecContext, h *harness.Harness, consumer kube.PodRef, p profile.Profile) {
+	GinkgoHelper()
+	mem, gfx, ok := p.AlternateApplicationsClocksMHz()
+	if !ok {
+		mem, gfx = p.DefaultApplicationsClocksMHz()
+	}
+	By(fmt.Sprintf("nvidia-smi -ac and -rac report applications clocks as deprecated on driver %d", p.DriverMajor()))
+	Expect(smiClockTuning(ctx, h, consumer, 0, "-ac", fmt.Sprintf("%d,%d", mem, gfx))).
+		To(ContainSubstring(applicationsClocksDeprecatedNotice))
+	Expect(smiClockTuning(ctx, h, consumer, 0, "-rac")).To(ContainSubstring(applicationsClocksDeprecatedNotice))
 }
 
 // unlistedGraphicsClock returns a graphics clock the table does not pair with
