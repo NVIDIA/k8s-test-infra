@@ -663,7 +663,7 @@ hardware.
 `egm` sets the EGM bit of `nvmlDeviceGetCapabilities`, the `EGM` row under
 `Capabilities` in `nvidia-smi -q`. The host's kernel module turns Extended GPU
 Memory on, so it is off unless a profile sets it; `vrnvl72` does, as its
-captured tray reported.
+captured tray reported. A `devices[]` entry can turn it on for one GPU.
 
 ### Features a profile leaves out
 
