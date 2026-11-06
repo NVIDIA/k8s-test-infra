@@ -349,6 +349,10 @@ func validateYAMLConfig(config *YAMLConfig) error {
 		return err
 	}
 
+	if err := validateDeviceIdentifiers(config); err != nil {
+		return err
+	}
+
 	if err := validateMIGConfigs(config); err != nil {
 		return err
 	}
@@ -1011,6 +1015,40 @@ func validateDeviceUUIDs(config *YAMLConfig) error {
 	return nil
 }
 
+// validateDeviceIdentifiers rejects a fixed PDI or fabric GUID that two devices
+// would report. Consumers key on both: an NVLink fabric manager tells GPUs
+// apart by fabric GUID, and inventory tools by PDI. The easy way to get there
+// is a value set in device_defaults, which every device inherits.
+//
+// Only fixed values are compared. A derived PDI comes from a UUID, which
+// validateDeviceUUIDs already keeps distinct, and "pdi" reports that PDI.
+func validateDeviceIdentifiers(config *YAMLConfig) error {
+	if config == nil {
+		return nil
+	}
+	merged := &Config{YAMLConfig: config}
+	pdiOwner := map[uint64]int{}
+	guidOwner := map[uint64]int{}
+	for _, index := range deviceIndices(config) {
+		dev := merged.GetDeviceConfig(index)
+		if dev.PDI != nil {
+			if other, dup := pdiOwner[uint64(*dev.PDI)]; dup {
+				return fmt.Errorf("duplicate pdi %s (devices %d and %d)", formatHexID(uint64(*dev.PDI)), other, index)
+			}
+			pdiOwner[uint64(*dev.PDI)] = index
+		}
+		if dev.Platform == nil || dev.Platform.GPUFabricGUID == nil || dev.Platform.GPUFabricGUID.FromPDI {
+			continue
+		}
+		guid := dev.Platform.GPUFabricGUID.Value
+		if other, dup := guidOwner[guid]; dup {
+			return fmt.Errorf("duplicate platform.gpu_fabric_guid %s (devices %d and %d)", formatHexID(guid), other, index)
+		}
+		guidOwner[guid] = index
+	}
+	return nil
+}
+
 // deviceIndices lists every device the config brings into being: those the
 // count covers, plus any the overrides declare beyond it.
 func deviceIndices(config *YAMLConfig) []int {
@@ -1072,6 +1110,9 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	}
 	if override.VBIOSVersion != "" {
 		base.VBIOSVersion = override.VBIOSVersion
+	}
+	if override.PDI != nil {
+		base.PDI = override.PDI
 	}
 	if override.Hostname != "" {
 		base.Hostname = override.Hostname
@@ -1231,6 +1272,9 @@ func mergePlatformOverride(base *DeviceConfig, override *PlatformConfig) {
 	}
 	if override.ModuleID != 0 {
 		base.Platform.ModuleID = override.ModuleID
+	}
+	if override.GPUFabricGUID != nil {
+		base.Platform.GPUFabricGUID = override.GPUFabricGUID
 	}
 }
 

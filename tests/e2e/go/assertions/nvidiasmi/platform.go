@@ -38,6 +38,9 @@ type PlatformExpectation struct {
 	HostID              int
 	PeerType            string
 	ModuleIDs           []int
+	// FabricGUIDIsPDI expects each GPU's gpu_fabric_guid to equal its own
+	// <pdi>, which is what a Grace-Blackwell GPU reports.
+	FabricGUIDIsPDI bool
 }
 
 // PlatformIdentityProblems checks the platformInfo block of every GPU. A nil
@@ -78,6 +81,9 @@ func PlatformIdentityProblems(out string, want *PlatformExpectation) []string {
 			continue
 		}
 		problems = append(problems, platformFieldProblems(gpu.Label(), got, *want, i)...)
+		if want.FabricGUIDIsPDI {
+			problems = append(problems, fabricGUIDProblems(gpu.Label(), got.GPUFabricGUID, gpu.PDI())...)
+		}
 		moduleID, ok := gpu.ModuleID()
 		if !ok {
 			continue
@@ -153,6 +159,22 @@ func platformFieldProblems(label string, got PlatformInfo, want PlatformExpectat
 		}
 	}
 	return problems
+}
+
+// fabricGUIDProblems checks a GPU reports its own PDI as its fabric GUID. The
+// PDI is already checked for being non-zero and distinct per GPU, so equality
+// carries both properties over to the GUID an NVLink fabric manager keys on.
+func fabricGUIDProblems(label, guid, pdi string) []string {
+	switch {
+	case guid == "":
+		return []string{fmt.Sprintf("%s emits no gpu_fabric_guid element, want its PDI %q; the driver may have renamed it",
+			label, pdi)}
+	case guid == unsupportedReading:
+		return []string{fmt.Sprintf("%s gpu_fabric_guid = %q, want its PDI %q", label, guid, pdi)}
+	case guid != pdi:
+		return []string{fmt.Sprintf("%s gpu_fabric_guid = %q, want its PDI %q", label, guid, pdi)}
+	}
+	return nil
 }
 
 // platformFields pairs each element name with its body, in one order both
