@@ -122,14 +122,12 @@ labeler:
   assumeDriverInstalled: true
 
 # gpu-health-monitor: Helm replaces this list instead of merging it with the
-# chart defaults, so retain the full upstream suppression list and add the mock's
-# baseline NVLink effective-BER suppression. The mock reports
-# DCGM_FR_NVLINK_EFFECTIVE_BER_THRESHOLD on every GPU
-# at boot; that is a mock-data artifact (recommendedAction CONTACT_SUPPORT, not
-# the fault under test). If left active it stays a "failing check" forever and
-# keeps the node quarantined even after the GPU cools back down, so the
-# recovery/uncordon path never completes. Suppressing it lets all checks clear
-# once the thermal margin recovers.
+# chart defaults. Mirror the full chart default as of NVSentinel v1.27.0 and
+# re-check it when updating the chart version. The mock can report both
+# DCGM_FR_NVLINK_EFFECTIVE_BER_THRESHOLD and
+# DCGM_FR_NVLINK_SYMBOL_BER_THRESHOLD while idle; these are mock-data artifacts,
+# not the thermal fault under test. Leaving either active can keep the health
+# check failing after cooldown and prevent recovery.
 gpu-health-monitor:
   dcgmHealthCheck:
     suppressedErrorCodes:
