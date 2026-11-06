@@ -41,6 +41,8 @@ extern unsigned int mockInternalFillProcessList(void* handle, void* buf, unsigne
 // below in Go). Returns 0 when the device is unknown or configures no PCIe block.
 extern unsigned int mockInternalHostMaxPcieLinkGen(void* handle);
 
+extern nvmlReturn_t mockInternalGetSparseOperationMode(void* handle, unsigned int* mode);
+
 // Forward declarations of the vGPU lookups (defined below in Go). Both return 1
 // when the device is the kind the slot asks about, 0 otherwise.
 extern int mockInternalIsVgpuHost(void* handle);
@@ -79,6 +81,7 @@ static int isDebugEnabled() {
 #define MOCK_SLOT_PROCESS_LIST_FIRST 213
 #define MOCK_SLOT_PROCESS_LIST_LAST 215
 #define MOCK_SLOT_HOST_MAX_PCIE_LINK_GEN 230
+#define MOCK_SLOT_SPARSE_OPERATION_MODE 249
 #define MOCK_SLOT_SET_PERSISTENCE_MODE 251
 
 // C stub function for internal export table
@@ -87,6 +90,15 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
     (void)arg3;
     uintptr_t rawArg0 = (uintptr_t)arg0;
     uintptr_t rawArg2 = (uintptr_t)arg2;
+
+    // nvidia-smi 580.65.06 reads table byte offset 0x7c8 (slot 249),
+    // passing (device, unsigned int*), before rendering sparse_operation_mode.
+    // Its previous SUCCESS/zero fallback meant "Disabled", even when the
+    // profile declared no support. Handle this before the generic probe path
+    // so NULL outputs and invalid devices do not get acknowledged as success.
+    if (slot == MOCK_SLOT_SPARSE_OPERATION_MODE) {
+        return mockInternalGetSparseOperationMode(arg0, (unsigned int*)arg1);
+    }
 
     // Device index lookup: fn(unsigned int index, nvmlDevice_t* out, 0x22, ...).
     if (slot == MOCK_SLOT_DEVICE_HANDLE_BY_INDEX && rawArg0 < 32 && rawArg2 == 0x22 && arg1 != NULL) {
@@ -353,6 +365,22 @@ func mockInternalHostMaxPcieLinkGen(handle unsafe.Pointer) C.uint {
 		return 0
 	}
 	return C.uint(dev.HostMaxPcieLinkGeneration())
+}
+
+//export mockInternalGetSparseOperationMode
+func mockInternalGetSparseOperationMode(handle unsafe.Pointer, mode *C.uint) C.nvmlReturn_t {
+	if mode == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	state, ret := dev.GetSparseOperationMode()
+	if ret == nvml.SUCCESS {
+		*mode = C.uint(state)
+	}
+	return toReturn(ret)
 }
 
 // mockInternalIsVgpuHost reports whether the GPU runs the vGPU manager.

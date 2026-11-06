@@ -89,6 +89,7 @@ const (
 	slotProcessListFirst    = 213
 	slotProcessListLast     = 215
 	slotHostMaxPcieLinkGen  = 230
+	slotSparseOperationMode = 249
 	slotSetPersistenceMode  = 251
 	exportTableSlots        = 256
 )
@@ -135,9 +136,35 @@ func testInternalExportTable() []testResult {
 
 	results = append(results, testInternalProcessList(table, handle)...)
 	results = append(results, testInternalHostMaxPcieLinkGen(table, handle)...)
+	results = append(results, testInternalSparseMode(table)...)
 	results = append(results, testInternalGpuReset(table, handle)...)
 	results = append(results, testInternalSetPersistenceMode(table, handle)...)
 	results = append(results, testInternalOtherSlotsDoNotWrite(table, handle)...)
+	return results
+}
+
+func testInternalSparseMode(table unsafe.Pointer) []testResult {
+	const name = "internal/sparse_mode"
+	if os.Getenv("MOCK_NVML_CONFIG") == "" {
+		return []testResult{skippedResult(name, "needs the fixture config")}
+	}
+	var results []testResult
+	for _, tc := range []struct {
+		index uint
+		value uint32
+		ret   nvml.Return
+	}{
+		{0, 0xdeadbeef, nvml.ERROR_NOT_SUPPORTED},
+		{3, 1, nvml.SUCCESS},
+		{5, 0, nvml.SUCCESS},
+	} {
+		handle := C.mockDeviceHandle(table, slotDeviceHandleByIndex, C.uint(tc.index))
+		value := C.uint(0xdeadbeef)
+		ret := nvml.Return(C.mockCallSlot(table, slotSparseOperationMode, handle, unsafe.Pointer(&value), nil, nil))
+		results = append(results, testResult{fmt.Sprintf("%s/gpu%d", name, tc.index),
+			handle != nil && ret == tc.ret && uint32(value) == tc.value,
+			fmt.Sprintf("ret=%v value=%d, want ret=%v value=%d", ret, value, tc.ret, tc.value)})
+	}
 	return results
 }
 
@@ -377,6 +404,8 @@ func hasDedicatedTest(slot int) bool {
 	case slot == slotGpuReset, slot == slotGpuResetComplete:
 		return true
 	case slot == slotSetPersistenceMode:
+		return true
+	case slot == slotSparseOperationMode:
 		return true
 	default:
 		return false

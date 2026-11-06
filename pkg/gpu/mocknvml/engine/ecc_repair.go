@@ -238,6 +238,9 @@ func (d *ConfigurableDevice) GetDramEncryptionMode() (nvml.DramEncryptionInfo, n
 		debugLog("[NVML] nvmlDeviceGetDramEncryptionMode -> NOT_SUPPORTED (before Blackwell)\n")
 		return nvml.DramEncryptionInfo{}, nvml.DramEncryptionInfo{}, nvml.ERROR_NOT_SUPPORTED
 	}
+	if ecc := d.cfg().ECC; ecc == nil || ecc.DRAMEncryption == nil {
+		return nvml.DramEncryptionInfo{}, nvml.DramEncryptionInfo{}, nvml.ERROR_NOT_SUPPORTED
+	}
 	current, pending := d.dramEncryption()
 	debugLog("[NVML] nvmlDeviceGetDramEncryptionMode -> current=%d pending=%d\n", current, pending)
 	return nvml.DramEncryptionInfo{EncryptionState: uint32(current)},

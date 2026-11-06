@@ -13,6 +13,39 @@ Mock NVML supports two configuration methods:
 
 YAML configuration takes precedence when `MOCK_NVML_CONFIG` is set.
 
+### Optional feature support
+
+The following queries return `NVML_ERROR_NOT_SUPPORTED` when their configuration
+is absent from the effective device profile. This lets consumers report `N/A`
+instead of treating an unconfigured feature as supported with a zero value.
+
+| Configuration that declares support | Query |
+|------------------------------------|-------|
+| `gpu_operation_mode` | Current and pending GPU operation mode |
+| `sparse_operation_mode` | Sparse operation mode, queried through nvidia-smi's internal export table |
+| `retired_pages` | Retired-page lists (v1 and v2), pending status, and the corresponding field-value queries |
+| `ecc.dram_encryption` | Current and pending DRAM encryption mode; still requires Blackwell or later |
+| `thermal.target_temperature_c` | Current acoustic target temperature (`NVML_TEMPERATURE_THRESHOLD_ACOUSTIC_CURR`) |
+
+An explicit `target_temperature_c: 0` is supported. `sparse_operation_mode: false`
+declares a supported but disabled mode; `true` enables it. An empty `retired_pages: {}`
+block declares support for the existing empty retirement lists and disabled
+pending status. An empty `dram_encryption: {}` block declares disabled current
+and pending modes; omitting that block, even inside a configured `ecc` block,
+declares no support. GPU operation mode retains its existing `All On` response
+when its block is present.
+
+Devices inherit these settings from `device_defaults` when they omit the
+corresponding setting. An explicit per-device sparse-mode value replaces the
+default, including `false`. A per-device block replaces the defaults' entire block:
+for example, `thermal: {max_operating_c: 85}` does not inherit a default target
+temperature, and `ecc: {}` does not inherit default DRAM encryption. YAML
+`null` is treated as omission and does not clear an inherited block.
+
+These rules do not infer support from the architecture or add missing feature
+blocks to a profile. Existing architecture and driver-version restrictions
+still apply. See [Thermal](#thermal) and [Memory repair state](#memory-repair-state) for the related settings.
+
 ## Environment Variables
 
 | Variable | Description | Default |
@@ -226,6 +259,9 @@ as on real hardware. Ada and later expose them as signed T.Limit offsets
 field IDs), which `nvidia-smi -q` renders as the "T.Limit" rows. Pre-Ada
 architectures report `NVML_ERROR_NOT_SUPPORTED` for both, so `nvidia-smi -q`
 falls back to the absolute `GPU Shutdown / Slowdown / Max Operating Temp` rows.
+The target follows the [optional feature support](#optional-feature-support)
+rules. Threshold kinds without a modeled value return `NVML_ERROR_NOT_SUPPORTED`
+rather than the max-operating temperature.
 
 ### Fan
 

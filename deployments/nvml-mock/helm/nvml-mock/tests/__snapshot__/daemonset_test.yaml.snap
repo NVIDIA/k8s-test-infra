@@ -19,7 +19,7 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: cb1f51fccbc83fd08a84ae76dc38708fa7eff2a00948ba98d50d2a6c09ae287f
+            checksum/config: 360f945e3705f1bbbda5fff8888818decef619cd9329171843afaa60ac1cef83
             checksum/mig-profiles: 7f5c00954886487b5209e5d1724a12cb1c9555a6c1fbf79d10f385fed9923237
             kubectl.kubernetes.io/default-container: node-agent
           labels:

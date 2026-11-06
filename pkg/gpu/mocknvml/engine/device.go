@@ -884,6 +884,9 @@ func (d *ConfigurableDevice) GetTemperature(sensor nvml.TemperatureSensors) (uin
 
 // GetTemperatureThreshold returns temperature thresholds
 func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.TemperatureThresholds) (uint32, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
 	c := d.cfg()
 	if c.Thermal == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
@@ -896,8 +899,13 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 		temp = uint32(c.Thermal.SlowdownThreshold_C)
 	case nvml.TEMPERATURE_THRESHOLD_GPU_MAX:
 		temp = uint32(c.Thermal.MaxOperating_C)
+	case nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_CURR:
+		if c.Thermal.TargetTemperature_C == nil {
+			return 0, nvml.ERROR_NOT_SUPPORTED
+		}
+		temp = uint32(*c.Thermal.TargetTemperature_C)
 	default:
-		temp = uint32(c.Thermal.MaxOperating_C)
+		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 	debugLog("[NVML] nvmlDeviceGetTemperatureThreshold(type=%d) -> %d\n", thresholdType, temp)
 	return temp, nvml.SUCCESS
@@ -1698,8 +1706,31 @@ func (d *ConfigurableDevice) GetFBCSessions() ([]nvml.FBCSessionInfo, nvml.Retur
 
 // GetGpuOperationMode returns GPU operation mode
 func (d *ConfigurableDevice) GetGpuOperationMode() (nvml.GpuOperationMode, nvml.GpuOperationMode, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return 0, 0, ret
+	}
+	if d.cfg().GPUOperationMode == nil {
+		return 0, 0, nvml.ERROR_NOT_SUPPORTED
+	}
 	debugLog("[NVML] nvmlDeviceGetGpuOperationMode -> ALL_ON\n")
 	return nvml.GOM_ALL_ON, nvml.GOM_ALL_ON, nvml.SUCCESS
+}
+
+// GetSparseOperationMode serves nvidia-smi's internal sparse-mode query.
+func (d *ConfigurableDevice) GetSparseOperationMode() (nvml.EnableState, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	mode := d.cfg().SparseOperationMode
+	if mode == nil {
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+	state := nvml.FEATURE_DISABLED
+	if *mode {
+		state = nvml.FEATURE_ENABLED
+	}
+	debugLog("[NVML] sparse operation mode -> %d\n", state)
+	return state, nvml.SUCCESS
 }
 
 // nvlinkLinkInRange reports whether a link index is within the valid
@@ -2362,18 +2393,34 @@ func (d *ConfigurableDevice) sramLocationErrors(errorType nvml.MemoryErrorType, 
 
 // GetRetiredPages returns retired pages
 func (d *ConfigurableDevice) GetRetiredPages(_ nvml.PageRetirementCause) ([]uint64, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return nil, ret
+	}
+	if d.cfg().RetiredPages == nil {
+		return nil, nvml.ERROR_NOT_SUPPORTED
+	}
 	debugLog("[NVML] nvmlDeviceGetRetiredPages -> []\n")
 	return []uint64{}, nvml.SUCCESS
 }
 
 // GetRetiredPages_v2 returns retired pages with timestamps
-func (d *ConfigurableDevice) GetRetiredPages_v2(_ nvml.PageRetirementCause) ([]uint64, []uint64, nvml.Return) {
+func (d *ConfigurableDevice) GetRetiredPages_v2(cause nvml.PageRetirementCause) ([]uint64, []uint64, nvml.Return) {
+	pages, ret := d.GetRetiredPages(cause)
+	if ret != nvml.SUCCESS {
+		return nil, nil, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetRetiredPages_v2 -> [], []\n")
-	return []uint64{}, []uint64{}, nvml.SUCCESS
+	return pages, []uint64{}, nvml.SUCCESS
 }
 
 // GetRetiredPagesPendingStatus returns whether there are pending retired pages
 func (d *ConfigurableDevice) GetRetiredPagesPendingStatus() (nvml.EnableState, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	if d.cfg().RetiredPages == nil {
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
 	debugLog("[NVML] nvmlDeviceGetRetiredPagesPendingStatus -> NOT_PENDING\n")
 	return nvml.FEATURE_DISABLED, nvml.SUCCESS // No pending pages
 }
