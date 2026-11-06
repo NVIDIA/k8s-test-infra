@@ -191,7 +191,9 @@ func stageNvidiaSMIFrom(ctx context.Context, h *host.Host, state *agent.State, i
 	elfPath := filepath.Join(binDir, nvidiaSMIName)
 	src, version, err := img.pick(dv)
 	if err != nil {
-		zap.L().Debug("no nvidia-smi ELF binary in image; staging the shell fallback", zap.Error(err))
+		// The shipped image always bundles one, so this is a broken image:
+		// the stub prints a banner and nothing else nvidia-smi does.
+		zap.L().Warn("no nvidia-smi binary in the image; staging the shell stub", zap.Error(err))
 		return fsutil.Symlink("nvidia-smi.sh", elfPath)
 	}
 	if err := fsutil.Copy(src, elfPath, 0o755); err != nil {
@@ -201,7 +203,7 @@ func stageNvidiaSMIFrom(ctx context.Context, h *host.Host, state *agent.State, i
 
 	// Fail open: consumers already get the staged binary, and the pod keeps
 	// the image's own nvidia-smi if its PATH entry cannot be repointed.
-	if err := fsutil.Symlink(elfPath, img.podPath); err != nil {
+	if err := repoint(elfPath, img.podPath); err != nil {
 		zap.L().Warn("node agent's own nvidia-smi still runs the image default, not the staged one",
 			zap.String("path", img.podPath), zap.Error(err))
 	}

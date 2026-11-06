@@ -40,11 +40,16 @@ A real node's `nvidia-smi` comes with its driver, and a binary from another
 branch misreads a driver's answers: NVML numbered some field values
 differently, and from 615 it addresses 36 NVLinks per GPU where 580 addressed
 18. The image therefore ships one `nvidia-smi` per driver branch, 580.65.06
-and 615.71.09, and `gpudriver` stages the one from the profile's
-`system.driver_version` branch (or the chart's `driverVersion`). A driver with
-no bundled binary of its own branch gets the newest older one, never a newer
-one: NVML serves callers built for older drivers only. Running
-`nvidia-smi` in the node daemon's pod runs that same staged copy.
+and 615.71.09, and `gpudriver` stages one by the profile's
+`system.driver_version` (or the chart's `driverVersion`):
+
+- Within the driver's branch, the newest binary not newer than the driver, or
+  the branch's oldest when every one is newer: a binary of another branch can
+  address a different number of NVLinks.
+- A driver with no binary of its own branch gets the newest of an older
+  branch, never a newer one: NVML serves callers built for older drivers only.
+
+Running `nvidia-smi` in the node daemon's pod runs that same staged copy.
 
 | Profile driver | `nvidia-smi` |
 |---|---|
@@ -58,7 +63,9 @@ shows them as `N/A`. No shipped profile uses such a driver.
 
 The binaries come from NVIDIA's CUDA repository (580) and Canonical's Ubuntu
 archive (615, repackaged from NVIDIA's driver installer), pinned in
-`deployments/nvml-mock/Dockerfile`. `make nvidia-smi-smoke` runs each of them
+`deployments/nvml-mock/Dockerfile`. The 615 package is checked against its
+pinned checksum, so any source will do: Launchpad, the Ubuntu archive, or one
+added to the `NVIDIA_SMI_615_URLS` build argument. `make nvidia-smi-smoke` runs each of them
 against the mock NVML without a cluster.
 
 ## The reconcile lifecycle

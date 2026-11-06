@@ -38,17 +38,23 @@ const nvidiaSMIName = "nvidia-smi"
 
 var errNoBundledNvidiaSMI = errors.New("no bundled nvidia-smi")
 
-// pick returns the bundled nvidia-smi for driver and its version: the newest
-// whose branch is not newer than the driver's. A real node's nvidia-smi comes
-// with its driver, and the NVML field ids and NVLink count it reads changed
-// between branches, so a binary from another branch misreads the mock's
-// answers. NVML serves callers built for older drivers, never newer ones, which
-// is why an older branch is the fallback. A driver older than every bundled
-// branch gets the oldest.
+// pick returns the bundled nvidia-smi for driver and its version, as
+// chooseNvidiaSMI picks it.
 func (img nvidiaSMIImage) pick(driver string) (string, string, error) {
+	versions, err := img.bundled()
+	if err != nil {
+		return "", "", err
+	}
+	chosen := chooseNvidiaSMI(versions, driver)
+	return filepath.Join(img.bundledDir, chosen, nvidiaSMIName), chosen, nil
+}
+
+// bundled lists the versions of the nvidia-smi binaries img ships, oldest
+// first.
+func (img nvidiaSMIImage) bundled() ([]string, error) {
 	entries, err := os.ReadDir(img.bundledDir)
 	if err != nil {
-		return "", "", fmt.Errorf("%w: %w", errNoBundledNvidiaSMI, err)
+		return nil, fmt.Errorf("%w: %w", errNoBundledNvidiaSMI, err)
 	}
 	var versions []string
 	for _, e := range entries {
@@ -61,19 +67,61 @@ func (img nvidiaSMIImage) pick(driver string) (string, string, error) {
 		versions = append(versions, e.Name())
 	}
 	if len(versions) == 0 {
-		return "", "", fmt.Errorf("%w in %s", errNoBundledNvidiaSMI, img.bundledDir)
+		return nil, fmt.Errorf("%w in %s", errNoBundledNvidiaSMI, img.bundledDir)
 	}
 	slices.SortFunc(versions, engine.CompareDriverVersions)
+	return versions, nil
+}
 
-	chosen := versions[0]
-	if want, ok := branchOf(driver); ok {
-		for _, v := range versions {
-			if b, _ := branchOf(v); b <= want {
-				chosen = v
-			}
+// chooseNvidiaSMI picks, from versions sorted oldest first, the nvidia-smi a
+// node on driver runs. A real node's nvidia-smi comes with its driver, and the
+// NVML field ids and NVLink count it reads changed between branches, so a
+// binary from another branch misreads the mock's answers.
+//
+//   - Within the driver's branch: the newest binary not newer than the driver,
+//     or the branch's oldest when every one is newer. A binary of the same
+//     branch addresses the same NVLinks, which an older branch's may not.
+//   - A driver with no binary of its branch: the newest of the newest older
+//     branch. NVML serves callers built for older drivers, never newer ones.
+//   - A driver older than every bundled branch, or none: the oldest.
+func chooseNvidiaSMI(versions []string, driver string) string {
+	want, ok := branchOf(driver)
+	if !ok {
+		return versions[0]
+	}
+	// versions is ascending, so the last match of each kind is the newest.
+	var sameBranch, olderBranch string
+	for _, v := range versions {
+		switch b, _ := branchOf(v); {
+		case b < want:
+			olderBranch = v
+		case b == want && (sameBranch == "" || engine.CompareDriverVersions(v, driver) <= 0):
+			sameBranch = v
 		}
 	}
-	return filepath.Join(img.bundledDir, chosen, nvidiaSMIName), chosen, nil
+	switch {
+	case sameBranch != "":
+		return sameBranch
+	case olderBranch != "":
+		return olderBranch
+	default:
+		return versions[0]
+	}
+}
+
+// repoint points link at target in one rename, so link keeps its old target
+// when the new one cannot be made.
+func repoint(target, link string) error {
+	tmp := link + ".staging"
+	_ = os.Remove(tmp)
+	if err := os.Symlink(target, tmp); err != nil {
+		return fmt.Errorf("symlink %s -> %s: %w", tmp, target, err)
+	}
+	if err := os.Rename(tmp, link); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("rename %s to %s: %w", tmp, link, err)
+	}
+	return nil
 }
 
 // branchOf returns the driver branch of a version string: 580 for 580.65.06.

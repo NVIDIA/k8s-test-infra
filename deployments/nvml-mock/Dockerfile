@@ -70,10 +70,15 @@ ARG NVIDIA_SMI_580_PACKAGE=nvidia-utils-580=580.65.06-0ubuntu1
 # 615 from Canonical's archive. NVIDIA's CUDA repositories carry no 615
 # nvidia-utils package yet; Canonical's does, repackaging the binaries of
 # NVIDIA's 615.71.09 installer (the arm64 nvidia-smi is byte-identical to the
-# installer's), in a 640 KB package instead of the whole driver. Launchpad
-# keeps every file it has published, so the URL outlives newer 615 uploads;
-# the checksums pin the bytes.
+# installer's), in a 640 KB package instead of the whole driver. The checksums
+# pin the bytes, so any source will do; the first that serves them wins.
+# Launchpad keeps every file it has published, so its URL outlives newer 615
+# uploads. The Ubuntu archive pools (amd64 on archive.ubuntu.com, arm64 on
+# ports.ubuntu.com) cover networks that block Launchpad until the package is
+# superseded; past that, pass a source that keeps it (snapshot.ubuntu.com, for
+# amd64) in NVIDIA_SMI_615_URLS. {deb} is the package's file name.
 ARG NVIDIA_SMI_615_PACKAGE=nvidia-utils-615-server_615.71.09-0ubuntu0.22.04.1
+ARG NVIDIA_SMI_615_URLS="https://launchpad.net/ubuntu/+archive/primary/+files/{deb} http://archive.ubuntu.com/ubuntu/pool/multiverse/n/nvidia-graphics-drivers-615-server/{deb} http://ports.ubuntu.com/ubuntu-ports/pool/multiverse/n/nvidia-graphics-drivers-615-server/{deb}"
 ARG NVIDIA_SMI_615_SHA256_AMD64=9294fabc15010dee248244fb6b4fd7f2dc093fab65508428c86ef404ad3a731e
 ARG NVIDIA_SMI_615_SHA256_ARM64=b1646aad3b9acb1439c3b6ea94de8c8946b631ee9edb962ea5e5ea2b29c85b5a
 RUN set -eux; \
@@ -98,8 +103,15 @@ RUN set -eux; \
       *) echo "no 615 nvidia-smi pinned for ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     deb="${NVIDIA_SMI_615_PACKAGE}_${TARGETARCH}.deb"; \
-    curl -fsSL -o "/tmp/${deb}" "https://launchpad.net/ubuntu/+archive/primary/+files/${deb}"; \
-    echo "${sha256}  /tmp/${deb}" | sha256sum -c -; \
+    got=; \
+    for url in ${NVIDIA_SMI_615_URLS}; do \
+      url=$(echo "${url}" | sed "s|{deb}|${deb}|"); \
+      if curl -fsSL --connect-timeout 20 -o "/tmp/${deb}" "${url}" \
+          && echo "${sha256}  /tmp/${deb}" | sha256sum -c -; then got="${url}"; break; fi; \
+      echo "nvidia-smi 615: ${url} did not serve the pinned package; trying the next source" >&2; \
+      rm -f "/tmp/${deb}"; \
+    done; \
+    [ -n "${got}" ] || { echo "no source served ${deb} with the pinned checksum" >&2; exit 1; }; \
     dpkg-deb -x "/tmp/${deb}" /tmp/615; \
     version="${NVIDIA_SMI_615_PACKAGE#*_}"; \
     stage /tmp/615 "${version%%-*}"; \

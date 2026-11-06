@@ -47,7 +47,7 @@ func TestNvidiaSMIImage_PicksTheDriversBranch(t *testing.T) {
 		"580.95.05":  "580.65.06",
 		"595.91.07":  "580.65.06", // no 595 binary, and 615 would be newer than the driver
 		"615.71.09":  "615.71.09",
-		"615.20":     "615.71.09", // same branch
+		"615.20":     "615.71.09", // the branch's oldest: 580 would miss 615's NVLinks
 		"620.10.01":  "615.71.09",
 		"550.163.01": "580.65.06", // older than every bundled branch: the oldest
 		"":           "580.65.06",
@@ -56,6 +56,29 @@ func TestNvidiaSMIImage_PicksTheDriversBranch(t *testing.T) {
 		require.NoError(t, err, "driver %q", driver)
 		require.Equal(t, want, version, "driver %q", driver)
 		require.Equal(t, filepath.Join(img.bundledDir, want, nvidiaSMIName), path, "driver %q", driver)
+	}
+}
+
+// Within the driver's branch a node gets the newest binary not newer than its
+// driver, as field layouts also change within a branch; it leaves the branch
+// only when the branch has no binary at all.
+func TestNvidiaSMIImage_PicksWithinTheDriversBranch(t *testing.T) {
+	t.Parallel()
+	img := fakeNvidiaSMIImage(t, "580.65.06", "580.95.05", "615.71.09")
+
+	for driver, want := range map[string]string{
+		"580.65.06":  "580.65.06",
+		"580.82.07":  "580.65.06",
+		"580.95.05":  "580.95.05",
+		"580.105.08": "580.95.05",
+		"580.20":     "580.65.06", // every 580 binary is newer: the branch's oldest
+		"595.91.07":  "580.95.05", // no 595 binary: the newest of 580
+		"615.20":     "615.71.09",
+		"620.10.01":  "615.71.09",
+	} {
+		_, version, err := img.pick(driver)
+		require.NoError(t, err, "driver %q", driver)
+		require.Equal(t, want, version, "driver %q", driver)
 	}
 }
 
@@ -95,6 +118,31 @@ func TestStageNvidiaSMI_StagesTheDriversBranch(t *testing.T) {
 			require.Equal(t, staged, target)
 		})
 	}
+}
+
+// When the pod's PATH entry cannot be repointed, the pod keeps the nvidia-smi
+// it had rather than losing it, and staging still succeeds.
+func TestStageNvidiaSMI_KeepsThePodsNvidiaSMIWhenRepointingFails(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	state := testState(t)
+	state.Software.DriverVersion = "615.71.09"
+	img := fakeNvidiaSMIImage(t, "580.65.06", "615.71.09")
+	before, err := os.Readlink(img.podPath)
+	require.NoError(t, err)
+	// A non-empty directory where the new link goes first: no symlink can be
+	// made there, even as root.
+	blocker := img.podPath + ".staging"
+	require.NoError(t, os.MkdirAll(filepath.Join(blocker, "occupied"), 0o755))
+
+	require.NoError(t, stageNvidiaSMIFrom(t.Context(), h, state, img))
+
+	after, err := os.Readlink(img.podPath)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	data, err := os.ReadFile(h.RootPath("driver/usr/bin", nvidiaSMIName))
+	require.NoError(t, err)
+	require.Equal(t, "615.71.09", string(data), "consumers still get the staged copy")
 }
 
 // Without a bundled binary the shell fallback is staged as before, and the
