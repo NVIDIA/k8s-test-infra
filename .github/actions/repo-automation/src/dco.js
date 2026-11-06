@@ -87,6 +87,10 @@ function validateCommit(entry, index) {
     throw new TypeError(`commits[${index}].commit.author.email must be an email address`);
   }
 
+  if (entry.parents !== undefined && !Array.isArray(entry.parents)) {
+    throw new TypeError(`commits[${index}].parents must be an array`);
+  }
+
   if (entry.author !== null) {
     if (!isRecord(entry.author)) {
       throw new TypeError(`commits[${index}].author must be an object or null`);
@@ -193,6 +197,14 @@ function matchingBot(entry, botPolicy) {
   )) ?? null;
 }
 
+// Merge commits are exempt, as in the probot DCO app. GitHub's "Update branch"
+// button creates them without a Signed-off-by trailer, and the PR commit list
+// still includes every commit a merge brings in, so each of those is checked on
+// its own. Squash-only merging also keeps merge commits off the default branch.
+function isMergeCommit(entry) {
+  return Array.isArray(entry.parents) && entry.parents.length > 1;
+}
+
 function dcoFailure(entry) {
   const author = entry.commit.author;
   const authorDisplay = formatIdentity(author);
@@ -241,7 +253,7 @@ function evaluateDco(commits, botPolicy) {
       failures.push(safetyFailure);
       continue;
     }
-    if (matchingBot(entry, botPolicy) !== null) {
+    if (isMergeCommit(entry) || matchingBot(entry, botPolicy) !== null) {
       exempted.push(entry.sha);
       continue;
     }
