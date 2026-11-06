@@ -1129,6 +1129,15 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.ECC != nil {
 		base.ECC = override.ECC
 	}
+	if override.RetiredPages != nil {
+		base.RetiredPages = override.RetiredPages
+	}
+	if override.GPUOperationMode != nil {
+		base.GPUOperationMode = override.GPUOperationMode
+	}
+	if override.SparseOperationMode != nil {
+		base.SparseOperationMode = override.SparseOperationMode
+	}
 	if override.DynamicMetrics != nil {
 		base.DynamicMetrics = override.DynamicMetrics
 	}

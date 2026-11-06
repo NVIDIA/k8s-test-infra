@@ -228,9 +228,9 @@ func TestDramEncryption_UnsupportedBeforeBlackwell(t *testing.T) {
 		dev.SetDramEncryptionMode(&nvml.DramEncryptionInfo{EncryptionState: uint32(nvml.FEATURE_ENABLED)}))
 }
 
-func TestDramEncryption_DefaultsToDisabled(t *testing.T) {
+func TestDramEncryption_ExplicitBlockDefaultsToDisabled(t *testing.T) {
 	t.Parallel()
-	dev := newTestDeviceWithConfig(t, repairConfig("blackwell", nil, nil))
+	dev := newTestDeviceWithConfig(t, repairConfig("blackwell", nil, &ECCConfig{DRAMEncryption: &ECCDRAMEncryptionConfig{}}))
 
 	current, pending, ret := dev.GetDramEncryptionMode()
 	require.Equal(t, nvml.SUCCESS, ret)

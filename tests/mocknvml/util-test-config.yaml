@@ -433,6 +433,7 @@ devices:
     pci:
       bus_id: "0000:4E:00.0"
     minor_number: 3
+    sparse_operation_mode: true
     # The only graphics process in the fixture, so the graphics running-process
     # query has a non-empty answer to probe: the defaults run a compute process
     # and device 1 runs none, which between them cover neither.
@@ -455,6 +456,7 @@ devices:
     pci:
       bus_id: "0000:90:00.0"
     minor_number: 5
+    sparse_operation_mode: false
     # The one device that models power smoothing, so the bridge suite drives
     # the setters (testPowerPolicy) while every other A100 refuses them. A
     # device's power block replaces the default one whole, hence the limits.

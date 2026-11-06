@@ -351,6 +351,8 @@ device_defaults:
     current: "all_on"
     pending: "all_on"
 
+  sparse_operation_mode: false
+
   # ---------------------------------------------------------------------------
   # Driver model (Windows only)
   # ---------------------------------------------------------------------------

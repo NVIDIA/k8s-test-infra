@@ -2629,6 +2629,8 @@ should match snapshot with h100 profile:
             current: "all_on"
             pending: "all_on"
 
+          sparse_operation_mode: false
+
           # ---------------------------------------------------------------------------
           # Driver model (Windows only)
           # ---------------------------------------------------------------------------
