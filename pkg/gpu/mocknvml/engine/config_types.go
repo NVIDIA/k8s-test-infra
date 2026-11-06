@@ -332,7 +332,10 @@ type PCIConfig struct {
 
 // PCIeConfig defines PCIe link information
 type PCIeConfig struct {
-	MaxLinkGen       int    `json:"max_link_gen,omitzero"`
+	MaxLinkGen int `json:"max_link_gen,omitzero"`
+	// MaxDeviceLinkGen is the GPU's own capability. Zero keeps older profiles
+	// compatible by falling back to MaxLinkGen.
+	MaxDeviceLinkGen int    `json:"max_device_link_gen,omitzero"`
 	CurrentLinkGen   int    `json:"current_link_gen,omitzero"`
 	MaxLinkWidth     int    `json:"max_link_width,omitzero"`
 	CurrentLinkWidth int    `json:"current_link_width,omitzero"`

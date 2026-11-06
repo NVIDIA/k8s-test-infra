@@ -61,16 +61,15 @@ func JpgOfaUtilization(ctx context.Context, k *kube.Client, pod kube.PodRef, wan
 		"JPEG/OFA utilization wrong:\n%s", strings.Join(problems, "\n"))
 }
 
-// PCIeIdentity asserts nvidia-smi -q -x reports per-GPU PCIe identity values a
-// real GPU could produce: the link, device and host maxima all at the profile's
-// configured generation rather than N/A or Gen0, and a non-zero board ID that is
-// unique across the node. See issue #638.
+// PCIeIdentity asserts nvidia-smi -q -x reports the profile's link and device
+// PCIe generations, along with a non-zero board ID unique across the node.
 func PCIeIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
 	ginkgo.GinkgoHelper()
 
-	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x PCIe identity on %s (Gen%d, %d GPUs)",
-		p.Name, p.MaxPCIeLinkGen(), p.ExpectedGPUs()))
-	problems := PCIeIdentityProblems(query(ctx, k, pod), p.ExpectedGPUs(), p.MaxPCIeLinkGen())
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x PCIe identity on %s (Max Gen%d, Device Max Gen%d, %d GPUs)",
+		p.Name, p.MaxPCIeLinkGen(), p.MaxPCIeDeviceLinkGen(), p.ExpectedGPUs()))
+	problems := PCIeIdentityProblems(query(ctx, k, pod), p.ExpectedGPUs(), p.MaxPCIeLinkGen(),
+		p.CurrentPCIeLinkGen(), p.MaxPCIeDeviceLinkGen())
 	gomega.Expect(problems).To(gomega.BeEmpty(),
 		"PCIe identity wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
 }

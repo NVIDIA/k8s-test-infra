@@ -178,6 +178,18 @@ func TestLoadConfig_GB300Profile(t *testing.T) {
 	require.Equal(t, 18, yamlCfg.NVLink.LinksPerGPU, "GB300 nvlink.links_per_gpu")
 }
 
+func TestLoadConfig_GB200PCIeGenerations(t *testing.T) {
+	profilePath := filepath.Join(testdataDir(), "gb200.yaml")
+
+	yamlCfg, err := LoadYAMLConfig(profilePath)
+	require.NoError(t, err, "Failed to load GB200 profile")
+	pcie := yamlCfg.DeviceDefaults.PCIe
+	require.NotNil(t, pcie, "GB200 PCIe config is nil")
+	require.Equal(t, 5, pcie.MaxLinkGen, "GB200 negotiated max PCIe generation")
+	require.Equal(t, 6, pcie.MaxDeviceLinkGen, "GB200 device max PCIe generation")
+	require.Equal(t, 5, pcie.CurrentLinkGen, "GB200 current PCIe generation")
+}
+
 // noBwMode marks a profile without an nvlink.bw_mode block: no
 // bandwidth-mode call answers, as on boards before Hopper.
 const noBwMode NVLinkBwModeScope = ""
