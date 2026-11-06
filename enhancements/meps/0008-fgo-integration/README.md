@@ -1,3 +1,4 @@
+# MEP-0008: KWOK Integration
 
 Author: [Roman Hlushko](https://github.com/roma-glushko)
 
@@ -5,18 +6,25 @@ Author: [Roman Hlushko](https://github.com/roma-glushko)
 - [Summary](#summary)
 - [Motivation](#motivation)
   - [Background](#background)
-    - [The Run:ai Fake GPU Operator](#the-runai-fake-gpu-operator)
-    - [What Mokka does today](#what-mokka-does-today)
-    - [Limits of the current integration](#limits-of-the-current-integration)
+    - [Fake Backend](#fake-backend)
+    - [KWOK](#kwok)
+    - [Run:ai x Mokka Integration (Mock Backend)](#runai-x-mokka-integration-mock-backend)
+    - [NVIDIA Ecosystem Integrations](#nvidia-ecosystem-integrations)
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
-  - [User Stories (Optional)](#user-stories-optional)
-    - [Story 1 (Optional)](#story-1-optional)
-    - [Story 2 (Optional)](#story-2-optional)
+  - [User Stories](#user-stories)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
+  - [KWOK Integration](#kwok-integration)
+    - [KWOK Components](#kwok-components)
+    - [KWOK Provisioner](#kwok-provisioner)
+    - [KWOK Data Plane](#kwok-data-plane)
+    - [Separating CPU and KWOK Racks](#separating-cpu-and-kwok-racks)
+    - [GPU Footprint in KWOK Virtual Nodes](#gpu-footprint-in-kwok-virtual-nodes)
+    - [KWOK Installation](#kwok-installation)
+    - [KAI Use Cases](#kai-use-cases)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
 <!-- /toc -->
@@ -24,293 +32,46 @@ Author: [Roman Hlushko](https://github.com/roma-glushko)
 ## Summary
 
 The proposal explores how to incorporate the relevant portion of
-[Run:AI Fake GPU Operator (FGO)](https://github.com/run-ai/fake-gpu-operator) functionality directly into Mokka.
+[Run:ai Fake GPU Operator (FGO)](https://github.com/run-ai/fake-gpu-operator) functionality directly into Mokka.
+This MEP covers KWOK support; [MEP0009](../0009-workload-aware-dynamic-metrics/README.md) and [MEP0010](../0010-numa-aware-scheduling/README.md) cover the other parts.
 
 ## Motivation
 
 The integration will enable Mokka to:
-- consolidate Mokka and Run:AI team's effort in one single project. Save time and effort on FGO maintenance
-- replace FGO in Run:AI and KAI Scheduler CI/CD pipelines.
-- extend Mokka's functionality with optional KWOK (no kubelet, virtual nodes) support for cheap and massive load testing where accessing `nvidia-smi` and other on-host tools and libs are not needed.
+- consolidate the Mokka and Run:ai teams' efforts in one project, saving time and effort on FGO maintenance.
+- replace FGO in Run:ai and KAI Scheduler CI/CD pipelines.
+- extend Mokka's functionality with optional KWOK (no kubelet, virtual nodes) support for cheap, massive load testing where access to `nvidia-smi` and other on-host tools and libraries isn't needed.
 
 ### Background
 
-[Fake GPU Operator (FGO)](https://github.com/run-ai/fake-gpu-operator) is a Kubernetes operator for testing Run:AI's GPU scheduling capabilities
-without having real, expensive GPU wasted on that activity.
+[Fake GPU Operator (FGO)](https://github.com/run-ai/fake-gpu-operator) is a Kubernetes operator for testing Run:ai's GPU scheduling capabilities
+without wasting real, expensive GPUs on that activity.
 
 FGO supports two backends:
 
-- `fake` - the primary FGO mode. It uses a custom, fake instances of nvidia-smi, device driver, DRA plugin, etc. in order to simulate presence of GPU devices on the node.
+- `fake` - the primary FGO mode. It uses custom, fake instances of `nvidia-smi`, the device driver, the DRA plugin, etc. to simulate the presence of GPUs on the node.
 - `mock` - the prior integration with Mokka during the early days of the Mokka project.
 
 #### Fake Backend
 
-The idea behind the `fake` backend is to fake the NVIDIA GPU infrastructure in order to propagate simulated GPU to Kubernetes:
+The idea behind the `fake` backend is to fake the NVIDIA GPU infrastructure to propagate simulated GPUs to Kubernetes:
 
-- FGO is deployed to `gpu-operator` namespace to mimic presence of real GPU operator
-- FGO comes with a custom device plugin that propagates GPU capacity of the node
-- FGO comes with the `status-exporter` deamonset that mimics DGCM metrics
+- FGO is deployed to the `gpu-operator` namespace to mimic the presence of the real GPU Operator
+- FGO comes with a custom device plugin that propagates the node's GPU capacity
+- FGO comes with the `status-exporter` DaemonSet that mimics DCGM metrics
 - FGO installs a custom `nvidia-smi` binary that supports a subset of commands and flags of the original `nvidia-smi`.
 
-This gives the Kubernetes API level GPU simulation.
+This gives GPU simulation at the Kubernetes API level.
 
 ##### Node Lifecycle
 
 ![FGO SGPU Propagation on Node Startup](./img/fgo-sgpu-on-node-startup.png)
 
-### Metrics
-
-FGO supports utilization simulation via custom annotations:
-
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: fixed-30
-  namespace: fgo-lab-04
-  annotations:
-    run.ai/simulated-gpu-utilization: "30"
-spec:
-  terminationGracePeriodSeconds: 0
-  containers:
-    - name: main
-      image: "ubuntu:22.04"
-      command: ["sleep", "infinity"]
-      resources: 
-        limits: 
-          nvidia.com/gpu: 1
-```
-
-The `run.ai/simulated-gpu-utilization` annotation can be:
-- a fixed value like `30` which means 30% utilization
-- a range like `30-60` so the actual value is sampled from the range
-
-Apart from that there are few utilization pattern kinds:
-
-- `workloadKind: train` - jitter in the 80-100 GPU utilization range
-- `workloadKind: interactive` - 0 GPU utilization
-- `workloadKind: inference` - 0 GPU utilization
-
-Memory utilization is reported based on `GPU memory x GPU fraction` where [GPU fraction](#resource-reservation--gpu-fractions) is another custom annotation:
-
-```yaml
-annotations:
-  gpu-fraction: "0.25"
-  run.ai/simulated-gpu-utilization: "50"
-```
-
-The `status-exporter` runs on the node and responsible for simulation and submitting utilization metrics via a well-known DCGM port `9400`:
-
-```mermaid
-flowchart TB
-    pod["Pod training (API object)<br/>label workloadKind:<br/>TrainingWorkload"]
-    su["status-updater (Deployment)<br/>calculateUsage:<br/>label → range 80–100"]
-    cm["ConfigMap topology-n1<br/>(node GPU state)<br/>GPU0, pod UID →<br/>utilization min 80, max 100"]
-
-    subgraph n1["Node n1"]
-        subgraph se["status-exporter (DaemonSet pod)"]
-            watch["watcher: reads the<br/>ConfigMap on change<br/>(or after 10 s quiet)"]
-            pick["every 10 s: pick a<br/>random number in<br/>the range → 87"]
-            dcgm["value kept in memory,<br/>served on :9400/metrics<br/>DCGM_FI_DEV_GPU_UTIL<br/>{pod=training} = 87"]
-        end
-    end
-
-    prom["Prometheus"]
-
-    pod ~~~ su
-    su -->|"watches pods"| pod
-    su -->|"reads, sets GPU status,<br/>writes back"| cm
-    cm ~~~ watch
-    watch -->|"watches"| cm
-    watch -->|"sends node GPU state"| pick
-    pick -->|"stores current value"| dcgm
-    dcgm ~~~ prom
-    prom -->|"scrapes"| dcgm
-
-    classDef state fill:#fff3bf,stroke:#e0a800,color:#000
-    classDef seen fill:#d3f9d8,stroke:#2b8a3e,color:#000
-    class cm state
-    class dcgm seen
-    style n1 stroke-dasharray: 6 4
-```
-
-The metric looks like this in raw Prometheus (less labels than real DCGM sends):
-
-```prometheus
-DCGM_FI_DEV_GPU_UTIL{Hostname="nvidia-dcgm-exporter-ce3313",UUID="GPU-299e8440-...",container="main",
-  device="nvidia2",gpu="2",modelName="NVIDIA A100-SXM4-40GB",namespace="fgo-lab-04",pod="ranged-20-60"} 59
-```
-
-### Resource Reservation & GPU Fractions
-
-Run:ai and KAI share one physical GPU between several workloads without any real GPU partitioning. This is an optimization to bind one GPU to multiple low GPU consumption pods that do need real GPU resource without underutilizating the whole GPU device.
-
-They park a reservation pod that holds the whole GPU device through the ordinary `nvidia.com/gpu` resource,
-then place fractional pods that request no GPU resource at all and just point at the reservation. The kubelet only knows about the reservation pod.
-
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: reservation-g1
-  namespace: runai-reservation # a namespace for placing reservation pods
-  labels:
-    runai-gpu-group: g1 # the pod group that is then being turned into GPU assignment annotation by FGO e.g. run.ai/reserve_for_gpu_index: GPU-775135a6-f582-540e-84df-8f4e9a049910
-spec:
-  terminationGracePeriodSeconds: 0
-  containers:
-    - name: reserve
-      image: ubuntu:22.04
-      command: ["sleep", "infinity"]
-      resources:
-        limits:
-          nvidia.com/gpu: 1 # requests GPU device
-```
-
-Then, the fractional pod looks like this:
-
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: frac-a
-  namespace: fgo-lab-05
-  labels:
-    runai-gpu-group: g1 # the same gpu group reference
-  annotations:
-    gpu-fraction: "0.5" # the gpu fraction is set
-    run.ai/simulated-gpu-utilization: "30-40"
-spec:
-  terminationGracePeriodSeconds: 0
-  affinity:
-    podAffinity: # podAffinity places the fractional pod on the same node as the reservation pod
-      requiredDuringSchedulingIgnoredDuringExecution:
-        - topologyKey: kubernetes.io/hostname
-          namespaces: ["runai-reservation"]
-          labelSelector:
-            matchLabels:
-              runai-gpu-group: g1
-  containers:
-    - name: main
-      image: ubuntu:22.04
-      command: ["sleep", "infinity"]
-      env:
-        - name: NODE_NAME
-          valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
-        - name: POD_UUID
-          valueFrom: {fieldRef: {fieldPath: metadata.uid}}
-        - name: RUNAI_NUM_OF_GPUS
-          value: "0.5"
-      volumeMounts:
-        - name: smi
-          mountPath: /bin/nvidia-smi # nvidia-smi is how Run:AI bridge no GPU pod to a GPU
-  volumes:
-    - name: smi
-      hostPath:
-        path: /var/lib/runai/bin/nvidia-smi
-        type: File
-
-  # Note that it requests no GPU by itself
-```
-
-The fractional pods get access to GPU device via shared `nvidia-smi` CLI mounted from a GPU-enabled node.
-
-The `status-exporter` also leaves a few files intended for Run:AI container toolkit on the node filesystem:
-
-- `/var/lib/runai/proc/pod/<pod UID>/metrics/gpu/<GPU index>/utilization.sm` - e.g. "34" percent
-- `/var/lib/runai/proc/pod/<pod UID>/metrics/gpu/<GPU index>/memory.allocated` - e.g. "20480000000" bytes
-- `/var/lib/runai/proc/events/` - created, always empty
-
-#### NUMA-aware Scheduling
-
-NUMA-aware schedulers (KAI, the Kubernetes scheduler-plugins) place GPU pods by reading one `NodeResourceTopology` (NRT) object per node:
-
-```
-Name:         fgo-lab-worker
-Namespace:    
-Labels:       <none>
-Annotations:  <none>
-API Version:  topology.node.k8s.io/v1alpha2
-Attributes:
-  Name:   topologyManagerPolicy
-  Value:  single-numa-node
-  Name:   topologyManagerScope
-  Value:  container
-Kind:     NodeResourceTopology
-Metadata:
-  Creation Timestamp:  2026-10-28T17:05:25Z
-  Generation:          1
-  Owner References:
-    API Version:     v1
-    Kind:            Node
-    Name:            fgo-lab-worker
-    UID:             0ec5ff95-72a6-4db8-a9ff-d41c3fffcb38
-  Resource Version:  922551
-  UID:               01ea8497-64d0-4cd6-9fb0-6a91591e38f5
-Topology Policies:
-  SingleNUMANodeContainerLevel
-Zones:
-  Costs:
-    Name:   node-0
-    Value:  10
-    Name:   node-1
-    Value:  21
-  Name:     node-0
-  Resources:
-    Allocatable:  4
-    Available:    4
-    Capacity:     4
-    Name:         nvidia.com/gpu
-    Allocatable:  9
-    Available:    9
-    Capacity:     9
-    Name:         cpu
-    Allocatable:  8211190Ki
-    Available:    8211190Ki
-    Capacity:     8211190Ki
-    Name:         memory
-  Type:           Node
-  Costs:
-    Name:   node-0
-    Value:  21
-    Name:   node-1
-    Value:  10
-  Name:     node-1
-  Resources:
-    Allocatable:  4
-    Available:    4
-    Capacity:     4
-    Name:         nvidia.com/gpu
-    Allocatable:  9
-    Available:    9
-    Capacity:     9
-    Name:         cpu
-    Allocatable:  8211190Ki
-    Available:    8211190Ki
-    Capacity:     8211190Ki
-    Name:         memory
-  Type:           Node
-Events:           <none>
-```
-
-FGO can fabricate those from a `numa` block in a pool.
-
-On the real node though, NFD should create NRT resources. This is roughly the information considered by NFD:
-
-| Path on the node                                                           | Used for                                                                                                                                                               |
-|----------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `/sys/devices/system/node/node<N>/` (the directory list)                   | **Which zones exist.** Each `node<N>` becomes zone `node-<N>`                                                                                                          |
-| `/sys/devices/system/node/node<N>/cpu<M>/` and `…/cpu<M>/topology/core_id` | **Which CPUs belong to which zone.** Maps CPU IDs to zones. CPUs the kubelet doesn't list as allocatable count as reserved and are added to that zone's CPU *capacity* |
-| `/sys/devices/system/node/node<N>/distance`                                | Zone **costs** (e.g. `10 21`)                                                                                                                                          |
-| `/sys/bus/node/devices/node<N>/meminfo` (`MemTotal` line)                  | **Memory capacity** per zone                                                                                                                                           |
-| `/sys/bus/node/devices/node<N>/hugepages/hugepages-<size>kB/nr_hugepages`  | **Hugepages capacity** per zone (`hugepages-2Mi`, `hugepages-1Gi`)                                                                                                     |
-| `/sys/devices/cpu_*/cpus`                                                  | `cpu_core` / `cpu_atom` attributes, only on hybrid CPUs                                                                                                                |
-
 #### KWOK
 
 FGO reaches fleet scale with [KWOK](https://kwok.sigs.k8s.io/) (Kubernetes
 WithOut Kubelet), which creates Node objects and drives the lifecycle of the
-pods bound to them, with no kubelet and no containers behind either. 
+pods bound to them, with no kubelet and no containers behind either.
 
 KWOK resources are just `Node` resources:
 
@@ -318,7 +79,7 @@ KWOK resources are just `Node` resources:
 apiVersion: v1
 kind: Node
 metadata:
-  name: knok-node-1
+  name: kwok-node-1
   annotations:
     kwok.x-k8s.io/node: fake
     node.alpha.kubernetes.io/ttl: "0"
@@ -388,19 +149,19 @@ FGO comes with a few KWOK plugins that are deployed as a Deployment per cluster:
 | `kwok-dra-plugin`                                    | no                                            | Nodes' GPU state ConfigMaps: add, update, delete                              | ResourceSlice `kwok-<node>-gpu`, driver `gpu.nvidia.com`, one device per GPU (UUID, model, memory)                | `dra-plugin-gpu` DaemonSet                            | 08  |
 | `kwok-compute-domain-dra-plugin`                     | no                                            | **Nodes**, not ConfigMaps                                                     | ResourceSlice `kwok-<node>-compute-domain-channel` with one device, `channel-0`                                   | compute-domain kubelet plugin                         | 09  |
 
-KWOK's node topology `ConfigMaps` are no different to the normal CPU nodes.
+The node topology `ConfigMaps` of KWOK nodes are no different from those of normal CPU nodes.
 
-The KWOK plugins are nothing else but servers that does some manipulations with Kubernetes API based on FGO's node topology `ConfigMaps`.
+The KWOK plugins are nothing but servers that update Kubernetes objects based on FGO's node topology `ConfigMaps`.
 
-FGO doesn't use any experimental KWOK CRDs lik `ClusterExec`, `ClusterAttach`, `ClusterLogs`, etc.
+FGO doesn't use any experimental KWOK CRDs like `ClusterExec`, `ClusterAttach`, `ClusterLogs`, etc.
 
-#### Run:AI x Mokka Integration (Mock Backend)
+#### Run:ai x Mokka Integration (Mock Backend)
 
-FGO creates Mokka's profiles as `ConfigMaps` and use some information from there in the `fake` backend mode like:
+FGO creates Mokka's profiles as `ConfigMaps` and uses some information from them in the `fake` backend mode, such as:
 
-- Product name,
-- memory,
-- GPU count,
+- product name
+- memory
+- GPU count
 - driver and CUDA versions
 
 When the node pool is defined to be `mock`, FGO actually deploys a Mokka instance on the nodes it manages:
@@ -419,11 +180,11 @@ cluster:
 ```
 
 On the Mokka end, with [integrations.fakeGpuOperator.enabled](../../../deployments/nvml-mock/helm/nvml-mock/templates/integrations-fgo.yaml),
-the Mokka chart creates publishes one ConfigMap per Mokka GPU profile like `gb300`, `h100`, `a100`, etc. in a way that FGO expects
+the Mokka chart publishes one ConfigMap per Mokka GPU profile, such as `gb300`, `h100` or `a100`, in the form FGO expects
 (e.g. named `gpu-profile-<profile>`, with the profile under the `profile.yaml` key, in `integrations.fakeGpuOperator.targetNamespace`).
 That's the only place Mokka knows about FGO.
 
-### NVIDIA Ecosystem Integrations
+#### NVIDIA Ecosystem Integrations
 
 FGO mocks or uses the following NVIDIA components:
 
@@ -436,39 +197,32 @@ FGO mocks or uses the following NVIDIA components:
 
 ### Goals
 
-- Propose an actionable plan for FGO incorporation into Mokka
-- Reach the feature parity required to migrate Run:AI and KAI Scheduler off FGO
+- Propose an actionable plan for FGO incorporation into Mokka.
+- Reach the feature parity required to migrate Run:ai and KAI Scheduler off FGO.
 
 ### Non-Goals
 
-- Mokka remains to be a generic project, so all functionality very specific to Run:ai and KAI are not going to be directly included.
+- Mokka remains a generic project, so functionality specific to Run:ai and KAI won't be included directly.
 - MIG support is out of scope for this MEP.
 - Fault injection in KWOK mode is out of scope for this MEP.
-- Making virtual pod (e.g. a pod scheduled to a KWOK virtual node) SSH work is out of scope of this MEP.
+- Making SSH into a virtual pod (e.g. a pod scheduled to a KWOK virtual node) work is out of scope for this MEP.
 
 ## Proposal
 
 Looking through the list of FGO features, there are three that Mokka should support:
 
 - [KWOK Integration](#kwok-integration). Completely new functionality and the biggest piece of work.
-- [Workload-aware dynamic metrics](#workload-aware-dynamic-metrics). Mokka supports dynamic metrics today with a couple of profile patterns (e.g. range, bust, idle, busy). That setting is on GPU level though, it's not workload-aware.
-- [Numa Setup](#numa-setup). Mokka should simulate NUMA information according to the GPU rack profile that NFD uses for NRT resource creation.
+- Workload-aware dynamic metrics, proposed in [MEP0009](../0009-workload-aware-dynamic-metrics/README.md).
+- NUMA-aware scheduling, proposed in [MEP0010](../0010-numa-aware-scheduling/README.md).
 
-The [NVIDIA component mocks](#nvidia-ecosystem-integrations) should be replaced by 
+The [NVIDIA component mocks](#nvidia-ecosystem-integrations) should be replaced by
 Mokka and the real NVIDIA components on top of it.
 
-### User Stories (Optional)
+### User Stories
 
-<!--
-Detail the things that people will be able to do if this MEP is implemented.
-Include as much detail as possible so that people can understand the "how" of
-the system. The goal here is to make this feel real for users without getting
-bogged down.
--->
-
-#### Story 1 (Optional)
-
-#### Story 2 (Optional)
+1. **A scheduler load test.** A scheduler team adds a KWOK rack group of 1,000 `gb300-nvl72` racks to an inventory. The KWOK provisioner creates 18,000 Nodes with GPU capacity, labels and ResourceSlices, and the team runs its load test on a cluster with a few CPU Nodes and no GPUs.
+2. **Run:ai on virtual Nodes.** Run:ai runs on a cluster whose GPU Nodes are all KWOK Nodes. Its cluster operator finds the `mokka-kwok-dcgm-exporter` Service with the metrics it checks, and an `SGPURuntimePolicy` with a `Bursty` pattern moves the GPUs' utilization, as on CPU Nodes.
+3. **Two kinds of Node in one inventory.** An inventory has a CPU rack group for tests that run `nvidia-smi` in Pods and a KWOK rack group for scale, both with the same profile. GPUs on both keep stable UUIDs, PCI addresses and NUMA placement, and a test pins a Pod to a virtual Node with `kubernetes.io/hostname: dev-ci-0-0`.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -481,11 +235,10 @@ This might be a good place to talk about core concepts and how they relate.
 
 ### Risks and Mitigations
 
-<!--
-What are the risks of this proposal, and how do we mitigate? Think broadly.
-For example, consider operational overhead, resource consumption, and how
-this will impact our users.
--->
+- **Large inventories load the API server.** Each KWOK Node adds a Node, a ResourceSlice and an NRT, and each GPU Pod an allocation patch and an NRT update. KWOK mode is off by default, and the KWOK components write only when racks or Pods change. Metrics stay in memory.
+- **DaemonSets that tolerate every taint run on KWOK Nodes.** KWOK fakes their Pods, but each such DaemonSet adds a Pod object per KWOK Node. Mokka keeps its node daemon off them with node affinity on `mokka.nvidia.com/provisioner`, and the GPU Operator's operands with `nvidia.com/gpu.deploy.operands=false`. Cluster admins add the same affinity to their own DaemonSets, such as CNI or log agents.
+- **DCGM metrics load Prometheus.** The example inventory's 72,000 GPUs serve 216,000 series. The `ServiceMonitor` is optional, and `kwok.dataPlane.enabled: false` leaves metrics out of tests that don't need them.
+- **KWOK Nodes drift from real ones.** The data plane stands in for the kubelet's device manager, NFD and dcgm-exporter, so a test can pass on a KWOK Node and fail on a real one. e2e tests compare a KWOK Node's labels, ResourceSlices, NRT and metric labels with those of a CPU Node with the same profile.
 
 ## Design Details
 
@@ -518,7 +271,7 @@ spec:
 
     - id: ci
       provisioner: KWOK
-      count: 1000 # a thousand of gb300 racks
+      count: 1000 # a thousand gb300-nvl72 racks
       profileRef:
         name: gb300-nvl72
 
@@ -534,7 +287,7 @@ spec:
               effect: NoSchedule
 ```
 
-The KWOK's `ci` will create `rackGroup.count` × `profile.nodesPerRack` (18000 virtual nodes in this example).
+The KWOK group `ci` creates `rackGroup.count` × `profile.nodesPerRack` virtual Nodes (18,000 in this example).
 
 There's no kubelet on a KWOK Node, so the KWOK provisioner reports what one would. `kwok.kubelet` holds the configuration it simulates, starting with `maxPods`, which sets each Node's pod capacity. These settings stay out of the profile because the same profile also backs CPU groups, where the real kubelet decides them.
 
@@ -545,7 +298,7 @@ The CRD validation enforces these rules on a rack group:
 - `kwok.nodeTemplate.labels` can't set `mokka.nvidia.com/sgpu-node`, which would make the virtual Nodes eligible for CPU racks, or `mokka.nvidia.com/provisioner`, which Mokka sets itself.
 - `kwok.kubelet.maxPods` is at least 1 and defaults to 110, the kubelet's default.
 
-The Mokka Control Plane ([MEP0001](../0001-mokka-control-plane/README.md)) watches `SGPUInventory` and creates `SGPURacks` as usual. It copies `provisioner` and the `kwok` block from the rack group into each rack, and mirrors `provisioner` into a label (see [Separating CPU and KWOK Racks](#separating-cpu-and-kwok-racks)). 
+The Mokka Control Plane ([MEP0001](../0001-mokka-control-plane/README.md)) watches `SGPUInventory` and creates `SGPURacks` as usual. It copies `provisioner` and the `kwok` block from the rack group into each rack, and mirrors `provisioner` into a label (see [Separating CPU and KWOK Racks](#separating-cpu-and-kwok-racks)).
 
 For KWOK provisioning, `SGPURack` would look like this:
 
@@ -610,7 +363,7 @@ spec:
     # Nodes 1-17
 ```
 
-KWOK racks are rendered exactly like CPU racks, so their simulated GPUs keep stable UUIDs, serials, PCI addresses, and NUMA placement. 
+KWOK racks are rendered exactly like CPU racks, so their simulated GPUs keep stable UUIDs, serials, PCI addresses, and NUMA placement.
 Because the `kwok` block is in the rack, [the KWOK provisioner](#kwok-provisioner) doesn't need to watch inventories: a change to it re-renders the racks, and the provisioner sees the rack updates.
 
 #### KWOK Components
@@ -662,7 +415,7 @@ metadata:
     mokka.nvidia.com/node-index: "0"
     nvidia.com/gpu.clique: <fabric UUID> # the value the control plane distributes
     run.ai/simulated-gpu-node-pool: ci # from spec.kwok.nodeTemplate
-    nvidia.com/gpu.deploy.operands: false # prevents GPU Operator to try to schedule daemonsets on virtual node
+    nvidia.com/gpu.deploy.operands: "false" # keeps the GPU Operator from scheduling its DaemonSets on the virtual Node
     # Plus, NFD/GFD labels
     # ...
   ownerReferences:
@@ -709,7 +462,7 @@ dev-ci-0-0
 
 Unlike rack names, Node names carry no hash suffix: users see them in `kubectl get nodes` and scheduler logs, and tests can pin a pod with `kubernetes.io/hostname: dev-ci-0-0` without looking anything up. Three rules keep the names valid and unique:
 
-- **Length.** The name is also the `kubernetes.io/hostname` label, which the fractional-GPU `podAffinity` in [Resource Reservation & GPU Fractions](#resource-reservation--gpu-fractions) uses as its topology key, so it must fit in 63 characters. Rack indexes have at most 5 digits and node indexes at most 4, so the CRD rejects a KWOK group whose inventory name and group ID together exceed 51 characters.
+- **Length.** The name is also the `kubernetes.io/hostname` label, which the fractional-GPU `podAffinity` in MEP0009's [Resource Reservation & GPU Fractions](../0009-workload-aware-dynamic-metrics/README.md#resource-reservation--gpu-fractions) uses as its topology key, so it must fit in 63 characters. Rack indexes have at most 5 digits and node indexes at most 4, so the CRD rejects a KWOK group whose inventory name and group ID together exceed 51 characters.
 - **Uniqueness.** The control plane rejects a KWOK group whose `<inventory>-<rack group>` matches that of another KWOK group in any inventory, as `dev` with group `ci-x` and `dev-ci` with group `x` would. The last two parts of every name are numbers, so different prefixes always give different names.
 - **Replacement.** If a Node with the name already exists and isn't owned by the rack, the KWOK provisioner waits for it to be deleted. That happens when an inventory is recreated under the same name before its old Nodes are gone. The provisioner never takes over a Node it didn't create, such as a real Node with the same name, and emits an Event on the rack instead.
 
@@ -766,7 +519,7 @@ spec:
 
 ##### NodeResourceTopology
 
-The data plane creates a `NodeResourceTopology` for each Node of its racks and keeps each zone's available GPUs current from the allocations, as NFD's topology updater does on a real Node. Zones and their capacity come from the rack's NUMA placement and the profile, so they match what NFD reports for a CPU Node with the same profile ([NUMA Setup](#numa-setup)).
+The data plane creates a `NodeResourceTopology` for each Node of its racks and keeps each zone's available GPUs current from the allocations, as NFD's topology updater does on a real Node. Zones and their capacity come from the rack's NUMA placement and the profile, so they match what NFD reports for a CPU Node with the same profile ([MEP0010](../0010-numa-aware-scheduling/README.md#numa-setup)).
 
 ##### Runtime State
 
@@ -868,9 +621,9 @@ DCGM_FI_DEV_GPU_UTIL{gpu="0",UUID="GPU-<UUID>",device="nvidia0",pci_bus_id="0000
 
 TODO: Is the current way we simulate dynamic metrics flexible/extensible enough to build upon it?
 
-`DCGM_FI_DEV_FB_USED` and `DCGM_FI_DEV_FB_FREE` split the GPU memory in the profile and stay constant, as on CPU Nodes, where the NVML engine reports the profile's memory figures unchanged. The data plane generates values for every GPU, with or without a Pod, as the NVML engine does. [Workload-aware Dynamic Metrics](#workload-aware-dynamic-metrics) covers values that follow the Pod.
+`DCGM_FI_DEV_FB_USED` and `DCGM_FI_DEV_FB_FREE` split the GPU memory in the profile and stay constant, as on CPU Nodes, where the NVML engine reports the profile's memory figures unchanged. The data plane generates values for every GPU, with or without a Pod, as the NVML engine does. [MEP0009](../0009-workload-aware-dynamic-metrics/README.md) covers values that follow the Pod.
 
-The data plane computes values when it's scraped, at most once per 10-second (a helm chart value configuration) step, much as `dcgm-exporter` serves its last 30-second sample to every scrape. A replica keeps each series' labels and the frame-buffer lines rendered, since those change only when a `Pod's` allocation or workload telemetry does. The first scrape in a step computes `DCGM_FI_DEV_GPU_UTIL` for the replica's GPUs, compresses the response once and caches it for the rest of the step, and nothing runs while nobody scrapes. Compressing the text is the main cost: about 6 MB per replica with eight replicas, or 50 MB for one replica serving all 72,000 GPUs, so large inventories need more replicas.
+The data plane computes values when it's scraped, at most once per 10-second step, configurable in the Helm chart, much as `dcgm-exporter` serves its last 30-second sample to every scrape. A replica keeps each series' labels and the frame-buffer lines rendered, since those change only when a Pod's allocation or workload telemetry does. The first scrape in a step computes `DCGM_FI_DEV_GPU_UTIL` for the replica's GPUs, compresses the response once and caches it for the rest of the step, and nothing runs while nobody scrapes. Compressing the text is the main cost: about 6 MB per replica with eight replicas, or 50 MB for one replica serving all 72,000 GPUs, so large inventories need more replicas.
 
 **Open question: one DCGM exporter Service.** The Run:ai cluster operator expects exactly one DCGM exporter Service. An inventory that mixes CPU and KWOK racks has two: the GPU Operator's for CPU Nodes and this one.
 
@@ -917,408 +670,46 @@ A CRD field selector on `spec.provisioner` (`selectableFields`) would make the l
 
 #### GPU Footprint in KWOK Virtual Nodes
 
-KWOK nodes are completely virtual entities. The real NVIDIA components can run or interact with in most cases.
-Still we would like to simulate a few surfaces based on `SGPURackProfile` information to make them look like a real GPU nodes from outside:
+KWOK nodes are completely virtual entities. In most cases, the real NVIDIA components can't run on them or interact with them.
+Still, we would like to simulate a few surfaces based on `SGPURackProfile` information to make them look like real GPU nodes from the outside:
 
 - Add NFD/GFD labels e.g. `nvidia.com/gpu.*`, `nvidia.com/mig.strategy`, `feature.node.kubernetes.io/pci-10de.present`
-- DRA ResourceSlices resources
-- NodeResourceTopology resources for NUMA-aware workload placing
+- DRA ResourceSlices
+- NodeResourceTopology resources for NUMA-aware workload placement
 - DCGM metrics
 
 The KWOK provisioner creates the labels and ResourceSlices with each Node, since they're fixed for its life. The [KWOK data plane](#kwok-data-plane) creates the NodeResourceTopology resources and serves the DCGM metrics, since both change while the Node runs.
 
-We should put generation of CRs under feature gates, 
+We should put generation of CRs under feature gates,
 so cluster admins don't need to install all CRDs just to try out KWOK integration.
 
 #### KWOK Installation
 
 The KWOK functionality in Mokka should be disabled by default.
-Mokka helm chart will get a new flag `kwok.enabled`, based on which we will deploy or not the KWOK provisioner and the [KWOK data plane](#kwok-data-plane). `kwok.dataPlane.enabled: false` leaves the data plane out, so KWOK Nodes carry only their fixed footprint. `kwok.dataPlane.replicas` sets its number of [shards](#sharding), and `kwok.dataPlane.serviceMonitor.enabled` adds a Prometheus Operator `ServiceMonitor` for its DCGM metrics.
+The Mokka Helm chart will get a new flag, `kwok.enabled`, that decides whether to deploy the KWOK provisioner and the [KWOK data plane](#kwok-data-plane). `kwok.dataPlane.enabled: false` leaves the data plane out, so KWOK Nodes carry only their fixed footprint. `kwok.dataPlane.replicas` sets its number of [shards](#sharding), and `kwok.dataPlane.serviceMonitor.enabled` adds a Prometheus Operator `ServiceMonitor` for its DCGM metrics.
 
-The KWOK is assumed to be installed by cluster admins prior to enabling Mokka's KWOK functionality. That's gonna be documented.
-KWOK chart is not gonna be explicitly included into the Mokka helm chart.
+Cluster admins are expected to install KWOK before enabling Mokka's KWOK functionality, and the docs will say so.
+The KWOK chart won't be included in the Mokka Helm chart.
 
 #### KAI Use Cases
 
-| Consumer                | Required resources or behavior                                                                                                                                                                                                                       | How Mokka Can Help?                                                                                                                       |
-|-------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
-| Run:ai installer        | The `clusterpolicies.nvidia.com` CRD and a `gpu.*operator` Deployment in `gpu-operator`. No `ClusterPolicy` instance is necessary.                                                                                                                   | ✅KAI Test Setup should install GPU Operator CRD                                                                                           |
-| Run:ai cluster operator | Exactly one DCGM exporter Service. Its `/metrics` must contain `DCGM_FI_DEV_GPU_UTIL`, `DCGM_FI_DEV_FB_USED`, and `DCGM_FI_DEV_FB_FREE`. A failed check sets `DependenciesFulfilled=False`. This does not apply when dependency checks are disabled. | In KWOK mode, the [KWOK data plane](#kwok-data-plane)'s DCGM exporter Service. A mixed CPU and KWOK inventory has two (open question)     |
-| KAI whole-GPU           | `nvidia.com/gpu` and the node labels `nvidia.com/gpu.count` and `nvidia.com/gpu.memory`                                                                                                                                                              | Mokka + real device plugin and GFD. In KWOK mode, the KWOK provisioner sets the `nvidia.com/gpu` capacity and the labels from the profile |
-| KAI fractions           | A GPU UUID in `run.ai/reserve_for_gpu_index` on each reservation pod. `NvFractions` mode also requires a ready `GpuFractioningConfig` named `default` (fractional GPU documentation).                                                                | ✅Should work with Mokka out of the box                                                                                                    |
-| KAI NUMA                | A current `NodeResourceTopology` for each node. It contains policy, scope, zones, and per-zone availability. Availability changes with allocation and release.                                                                                       | Mokka node daemon does [NUMA setup](#numa-setup) + real NFD deployment. In KWOK mode, the KWOK data plane creates NRT resources           |
-| DRA                     | Claims with the same behavior on KWOK nodes and nodes that use the GPU Operator's DRA driver.                                                                                                                                                        | Mokka + real DRA deployment. In KWOK mode, the KWOK provisioner creates `ResourceSlice` resources                                         |
-
-### Workload-aware Dynamic Metrics
-
-As of today, Mokka allocation-watcher just sets 50% memory usage based on the resource requests.
-We should extend that to make it much more flexible and FGO's approach is a good example to follow.
-
-> [!NOTE]
-> We plan to rename the allocation watcher to the **workload tracker**. In the target shape it tracks which workloads hold each GPU and what they declare, and keeps each GPU's workload telemetry current for the NVML engine, so a name about watching allocations no longer fits. The rename covers the `allocationWatcher` Helm values, the `allocation-watcher` container and the `nvml-mock-ctl watch-allocations` command. The rest of this document uses the new name, except where it describes how the allocation watcher works today.
-
-The general idea is to use:
-- On CPU nodes, the workload tracker, which extends the existing allocation watcher to fetch `Pod` metadata, `PodResources` from kubelet (what we are doing today) and translate that into metrics override for NVML mock library.
-- On KWOK nodes, the KWOK data plane, which already allocates GPUs to Pods and watches them, turns the same Pod metadata into each GPU's workload telemetry in memory and generates the metrics on each scrape.
-
-The values of metrics like utilization, memory, etc. should be taken from the Pod annotations:
-
-| Annotation                              | Value                                                                                                             | Without it                                 |
-|-----------------------------------------|-------------------------------------------------------------------------------------------------------------------|--------------------------------------------|
-| `mokka.nvidia.com/gpu-utilization`      | GPU utilization, in percent: a fixed value, such as `30`, or a range, such as `80-100`                            | the runtime view's utilization             |
-| `mokka.nvidia.com/gpu-utilization-type` | how utilization moves within the range: `Steady`, `Bursty` or `Wave`, as in the runtime view's telemetry settings | `Steady`                                   |
-| `mokka.nvidia.com/gpu-memory-used`      | memory in use on each GPU, in percent of its usable memory: a fixed value, such as `25`                           | `50`, as the allocation watcher sets today |
-
-- The rest of this section calls them telemetry annotations. Each applies to every GPU the Pod holds.
-- They're annotations, not labels, because they configure the workload rather than identify it.
-- When several Pods share a GPU, their percentages add up, to at most 100.
-- A value Mokka can't parse counts as absent and is logged.
-
-#### CPU Nodes: Workload Tracker
-
-Today the allocation watcher turns the kubelet's `PodResources` claims into memory use, half of a GPU's usable memory per claim, and rewrites it into `overrides.yaml` every 2 seconds. 
-`nvml-mock-ctl` and NVML set calls write the same file, so the last writer wins. 
-The NVML engine has no layer for workload telemetry, and each NVML process runs the generator on its own clock. 
-Red marks the parts the target shape changes:
-
-```mermaid
-flowchart LR
-    kubelet["<b>kubelet</b><br/>PodResources API"]
-
-    ctl["<b><code>nvml-mock-ctl set</code></b><br/>NVML set calls"]
-    watcher["<b>allocation watcher</b><br/>sidecar, unprivileged<br/><code>memory.used</code> = claims × 50 % usable"]
-    daemon["<b>node daemon</b><br/>applies the runtime view"]
-
-    overrides["<b><code>overrides.yaml</code></b><br/>3 writers, last one wins"]
-    config["<b><code>config.yaml</code></b><br/>defaults + policies"]
-
-    subgraph engine["<b>NVML engine</b>, in every NVML process"]
-        direction TB
-        l1["1 · fault state"]
-        l2["2 · overrides"]
-        l3["no workload telemetry"]
-        l4["4 · runtime view"]
-        rule["top layer with a value wins"]
-        l1 ~~~ l2 ~~~ l3 ~~~ l4 ~~~ rule
-    end
-
-    dcgm["<b>dcgm-exporter</b><br/>:9400, adds pod labels"]
-    smi["<b><code>nvidia-smi</code></b>"]
-    dp["<b>device plugin</b>"]
-
-    kubelet ~~~ ctl
-    kubelet ~~~ daemon
-    kubelet -->|"claims, every 2 s"| watcher
-    ctl -->|"sets"| overrides
-    watcher -->|"rewrites every 2 s"| overrides
-    daemon -->|"writes"| config
-    overrides -->|"layer 2"| engine
-    config -->|"layer 4"| engine
-    engine -->|"values, on every call"| dcgm & smi & dp
-    kubelet -.->|"pod labels, from the same PodResources API"| dcgm
-
-    classDef todayOnly fill:#f7e4e0,stroke:#ae3d2a,stroke-width:2px,color:#000
-    class overrides todayOnly
-    style l3 stroke-dasharray: 5 5
-    style rule fill:none,stroke:none
-    linkStyle 8 stroke:#ae3d2a,stroke-width:2px
-```
-
-In the target shape, the workload tracker also reads this Node's Pods from the Kubernetes API. It turns binding and telemetry annotations into each GPU's workload telemetry and writes it to a file that only it writes. Like the runtime view's telemetry settings, it says how values move, such as utilization between 80 and 100 percent with half the memory used, not the values themselves. The engine reads that file as layer 3, between manual overrides and the runtime view. The generator counts time from a shared epoch, so every NVML process reports the same series. Teal marks what's new or changed:
-
-```mermaid
-flowchart LR
-    kubelet["<b>kubelet</b><br/>PodResources API"]
-    api["<b>Kubernetes API</b><br/>this Node's Pods"]
-
-    ctl["<b><code>nvml-mock-ctl set</code></b><br/>NVML set calls"]
-    tracker["<b>workload tracker</b><br/>sidecar, unprivileged<br/>binding +<br/>telemetry annotations<br/>→ workload telemetry"]
-    daemon["<b>node daemon</b><br/>applies the runtime view"]
-
-    overrides["<b><code>overrides.yaml</code></b><br/>kept until reset"]
-    telemetry["<b>workload telemetry file</b><br/>only the tracker writes"]
-    config["<b><code>config.yaml</code></b><br/>defaults + policies"]
-
-    subgraph engine["<b>NVML engine</b>, in every NVML process"]
-        direction TB
-        l1["1 · fault state"]
-        l2["2 · overrides"]
-        l3["3 · workload telemetry"]
-        l4["4 · runtime view"]
-        rule["top layer with a value wins"]
-        l1 ~~~ l2 ~~~ l3 ~~~ l4 ~~~ rule
-    end
-
-    dcgm["<b>dcgm-exporter</b><br/>:9400, adds pod labels"]
-    smi["<b><code>nvidia-smi</code></b>"]
-    dp["<b>device plugin</b>"]
-
-    kubelet ~~~ ctl
-    kubelet ~~~ daemon
-    kubelet -->|"claims, every 2 s"| tracker
-    api -->|"telemetry annotations"| tracker
-    ctl -->|"sets"| overrides
-    tracker -->|"writes"| telemetry
-    daemon -->|"writes"| config
-    overrides -->|"layer 2"| engine
-    telemetry -->|"layer 3"| engine
-    config -->|"layer 4"| engine
-    engine -->|"values, on every call"| dcgm & smi & dp
-    kubelet -.->|"pod labels, from the same PodResources API"| dcgm
-
-    classDef new fill:#ddf0f2,stroke:#0a7782,stroke-width:2px,color:#000
-    class api,telemetry,l3 new
-    style rule fill:none,stroke:none
-    linkStyle 7,9,12 stroke:#0a7782,stroke-width:2px
-```
-
-#### Pod-to-GPU Binding
-
-On a CPU Node, the workload tracker never decides which GPU a pod gets. It reads the decision back from the kubelet's PodResources API every 2 seconds. On a KWOK Node, the data plane's [allocation record](#gpu-allocation) gives the same binding. In the diagrams below, the shaded steps are the workload tracker's.
-
-With the device plugin, the scheduler only picks the Node, and the kubelet's device manager picks the device. Under the device plugin's default `deviceIDStrategy: uuid`, each device ID is a GPU UUID, which the plugin read from Mokka's NVML and Mokka took from the profile. So the tracker only has to match IDs to UUIDs:
-
-```mermaid
-sequenceDiagram
-    participant S as kube-scheduler<br/>picks the Node
-    participant K as kubelet<br/>device manager
-    participant P as NVIDIA device plugin<br/>real, on Mokka's NVML
-    participant N as NVML engine<br/>GPUs from the profile
-    participant T as workload tracker<br/>sidecar
-
-    P->>N: lists the GPUs through NVML
-    N-->>P: UUIDs from the profile
-    P->>K: advertises GPUs, ID = UUID
-    S->>K: binds the pod to this Node<br/>a GPU count, no device
-    Note over K: picks free device IDs,<br/>with Topology Manager hints,<br/>and checkpoints them
-    K->>P: Allocate(those IDs)
-    rect rgba(10, 119, 130, 0.12)
-        T->>K: PodResources List, every 2 s
-        K-->>T: pod, container → device IDs
-        Note over T: matches each ID to a UUID
-        T->>N: marks that GPU busy
-    end
-```
-
-With DRA, the scheduler picks the device as well as the Node and records it in the ResourceClaim. PodResources reports the device by driver, pool and name, by default from Kubernetes 1.34. The NVIDIA DRA driver names a GPU `gpu-<minor>`, using the minor number Mokka's NVML reports for it, so the tracker matches the number in the name to the GPU with that minor number. It needs no access to the DRA API. Today the allocation watcher reads only device-plugin devices, so reading DRA claims is new:
-
-```mermaid
-sequenceDiagram
-    participant S as kube-scheduler<br/>picks Node and device
-    participant A as kube-apiserver<br/>slices and claims
-    participant K as kubelet<br/>DRA manager
-    participant D as NVIDIA DRA driver<br/>real, on Mokka's NVML
-    participant N as NVML engine<br/>GPUs from the profile
-    participant T as workload tracker<br/>sidecar
-
-    D->>N: lists the GPUs through NVML
-    N-->>D: UUIDs and minor numbers
-    D->>A: publishes this Node's ResourceSlice:<br/>gpu-0 … gpu-3, named by minor number
-    A-->>S: the slices, the pod's claim
-    Note over S: picks a free device<br/>that fits the claim,<br/>such as gpu-2
-    S->>A: allocates gpu-2 in the claim
-    S->>A: binds the pod to this Node
-    A-->>K: the pod and its claim
-    K->>D: NodePrepareResources
-    D-->>K: a CDI device for the claim
-    rect rgba(10, 119, 130, 0.12)
-        T->>K: PodResources List, every 2 s
-        K-->>T: pod, container → driver, pool, gpu-2
-        Note over T: matches gpu-2 to the GPU<br/>with minor number 2
-        T->>N: marks that GPU busy
-    end
-```
-
-#### KWOK Nodes: Data Plane
-
-A KWOK Node has no kubelet, NVML engine or processes, so the [KWOK data plane](#kwok-data-plane) replica that owns the rack does every step in memory. It runs the workload tracker in process instead of as a sidecar, with the same code as on CPU Nodes, so a Pod's telemetry annotations mean the same on both kinds of Node. Teal marks what workload awareness adds to the data plane:
-
-```mermaid
-flowchart LR
-    api["<b>Kubernetes API</b><br/>Pods on the replica's racks"]
-    cp["<b>control plane API</b><br/>runtime view per rack"]
-
-    subgraph dp["<b>KWOK data plane replica</b>, in memory"]
-        tracker["<b>workload tracker</b><br/>in process<br/>binding +<br/>telemetry annotations<br/>→ workload telemetry"]
-        view["<b>runtime view</b><br/>telemetry settings"]
-        subgraph metrics["<b>DCGM metrics</b>, on each scrape"]
-            direction TB
-            l3["3 · workload telemetry"]
-            l4["4 · runtime view"]
-            rule["top layer with a value wins"]
-            l3 ~~~ l4 ~~~ rule
-        end
-    end
-
-    prom["<b>Prometheus</b><br/>scrapes each replica on :9400"]
-
-    api -->|"allocation record,<br/>telemetry annotations"| tracker
-    cp -->|"fetched on a delivery<br/>generation bump"| view
-    tracker -->|"layer 3"| metrics
-    view -->|"layer 4"| metrics
-    metrics -->|"values, with pod labels"| prom
-
-    classDef new fill:#ddf0f2,stroke:#0a7782,stroke-width:2px,color:#000
-    class tracker,l3 new
-    style rule fill:none,stroke:none
-    linkStyle 2,4 stroke:#0a7782,stroke-width:2px
-```
-
-- **Binding** comes from the [GPU allocation](#gpu-allocation) record the data plane writes on each Pod, for `nvidia.com/gpu` requests and DRA claims alike. The data plane knows a binding as soon as it writes the record, so nothing is polled.
-- **Telemetry annotations** come from the [Pod watch](#separating-cpu-and-kwok-racks) the data plane already has, so it needs no new API access.
-- **Workload telemetry** stays in the replica's memory, since nothing outside the replica reads it. The replica recomputes a GPU's workload telemetry when a Pod on it is allocated, changes or goes away.
-- **Values** are computed on scrape, at most once per 10-second step, as [DCGM Metrics](#dcgm-metrics) describes. When a GPU has workload telemetry, `DCGM_FI_DEV_GPU_UTIL` follows it instead of the runtime view, `DCGM_FI_DEV_FB_USED` follows its memory share, and `DCGM_FI_DEV_FB_FREE` is the rest. A GPU without Pods keeps following the runtime view.
-- **Only layers 3 and 4 exist.** There's no NVML for `nvml-mock-ctl` to override, and fault injection in KWOK mode is a [non-goal](#non-goals).
-- **Workload telemetry and values aren't persisted.** Values depend only on telemetry settings and time, counted from an epoch every replica shares, such as the Unix epoch. A replica that restarts, or takes over a rack after a [reshard](#sharding), rebuilds the workload telemetry from the allocation records and continues the same series without a jump.
-
-### NUMA Setup
-
-On a CPU Node, Mokka doesn't create the `NodeResourceTopology`. 
-The node daemon gives the Node the NUMA layout of its GPU profile, and the real kubelet and NFD topology updater produce the NRT from it. 
-
-```mermaid
-flowchart LR
-    subgraph kubelet["<b>kubelet</b> admission, per container"]
-        direction LR
-        cpu["CPU Manager<br/>hints only when static"]
-        mem["Memory Manager<br/>hints only when Static"]
-        dev["Device Manager<br/>NUMA node from<br/>device plugin"]
-        tm["<b>Topology Manager</b><br/><code>single-numa-node</code>"]
-        admit(["admit"])
-        reject(["reject"])
-
-        cpu --> tm
-        mem -->|"hints"| tm
-        dev --> tm
-        tm --> admit
-        tm --> reject
-    end
-
-    subgraph scheduler["<b>kube-scheduler</b>"]
-        filter["<code>NodeResourceTopologyMatch</code><br/>filters nodes by zone"]
-    end
-
-    nfd["<b><code>nfd-topology-updater</code></b><br/>reads PodResources,<br/>the NUMA tree and<br/>kubelet's config file"]
-    nrt["<b>NodeResourceTopology</b><br/>one zone per NUMA node,<br/>each with capacity and<br/>free cpu, memory, GPUs"]
-
-    scheduler ~~~ nrt
-    nrt ~~~ nfd
-    scheduler -->|"binds pod"| kubelet
-    kubelet -->|"PodResources API"| nfd
-    nfd -->|"publishes"| nrt
-    nrt -->|"read by the filter"| scheduler
-
-    classDef focus fill:#e0e7ff,stroke:#6366f1,stroke-width:2px,color:#000
-    class tm,nrt focus
-```
-
-[Jonathan Rosenboim](https://github.com/JRosenboimNVIDIA) has prototyped this idea in ([#1147](https://github.com/NVIDIA/k8s-test-infra/pull/1147), [#1148](https://github.com/NVIDIA/k8s-test-infra/pull/1148)).
-
-Each part of the NRT traces back to something Mokka has to put in place on the Node:
-
-| In the NRT                                                    | NFD reads it from                                                                                             | Mokka provides                                                                                                                                          |
-|---------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Zones and their costs                                         | The NUMA tree, `/sys/devices/system/node`                                                                     | A zone for each NUMA node of the profile's PCIe root complexes, numbered from 0. Distance 10 within a zone and 21 between zones                         |
-| `nvidia.com/gpu` per zone                                     | PodResources. The kubelet takes each GPU's zone from the device plugin, which reads the GPU's PCI `numa_node` | Each GPU's `numa_node` set to its root complex's zone. Its `local_cpulist` and NVML CPU affinity name that zone's CPUs                                  |
-| `cpu` per zone                                                | PodResources, only under the static CPU Manager. The NUMA tree maps CPU IDs to zones                          | The Node's real CPU IDs, split across zones without separating a core's hyperthreads, or the profile's per-zone lists. The kubelet's static CPU Manager |
-| `memory` per zone                                             | PodResources, only under the static Memory Manager. Capacity comes from `/sys/bus/node`                       | Host memory, split evenly across zones. The kubelet's static Memory Manager, and the memory-binding rewrite below                                       |
-| `topologyManagerPolicy` and `topologyManagerScope` attributes | The kubelet's config file                                                                                     | The policy, e.g. `single-numa-node`, and the scope, set on the kubelet                                                                                  |
-| Availability                                                  | PodResources, rescanned on pod changes                                                                        | Nothing. It's the kubelet's real allocations                                                                                                            |
-
-The NUMA trees look like this for a two-zone profile with GPU 0 in zone 0, on a host with 8 cores and 2 hyperthreads per core (CPUs *N* and *N*+8 are siblings). Like a real kernel's, they include files that neither the kubelet nor NFD reads. `[Mokka]` marks what the node daemon adds, `[existing]` what Mokka already serves, and `[kernel]` what stays as the kernel has it:
-
-```text
-/sys
-├── devices/system/
-│   ├── node/                                   [Mokka] replaces the kernel's directory
-│   │   ├── online, possible, has_cpu, …        0-1
-│   │   ├── node0/                              zone 0
-│   │   │   ├── cpu0 → ../../cpu/cpu0           CPUs 0-3 and their hyperthreads 8-11 (1)
-│   │   │   ├── …
-│   │   │   ├── cpulist                         0-3,8-11, read by KAI
-│   │   │   ├── cpumap                          the same CPUs as a hex mask
-│   │   │   ├── distance                        10 21, the zone's NRT costs (2)
-│   │   │   ├── meminfo                         Node 0 MemTotal: host's ÷ 2 (2)
-│   │   │   ├── memory0 → ../../memory/memory0  half the real blocks
-│   │   │   ├── …
-│   │   │   └── hugepages/                      empty (2)
-│   │   └── node1/                              zone 1: CPUs 4-7,12-15, distance 21 10
-│   ├── cpu/                                    [kernel] what the cpu<K> links point at (3)
-│   └── memory/                                 [kernel] what the memory<M> links point at
-└── bus/
-    ├── node/devices/                           [Mokka] (4)
-    │   ├── node0 → ../../../devices/system/node/node0
-    │   └── node1 → ../../../devices/system/node/node1
-    └── pci/devices/0000:18:00.0/               [existing] GPU 0
-        ├── numa_node                           0
-        └── local_cpulist                       0-3,8-11
-
-/proc
-├── meminfo                                     [kernel] MemTotal, split across the zones
-└── <pid>/status                                [kernel] Mems_allowed_list
-```
-
-1. The links point at the real CPU directories, so `online`, `core_id`, `physical_package_id` and the caches stay the kernel's. The kubelet and NFD build cores from `core_id`, so a core's hyperthreads have to stay in one zone. Otherwise the kubelet counts that core as two.
-2. Every zone needs `distance`, `meminfo` with a `MemTotal` line, and a `hugepages/` directory, even an empty one. If a zone lacks one, NFD stops reading zones there and publishes only the ones before it, without an error. The kubelet tolerates a missing file, and that zone just loses the data. But if it can't parse a file, it can't detect the Node's CPUs and doesn't start.
-3. The kernel's own `cpu<K>/node<N>` links stay and point at the real zones. A tool that looks up a CPU's zone from the CPU side gets the kernel's answer, not Mokka's. The kubelet and NFD only look from the zone side.
-4. These links point into the tree above, as on a real kernel, so NFD reads memory capacity from the same `meminfo` and `hugepages/`. Without them, NFD sees only the kernel's own NUMA nodes, usually just `node0`. Those resolve into Mokka's tree, so only they get the simulated capacity, and the other zones fall back to their allocatable. On kernels without NUMA support this directory doesn't exist, and NFD's topology updater exits at startup.
-
-The kubelet and NFD each read the layout only once, when they start, so the order matters:
-
-```mermaid
-sequenceDiagram
-    participant D as Mokka node daemon
-    participant S as NUMA topology
-    participant K as kubelet
-    participant P as device plugin
-    participant N as nfd-topology-updater
-    participant R as NodeResourceTopology
-
-    D->>S: publish the profile's zones
-    D->>K: configure NUMA-aware managers and restart
-    K->>S: read the zones once, at startup
-    P->>K: register the GPUs with their NUMA nodes
-    N->>S: read the zones and memory once, at startup
-    N->>K: read allocatable resources once, at startup
-    N->>R: create
-    loop on every pod change
-        N->>K: list pod resources
-        N->>R: update zone availability
-    end
-```
-
-So a NUMA layout change means restarting the kubelet, and any NUMA layout or GPU change means restarting NFD.
-
-Two constraints shape how Mokka does this:
-
-- **The NUMA topology live in the Node's mount namespace.** The node daemon mounts them there, read-only. The kubelet reads them directly, and NFD reads them through its hostPath mount of `/sys`, so the kubelet and the NRT agree. A pod sees them only if it mounts the Node's `/sys`. They must not leak to other Kind Nodes on the same kernel.
-- **Memory binding falls back to the kernel's real memory nodes.** The static Memory Manager binds containers to the memory of zones the kernel doesn't have, and such containers fail to start. Mokka's NRI plugin rewrites the binding to the memory nodes the kernel allows. The kubelet's memory placement is simulated; physical memory locality isn't.
-
-NUMA setup changes the Node itself: 
-- its `sysfs` topology 
-- and the kubelet configuration. 
-
-So it's opt-in and meant for disposable test Nodes. How the kubelet treats its state decides what changing the setup involves:
-
-- **Kubelet Checkpoints.** Kubelet keeps CPU and Memory Manager checkpoints in `/var/lib/kubelet` and checks them against its policy and the layout it reads. So every policy or NUMA topology change deletes them.
-- **A restarted kubelet admits every Pod again.** With the checkpoints gone, the kubelet managers allocate CPUs and memory to running `Pods` as if they were new, and the CPU Manager moves their containers onto the new CPUs. A Pod the new policy can't fit is marked `Failed` and stopped. Draining the Node first avoids that.
-
-Each step follows from these:
-
-- **Apply.** When the node daemon starts and doesn't find the setup in place, it mounts the NUMA topology, configures the kubelet managers, deletes the checkpoints, and restarts the kubelet and NFD.
-- **Restart the node daemon.** When its Pod stops, the node daemon reverts the rest of what it set up on the Node, but leaves this setup in place, because undoing it restarts the kubelet. The new Pod finds the setup in place and doesn't apply it again.
-- **Node Reboot.** The `/sys` mounts are gone, but the kubelet configuration and checkpoints remain. A custom `systemd` unit, installed with the Mokka node daemon setup, runs before the kubelet. It restores the kubelet configuration Mokka found and deletes the checkpoints, so the kubelet starts with the kernel's layout. As with the rest of Mokka's Node state, the node daemon applies the setup again when it starts.
-- **Change the NUMA layout.** Undo the setup, then apply the new layout.
-- **Revert.** The node daemon unmounts the NUMA topology, removes the `systemd` unit, restores the kubelet configuration, deletes the checkpoints, and restarts the kubelet and NFD.
-
-In KWOK mode, KWOK virtual nodes have no kubelet or NFD. 
-The [KWOK data plane](#noderesourcetopology) writes their NRT from the same layout, taking each GPU's NUMA node from the rack.
+| Consumer                | Required resources or behavior                                                                                                                                                                                                                       | How Mokka Can Help?                                                                                                                                                    |
+|-------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Run:ai installer        | The `clusterpolicies.nvidia.com` CRD and a `gpu.*operator` Deployment in `gpu-operator`. No `ClusterPolicy` instance is necessary.                                                                                                                   | ✅KAI Test Setup should install GPU Operator CRD                                                                                                                        |
+| Run:ai cluster operator | Exactly one DCGM exporter Service. Its `/metrics` must contain `DCGM_FI_DEV_GPU_UTIL`, `DCGM_FI_DEV_FB_USED`, and `DCGM_FI_DEV_FB_FREE`. A failed check sets `DependenciesFulfilled=False`. This does not apply when dependency checks are disabled. | In KWOK mode, the [KWOK data plane](#kwok-data-plane)'s DCGM exporter Service. A mixed CPU and KWOK inventory has two (open question)                                  |
+| KAI whole-GPU           | `nvidia.com/gpu` and the node labels `nvidia.com/gpu.count` and `nvidia.com/gpu.memory`                                                                                                                                                              | Mokka + real device plugin and GFD. In KWOK mode, the KWOK provisioner sets the `nvidia.com/gpu` capacity and the labels from the profile                              |
+| KAI fractions           | A GPU UUID in `run.ai/reserve_for_gpu_index` on each reservation pod. `NvFractions` mode also requires a ready `GpuFractioningConfig` named `default` (fractional GPU documentation).                                                                | ✅Should work with Mokka out of the box                                                                                                                                 |
+| KAI NUMA                | A current `NodeResourceTopology` for each node. It contains policy, scope, zones, and per-zone availability. Availability changes with allocation and release.                                                                                       | Mokka node daemon does [NUMA setup](../0010-numa-aware-scheduling/README.md#numa-setup) + real NFD deployment. In KWOK mode, the KWOK data plane creates NRT resources |
+| DRA                     | Claims with the same behavior on KWOK nodes and nodes that use the GPU Operator's DRA driver.                                                                                                                                                        | Mokka + real DRA deployment. In KWOK mode, the KWOK provisioner creates `ResourceSlice` resources                                                                      |
 
 ## Drawbacks
 
-- **NUMA setup is invasive.** It changes the Node itself, not only what Mokka simulates on it. As [NUMA Setup](#numa-setup) describes, the node daemon rewrites the kubelet configuration, deletes the kubelet's checkpoints, restarts the kubelet and NFD, and installs a `systemd` unit that runs before the kubelet on every boot. The restarted kubelet admits every running Pod again and marks any Pod the new policy can't fit as `Failed`, and a NUMA file it can't parse keeps it from starting at all. The setup also relies on how the kubelet and NFD read the NUMA tree today, such as NFD silently dropping every zone from the first one that lacks a file, and either project can change that in a release. So it suits only Nodes that Mokka is free to reconfigure, such as Kind Nodes, and it depends on Mokka's NRI plugin to rewrite containers' memory binding.
-- **Components need wider permissions.** Today the allocation watcher is an unprivileged container that reads only the kubelet's PodResources socket. The [workload tracker](#cpu-nodes-workload-tracker) also reads Pods from the Kubernetes API. RBAC can't limit a DaemonSet to the Pods of its own Node, so every Node's tracker can read every Pod in the cluster, plain-text environment variables included. In KWOK mode, the [data plane](#kwok-data-plane) needs permission to patch any Pod to record its GPU allocation, and the [provisioner](#kwok-provisioner) to create Nodes.
+- **Components need wider permissions.** The [data plane](#kwok-data-plane) needs permission to patch any Pod to record its GPU allocation, and the [provisioner](#kwok-provisioner) to create Nodes.
 
 ## Alternatives
 
-**Look up the GPU's UUID in the Node's ResourceSlice.** With DRA, PodResources tells the workload tracker which device a Pod got by its name, such as `gpu-2`, not by its UUID, and [Pod-to-GPU Binding](#pod-to-gpu-binding) reads the minor number from that name. Instead, the tracker could find the device in the ResourceSlice that the NVIDIA DRA driver publishes for the Node and take its `uuid` attribute, as dcgm-exporter does with `--kubernetes-enable-dra`. That would keep working if a driver release stopped naming GPUs after their minor numbers, a change that would make the minor-number match pick the wrong GPU or none. The MEP doesn't use it because the tracker would then depend on the DRA API: it would watch ResourceSlices and need permission to read them, while the minor-number match needs only PodResources and Pods.
+<!--
+What other approaches did you consider, and why did you rule them out? These do
+not need to be as detailed as the proposal, but should include enough
+information to express the idea and why it was not acceptable.
+-->
