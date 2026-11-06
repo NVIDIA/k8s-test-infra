@@ -302,6 +302,21 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				"pod was allocated %s but sees %s", allocated, visible[0])
 		})
 
+		// The CUDA driver opens /dev/nvidiactl and /dev/nvidia-uvm, not just the
+		// GPU's own node, so an allocation without them is unusable (#851). The
+		// device plugin forwards them only when they exist in its own container's
+		// /dev. A real node has them in the host /dev; a mock node has them only
+		// in the staged tree, so the plugin manifest mounts them from there.
+		It("delivers the control device nodes with the allocated GPU", Label("nri-dp-control-nodes"), func(ctx SpecContext) {
+			pod := applyNRIWorkload(ctx, h, nriRequestPodManifest("nri-dp-control", gpuNode, 1), "nri-dp-control")
+
+			res, err := h.Kube.ExecSh(ctx, pod,
+				`for n in nvidiactl nvidia-uvm nvidia-uvm-tools; do test -c "/dev/$n" || { echo "missing /dev/$n"; exit 1; }; done`)
+			Expect(err).NotTo(HaveOccurred(),
+				"pod requested 1 %s but did not receive the control device nodes:\n%s",
+				kube.GPUResourceName, res.Combined())
+		})
+
 		// Two pods on ONE node must not see each other's GPU.
 		//
 		// This spec covers the --pass-device-specs half of MEP-0002, NOT the

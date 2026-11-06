@@ -96,6 +96,16 @@ spec:
               readOnly: true
             - name: device-plugins
               mountPath: /var/lib/kubelet/device-plugins
+            # The plugin forwards /dev/nvidiactl and the UVM nodes with every
+            # allocation only when they exist at those paths in this container:
+            # it checks /dev here, not --nvidia-driver-root. A real node has them
+            # in the host /dev; a mock node has them only in the staged tree.
+            - name: nvidiactl
+              mountPath: /dev/nvidiactl
+            - name: nvidia-uvm
+              mountPath: /dev/nvidia-uvm
+            - name: nvidia-uvm-tools
+              mountPath: /dev/nvidia-uvm-tools
       volumes:
         - name: mock-root
           hostPath:
@@ -103,3 +113,15 @@ spec:
         - name: device-plugins
           hostPath:
             path: /var/lib/kubelet/device-plugins
+        - name: nvidiactl
+          hostPath:
+            path: /var/lib/nvml-mock/driver/dev/nvidiactl
+            type: CharDevice
+        - name: nvidia-uvm
+          hostPath:
+            path: /var/lib/nvml-mock/driver/dev/nvidia-uvm
+            type: CharDevice
+        - name: nvidia-uvm-tools
+          hostPath:
+            path: /var/lib/nvml-mock/driver/dev/nvidia-uvm-tools
+            type: CharDevice

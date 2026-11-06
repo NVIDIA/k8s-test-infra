@@ -73,6 +73,12 @@ spec:
               readOnly: true
             - name: device-plugins
               mountPath: /var/lib/kubelet/device-plugins
+            - name: nvidiactl
+              mountPath: /dev/nvidiactl
+            - name: nvidia-uvm
+              mountPath: /dev/nvidia-uvm
+            - name: nvidia-uvm-tools
+              mountPath: /dev/nvidia-uvm-tools
       volumes:
         - name: mock-root
           hostPath:
@@ -80,6 +86,18 @@ spec:
         - name: device-plugins
           hostPath:
             path: /var/lib/kubelet/device-plugins
+        - name: nvidiactl
+          hostPath:
+            path: /var/lib/nvml-mock/driver/dev/nvidiactl
+            type: CharDevice
+        - name: nvidia-uvm
+          hostPath:
+            path: /var/lib/nvml-mock/driver/dev/nvidia-uvm
+            type: CharDevice
+        - name: nvidia-uvm-tools
+          hostPath:
+            path: /var/lib/nvml-mock/driver/dev/nvidia-uvm-tools
+            type: CharDevice
 EOF
 
 kubectl -n kube-system wait --for=condition=ready \
@@ -91,6 +109,15 @@ kubectl -n kube-system wait --for=condition=ready \
 | `--nvidia-driver-root`, `--driver-root-ctr-path` | Point the plugin at Mokka's staged tree instead of a real driver root |
 | `--device-discovery-strategy=nvml` | Discover through NVML, which is the interface Mokka implements |
 | `--pass-device-specs=true` | Deliver the device nodes into the container. Required for Mokka's [NRI plugin](../components/nri-plugin.md#recognising-a-gpu-allocation) to recognise the allocation |
+
+The three `/dev` mounts carry the control device nodes. The plugin adds
+`/dev/nvidiactl`, `/dev/nvidia-uvm` and `/dev/nvidia-uvm-tools` to an
+allocation only when it finds them in its own `/dev`, and Mokka stages them
+under `/var/lib/nvml-mock/driver/dev` instead of the host `/dev`. The mounts
+put them where the plugin looks, so a pod receives them with its GPU whether
+or not Mokka's
+[container runtime setup](../components/node-daemon.md#container-runtime-setup)
+is enabled.
 
 ## Step 4 — Verify allocatable GPUs
 
