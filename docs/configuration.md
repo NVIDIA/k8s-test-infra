@@ -646,6 +646,7 @@ device_defaults:
   compute_mode: "default"             # default, exclusive_thread,
                                       # prohibited, exclusive_process
   addressing_mode: "hmm"              # hmm, ats, none
+  egm: false                          # Extended GPU Memory capability
 ```
 
 `addressing_mode` is the `Addressing Mode` row of `nvidia-smi -q`: how the GPU
@@ -657,6 +658,31 @@ A `devices[]` entry can set it for one GPU. Leaving the key unset, or
 misspelling it, renders `N/A`. The row needs a driver
 of `580` or newer: on an older profile the query does not exist, as on real
 hardware.
+
+`egm` sets the EGM bit of `nvmlDeviceGetCapabilities`, the `EGM` row under
+`Capabilities` in `nvidia-smi -q`. The host's kernel module turns Extended GPU
+Memory on, so it is off unless a profile sets it; `vrnvl72` does, as its
+captured tray reported.
+
+### Features a profile leaves out
+
+On a driver of `615` or newer, a feature the profile leaves out answers
+`NOT_SUPPORTED`, which `nvidia-smi` renders as `N/A`, as on a real board
+without it:
+
+| Profile key left out | NVML calls that answer `NOT_SUPPORTED` |
+|---|---|
+| `gpu_operation_mode` | `nvmlDeviceGetGpuOperationMode` |
+| `retired_pages` | `nvmlDeviceGetRetiredPages`, `nvmlDeviceGetRetiredPages_v2`, `nvmlDeviceGetRetiredPagesPendingStatus` |
+| `ecc.dram_encryption` | `nvmlDeviceGetDramEncryptionMode`, `nvmlDeviceSetDramEncryptionMode` |
+| `thermal.target_temperature_c` | `nvmlDeviceGetTemperatureThreshold` for the memory, acoustic and GPS thresholds |
+
+With `accounting` disabled, `nvmlDeviceGetAccountingPids` lists no processes
+and `nvmlDeviceGetAccountingStats` answers `NOT_FOUND`, instead of
+`NOT_SUPPORTED`.
+
+Profiles on older drivers keep the mock's defaults for these, so their output
+does not change.
 
 ### Drain, removal and exclusion
 

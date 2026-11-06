@@ -135,6 +135,11 @@ type DeviceConfig struct {
 	// driver can report either, and the profile has to say which host it models.
 	AddressingMode string `json:"addressing_mode,omitempty"`
 
+	// EGM reports Extended GPU Memory as enabled in the device capability
+	// mask. It is off unless the host's kernel module turns it on, which the
+	// captured Vera Rubin tray did.
+	EGM bool `json:"egm,omitzero"`
+
 	// Draining is the drain state nvmlDeviceModifyDrainState sets. A draining
 	// GPU drops out of enumeration for every process that initialises NVML
 	// afterwards, but stays addressable by PCI location so it can be undrained.

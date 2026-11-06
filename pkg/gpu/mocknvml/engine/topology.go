@@ -202,14 +202,7 @@ func resolveNvlinkLinksPerGPU(cfg *Config) int {
 // NVML_NVLINK_MAX_LINKS: nvLinkMaxLinks from nvLinkWideMinDriver on,
 // nvLinkLegacyMaxLinks before it or when no driver is configured.
 func resolveNVLinkLinkBound(cfg *Config) int {
-	var driver string
-	if cfg != nil {
-		driver = cfg.DriverVersion
-		if driver == "" && cfg.YAMLConfig != nil {
-			driver = cfg.YAMLConfig.System.DriverVersion
-		}
-	}
-	if driver != "" && CompareDriverVersions(driver, nvLinkWideMinDriver) >= 0 {
+	if driver := configuredDriver(cfg); driver != "" && CompareDriverVersions(driver, nvLinkWideMinDriver) >= 0 {
 		return nvLinkMaxLinks
 	}
 	return nvLinkLegacyMaxLinks

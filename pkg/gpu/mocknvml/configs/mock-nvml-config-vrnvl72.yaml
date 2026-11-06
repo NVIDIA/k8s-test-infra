@@ -384,6 +384,7 @@ device_defaults:
   # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
   # ---------------------------------------------------------------------------
   addressing_mode: "ats"           # Vera CPU: translated over NVLink-C2C
+  egm: true                        # Extended GPU Memory, enabled on the captured tray
 
   # ---------------------------------------------------------------------------
   # MIG - capable and disabled. The profile table is a sibling file

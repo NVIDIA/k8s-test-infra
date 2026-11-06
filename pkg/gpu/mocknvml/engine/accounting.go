@@ -140,6 +140,12 @@ func (d *ConfigurableDevice) accountingRecordsIfEnabled(funcName string) ([]nvml
 		return nil, ret
 	}
 	if !d.accountingEnabled() {
+		// A 615 driver lists no processes rather than refusing, and a record
+		// lookup then finds nothing; older drivers keep the mock's refusal.
+		if d.absentIsUnsupported() {
+			debugLog("[NVML] %s -> no records (accounting disabled)\n", funcName)
+			return nil, nvml.SUCCESS
+		}
 		debugLog("[NVML] %s -> NOT_SUPPORTED (accounting disabled)\n", funcName)
 		return nil, nvml.ERROR_NOT_SUPPORTED
 	}

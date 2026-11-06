@@ -67,6 +67,9 @@ type ConfigurableDevice struct {
 	pciInfo    nvml.PciInfo
 	boardID    uint32
 
+	// driverVersion is the driver the mock reports; see absentIsUnsupported.
+	driverVersion string
+
 	// migState is the device's MIG partitioning. Non-nil on every physical
 	// GPU (it also records that a board is not MIG-capable); nil on MIG
 	// devices, which cannot themselves be partitioned.
@@ -897,6 +900,11 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 	case nvml.TEMPERATURE_THRESHOLD_GPU_MAX:
 		temp = uint32(c.Thermal.MaxOperating_C)
 	default:
+		// The memory, acoustic and GPS thresholds have no profile key of their
+		// own; target_temperature_c declares that the board has them.
+		if ret := d.unsupportedWhenAbsent("nvmlDeviceGetTemperatureThreshold", c.Thermal.TargetTemperature_C != 0); ret != nvml.SUCCESS {
+			return 0, ret
+		}
 		temp = uint32(c.Thermal.MaxOperating_C)
 	}
 	debugLog("[NVML] nvmlDeviceGetTemperatureThreshold(type=%d) -> %d\n", thresholdType, temp)
@@ -1698,6 +1706,9 @@ func (d *ConfigurableDevice) GetFBCSessions() ([]nvml.FBCSessionInfo, nvml.Retur
 
 // GetGpuOperationMode returns GPU operation mode
 func (d *ConfigurableDevice) GetGpuOperationMode() (nvml.GpuOperationMode, nvml.GpuOperationMode, nvml.Return) {
+	if ret := d.unsupportedWhenAbsent("nvmlDeviceGetGpuOperationMode", d.cfg().GPUOperationMode != nil); ret != nvml.SUCCESS {
+		return 0, 0, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetGpuOperationMode -> ALL_ON\n")
 	return nvml.GOM_ALL_ON, nvml.GOM_ALL_ON, nvml.SUCCESS
 }
@@ -2362,18 +2373,27 @@ func (d *ConfigurableDevice) sramLocationErrors(errorType nvml.MemoryErrorType, 
 
 // GetRetiredPages returns retired pages
 func (d *ConfigurableDevice) GetRetiredPages(_ nvml.PageRetirementCause) ([]uint64, nvml.Return) {
+	if ret := d.unsupportedWhenAbsent("nvmlDeviceGetRetiredPages", d.cfg().RetiredPages != nil); ret != nvml.SUCCESS {
+		return nil, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetRetiredPages -> []\n")
 	return []uint64{}, nvml.SUCCESS
 }
 
 // GetRetiredPages_v2 returns retired pages with timestamps
 func (d *ConfigurableDevice) GetRetiredPages_v2(_ nvml.PageRetirementCause) ([]uint64, []uint64, nvml.Return) {
+	if ret := d.unsupportedWhenAbsent("nvmlDeviceGetRetiredPages_v2", d.cfg().RetiredPages != nil); ret != nvml.SUCCESS {
+		return nil, nil, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetRetiredPages_v2 -> [], []\n")
 	return []uint64{}, []uint64{}, nvml.SUCCESS
 }
 
 // GetRetiredPagesPendingStatus returns whether there are pending retired pages
 func (d *ConfigurableDevice) GetRetiredPagesPendingStatus() (nvml.EnableState, nvml.Return) {
+	if ret := d.unsupportedWhenAbsent("nvmlDeviceGetRetiredPagesPendingStatus", d.cfg().RetiredPages != nil); ret != nvml.SUCCESS {
+		return nvml.FEATURE_DISABLED, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetRetiredPagesPendingStatus -> NOT_PENDING\n")
 	return nvml.FEATURE_DISABLED, nvml.SUCCESS // No pending pages
 }

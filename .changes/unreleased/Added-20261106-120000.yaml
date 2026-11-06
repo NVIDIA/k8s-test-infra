@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  nvml-mock: on a 615 or newer driver, features a profile leaves out (GPU operation mode, retired pages, DRAM encryption, memory and acoustic thresholds) answer NOT_SUPPORTED, and disabled accounting lists no processes, as on a real board; `device_defaults.egm` sets the EGM capability. Profiles on older drivers are unchanged.
+time: 2026-11-06T12:00:00Z
