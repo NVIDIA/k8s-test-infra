@@ -66,7 +66,7 @@ func TestDerivations(t *testing.T) {
 		{"gb300", "NVIDIA GB300 NVL", 4, 4, 18, true, true, true, 2, 0, true, true, 95, 90, 85, 6, 2070},
 		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, 0, true, false, 96, 93, 89, 4, 2520}, // IB + NVLink negative control
 		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, 0, false, false, 96, 93, 89, 3, 1590},
-		{"vrnvl72", "NVIDIA Graphics Device", 4, 12, 36, true, true, true, 4, 0, true, true, 93, 88, 90, 6, 2424}, // one Vera Rubin tray: three RoCE NICs per GPU, a host bridge per GPU
+		{"vrnvl72", "NVIDIA Graphics Device", 4, 12, 36, true, true, true, 4, 0, true, true, 92, 87, 89, 6, 2424}, // one Vera Rubin tray: three RoCE NICs per GPU, a host bridge per GPU
 	}
 
 	for _, c := range cases {
@@ -770,4 +770,19 @@ func TestApplicationsClocksDeprecated(t *testing.T) {
 		require.NoError(t, err, "Load(%q)", name)
 		require.Equal(t, name == "vrnvl72", p.ApplicationsClocksDeprecated(), name)
 	}
+}
+
+func TestTLimit(t *testing.T) {
+	// vrnvl72 states the T.Limit view its capture reports; the other profiles
+	// leave it to the engine's derivation.
+	vr, err := Load(profilesDir, "vrnvl72")
+	require.NoError(t, err, "Load(vrnvl72)")
+	tl, ok := vr.TLimit()
+	require.True(t, ok, "vrnvl72 states thermal.tlimit")
+	require.Equal(t, TLimit{ReferenceC: 87, ShutdownC: -5, SlowdownC: -2, MaxOperatingC: 0}, tl)
+
+	gb300, err := Load(profilesDir, "gb300")
+	require.NoError(t, err, "Load(gb300)")
+	_, ok = gb300.TLimit()
+	require.False(t, ok, "gb300 states no thermal.tlimit")
 }

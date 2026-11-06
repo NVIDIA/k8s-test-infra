@@ -108,3 +108,29 @@ func TestTemperatureProblems_ChecksEveryGPU(t *testing.T) {
 	require.NotEmpty(t, problems)
 	assert.Contains(t, strings.Join(problems, "; "), "0000:0B:00.0", "the second GPU must be reported too")
 }
+
+func TestTLimitValueProblems_VRCapture(t *testing.T) {
+	// The real tray's nvidia-smi output against the values the vrnvl72
+	// profile states: every T.Limit row matches. The profile's 87 C base is the
+	// max of temperature + margin over the NVML dump; this nvidia-smi run, a
+	// separate snapshot in whole degrees, reads 85-86 C on each GPU, so only
+	// the reference check reports.
+	problems := TLimitValueProblems(loadHardwareCapture(t, "qx-vrnvl72.xml"), 87, -5, -2, 0)
+	require.Len(t, problems, 4, "%v", problems)
+	for _, p := range problems {
+		require.Contains(t, p, "T.Limit reference 87 C")
+	}
+}
+
+func TestTLimitValueProblems_DerivedFromSlowdown(t *testing.T) {
+	// What the mock printed before thermal.tlimit: distances measured from
+	// slowdown, so slowdown reads 0 and max operating -2.
+	out := temperatureXML(`
+<gpu_temp>32 C</gpu_temp>
+<gpu_temp_tlimit>56 C</gpu_temp_tlimit>
+<gpu_temp_max_tlimit_threshold>-5 C</gpu_temp_max_tlimit_threshold>
+<gpu_temp_slow_tlimit_threshold>0 C</gpu_temp_slow_tlimit_threshold>
+<gpu_temp_max_gpu_tlimit_threshold>-2 C</gpu_temp_max_gpu_tlimit_threshold>`)
+	problems := TLimitValueProblems(out, 86, -5, -2, 0)
+	require.Len(t, problems, 3, "%v", problems)
+}

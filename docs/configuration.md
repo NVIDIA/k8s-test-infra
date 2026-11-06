@@ -229,6 +229,23 @@ field IDs), which `nvidia-smi -q` renders as the "T.Limit" rows. Pre-Ada
 architectures report `NVML_ERROR_NOT_SUPPORTED` for both, so `nvidia-smi -q`
 falls back to the absolute `GPU Shutdown / Slowdown / Max Operating Temp` rows.
 
+By default the T.Limit view is derived from the absolute thresholds, measured
+from the slowdown threshold. A real driver reports the two views separately and
+they don't currently agree, so a profile captured from hardware can state the T.Limit
+view directly. The absolute thresholds above still answer
+`nvmlDeviceGetTemperatureThreshold`:
+
+```yaml
+  thermal:
+    tlimit:
+      reference_c: 87      # the margin reads reference_c - current temperature
+      shutdown_c: -5       # NVML_FI_DEV_TEMPERATURE_SHUTDOWN_TLIMIT
+      slowdown_c: -2       # NVML_FI_DEV_TEMPERATURE_SLOWDOWN_TLIMIT
+      max_operating_c: 0   # NVML_FI_DEV_TEMPERATURE_GPU_MAX_TLIMIT
+```
+
+A distance left out of the block is derived as without it.
+
 ### Fan
 
 ```yaml

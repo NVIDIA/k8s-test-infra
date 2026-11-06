@@ -145,15 +145,30 @@ device_defaults:
     total_energy_consumption_mj: 1000000  # millijoules since boot
 
   # ---------------------------------------------------------------------------
-  # Thermal configuration. The thresholds are NVML's; nvidia-smi renders them
-  # relative to T.Limit. No memory sensor and no target temperature: the tray
-  # reports N/A for both.
+  # Thermal configuration, from one base so the absolute thresholds and the
+  # T.Limit view agree. From the NVML dump of the captured tray:
+  #   base = max over GPUs of GetTemperature + GetMarginTemperature = 87 C
+  #   (34+53, 33+54, 33+53, 34+53), the max operating limit (T.Limit 0).
+  #   Distances above it: shutdown -5, slowdown -2 (fields 193, 194).
+  # The driver returns max operating for GetTemperatureThreshold(SLOWDOWN)
+  # and slowdown for (GPU_MAX), and the mock maps these keys to those calls
+  # as is. The raw values the snapshot recorded are shutdown:93 / slowdown:88 /
+  # max_operating:90. The snapshot makes one NVML call at a time and the
+  # temperature moves between calls, so the base it implies is off by a
+  # degree; the profile uses 92 / 87 / 89 so the absolute and T.Limit values
+  # agree. No memory sensor and no target temperature: the tray reports N/A
+  # for both.
   # ---------------------------------------------------------------------------
   thermal:
-    temperature_gpu_c: 32           # idle (liquid cooled)
-    shutdown_threshold_c: 93
-    slowdown_threshold_c: 88
-    max_operating_c: 90
+    temperature_gpu_c: 34           # idle (liquid cooled), GPU 0 of the dump
+    shutdown_threshold_c: 92        # base + 5
+    slowdown_threshold_c: 87        # base: what the driver returns for SLOWDOWN
+    max_operating_c: 89             # base + 2: what the driver returns for GPU_MAX
+    tlimit:
+      reference_c: 87               # base; T.Limit Temp = 87 - 34 = 53
+      shutdown_c: -5
+      slowdown_c: -2
+      max_operating_c: 0
 
   # ---------------------------------------------------------------------------
   # Fan configuration (N/A - liquid cooled)

@@ -921,8 +921,9 @@ func (d *ConfigurableDevice) reportsTLimit() bool {
 
 // GetMarginTemperature returns the GPU's headroom to its thermal limit in
 // degrees C — the value nvidia-smi renders as "GPU T.Limit Temp" (via
-// nvmlDeviceGetMarginTemperature). It is the slowdown threshold (falling back
-// to shutdown, then max-operating) minus the current temperature. The margin is
+// nvmlDeviceGetMarginTemperature). It is thermal.tlimit.reference_c when the
+// profile states one, else the slowdown threshold (falling back to shutdown,
+// then max-operating), minus the current temperature. The margin is
 // SIGNED and goes negative once the current temperature passes the limit,
 // mirroring real T.Limit hardware; consumers such as NVSentinel's
 // GpuThermalMarginWatch key on that sign crossing (it FAILs when the margin
@@ -939,12 +940,9 @@ func (d *ConfigurableDevice) GetMarginTemperature() (nvml.MarginTemperature, nvm
 	if c.Thermal == nil {
 		return nvml.MarginTemperature{}, nvml.ERROR_NOT_SUPPORTED
 	}
-	limit := c.Thermal.SlowdownThreshold_C
-	if limit == 0 {
-		limit = c.Thermal.ShutdownThreshold_C
-	}
-	if limit == 0 {
-		limit = c.Thermal.MaxOperating_C
+	limit := tlimitReference(c.Thermal)
+	if t := c.Thermal.TLimit; t != nil && t.Reference_C != 0 {
+		limit = t.Reference_C
 	}
 	if limit == 0 {
 		return nvml.MarginTemperature{}, nvml.ERROR_NOT_SUPPORTED

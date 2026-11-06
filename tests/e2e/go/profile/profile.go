@@ -59,9 +59,10 @@ type rawProfile struct {
 			TotalBytes int64 `json:"total_bytes"`
 		} `json:"memory"`
 		Thermal *struct {
-			ShutdownThresholdC int `json:"shutdown_threshold_c"`
-			SlowdownThresholdC int `json:"slowdown_threshold_c"`
-			MaxOperatingC      int `json:"max_operating_c"`
+			ShutdownThresholdC int        `json:"shutdown_threshold_c"`
+			SlowdownThresholdC int        `json:"slowdown_threshold_c"`
+			MaxOperatingC      int        `json:"max_operating_c"`
+			TLimit             *rawTLimit `json:"tlimit"`
 		} `json:"thermal"`
 		Utilization *struct {
 			JPEG int `json:"jpeg"`
@@ -207,6 +208,7 @@ type Profile struct {
 	shutdownThresholdC int
 	slowdownThresholdC int
 	maxOperatingC      int
+	tlimit             *TLimit
 	jpegUtilizationPct int
 	ofaUtilizationPct  int
 	maxPCIeLinkGen     int
@@ -396,6 +398,7 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 		p.shutdownThresholdC = t.ShutdownThresholdC
 		p.slowdownThresholdC = t.SlowdownThresholdC
 		p.maxOperatingC = t.MaxOperatingC
+		p.tlimit = completeTLimit(t.TLimit)
 	}
 	if u := raw.DeviceDefaults.Utilization; u != nil {
 		p.jpegUtilizationPct = u.JPEG
@@ -617,6 +620,46 @@ func (p Profile) SlowdownThresholdC() int { return p.slowdownThresholdC }
 
 // MaxOperatingC is thermal.max_operating_c from the profile.
 func (p Profile) MaxOperatingC() int { return p.maxOperatingC }
+
+// rawTLimit is thermal.tlimit as written; a distance may be left out.
+type rawTLimit struct {
+	ReferenceC    int  `json:"reference_c"`
+	ShutdownC     *int `json:"shutdown_c"`
+	SlowdownC     *int `json:"slowdown_c"`
+	MaxOperatingC *int `json:"max_operating_c"`
+}
+
+// completeTLimit returns the block when it states the reference and every
+// distance, nil otherwise.
+func completeTLimit(l *rawTLimit) *TLimit {
+	if l == nil || l.ReferenceC == 0 || l.ShutdownC == nil || l.SlowdownC == nil || l.MaxOperatingC == nil {
+		return nil
+	}
+	return &TLimit{
+		ReferenceC:    l.ReferenceC,
+		ShutdownC:     *l.ShutdownC,
+		SlowdownC:     *l.SlowdownC,
+		MaxOperatingC: *l.MaxOperatingC,
+	}
+}
+
+// TLimit is the T.Limit view a profile states under thermal.tlimit: the
+// reference the margin is measured to and the signed distances nvidia-smi
+// prints as the T.Limit rows.
+type TLimit struct {
+	ReferenceC    int
+	ShutdownC     int
+	SlowdownC     int
+	MaxOperatingC int
+}
+
+// TLimit returns thermal.tlimit and whether the profile states all of it.
+func (p Profile) TLimit() (TLimit, bool) {
+	if p.tlimit == nil {
+		return TLimit{}, false
+	}
+	return *p.tlimit, true
+}
 
 // JPEGUtilizationPct is utilization.jpeg from the profile, the percentage
 // nvidia-smi -q -x must report in jpeg_util.
