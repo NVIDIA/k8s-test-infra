@@ -688,6 +688,22 @@ answers this way, so `gb300` with `driverVersion: 615.71.09` reports DRAM
 encryption as `N/A`. On older drivers every profile keeps the mock's defaults,
 so its output does not change.
 
+### NVLink telemetry on a 615 driver
+
+A `615` or newer driver reports NVLink counters through field values only. As
+on a real 615 tray, these answer `NOT_SUPPORTED` for every link:
+
+- `nvmlDeviceGetNvLinkErrorCounter` and `nvmlDeviceGetNvLinkUtilizationCounter`
+- the per-link speed fields (`NVML_FI_DEV_NVLINK_SPEED_MBPS_L0`–`L11` and
+  `_COMMON`, ids 84–90 and 132–137)
+- the data-link error fields (`NVML_FI_DEV_NVLINK_ERROR_DL_REPLAY`, `_RECOVERY`,
+  `_CRC`, ids 161–163)
+
+The NVLink5 counter fields (`NVML_FI_DEV_NVLINK_COUNT_*`) keep answering. They
+are what `nvidia-smi nvlink -e` reads, and where an
+[NVLink error injection](#nvlink-error-injection-per-device) shows. As above,
+the driver decides: older drivers keep answering the getters and fields.
+
 ### Drain, removal and exclusion
 
 These model what the driver does with a GPU rather than the GPU itself: taking
@@ -1092,7 +1108,9 @@ devices:
 ```
 
 The count accrues monotonically off the shared counter epoch (same model as
-`nvlink.defaults.error_rate`); `rate: 0` (or omitting the block) is healthy. This
+`nvlink.defaults.error_rate`); `rate: 0` (or omitting the block) is healthy. On
+a `615` or newer driver it shows only in the NVLink5 counter fields (see
+[NVLink telemetry on a 615 driver](#nvlink-telemetry-on-a-615-driver)). This
 is deliberately *not* an "NVSwitch entity health" knob — DCGM's NVSwitch/SXID
 health is NSCQ/kernel-log sourced and cannot be driven from a `libnvidia-ml.so`
 mock.
