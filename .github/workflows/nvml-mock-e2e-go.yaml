@@ -363,11 +363,16 @@ jobs:
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   # ComputeDomains through the unmodified DRA driver on two racks of two nodes
-  # (tests/e2e/kind-compute-domain-racks.yaml). gb200 only: ComputeDomains
-  # need a multi-node NVLink profile, and gb300 differs in nothing they read.
+  # (tests/e2e/kind-compute-domain-racks.yaml), on every multi-node NVLink
+  # profile. Tilt rolls out gb200; the suite reinstalls the chart with
+  # E2E_PROFILES before its specs.
   e2e-compute-domain:
     needs: [build-nvmlmock-image, prepare-imex]
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gpu-profile: [gb200, gb300, vrnvl72]
     env:
       # Built here from the cached archive and loaded into the cluster; never
       # pushed or uploaded.
@@ -439,10 +444,10 @@ jobs:
       - name: Roll out nvml-mock + DRA driver with ComputeDomains via Tilt
         run: tilt ci -- --compute-domain --dra --nvmlmock-image="$E2E_IMAGE"
 
-      - name: Run ComputeDomain E2E
+      - name: Run ComputeDomain E2E (${{ matrix.gpu-profile }})
         env:
           E2E_EXPECT_NRI: "true"
-          E2E_PROFILES: gb200
+          E2E_PROFILES: ${{ matrix.gpu-profile }}
           E2E_KUBE_CONTEXT: kind-mokka-compute-domain
           E2E_CLUSTER_NAME: mokka-compute-domain
           E2E_IMEX_BINARIES_IMAGE: ${{ env.IMEX_BINARIES_REPOSITORY }}:${{ env.IMEX_BINARIES_TAG }}
