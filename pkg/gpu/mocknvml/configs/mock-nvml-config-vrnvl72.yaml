@@ -22,6 +22,9 @@ system:
   # DMI product name; GPU Feature Discovery labels it nvidia.com/gpu.machine
   # (VR-NVL72), where the other profiles fall back to the GPU name.
   product_name: "VR NVL72"
+  # Checked against a real tray: a feature this profile leaves out answers
+  # NOT_SUPPORTED (N/A), as the tray does, on any driver.
+  absent_features: not_supported
 
 # =============================================================================
 # Default device configuration (applied to all devices unless overridden)
@@ -425,6 +428,7 @@ device_defaults:
   # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
   # ---------------------------------------------------------------------------
   addressing_mode: "ats"           # Vera CPU: translated over NVLink-C2C
+  egm: true                        # Extended GPU Memory, enabled on the captured tray
 
   # ---------------------------------------------------------------------------
   # MIG - capable and disabled. The profile table is a sibling file

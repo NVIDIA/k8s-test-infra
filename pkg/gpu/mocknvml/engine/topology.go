@@ -202,14 +202,7 @@ func resolveNvlinkLinksPerGPU(cfg *Config) int {
 // NVML_NVLINK_MAX_LINKS: nvLinkMaxLinks from nvLinkWideMinDriver on,
 // nvLinkLegacyMaxLinks before it or when no driver is configured.
 func resolveNVLinkLinkBound(cfg *Config) int {
-	var driver string
-	if cfg != nil {
-		driver = cfg.DriverVersion
-		if driver == "" && cfg.YAMLConfig != nil {
-			driver = cfg.YAMLConfig.System.DriverVersion
-		}
-	}
-	if driver != "" && CompareDriverVersions(driver, nvLinkWideMinDriver) >= 0 {
+	if driver := configuredDriver(cfg); driver != "" && CompareDriverVersions(driver, nvLinkWideMinDriver) >= 0 {
 		return nvLinkMaxLinks
 	}
 	return nvLinkLegacyMaxLinks
@@ -1034,4 +1027,19 @@ func parseCPURange(s string) []int {
 		}
 	}
 	return out
+}
+
+// configuredDriver is the driver the mock reports: the chart's driverVersion,
+// else the profile's system.driver_version.
+func configuredDriver(cfg *Config) string {
+	if cfg == nil {
+		return ""
+	}
+	if cfg.DriverVersion != "" {
+		return cfg.DriverVersion
+	}
+	if cfg.YAMLConfig != nil {
+		return cfg.YAMLConfig.System.DriverVersion
+	}
+	return ""
 }

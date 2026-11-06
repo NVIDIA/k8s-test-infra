@@ -171,6 +171,8 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *mockserver.Serv
 	for _, w := range fabric.Validate() {
 		warnLog("[ENGINE] NVLink topology: %s\n", w)
 	}
+	// Read once, so an unknown value is warned about once, not per GPU.
+	absentNotSupported := absentFeaturesNotSupported(e.config)
 
 	for i := range min(e.config.NumDevices, MaxDevices) {
 		// Get merged device config (defaults + overrides)
@@ -198,6 +200,7 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *mockserver.Serv
 			minorNumber,
 			fabric,
 		)
+		server.configurableDevices[i].absentNotSupported = absentNotSupported
 
 		debugLog("[ENGINE] Created device %d: uuid=%s pci=%s\n", i, uuid, pciBusID)
 	}

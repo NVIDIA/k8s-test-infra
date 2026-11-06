@@ -42,6 +42,10 @@ type SystemConfig struct {
 	// labels as nvidia.com/gpu.machine. Empty falls back to the GPU name.
 	ProductName string `json:"product_name,omitempty"`
 
+	// AbsentFeatures is what a feature the profile leaves out answers; see
+	// absent_features.go. Empty means AbsentFeaturesLegacyDefaults.
+	AbsentFeatures string `json:"absent_features,omitempty"`
+
 	// DriverBranch names the driver branch nvmlSystemGetDriverBranch reports.
 	// Left empty it is derived from DriverVersion (580.65.06 -> r580_00), so
 	// only a profile modelling a point-release branch needs to state it.
@@ -134,6 +138,11 @@ type DeviceConfig struct {
 	// HMM needs kernel support, ATS a Grace CPU — so the same GPU on the same
 	// driver can report either, and the profile has to say which host it models.
 	AddressingMode string `json:"addressing_mode,omitempty"`
+
+	// EGM reports Extended GPU Memory as enabled in the device capability
+	// mask. It is off unless the host's kernel module turns it on, which the
+	// captured Vera Rubin tray did.
+	EGM bool `json:"egm,omitzero"`
 
 	// Draining is the drain state nvmlDeviceModifyDrainState sets. A draining
 	// GPU drops out of enumeration for every process that initialises NVML

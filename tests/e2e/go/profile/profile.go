@@ -51,6 +51,7 @@ type rawProfile struct {
 		Name           string `json:"name"`
 		Architecture   string `json:"architecture"`
 		AddressingMode string `json:"addressing_mode"`
+		EGM            bool   `json:"egm"`
 		Fabric         *struct {
 			State string `json:"state"`
 		} `json:"fabric"`
@@ -222,6 +223,7 @@ type Profile struct {
 	hasPlatform bool
 
 	addressingMode string
+	egm            bool
 
 	driverVersion             string
 	workloadProfiles          []WorkloadPowerProfile
@@ -325,6 +327,7 @@ func Load(profilesDir, name string) (Profile, error) {
 		arch:        parsedArch,
 
 		addressingMode: strings.TrimSpace(raw.DeviceDefaults.AddressingMode),
+		egm:            raw.DeviceDefaults.EGM,
 		driverVersion:  strings.TrimSpace(raw.System.DriverVersion),
 	}
 	p.nvlinkFirmware = nvlinkFirmwareRows(raw)
@@ -876,6 +879,10 @@ const (
 // AddressingMode is device_defaults.addressing_mode in profile spelling ("hmm",
 // "ats", "none"), or "" when the profile declares none.
 func (p Profile) AddressingMode() string { return p.addressingMode }
+
+// EGM is device_defaults.egm: whether the profile's host has Extended GPU
+// Memory turned on.
+func (p Profile) EGM() bool { return p.egm }
 
 // ReportsCapabilities reports whether the profile's driver answers the
 // capabilities query, which nvidia-smi renders as the EGM row.
