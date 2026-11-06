@@ -761,3 +761,13 @@ func TestNoProfileDeclaresAMIGLayout(t *testing.T) {
 		})
 	}
 }
+
+// Only a profile on a 615 driver has applications clocks deprecated.
+func TestApplicationsClocksDeprecated(t *testing.T) {
+	t.Parallel()
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, name == "vrnvl72", p.ApplicationsClocksDeprecated(), name)
+	}
+}
