@@ -769,7 +769,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `gpu.dynamicMetrics.enabled` | `false` | Make the mock return time-varying temperature / power / utilization readings instead of the static profile values. See [Dynamic Metrics](#dynamic-metrics) below. |
 | `gpu.dynamicMetrics.seed` | `0` (baseline) | RNG seed; `0` uses a time-based seed, non-zero produces reproducible sequences. |
 | `gpu.dynamicMetrics.temperature.*` | baseline (`base_c: 55`, …) | `base_c`, `variance_c`, `ramp_c`, `ramp_period_sec` for the GPU temperature generator. |
-| `gpu.dynamicMetrics.power.*` | profile default, else baseline `250000`/`25000` | `base_mw`, `variance_mw` for the power generator (clamped to the profile's `min/max_limit_mw`). Resolved **baseline < profile default < user override**; profiles outside the 250W baseline set their own (`t4` ~65W, `b200`/`gb200` ~600W, `gb300`/`vrnvl72` ~800W). See [Dynamic Metrics](#dynamic-metrics). |
+| `gpu.dynamicMetrics.power.*` | profile default, else baseline `250000`/`25000` | `base_mw`, `variance_mw` for the power generator (clamped to the profile's `min/max_limit_mw`). Resolved **baseline < profile default < user override**; profiles outside the 250W baseline set their own (`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W, `vrnvl72` ~420W, its idle draw). See [Dynamic Metrics](#dynamic-metrics). |
 | `gpu.dynamicMetrics.utilization.*` | baseline (`pattern: burst`, …) | `pattern` (`idle` \| `busy` \| `burst` \| `steady`), `gpu_min/max`, `memory_min/max`, `burst_period_sec`. |
 | `gpu.failureInjection.enabled` | `false` | Enable simulated GPU failures (lost / fallen off bus / uncorrectable ECC). See [Failure Injection](#failure-injection) below. |
 | `gpu.failureInjection.mode` | `healthy` | Failure mode: `healthy` (default, no-op), `lost`, `fallen_off_bus`, or `ecc_uncorrectable`. With the inert default, `enabled: true` alone produces a healthy device — you must set `mode` explicitly to engage failures. |
@@ -903,7 +903,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 21,632 | 18,176 | 2,560 | 27,136 |
 | **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 180 GiB HBM3e | 186 GiB HBM3e | 278 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 | 288 GB HBM4 (286,524 MiB usable) |
 | **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | v5, 18 links | — | — | v6, 36 links |
-| **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | 1.8 TB/s | — | — | 3.6 TB/s |
+| **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | 1.8 TB/s | — | — | 2.95 TB/s |
 | **TDP** | 400W | 700W | 1,000W | 1,000W | 1,400W | 350W | 70W | 2,300W |
 | **PCIe** | Gen4 | Gen5 | Gen5 | Gen6 | Gen6 | Gen4 | Gen3 | Gen6 |
 | **MIG instances** | 7 | 7 | 7 | 7 | 7 | 0 | 0 | 7 |
@@ -1028,7 +1028,7 @@ chart baseline  <  GPU profile default  <  user override (values / --set)
 The profile layer matters for **power**: one global `base_mw` can't fit every
 profile's `[min_limit_mw, max_limit_mw]` envelope, so profiles outside the 250W
 baseline declare their own base via a Helm-only `dynamic_metrics_defaults` key
-(`t4` ~65W, `b200`/`gb200` ~600W, `gb300`/`vrnvl72` ~800W). The engine ignores that key;
+(`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W, `vrnvl72` ~420W, its idle draw). The engine ignores that key;
 it only takes effect once `enabled: true` folds it into `dynamic_metrics`.
 
 ```bash

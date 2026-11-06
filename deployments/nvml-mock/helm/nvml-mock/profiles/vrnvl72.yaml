@@ -83,8 +83,8 @@ device_defaults:
   # ("ID of this GPU within the node") is set per device below.
   #
   # slot_number counts switch trays as well as compute trays while tray_index
-  # counts compute trays only, so slot runs ahead of tray for a tray sitting
-  # above the rack's nine switch trays: compute tray 16 lands in slot 26.
+  # counts compute trays only, so the two can differ: the captured tray
+  # reports slot 4, tray index 3.
   # ---------------------------------------------------------------------------
   platform:
     chassis_serial_number: "1820000000001"
