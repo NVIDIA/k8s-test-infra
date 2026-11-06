@@ -86,8 +86,13 @@ func (d *ConfigurableDevice) pdi(cfg *DeviceConfig) uint64 {
 	if cfg.PDI != nil {
 		return uint64(*cfg.PDI)
 	}
+	return pdiFromUUID(d.UUID)
+}
+
+// pdiFromUUID is the PDI of a GPU that declares none.
+func pdiFromUUID(uuid string) uint64 {
 	h := fnv.New64a()
-	_, _ = h.Write([]byte(d.UUID)) // hash.Hash.Write never returns an error
+	_, _ = h.Write([]byte(uuid)) // hash.Hash.Write never returns an error
 	return h.Sum64()
 }
 

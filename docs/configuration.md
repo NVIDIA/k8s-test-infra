@@ -92,9 +92,9 @@ process. Set it per device to report the IDs a captured node or an external
 inventory assigned. A MIG device reports the PDI of the GPU it is carved from.
 
 Write the value as a quoted string. YAML reads an unquoted `0x…` as a number,
-and the config is rejected with an error asking for quotes. Two devices that end
-up with the same `pdi`, for example one set in `device_defaults`, are rejected
-too.
+and the config is rejected with an error asking for quotes. Two devices that would
+report the same PDI, for example from one `pdi` set in `device_defaults`, are
+rejected too.
 
 ### Architecture
 
@@ -216,8 +216,10 @@ of three forms:
 
 `gb200` and `gb300` set `"pdi"` in `device_defaults`, so a tool that rewrites
 their UUIDs per node still gets a distinct GUID per GPU without listing one. A
-fixed value names one GPU, so it belongs in that GPU's `devices` entry: two
-devices with the same fixed GUID are rejected.
+fixed value names one GPU, so it belongs in that GPU's `devices` entry. Two
+devices that would report the same GUID are rejected, whether it is fixed or
+taken from a PDI. The check covers every value known when the config loads; a
+GPU with no `uuid` and no `pdi` gets its PDI only at startup, so it is left out.
 
 !!! note "Distinct within a node, not across nodes"
     Every node that loads the same profile reports the same GPU UUIDs, and so

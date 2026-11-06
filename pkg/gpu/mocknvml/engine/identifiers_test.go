@@ -163,6 +163,28 @@ func TestLoadYAMLConfig_RejectsUnusableIdentifiers(t *testing.T) {
 				"device_defaults:\n  platform:\n    gpu_fabric_guid: \"0xab\"\n",
 			wantErr: "duplicate platform.gpu_fabric_guid",
 		},
+		// One GPU's fixed GUID is the PDI another reports through "pdi".
+		"fixed GUID equals another GPU's set PDI": {
+			body: "devices:\n" +
+				"  - index: 0\n    pdi: \"0xa0\"\n    platform:\n      gpu_fabric_guid: \"0xa1\"\n" +
+				"  - index: 1\n    pdi: \"0xa1\"\n    platform:\n      gpu_fabric_guid: \"pdi\"\n",
+			wantErr: "duplicate platform.gpu_fabric_guid",
+		},
+		"fixed GUID equals another GPU's derived PDI": {
+			body: "devices:\n" +
+				"  - index: 0\n    uuid: \"GPU-11111111-0000-0000-0000-000000000000\"\n" +
+				"    platform:\n      gpu_fabric_guid: \"pdi\"\n" +
+				"  - index: 1\n    platform:\n      gpu_fabric_guid: \"" +
+				formatHexID(pdiFromUUID("GPU-11111111-0000-0000-0000-000000000000")) + "\"\n",
+			wantErr: "duplicate platform.gpu_fabric_guid",
+		},
+		"fixed PDI equals another GPU's derived PDI": {
+			body: "devices:\n" +
+				"  - index: 0\n    uuid: \"GPU-11111111-0000-0000-0000-000000000000\"\n" +
+				"  - index: 1\n    pdi: \"" +
+				formatHexID(pdiFromUUID("GPU-11111111-0000-0000-0000-000000000000")) + "\"\n",
+			wantErr: "duplicate pdi",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -170,6 +192,16 @@ func TestLoadYAMLConfig_RejectsUnusableIdentifiers(t *testing.T) {
 			require.ErrorContains(t, err, tc.wantErr)
 		})
 	}
+}
+
+// A GPU with no declared UUID gets the base mock's, which is only chosen at
+// startup, so its PDI cannot be compared at load. Such a config still loads.
+func TestLoadYAMLConfig_AcceptsPDIBackedGUIDsWithoutUUIDs(t *testing.T) {
+	t.Parallel()
+	_, err := LoadYAMLConfig(writeIdentifierProfile(t,
+		"devices:\n  - index: 0\n  - index: 1\n"+
+			"device_defaults:\n  platform:\n    gpu_fabric_guid: \"pdi\"\n"))
+	require.NoError(t, err)
 }
 
 func TestGetPdi_ReportsConfiguredValue(t *testing.T) {

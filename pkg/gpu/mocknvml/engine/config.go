@@ -1015,13 +1015,16 @@ func validateDeviceUUIDs(config *YAMLConfig) error {
 	return nil
 }
 
-// validateDeviceIdentifiers rejects a fixed PDI or fabric GUID that two devices
-// would report. Consumers key on both: an NVLink fabric manager tells GPUs
-// apart by fabric GUID, and inventory tools by PDI. The easy way to get there
-// is a value set in device_defaults, which every device inherits.
+// validateDeviceIdentifiers rejects a PDI or fabric GUID that two devices would
+// report. Consumers key on both: an NVLink fabric manager tells GPUs apart by
+// fabric GUID, and inventory tools by PDI. The easy way to get there is a value
+// set in device_defaults, which every device inherits; the subtle one is a
+// fixed GUID on one GPU that equals the PDI another reports through "pdi".
 //
-// Only fixed values are compared. A derived PDI comes from a UUID, which
-// validateDeviceUUIDs already keeps distinct, and "pdi" reports that PDI.
+// Values are compared as the devices will report them, wherever that is known
+// at load: a fixed PDI, or one derived from a declared UUID, and the GUID that
+// resolves from either. A device that declares no UUID takes the base mock's,
+// chosen at startup, so its derived PDI cannot take part.
 func validateDeviceIdentifiers(config *YAMLConfig) error {
 	if config == nil {
 		return nil
@@ -1029,24 +1032,52 @@ func validateDeviceIdentifiers(config *YAMLConfig) error {
 	merged := &Config{YAMLConfig: config}
 	pdiOwner := map[uint64]int{}
 	guidOwner := map[uint64]int{}
+	claim := func(owners map[uint64]int, field string, value uint64, index int) error {
+		if other, dup := owners[value]; dup {
+			return fmt.Errorf("duplicate %s %s (devices %d and %d)", field, formatHexID(value), other, index)
+		}
+		owners[value] = index
+		return nil
+	}
 	for _, index := range deviceIndices(config) {
 		dev := merged.GetDeviceConfig(index)
-		if dev.PDI != nil {
-			if other, dup := pdiOwner[uint64(*dev.PDI)]; dup {
-				return fmt.Errorf("duplicate pdi %s (devices %d and %d)", formatHexID(uint64(*dev.PDI)), other, index)
+		pdi, pdiKnown := knownPDI(dev, merged.GetDeviceUUID(index))
+		if pdiKnown {
+			if err := claim(pdiOwner, "pdi", pdi, index); err != nil {
+				return err
 			}
-			pdiOwner[uint64(*dev.PDI)] = index
 		}
-		if dev.Platform == nil || dev.Platform.GPUFabricGUID == nil || dev.Platform.GPUFabricGUID.FromPDI {
-			continue
+		if guid, ok := knownFabricGUID(dev, pdi, pdiKnown); ok {
+			if err := claim(guidOwner, "platform.gpu_fabric_guid", guid, index); err != nil {
+				return err
+			}
 		}
-		guid := dev.Platform.GPUFabricGUID.Value
-		if other, dup := guidOwner[guid]; dup {
-			return fmt.Errorf("duplicate platform.gpu_fabric_guid %s (devices %d and %d)", formatHexID(guid), other, index)
-		}
-		guidOwner[guid] = index
 	}
 	return nil
+}
+
+// knownFabricGUID is the fabric GUID a device sets, when its value is known at
+// load: always for a fixed one, and for "pdi" only when the PDI is.
+func knownFabricGUID(dev *DeviceConfig, pdi uint64, pdiKnown bool) (uint64, bool) {
+	if dev.Platform == nil || dev.Platform.GPUFabricGUID == nil {
+		return 0, false
+	}
+	guid := dev.Platform.GPUFabricGUID
+	if guid.FromPDI && !pdiKnown {
+		return 0, false
+	}
+	return guid.resolve(pdi), true
+}
+
+// knownPDI is the PDI a device will report, when that is known at load.
+func knownPDI(dev *DeviceConfig, uuid string) (uint64, bool) {
+	switch {
+	case dev.PDI != nil:
+		return uint64(*dev.PDI), true
+	case uuid != "":
+		return pdiFromUUID(uuid), true
+	}
+	return 0, false
 }
 
 // deviceIndices lists every device the config brings into being: those the
