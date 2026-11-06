@@ -128,3 +128,17 @@ func TestHostPodNameFitsAPodName(t *testing.T) {
 }
 
 func fmtPID() string { return strconv.Itoa(os.Getpid()) }
+
+// Two matching pods, listed in reverse order, as during a driver rollout: the
+// choice must not depend on the order kubectl lists them in.
+func TestPodOnPicksBySortedName(t *testing.T) {
+	dir := t.TempDir()
+	kubectl := filepath.Join(dir, "kubectl")
+	script := "#!/bin/sh\nprintf 'pod/nvidia-driver-daemonset-b\\npod/other\\npod/nvidia-driver-daemonset-a\\n'\n"
+	require.NoError(t, os.WriteFile(kubectl, []byte(script), 0o755)) //nolint:gosec // an executable test double
+	var log strings.Builder
+	c := &collector{cfg: config{operatorNS: "gpu-operator"}, ctx: context.Background(), stderr: &log, kubectl: kubectl}
+	require.Equal(t, "nvidia-driver-daemonset-a", c.podOn("node-a", "nvidia-driver-daemonset"))
+	require.Contains(t, log.String(), "2 pods matching")
+	require.Empty(t, c.podOn("node-a", "container-toolkit"))
+}

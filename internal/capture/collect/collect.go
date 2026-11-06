@@ -37,6 +37,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -293,12 +294,22 @@ func (c *collector) podOn(node, part string) string {
 		c.logf("%v", err)
 		return ""
 	}
+	// kubectl lists pods in no guaranteed order, and a rollout can leave two
+	// matching pods on one node, so the choice is made by sorted name.
+	var matches []string
 	for _, name := range strings.Fields(out) {
 		if strings.Contains(name, part) {
-			return strings.TrimPrefix(name, "pod/")
+			matches = append(matches, strings.TrimPrefix(name, "pod/"))
 		}
 	}
-	return ""
+	if len(matches) == 0 {
+		return ""
+	}
+	slices.Sort(matches)
+	if len(matches) > 1 {
+		c.logf("%d pods matching %q on %s (%s); using %s", len(matches), part, node, strings.Join(matches, ", "), matches[0])
+	}
+	return matches[0]
 }
 
 // report lists empty files, which usually mean a dropped connection rather
