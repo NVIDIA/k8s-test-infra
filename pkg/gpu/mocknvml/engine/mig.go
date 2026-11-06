@@ -503,6 +503,18 @@ func (d *ConfigurableDevice) GetMaxMigDeviceCount() (int, nvml.Return) {
 	return count, nvml.SUCCESS
 }
 
+// migCapable allows discovery before MIG is enabled, while retaining device
+// health and physical-board checks. Instance lifecycle calls use migEnabled.
+func (d *ConfigurableDevice) migCapable() (*migState, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return nil, ret
+	}
+	if d.mig != nil || d.migState == nil || !d.migState.supported {
+		return nil, nvml.ERROR_NOT_SUPPORTED
+	}
+	return d.migState, nvml.SUCCESS
+}
+
 // migEnabled reports whether the device can currently be partitioned. Callers
 // must not hold st.mu.
 func (d *ConfigurableDevice) migEnabled() (*migState, nvml.Return) {
@@ -862,10 +874,7 @@ func (d *ConfigurableDevice) GetAttributes() (nvml.DeviceAttributes, nvml.Return
 
 // GetGpuInstanceProfileInfo returns a GPU instance profile the board supports.
 func (d *ConfigurableDevice) GetGpuInstanceProfileInfo(profileID int) (nvml.GpuInstanceProfileInfo, nvml.Return) {
-	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
-		return nvml.GpuInstanceProfileInfo{}, ret
-	}
-	st, ret := d.migEnabled()
+	st, ret := d.migCapable()
 	if ret != nvml.SUCCESS {
 		return nvml.GpuInstanceProfileInfo{}, ret
 	}
@@ -891,7 +900,7 @@ func (d *ConfigurableDevice) GetGpuInstancePossiblePlacements(
 	if info == nil {
 		return nil, nvml.ERROR_INVALID_ARGUMENT
 	}
-	st, ret := d.migEnabled()
+	st, ret := d.migCapable()
 	if ret != nvml.SUCCESS {
 		return nil, ret
 	}
@@ -1400,7 +1409,7 @@ func (d *ConfigurableDevice) GetGpuInstanceRemainingCapacity(
 	if info == nil {
 		return 0, nvml.ERROR_INVALID_ARGUMENT
 	}
-	st, ret := d.migEnabled()
+	st, ret := d.migCapable()
 	if ret != nvml.SUCCESS {
 		return 0, ret
 	}

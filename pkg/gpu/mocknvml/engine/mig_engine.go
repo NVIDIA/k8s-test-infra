@@ -186,7 +186,7 @@ func (e *Engine) migStateOf(handle unsafe.Pointer) (*migState, nvml.Return) {
 	if dev == nil {
 		return nil, nvml.ERROR_INVALID_ARGUMENT
 	}
-	return dev.migEnabled()
+	return dev.migCapable()
 }
 
 // DeviceGetGpuInstancePossiblePlacements returns the slice offsets a profile
