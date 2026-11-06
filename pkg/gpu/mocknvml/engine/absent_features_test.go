@@ -114,3 +114,26 @@ func TestAbsentFeatures_DisabledAccounting(t *testing.T) {
 		require.Equal(t, want[1], ret, "%s: GetAccountingStats", profile)
 	}
 }
+
+// A devices[] entry can turn EGM on for one GPU.
+func TestGetCapabilities_PerDeviceEGM(t *testing.T) {
+	t.Parallel()
+	e := NewEngine(&Config{
+		NumDevices:    2,
+		DriverVersion: "580.65.06",
+		YAMLConfig: &YAMLConfig{
+			Version: "1.0",
+			System:  SystemConfig{DriverVersion: "580.65.06", NumDevices: 2},
+			Devices: []DeviceOverride{{Index: 1, DeviceConfig: DeviceConfig{EGM: true}}},
+		},
+	})
+	require.Equal(t, nvml.SUCCESS, e.Init())
+	t.Cleanup(func() { _ = e.Shutdown() })
+	for i, want := range []uint32{0, nvml.DEV_CAP_EGM} {
+		handle, ret := e.DeviceGetHandleByIndex(i)
+		require.Equal(t, nvml.SUCCESS, ret)
+		caps, ret := e.LookupConfigurableDevice(handle).GetCapabilities()
+		require.Equal(t, nvml.SUCCESS, ret)
+		require.Equal(t, want, caps.CapMask, "GPU %d", i)
+	}
+}
