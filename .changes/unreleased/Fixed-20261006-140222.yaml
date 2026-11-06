@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  node-agent: NFD no longer logs `failed to detect NUMA nodes` on nodes whose kernel exposes no NUMA layout, and publishes the profile's NUMA node count as `memory.numa` (`nodeAgent.numa.enabled`).
+time: 2026-10-06T12:02:22Z

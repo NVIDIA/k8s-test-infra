@@ -24,11 +24,13 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	crisim "github.com/NVIDIA/k8s-test-infra/internal/agent/cri"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/dmi"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/fabricmanager"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/gpudriver"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/ib"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/kernellog"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/numa"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
 	"github.com/NVIDIA/k8s-test-infra/internal/cri"
 	"github.com/NVIDIA/k8s-test-infra/internal/cri/containerd"
@@ -115,6 +117,18 @@ func startCommand() *cli.Command {
 				Value:   kernellog.DefaultPath,
 				Usage:   "kernel log to announce injected Xids on, as a driver's printk does ('' announces nowhere)",
 				Sources: cli.EnvVars("MOCK_NVML_KMSG"),
+			},
+			&cli.BoolFlag{
+				Name:    "dmi",
+				Value:   true,
+				Usage:   "serve a simulated DMI identity at /sys/devices/virtual/dmi/id on a node whose kernel exposes none",
+				Sources: cli.EnvVars("MOCK_DMI"),
+			},
+			&cli.BoolFlag{
+				Name:    "numa",
+				Value:   true,
+				Usage:   "serve the profile's NUMA nodes at /sys/bus/node/devices on a node whose kernel exposes none",
+				Sources: cli.EnvVars("MOCK_NUMA"),
 			},
 			&cli.DurationFlag{
 				Name:    "fabricmanager-init-delay",
@@ -255,6 +269,8 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		zap.String("health_addr", cmd.String("health-addr")),
 		zap.String("ib_mode", string(ibMode)),
 		zap.Bool("ib_fabric", cmd.Bool("ib-fabric")),
+		zap.Bool("dmi", cmd.Bool("dmi")),
+		zap.Bool("numa", cmd.Bool("numa")),
 		zap.Duration("shutdown_timeout", shutdownTimeout),
 		zap.Duration("resync_interval", resyncInterval),
 		zap.String("container_runtime", cmd.String("container-runtime")),
@@ -266,28 +282,34 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		zap.String("host_fs", cmd.String("host-fs")),
 	)
 
+	simulators := []agent.Simulator{
+		gpudriver.New(h),
+		pcibus.New(h),
+		crisim.New(h, criOpts),
+		imex.New(h, imex.Options{
+			ProvidedDir:     cmd.String("imex-provided-dir"),
+			Download:        features.Enabled(features.IMEXDownload),
+			DownloadTimeout: cmd.Duration("imex-download-timeout"),
+		}),
+		migcaps.New(h),
+		nvlink.New(h),
+		kernellog.New(h, kernellog.Options{Path: cmd.String("kernel-log")}),
+		fabricmanager.New(h, fabricmanager.Options{
+			InitDelay: cmd.Duration("fabricmanager-init-delay"),
+		}),
+		ib.New(h, ib.Options{
+			Mode:    ibMode,
+			TCPPort: cmd.Int("ib-fabric-port"),
+			Fabric:  cmd.Bool("ib-fabric"),
+		}),
+		dmi.New(h, cmd.Bool("dmi")),
+	}
+	if cmd.Bool("numa") {
+		simulators = append(simulators, numa.New(h))
+	}
+
 	a := agent.New(agent.Config{
-		Simulators: []agent.Simulator{
-			gpudriver.New(h),
-			pcibus.New(h),
-			crisim.New(h, criOpts),
-			imex.New(h, imex.Options{
-				ProvidedDir:     cmd.String("imex-provided-dir"),
-				Download:        features.Enabled(features.IMEXDownload),
-				DownloadTimeout: cmd.Duration("imex-download-timeout"),
-			}),
-			migcaps.New(h),
-			nvlink.New(h),
-			kernellog.New(h, kernellog.Options{Path: cmd.String("kernel-log")}),
-			fabricmanager.New(h, fabricmanager.Options{
-				InitDelay: cmd.Duration("fabricmanager-init-delay"),
-			}),
-			ib.New(h, ib.Options{
-				Mode:    ibMode,
-				TCPPort: cmd.Int("ib-fabric-port"),
-				Fabric:  cmd.Bool("ib-fabric"),
-			}),
-		},
+		Simulators:      simulators,
 		Source:          source.NewFileSource(configPath, cmd.String("topology"), resyncInterval, log),
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,

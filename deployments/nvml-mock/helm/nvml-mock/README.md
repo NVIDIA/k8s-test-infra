@@ -55,6 +55,8 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | `nodeSelector`, `tolerations` | Standard scheduling; `nodeAgent.resources` sets limits |
 | `nodeAgent.kernelLog` | Announce injected Xids on the node's `/dev/kmsg` (off by default) |
 | `nodeAgent.containerRuntime` | Set up the node's container runtime: install the NVIDIA container runtime and make it containerd's default `nvidia` handler (on by default; reverted when the node pod stops) |
+| `nodeAgent.dmi` | Serve a DMI identity on nodes whose kernel exposes none, e.g. Docker Desktop on Apple Silicon (on by default) |
+| `nodeAgent.numa` | Serve the profile's NUMA nodes on nodes whose kernel exposes none, e.g. Docker Desktop on Apple Silicon (on by default) |
 | `nodeLabels` | Labels applied to nodes running the mock |
 | `allocationWatcher` | Tracks device-plugin allocations for utilization simulation |
 | `nri` | NRI injection into GPU workloads, on by default |

@@ -475,22 +475,23 @@ license-fmt: addlicense ## Add Apache-2.0 headers to tracked source files missin
 license-header-check: addlicense ## Verify tracked source files contain license headers.
 	@$(LICENSE_FILES) | xargs -r $(ADDLICENSE) -check -c "NVIDIA CORPORATION" -l apache
 
-# internal/fsutil and internal/agent/gpudriver skip their bind-mount, mknod
-# and Stage tests outside root on Linux (skipUnlessRootLinux) — the `test`
-# target above always runs as the invoking user, so those never execute
-# there. GOPROXY=off and the GOMODCACHE mount are what let this run offline:
-# `test` already downloaded and verified everything this needs on the same
-# runner, in the same job, moments earlier. The mount has to be writable —
-# Go's module cache takes a lock file even to read from it — which is fine
-# on a CI runner thrown away at the end of the job, less so reused locally.
+# internal/fsutil, internal/agent/gpudriver, internal/agent/imex and
+# internal/agent/sysoverlay skip their mount, mknod and Stage tests outside
+# root on Linux (skipUnlessRootLinux) — the `test` target above always runs
+# as the invoking user, so those never execute there. GOPROXY=off and the
+# GOMODCACHE mount are what let this run offline: `test` already downloaded
+# and verified everything this needs on the same runner, in the same job,
+# moments earlier. The mount has to be writable — Go's module cache takes a
+# lock file even to read from it — which is fine on a CI runner thrown away
+# at the end of the job, less so reused locally.
 .PHONY: test-privileged
-test-privileged: ## Run internal/fsutil, internal/agent/gpudriver and internal/agent/imex as root in a privileged container, for the tests `test` always skips
+test-privileged: ## Run internal/fsutil, internal/agent/gpudriver, internal/agent/imex and internal/agent/sysoverlay as root in a privileged container, for the tests `test` always skips
 	@docker run --rm --privileged \
 		-e GOPROXY=off \
 		-v "$(CURDIR)":/src -w /src \
 		-v "$(shell $(GO_CMD) env GOMODCACHE)":/go/pkg/mod \
 		golang:$(shell ./hack/golang-version.sh) \
-		go test -v ./internal/fsutil/... ./internal/agent/gpudriver/... ./internal/agent/imex/...
+		go test -v ./internal/fsutil/... ./internal/agent/gpudriver/... ./internal/agent/imex/... ./internal/agent/sysoverlay/...
 
 HELM_CHART_DIR      := deployments/nvml-mock/helm/nvml-mock
 CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds

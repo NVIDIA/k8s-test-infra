@@ -151,6 +151,10 @@ should match snapshot with all overrides:
                   value: /var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_NVML_KMSG
                   value: ""
+                - name: MOCK_DMI
+                  value: "true"
+                - name: MOCK_NUMA
+                  value: "true"
                 - name: MOCK_MIG_PROFILES_CONFIG
                   value: /etc/nvml-mock/mig/mig-profiles.yaml
                 - name: MOCK_IB_PING_SOCKET
@@ -218,6 +222,12 @@ should match snapshot with all overrides:
                 - mountPath: /host/sys
                   name: node-sysfs
                   readOnly: true
+                - mountPath: /host/sys/devices/virtual
+                  mountPropagation: Bidirectional
+                  name: node-sysfs-virtual
+                - mountPath: /host/sys/bus
+                  mountPropagation: Bidirectional
+                  name: node-sysfs-bus
                 - mountPath: /host
                   mountPropagation: HostToContainer
                   name: host-fs
@@ -270,6 +280,14 @@ should match snapshot with all overrides:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /sys/devices/virtual
+                type: Directory
+              name: node-sysfs-virtual
+            - hostPath:
+                path: /sys/bus
+                type: Directory
+              name: node-sysfs-bus
             - hostPath:
                 path: /
                 type: Directory
@@ -452,6 +470,10 @@ should match snapshot with b200 profile:
                   value: /var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_NVML_KMSG
                   value: ""
+                - name: MOCK_DMI
+                  value: "true"
+                - name: MOCK_NUMA
+                  value: "true"
                 - name: MOCK_MIG_PROFILES_CONFIG
                   value: /etc/nvml-mock/mig/mig-profiles.yaml
                 - name: MOCK_IB_PING_SOCKET
@@ -517,6 +539,12 @@ should match snapshot with b200 profile:
                 - mountPath: /host/sys
                   name: node-sysfs
                   readOnly: true
+                - mountPath: /host/sys/devices/virtual
+                  mountPropagation: Bidirectional
+                  name: node-sysfs-virtual
+                - mountPath: /host/sys/bus
+                  mountPropagation: Bidirectional
+                  name: node-sysfs-bus
                 - mountPath: /host
                   mountPropagation: HostToContainer
                   name: host-fs
@@ -565,6 +593,14 @@ should match snapshot with b200 profile:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /sys/devices/virtual
+                type: Directory
+              name: node-sysfs-virtual
+            - hostPath:
+                path: /sys/bus
+                type: Directory
+              name: node-sysfs-bus
             - hostPath:
                 path: /
                 type: Directory
@@ -745,6 +781,10 @@ should match snapshot with default values:
                   value: /var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_NVML_KMSG
                   value: ""
+                - name: MOCK_DMI
+                  value: "true"
+                - name: MOCK_NUMA
+                  value: "true"
                 - name: MOCK_MIG_PROFILES_CONFIG
                   value: /etc/nvml-mock/mig/mig-profiles.yaml
                 - name: MOCK_IB_PING_SOCKET
@@ -812,6 +852,12 @@ should match snapshot with default values:
                 - mountPath: /host/sys
                   name: node-sysfs
                   readOnly: true
+                - mountPath: /host/sys/devices/virtual
+                  mountPropagation: Bidirectional
+                  name: node-sysfs-virtual
+                - mountPath: /host/sys/bus
+                  mountPropagation: Bidirectional
+                  name: node-sysfs-bus
                 - mountPath: /host
                   mountPropagation: HostToContainer
                   name: host-fs
@@ -860,6 +906,14 @@ should match snapshot with default values:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /sys/devices/virtual
+                type: Directory
+              name: node-sysfs-virtual
+            - hostPath:
+                path: /sys/bus
+                type: Directory
+              name: node-sysfs-bus
             - hostPath:
                 path: /
                 type: Directory

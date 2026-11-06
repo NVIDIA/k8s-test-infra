@@ -126,10 +126,23 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 		assertions.NodeAnnotationListContains(ctx, h.Kube, node,
 			nfdOwnedLabelsAnnotation, pciVendorFeature)
 	})
+
+	// Compared with what the node shows rather than with fixed values, so it
+	// holds whether the kernel exposes DMI or the agent simulates it.
+	It("reads every DMI attribute the node shows", Label("nfd-dmi"), func(ctx SpecContext) {
+		installNFD(ctx, h)
+
+		agent := pod
+		agent.Container = nodeAgentContainer
+		assertions.WaitNFDRecordsNodeDMI(ctx, h.Kube, nfdNamespace, node,
+			assertions.ReadNodeDMI(ctx, h.Kube, agent), nfdLabelTimeout, nfdLabelPoll)
+	})
 })
 
-// installNFD installs the pinned NFD chart and waits for it. NFD's local source
-// is what turns the node agent's feature file into node labels.
+// installNFD installs the pinned NFD chart and waits for it, or leaves an
+// installed one as it is, so a spec that needs NFD still finds it when a label
+// filter skips the spec that installed it first. NFD's local source is what
+// turns the node agent's feature file into node labels.
 func installNFD(ctx context.Context, h *harness.Harness) {
 	GinkgoHelper()
 	Expect(h.Helm.RepoAdd(ctx, "nfd", nfdRepoURL)).To(Succeed(), "add NFD Helm repo")
