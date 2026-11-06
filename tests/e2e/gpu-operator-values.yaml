@@ -5,6 +5,7 @@
 #
 # Usage:
 #   helm install gpu-operator nvidia/gpu-operator \
+#     --version v26.3.3 \
 #     -n gpu-operator --create-namespace \
 #     -f tests/e2e/gpu-operator-values.yaml
 #
@@ -13,10 +14,7 @@
 #   - NFD deployed (the operator bundles it) so operands see pci-10de.present
 #
 # Tested versions:
-#   - GPU Operator: v24.9.x
-#   - Device Plugin: v0.17.x (bundled with operator)
-#   - GFD: v0.17.x (bundled with operator)
-#   - DRA Driver: v0.10.x (standalone Helm chart, not part of operator)
+#   - GPU Operator, its operands and the DRA driver: tests/e2e/VERSION-MATRIX.md
 #   - Container toolkit: v1.19.1 runtime and hook, installed by the Mokka node daemon
 
 # Driver is replaced by Mokka chart — no real kernel module needed.
