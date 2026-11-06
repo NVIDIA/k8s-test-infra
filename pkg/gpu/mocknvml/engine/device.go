@@ -900,9 +900,7 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 	case nvml.TEMPERATURE_THRESHOLD_GPU_MAX:
 		temp = uint32(c.Thermal.MaxOperating_C)
 	default:
-		// The memory, acoustic and GPS thresholds have no profile key of their
-		// own; target_temperature_c declares that the board has them.
-		if ret := d.unsupportedWhenAbsent("nvmlDeviceGetTemperatureThreshold", c.Thermal.TargetTemperature_C != 0); ret != nvml.SUCCESS {
+		if ret := d.unsupportedWhenAbsent("nvmlDeviceGetTemperatureThreshold", declaresThreshold(c.Thermal, thresholdType)); ret != nvml.SUCCESS {
 			return 0, ret
 		}
 		temp = uint32(c.Thermal.MaxOperating_C)

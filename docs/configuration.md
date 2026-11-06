@@ -675,14 +675,18 @@ without it:
 | `gpu_operation_mode` | `nvmlDeviceGetGpuOperationMode` |
 | `retired_pages` | `nvmlDeviceGetRetiredPages`, `nvmlDeviceGetRetiredPages_v2`, `nvmlDeviceGetRetiredPagesPendingStatus` |
 | `ecc.dram_encryption` | `nvmlDeviceGetDramEncryptionMode`, `nvmlDeviceSetDramEncryptionMode` |
-| `thermal.target_temperature_c` | `nvmlDeviceGetTemperatureThreshold` for the memory, acoustic and GPS thresholds |
+| `thermal.temperature_memory_c` | `nvmlDeviceGetTemperatureThreshold` for the memory maximum |
+| `thermal.target_temperature_c` | `nvmlDeviceGetTemperatureThreshold` for the acoustic thresholds (the target temperature and its range) |
+| none | `nvmlDeviceGetTemperatureThreshold` for the GPS threshold |
 
 With `accounting` disabled, `nvmlDeviceGetAccountingPids` lists no processes
 and `nvmlDeviceGetAccountingStats` answers `NOT_FOUND`, instead of
 `NOT_SUPPORTED`.
 
-Profiles on older drivers keep the mock's defaults for these, so their output
-does not change.
+The driver decides this, not the profile: any profile run on a `615` driver
+answers this way, so `gb300` with `driverVersion: 615.71.09` reports DRAM
+encryption as `N/A`. On older drivers every profile keeps the mock's defaults,
+so its output does not change.
 
 ### Drain, removal and exclusion
 

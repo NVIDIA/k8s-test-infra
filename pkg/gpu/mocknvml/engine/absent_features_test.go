@@ -35,6 +35,7 @@ func absentFeatureReturns(d *ConfigurableDevice) map[string]nvml.Return {
 	_, _, dram := d.GetDramEncryptionMode()
 	_, memMax := d.GetTemperatureThreshold(nvml.TEMPERATURE_THRESHOLD_MEM_MAX)
 	_, acoustic := d.GetTemperatureThreshold(nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_MAX)
+	_, gps := d.GetTemperatureThreshold(nvml.TEMPERATURE_THRESHOLD_GPS_CURR)
 	return map[string]nvml.Return{
 		"GetGpuOperationMode":               gom,
 		"GetRetiredPages":                   retired,
@@ -43,6 +44,7 @@ func absentFeatureReturns(d *ConfigurableDevice) map[string]nvml.Return {
 		"GetDramEncryptionMode":             dram,
 		"GetTemperatureThreshold(MEM_MAX)":  memMax,
 		"GetTemperatureThreshold(ACOUSTIC)": acoustic,
+		"GetTemperatureThreshold(GPS)":      gps,
 	}
 }
 
@@ -94,7 +96,9 @@ func TestAbsentFeatures_DeclaredFeaturesAnswerOn615(t *testing.T) {
 	got := absentFeatureReturns(d)
 	require.Equal(t, nvml.SUCCESS, got["GetGpuOperationMode"], "gb300 declares gpu_operation_mode")
 	require.Equal(t, nvml.SUCCESS, got["GetRetiredPages"], "gb300 declares retired_pages")
+	require.Equal(t, nvml.SUCCESS, got["GetTemperatureThreshold(MEM_MAX)"], "gb300 declares temperature_memory_c")
 	require.Equal(t, nvml.SUCCESS, got["GetTemperatureThreshold(ACOUSTIC)"], "gb300 declares target_temperature_c")
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, got["GetTemperatureThreshold(GPS)"], "no profile key declares the GPS threshold")
 	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, got["GetDramEncryptionMode"], "gb300 has no ecc.dram_encryption block")
 }
 
