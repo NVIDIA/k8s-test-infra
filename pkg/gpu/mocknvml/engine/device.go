@@ -71,6 +71,9 @@ type ConfigurableDevice struct {
 	// absent_features.go.
 	absentNotSupported bool
 
+	// driverVersion is the driver the mock reports; see nvlink_telemetry.go.
+	driverVersion string
+
 	// migState is the device's MIG partitioning. Non-nil on every physical
 	// GPU (it also records that a board is not MIG-capable); nil on MIG
 	// devices, which cannot themselves be partitioned.
@@ -1849,8 +1852,12 @@ func (d *ConfigurableDevice) GetP2PStatus(other nvml.Device, _ nvml.GpuP2PCapsIn
 
 // GetNvLinkErrorCounter returns the deterministic error counter for a
 // link. Healthy links accrue at rate 0 (always 0); a configured error
-// rate accrues monotonically against the shared epoch.
+// rate accrues monotonically against the shared epoch. A 615 or newer driver
+// answers NOT_SUPPORTED for every link, before checking the link.
 func (d *ConfigurableDevice) GetNvLinkErrorCounter(link int, counter nvml.NvLinkErrorCounter) (uint64, nvml.Return) {
+	if ret := d.legacyNVLinkTelemetry("nvmlDeviceGetNvLinkErrorCounter"); ret != nvml.SUCCESS {
+		return 0, ret
+	}
 	if !d.nvlinkLinkInRange(link) {
 		return 0, nvml.ERROR_INVALID_ARGUMENT
 	}
@@ -1894,8 +1901,12 @@ func (d *ConfigurableDevice) nvLinkInjectedErrorCount(link int) uint64 {
 
 // GetNvLinkUtilizationCounter returns the deterministic (rx, tx)
 // utilization counters for a link. The values grow monotonically with
-// wall-clock time and across separate processes (shared epoch).
+// wall-clock time and across separate processes (shared epoch). A 615 or newer
+// driver answers NOT_SUPPORTED for every link, before checking the link.
 func (d *ConfigurableDevice) GetNvLinkUtilizationCounter(link, counter int) (uint64, uint64, nvml.Return) {
+	if ret := d.legacyNVLinkTelemetry("nvmlDeviceGetNvLinkUtilizationCounter"); ret != nvml.SUCCESS {
+		return 0, 0, ret
+	}
 	if !d.nvlinkLinkInRange(link) {
 		return 0, 0, nvml.ERROR_INVALID_ARGUMENT
 	}

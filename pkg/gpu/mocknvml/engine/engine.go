@@ -199,6 +199,7 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *mockserver.Serv
 			fabric,
 		)
 		server.configurableDevices[i].absentNotSupported = absentFeaturesNotSupported(e.config)
+		server.configurableDevices[i].driverVersion = configuredDriver(e.config)
 
 		debugLog("[ENGINE] Created device %d: uuid=%s pci=%s\n", i, uuid, pciBusID)
 	}
