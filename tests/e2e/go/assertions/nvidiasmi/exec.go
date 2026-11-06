@@ -232,7 +232,7 @@ func PlatformIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p pr
 
 // DeviceIdentity asserts nvidia-smi -q -x renders the Addressing Mode, PDI and
 // EGM rows the profile's driver and host call for: the configured addressing
-// mode and a PDI distinct per GPU from 580, EGM disabled from 560, and the
+// mode and a PDI distinct per GPU from 580, EGM as the profile sets it from 560, and the
 // rendering of a missing symbol before each. All three read N/A while the
 // getters were generated stubs. See issue #1042.
 func DeviceIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
@@ -245,6 +245,9 @@ func DeviceIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p prof
 	}
 	if p.ReportsCapabilities() {
 		want.EGM = egmDisabled
+		if p.EGM() {
+			want.EGM = egmEnabled
+		}
 	}
 
 	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x identity rows on %s (driver %d.x, addressing_mode %q)",

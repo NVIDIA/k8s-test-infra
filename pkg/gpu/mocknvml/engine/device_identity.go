@@ -58,15 +58,20 @@ func (d *ConfigurableDevice) GetAddressingMode() (nvml.DeviceAddressingMode, nvm
 	return nvml.DeviceAddressingMode{Value: uint32(mode)}, nvml.SUCCESS
 }
 
-// GetCapabilities reports an empty capability mask. EGM (Extended GPU Memory)
-// is the only capability NVML defines, and it is disabled on every captured
-// board, Grace hosts included: it has to be turned on in the kernel module.
+// GetCapabilities reports the device capability mask. EGM (Extended GPU
+// Memory) is the only capability NVML defines. It has to be turned on in the
+// kernel module, so it is off unless the profile sets egm: the captured Grace
+// boards have it off, the captured Vera Rubin tray on.
 func (d *ConfigurableDevice) GetCapabilities() (nvml.DeviceCapabilities, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return nvml.DeviceCapabilities{}, ret
 	}
-	debugLog("[NVML] nvmlDeviceGetCapabilities -> capMask=0\n")
-	return nvml.DeviceCapabilities{}, nvml.SUCCESS
+	var caps nvml.DeviceCapabilities
+	if d.cfg().EGM {
+		caps.CapMask = nvml.DEV_CAP_EGM
+	}
+	debugLog("[NVML] nvmlDeviceGetCapabilities -> capMask=%d\n", caps.CapMask)
+	return caps, nvml.SUCCESS
 }
 
 // GetPdi returns the Per Device Identifier, a 64-bit ID fused into the GPU.

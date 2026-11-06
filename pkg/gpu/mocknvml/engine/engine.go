@@ -198,6 +198,7 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *mockserver.Serv
 			minorNumber,
 			fabric,
 		)
+		server.configurableDevices[i].absentNotSupported = absentFeaturesNotSupported(e.config)
 
 		debugLog("[ENGINE] Created device %d: uuid=%s pci=%s\n", i, uuid, pciBusID)
 	}
