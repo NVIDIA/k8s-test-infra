@@ -79,6 +79,7 @@ func TestGenerationIsDeterministic(t *testing.T) {
 // the list once the engine reads it.
 var newerSchemaKeys = [][]string{
 	{"system", "product_name"},
+	{"system", "absent_features"},
 	{"device_defaults", "egm"},
 	{"device_defaults", "thermal", "tlimit"},
 }

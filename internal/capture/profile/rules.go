@@ -49,6 +49,10 @@ func (g *generator) systemRules(s *section) {
 	s.prop("cuda_version_major", sysGetter("SystemGetCudaDriverVersion").as(cudaMajor))
 	s.prop("cuda_version_minor", sysGetter("SystemGetCudaDriverVersion").as(cudaMinor))
 	s.prop("product_name", hostValue(dmiFile, "product_name"))
+	// The profile holds only what the capture answers, so a feature it leaves
+	// out is one the node does not support.
+	s.value("absent_features", quote("not_supported"),
+		"a feature this profile leaves out answers NOT_SUPPORTED, as on the captured node", ruleGenerated)
 }
 
 // deviceRules sets what names each device: these keys always sit under

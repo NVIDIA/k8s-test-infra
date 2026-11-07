@@ -19,6 +19,7 @@ system:
   cuda_version_major: 13            # SystemGetCudaDriverVersion = 13040
   cuda_version_minor: 4             # SystemGetCudaDriverVersion = 13040
   product_name: "VR NVL72"          # host-dmi.txt product_name
+  absent_features: "not_supported"  # a feature this profile leaves out answers NOT_SUPPORTED, as on the captured node
 
 # dynamic_metrics_defaults: left out, Helm-only defaults for the mock's varying readings; pass -base to copy it
 

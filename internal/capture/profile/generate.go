@@ -51,6 +51,7 @@ const (
 	ruleBase      = "from -base"
 	ruleLeftOut   = "left out"
 	rulePerGPU    = "per device"
+	ruleGenerated = "generated from a capture"
 )
 
 // answer is one GPU's value for a key.
