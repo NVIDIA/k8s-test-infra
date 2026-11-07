@@ -364,6 +364,7 @@ func compileState(data []byte, configPath string) (*agent.State, error) {
 
 	numDevices := resolveDeviceCount(cfg)
 	state.NodeShape.NumGPUs = numDevices
+	state.NodeShape.ProductName = cfg.System.ProductName
 
 	// PCIe topology
 	if cfg.PCIeTopology != nil {

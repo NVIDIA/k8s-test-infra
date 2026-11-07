@@ -282,9 +282,11 @@ type SoftwareVersions struct {
 
 // NodeShape describes the simulated node's topology.
 type NodeShape struct {
-	NumGPUs  int
-	Topology PCIeTopology
-	Network  NetworkShape
+	// ProductName is the profile's system.product_name, empty when unset.
+	ProductName string
+	NumGPUs     int
+	Topology    PCIeTopology
+	Network     NetworkShape
 }
 
 // NetworkShape describes the simulated InfiniBand HCAs attached to the node.

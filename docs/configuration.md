@@ -43,6 +43,8 @@ system:                           # System-level settings
   cuda_version_major: 12
   cuda_version_minor: 4
   driver_branch: "r550_00"        # Optional; derived from driver_version when unset
+  product_name: "VR NVL72"        # Optional; the DMI product name GFD labels nvidia.com/gpu.machine (default: the GPU name)
+  absent_features: not_supported  # Optional; what a feature the profile leaves out answers (default: legacy_defaults; see below)
   hic:                            # Optional; host interface cards `nvidia-smi -q -u` prints
     - id: 0
       firmware_version: "1.2.3.4"
@@ -148,7 +150,7 @@ reading identity out of sysfs gets the full picture.
 
 Where the node's boards sit in a rack, which `nvidia-smi -q` renders as its
 `Platform Info` block. Rack-scale fault correlation reads it to turn a GPU fault
-into a physical location. Only `gb200` and `gb300` ship it; on every other
+into a physical location. Only `gb200`, `gb300` and `vrnvl72` ship it; on every other
 profile the whole block reads `N/A`, which is the correct reading for a board
 whose platform reports no location.
 
@@ -226,6 +228,23 @@ as on real hardware. Ada and later expose them as signed T.Limit offsets
 field IDs), which `nvidia-smi -q` renders as the "T.Limit" rows. Pre-Ada
 architectures report `NVML_ERROR_NOT_SUPPORTED` for both, so `nvidia-smi -q`
 falls back to the absolute `GPU Shutdown / Slowdown / Max Operating Temp` rows.
+
+By default the T.Limit view is derived from the absolute thresholds, measured
+from the slowdown threshold. A real driver reports the two views separately and
+they don't currently agree, so a profile captured from hardware can state the T.Limit
+view directly. The absolute thresholds above still answer
+`nvmlDeviceGetTemperatureThreshold`:
+
+```yaml
+  thermal:
+    tlimit:
+      reference_c: 87      # the margin reads reference_c - current temperature
+      shutdown_c: -5       # NVML_FI_DEV_TEMPERATURE_SHUTDOWN_TLIMIT
+      slowdown_c: -2       # NVML_FI_DEV_TEMPERATURE_SLOWDOWN_TLIMIT
+      max_operating_c: 0   # NVML_FI_DEV_TEMPERATURE_GPU_MAX_TLIMIT
+```
+
+A distance left out of the block is derived as without it.
 
 ### Fan
 
@@ -645,6 +664,7 @@ device_defaults:
   compute_mode: "default"             # default, exclusive_thread,
                                       # prohibited, exclusive_process
   addressing_mode: "hmm"              # hmm, ats, none
+  egm: false                          # Extended GPU Memory capability
 ```
 
 `addressing_mode` is the `Addressing Mode` row of `nvidia-smi -q`: how the GPU
@@ -656,6 +676,56 @@ A `devices[]` entry can set it for one GPU. Leaving the key unset, or
 misspelling it, renders `N/A`. The row needs a driver
 of `580` or newer: on an older profile the query does not exist, as on real
 hardware.
+
+`egm` sets the EGM bit of `nvmlDeviceGetCapabilities`, the `EGM` row under
+`Capabilities` in `nvidia-smi -q`. The host's kernel module turns Extended GPU
+Memory on, so it is off unless a profile sets it; `vrnvl72` does, as its
+captured tray reported. A `devices[]` entry can turn it on for one GPU.
+
+### Features a profile leaves out
+
+`system.absent_features` sets what a feature the profile leaves out answers:
+
+- `not_supported`: `NOT_SUPPORTED`, which `nvidia-smi` renders as `N/A`, as on
+  a real GPU without the feature. A profile checked against a capture of real
+  hardware sets it; `vrnvl72` does.
+- `legacy_defaults`, the default: the mock's built-in values, as if the
+  feature existed. The other profiles were written before captures were
+  available and rely on these values, so they keep them until each is checked
+  against its capture. An unknown value also keeps them.
+
+| Profile key left out | NVML calls that answer `NOT_SUPPORTED` |
+|---|---|
+| `gpu_operation_mode` | `nvmlDeviceGetGpuOperationMode` |
+| `retired_pages` | `nvmlDeviceGetRetiredPages`, `nvmlDeviceGetRetiredPages_v2`, `nvmlDeviceGetRetiredPagesPendingStatus` |
+| `ecc.dram_encryption` | `nvmlDeviceGetDramEncryptionMode`, `nvmlDeviceSetDramEncryptionMode` |
+| `thermal.temperature_memory_c` | `nvmlDeviceGetTemperatureThreshold` for the memory maximum |
+| `thermal.target_temperature_c` | `nvmlDeviceGetTemperatureThreshold` for the acoustic thresholds (the target temperature and its range) |
+| none | `nvmlDeviceGetTemperatureThreshold` for the GPS threshold |
+
+With `accounting` disabled, `nvmlDeviceGetAccountingPids` lists no processes
+and `nvmlDeviceGetAccountingStats` answers `NOT_FOUND`, instead of
+`NOT_SUPPORTED`.
+
+### NVLink telemetry on a 615 driver
+
+A `615` or newer driver reports NVLink counters through field values only. As
+on a real 615 tray, these answer `NOT_SUPPORTED` for every link:
+
+- `nvmlDeviceGetNvLinkErrorCounter` and `nvmlDeviceGetNvLinkUtilizationCounter`
+- the per-link speed fields (`NVML_FI_DEV_NVLINK_SPEED_MBPS_L0`–`L11` and
+  `_COMMON`, ids 84–90 and 132–137)
+- the data-link error fields (`NVML_FI_DEV_NVLINK_ERROR_DL_REPLAY`, `_RECOVERY`,
+  `_CRC`, ids 161–163)
+
+The NVLink5 counter fields (`NVML_FI_DEV_NVLINK_COUNT_*`) keep answering. They
+are what `nvidia-smi nvlink -e` reads, and where an
+[NVLink error injection](#nvlink-error-injection-per-device) shows.
+
+Unlike `system.absent_features` above, this follows the driver version, not the
+profile: which calls exist is the driver's. Any profile run on a `615` driver
+answers this way, `gb300` with `driverVersion: 615.71.09` included, and older
+drivers keep answering the getters and fields.
 
 ### Drain, removal and exclusion
 
@@ -904,14 +974,14 @@ nvlink:
 on every attached GPU: `true` reports `Enabled`, while `false` or an absent key
 reports `N/A` — never `Disabled`, because NVML answers
 `NVML_ERROR_NOT_SUPPORTED`, the correct reading for a board with no NVLink-C2C
-link to a host CPU. Only `gb200` and `gb300` enable it. This is the only key that
+link to a host CPU. Only `gb200`, `gb300` and `vrnvl72` enable it. This is the only key that
 drives the row: `device_defaults.features.nvlink_c2c` is descriptive metadata and
 is not read.
 
 `multi_node` marks a board whose NVLink domain spans nodes, as in a rack-scale
 NVLink system, as opposed to an NVLink fabric that stays on one baseboard, such
-as HGX H100 or B200. Of the shipped profiles, `gb200` and `gb300` set it; Vera
-Rubin and NVL576 profiles would set it too. On such a node the
+as HGX H100 or B200. Of the shipped profiles, `gb200`, `gb300` and `vrnvl72`
+set it. On such a node the
 node agent stages the IMEX capability surface the DRA driver's ComputeDomain
 plugin reads: a substitute `/proc/devices` entry, the `fabric-imex-mgmt`
 capability file and the `channel0` device node, the only channel the driver of
@@ -946,7 +1016,7 @@ that names neither is warned about and treated as an absent block.
 |---|---|---|
 | NVML | `nvmlSystemGetNvlinkBwMode`, `nvmlSystemSetNvlinkBwMode` | `nvmlDeviceGetNvlinkBwMode`, `nvmlDeviceSetNvlinkBwMode`, `nvmlDeviceGetNvlinkSupportedBwModes` |
 | `nvidia-smi` | `nvlink -gBwMode`, `nvlink -sBwMode` | no flag reaches it — NVML callers only |
-| Shipped profiles | `h100` | `b200`, `gb200`, `gb300` |
+| Shipped profiles | `h100` | `b200`, `gb200`, `gb300`, `vrnvl72` |
 
 Either way, `supported` is the set the setter accepts, and the reported mode is
 the last value a setter recorded, else `mode`, else the best supported mode.
@@ -1061,7 +1131,9 @@ devices:
 ```
 
 The count accrues monotonically off the shared counter epoch (same model as
-`nvlink.defaults.error_rate`); `rate: 0` (or omitting the block) is healthy. This
+`nvlink.defaults.error_rate`); `rate: 0` (or omitting the block) is healthy. On
+a `615` or newer driver it shows only in the NVLink5 counter fields (see
+[NVLink telemetry on a 615 driver](#nvlink-telemetry-on-a-615-driver)). This
 is deliberately *not* an "NVSwitch entity health" knob — DCGM's NVSwitch/SXID
 health is NSCQ/kernel-log sourced and cannot be driven from a `libnvidia-ml.so`
 mock.
@@ -1159,10 +1231,11 @@ Standalone configuration files are provided for each supported GPU model:
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml` | NVIDIA A100-SXM4-40GB | 40 GiB | Ampere |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-l40s.yaml` | NVIDIA L40S | 48 GiB | Ada Lovelace |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-t4.yaml` | NVIDIA T4 | 16 GiB | Turing |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-vrnvl72.yaml` | NVIDIA Graphics Device (Vera Rubin) | 280 GiB | Rubin |
 
 Each file contains a complete configuration with every device configured: 8 for
-the baseboard profiles, 4 for the Grace-Blackwell ones (`gb200`, `gb300`), which
-model one NVL72 compute tray, the unit a real node reports.
+the baseboard profiles, 4 for the rack-scale ones (`gb200`, `gb300`, `vrnvl72`),
+which model one compute tray, the unit a real node reports.
 
 ## Integration Values
 

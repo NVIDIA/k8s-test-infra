@@ -37,6 +37,15 @@ type SystemConfig struct {
 	CUDAVersionMinor int    `json:"cuda_version_minor"`
 	NumDevices       int    `json:"num_devices,omitzero"`
 
+	// ProductName is the system's DMI product name, the string a real node
+	// reports in /sys/class/dmi/id/product_name and GPU Feature Discovery
+	// labels as nvidia.com/gpu.machine. Empty falls back to the GPU name.
+	ProductName string `json:"product_name,omitempty"`
+
+	// AbsentFeatures is what a feature the profile leaves out answers; see
+	// absent_features.go. Empty means AbsentFeaturesLegacyDefaults.
+	AbsentFeatures string `json:"absent_features,omitempty"`
+
 	// DriverBranch names the driver branch nvmlSystemGetDriverBranch reports.
 	// Left empty it is derived from DriverVersion (580.65.06 -> r580_00), so
 	// only a profile modelling a point-release branch needs to state it.
@@ -129,6 +138,11 @@ type DeviceConfig struct {
 	// HMM needs kernel support, ATS a Grace CPU — so the same GPU on the same
 	// driver can report either, and the profile has to say which host it models.
 	AddressingMode string `json:"addressing_mode,omitempty"`
+
+	// EGM reports Extended GPU Memory as enabled in the device capability
+	// mask. It is off unless the host's kernel module turns it on, which the
+	// captured Vera Rubin tray did.
+	EGM bool `json:"egm,omitzero"`
 
 	// Draining is the drain state nvmlDeviceModifyDrainState sets. A draining
 	// GPU drops out of enumeration for every process that initialises NVML
@@ -440,6 +454,26 @@ type ThermalConfig struct {
 	SlowdownThreshold_C int `json:"slowdown_threshold_c,omitzero"`
 	MaxOperating_C      int `json:"max_operating_c,omitzero"`
 	TargetTemperature_C int `json:"target_temperature_c,omitzero"`
+
+	// TLimit is the T.Limit view an Ada-or-later board reports through
+	// GetMarginTemperature and the NVML_FI_DEV_TEMPERATURE_*_TLIMIT fields.
+	// The driver keeps it apart from the thresholds above, and on a real tray
+	// it cannot be derived from them, so a profile captured from hardware
+	// states it here. Without it the view is derived from the slowdown
+	// threshold.
+	TLimit *TLimitConfig `json:"tlimit,omitempty"`
+}
+
+// TLimitConfig is the T.Limit view of the thermal limits, in degrees C.
+// Reference is the temperature the margin is measured to: the margin reads
+// Reference minus the current temperature. The thresholds are the signed
+// distances nvidia-smi prints as the T.Limit rows; 0 is a valid distance, so
+// they are pointers and a nil one is derived as without this block.
+type TLimitConfig struct {
+	Reference_C    int  `json:"reference_c"`
+	Shutdown_C     *int `json:"shutdown_c,omitempty"`
+	Slowdown_C     *int `json:"slowdown_c,omitempty"`
+	MaxOperating_C *int `json:"max_operating_c,omitempty"`
 }
 
 // FanConfig defines fan settings.

@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  nvml-mock: Added system.absent_features to GPU profiles to control how the mock handles features not defined in a profile. The Vera Rubin profile (vrnvl72) uses not_supported to match real hardware behavior.
+time: 2026-11-06T12:00:00Z
