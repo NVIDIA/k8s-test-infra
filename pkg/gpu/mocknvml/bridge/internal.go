@@ -81,12 +81,108 @@ static int isDebugEnabled() {
 #define MOCK_SLOT_HOST_MAX_PCIE_LINK_GEN 230
 #define MOCK_SLOT_SET_PERSISTENCE_MODE 251
 
+// The table holds MOCK_EXPORT_TABLE_SLOTS words: the size word, then one
+// trampoline per slot. The 580.65.06 table ends at slot 255; a 615 nvidia-smi
+// reads further, so the table must be as long as its size word says.
+#define MOCK_EXPORT_TABLE_SLOTS 512
+#define MOCK_SLOT_580_TABLE_END 256
+
+// Entry points a 615 nvidia-smi calls past the end of the 580.65.06 table,
+// recovered the same way from 615.71.09. Every command that changes GPU state
+// counts unlisted GPUs first (270); `--gpu-reset` then allocates a group of the
+// GPUs it took through slots 20 and 197 (272), runs it (273) and frees it
+// through slot 184.
+#define MOCK_SLOT_UNLISTED_GPU_COUNT 270
+#define MOCK_SLOT_RESET_GROUP_ALLOC 272
+#define MOCK_SLOT_RESET_GROUP_RUN 273
+
+// The versioned parameter blocks those entries take, tagged the way NVML tags
+// its versioned structs: version in the top byte, size in bytes below it.
+#define MOCK_UNLISTED_GPU_COUNT_V1 0x01000008u // { version, count }
+#define MOCK_RESET_GROUP_RUN_V1 0x01000030u    // { version, pad, group, buf, buf, scope*, word }
+
+// The words of the run block, counted in pointers. Of everything the block
+// reaches, a 615 nvidia-smi reads back one word after a successful run: the
+// first behind MOCK_RESET_GROUP_RUN_SCOPE, which, nonzero, makes it report that
+// the reset took the NVSwitches along with the GPUs. Poisoning each word of the
+// two buffers before it changes nothing nvidia-smi prints, so those stay its own.
+#define MOCK_RESET_GROUP_RUN_GROUP 1
+#define MOCK_RESET_GROUP_RUN_SCOPE 4
+
+// The group slot 272 hands out. The reset itself happened at slot 20, so the
+// group holds nothing; its address is only a handle nvidia-smi passes back.
+static unsigned char mockResetGroup;
+
 // C stub function for internal export table
 // This gets called by nvidia-smi via the export table function pointers
 static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* arg1, void* arg2, void* arg3) {
-    (void)arg3;
     uintptr_t rawArg0 = (uintptr_t)arg0;
     uintptr_t rawArg2 = (uintptr_t)arg2;
+
+    // Unlisted GPUs are GPUs the driver manages but does not enumerate:
+    // fn({ version, count }*). A 615 nvidia-smi stops at any error here, so
+    // the mock reports none, as a node without them does.
+    if (slot == MOCK_SLOT_UNLISTED_GPU_COUNT) {
+        unsigned int* block = (unsigned int*)arg0;
+        if (block == NULL || block[0] != MOCK_UNLISTED_GPU_COUNT_V1) {
+            if (isDebugEnabled()) {
+                fprintf(stderr, "[C-STUB] slot %u unlisted GPU count: unknown block %p -> VERSION_MISMATCH\n",
+                        slot, arg0);
+            }
+            return NVML_ERROR_ARGUMENT_VERSION_MISMATCH;
+        }
+        block[1] = 0;
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u unlisted GPU count -> 0\n", slot);
+        }
+        return NVML_SUCCESS;
+    }
+
+    // Reset group: fn(group* out, nvmlPciInfo_t* gpus, unsigned int count,
+    // flags), then fn({ version, pad, group, buf, buf, scope*, word }*) to run
+    // it. A successful run is every GPU in the group reset; the mock resets no
+    // NVSwitch, so it writes the scope word 0.
+    if (slot == MOCK_SLOT_RESET_GROUP_ALLOC) {
+        if (arg0 == NULL || arg1 == NULL || rawArg2 == 0) {
+            return NVML_ERROR_INVALID_ARGUMENT;
+        }
+        *(void**)arg0 = &mockResetGroup;
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u reset group of %lu GPUs -> %p\n",
+                    slot, (unsigned long)rawArg2, (void*)&mockResetGroup);
+        }
+        return NVML_SUCCESS;
+    }
+    if (slot == MOCK_SLOT_RESET_GROUP_RUN) {
+        unsigned int* block = (unsigned int*)arg0;
+        if (block == NULL || block[0] != MOCK_RESET_GROUP_RUN_V1) {
+            return NVML_ERROR_ARGUMENT_VERSION_MISMATCH;
+        }
+        void** words = (void**)arg0;
+        if (words[MOCK_RESET_GROUP_RUN_GROUP] != (void*)&mockResetGroup) {
+            return NVML_ERROR_INVALID_ARGUMENT;
+        }
+        unsigned int* scope = (unsigned int*)words[MOCK_RESET_GROUP_RUN_SCOPE];
+        if (scope != NULL) {
+            scope[0] = 0;
+        }
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u reset group run -> SUCCESS\n", slot);
+        }
+        return NVML_SUCCESS;
+    }
+
+    // An entry point of a newer nvidia-smi that nothing here answers. Declining
+    // is safer than the SUCCESS the catch-all below gives older slots: a newer
+    // caller trusts its out-parameters on SUCCESS, which is how slot 270 once
+    // handed back stack garbage as a GPU count.
+    if (slot >= MOCK_SLOT_580_TABLE_END) {
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u not implemented (arg0=%p, arg1=%p, arg2=%p, arg3=%p) -> NOT_SUPPORTED\n",
+                    slot, arg0, arg1, arg2, arg3);
+        }
+        return NVML_ERROR_NOT_SUPPORTED;
+    }
 
     // Device index lookup: fn(unsigned int index, nvmlDevice_t* out, 0x22, ...).
     if (slot == MOCK_SLOT_DEVICE_HANDLE_BY_INDEX && rawArg0 < 32 && rawArg2 == 0x22 && arg1 != NULL) {
@@ -259,7 +355,7 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
 
 // One trampoline per export-table slot, so the dispatcher above is told which
 // internal entry point nvidia-smi called instead of having to guess from the
-// argument shape. The 16x16 expansion is only a way to write 256 distinct
+// argument shape. The 32x16 expansion is only a way to write 512 distinct
 // function bodies; slot number is hi*16 + lo, matching the table index.
 #define MOCK_SLOT_STUB(hi, lo) \
     static nvmlReturn_t mockSlotStub_##hi##_##lo(void* a0, void* a1, void* a2, void* a3) { \
@@ -274,11 +370,15 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
     MOCK_SLOT_ROW(M, 0) MOCK_SLOT_ROW(M, 1) MOCK_SLOT_ROW(M, 2) MOCK_SLOT_ROW(M, 3) \
     MOCK_SLOT_ROW(M, 4) MOCK_SLOT_ROW(M, 5) MOCK_SLOT_ROW(M, 6) MOCK_SLOT_ROW(M, 7) \
     MOCK_SLOT_ROW(M, 8) MOCK_SLOT_ROW(M, 9) MOCK_SLOT_ROW(M, 10) MOCK_SLOT_ROW(M, 11) \
-    MOCK_SLOT_ROW(M, 12) MOCK_SLOT_ROW(M, 13) MOCK_SLOT_ROW(M, 14) MOCK_SLOT_ROW(M, 15)
+    MOCK_SLOT_ROW(M, 12) MOCK_SLOT_ROW(M, 13) MOCK_SLOT_ROW(M, 14) MOCK_SLOT_ROW(M, 15) \
+    MOCK_SLOT_ROW(M, 16) MOCK_SLOT_ROW(M, 17) MOCK_SLOT_ROW(M, 18) MOCK_SLOT_ROW(M, 19) \
+    MOCK_SLOT_ROW(M, 20) MOCK_SLOT_ROW(M, 21) MOCK_SLOT_ROW(M, 22) MOCK_SLOT_ROW(M, 23) \
+    MOCK_SLOT_ROW(M, 24) MOCK_SLOT_ROW(M, 25) MOCK_SLOT_ROW(M, 26) MOCK_SLOT_ROW(M, 27) \
+    MOCK_SLOT_ROW(M, 28) MOCK_SLOT_ROW(M, 29) MOCK_SLOT_ROW(M, 30) MOCK_SLOT_ROW(M, 31)
 
 MOCK_SLOT_ALL(MOCK_SLOT_STUB)
 
-static void* mockSlotStubs[256] = { MOCK_SLOT_ALL(MOCK_SLOT_ADDR) };
+static void* mockSlotStubs[MOCK_EXPORT_TABLE_SLOTS] = { MOCK_SLOT_ALL(MOCK_SLOT_ADDR) };
 
 // getSlotStubAddress returns the trampoline that identifies table slot.
 static void* getSlotStubAddress(unsigned int slot) {
@@ -293,6 +393,11 @@ static nvmlReturn_t callSlotForTest(unsigned int slot, void* arg0, uintptr_t arg
 
 static nvmlReturn_t hostMaxPcieLinkGenForTest(void* handle, unsigned int* value) {
     return internalStubFunction(MOCK_SLOT_HOST_MAX_PCIE_LINK_GEN, handle, value, NULL, NULL);
+}
+
+// callSlot4ForTest makes an export-table call that takes all four arguments.
+static nvmlReturn_t callSlot4ForTest(unsigned int slot, void* arg0, void* arg1, uintptr_t arg2, uintptr_t arg3) {
+    return internalStubFunction(slot, arg0, arg1, (void*)arg2, (void*)arg3);
 }
 */
 import "C"
@@ -342,6 +447,50 @@ func hostMaxPcieLinkGenLookupForTest(handle unsafe.Pointer, initial uint32) (uin
 	ret := mockInternalHostMaxPcieLinkGen(handle, &value)
 	return uint32(value), nvml.Return(ret)
 }
+
+// internalSlotBlockCallForTest makes an export-table call whose first argument
+// is a parameter block, the way the 615 entry points take theirs, and returns
+// the block as the slot left it. arg1 to arg3 go through unchanged; a non-zero
+// arg1Words also passes a second block of that many zeroed words as arg1. The
+// blocks are C memory so the call passes no Go pointer.
+func internalSlotBlockCallForTest(slot uint, block []uint64, arg1Words int, arg2, arg3 uintptr) ([]uint64, nvml.Return) {
+	word := C.size_t(unsafe.Sizeof(uint64(0)))
+	buf := (*uint64)(C.calloc(C.size_t(len(block)), word))
+	defer C.free(unsafe.Pointer(buf))
+	view := unsafe.Slice(buf, len(block))
+	copy(view, block)
+	var arg1 unsafe.Pointer
+	if arg1Words > 0 {
+		arg1 = C.calloc(C.size_t(arg1Words), word)
+		defer C.free(arg1)
+	}
+	ret := nvml.Return(C.callSlot4ForTest(C.uint(slot), unsafe.Pointer(buf), arg1, C.uintptr_t(arg2), C.uintptr_t(arg3)))
+	return slices.Clone(view), ret
+}
+
+// resetGroupRunForTest runs the reset group as a 615 nvidia-smi does, with
+// the scope word nvidia-smi reads back prefilled, and returns that word as the
+// run left it.
+func resetGroupRunForTest(version uint32, group uint64, scopePrefill uint32) (uint32, nvml.Return) {
+	scope := (*C.uint)(C.calloc(2, C.size_t(unsafe.Sizeof(C.uint(0)))))
+	defer C.free(unsafe.Pointer(scope))
+	*scope = C.uint(scopePrefill)
+	block := make([]uint64, (C.MOCK_RESET_GROUP_RUN_V1&0xffffff)/8)
+	block[0] = uint64(version)
+	block[C.MOCK_RESET_GROUP_RUN_GROUP] = group
+	block[C.MOCK_RESET_GROUP_RUN_SCOPE] = uint64(uintptr(unsafe.Pointer(scope)))
+	_, ret := internalSlotBlockCallForTest(C.MOCK_SLOT_RESET_GROUP_RUN, block, 0, 0, 0)
+	return uint32(*scope), ret
+}
+
+// The 615 entry points and their parameter-block tags, for the tests.
+const (
+	unlistedGPUCountSlotForTest = C.MOCK_SLOT_UNLISTED_GPU_COUNT
+	resetGroupAllocSlotForTest  = C.MOCK_SLOT_RESET_GROUP_ALLOC
+	unlistedGPUCountV1ForTest   = C.MOCK_UNLISTED_GPU_COUNT_V1
+	resetGroupRunV1ForTest      = C.MOCK_RESET_GROUP_RUN_V1
+	firstSlotPast580ForTest     = C.MOCK_SLOT_580_TABLE_END
+)
 
 // mockInternalIsDeviceHandle reports whether the raw handle value passed by
 // nvidia-smi through the internal export table belongs to a registered mock
@@ -484,11 +633,19 @@ func writeProcessEntry(buf unsafe.Pointer, index int, pid uint32, usedGpuMemory 
 	nameBuf[len(name)] = 0
 }
 
-// Internal export table for nvidia-smi compatibility
-// Based on reverse engineering: table[0] = size (must be > 648), table[648/8] = function pointer
-// Table needs to be large enough for all offsets nvidia-smi might access
+// Internal export table for nvidia-smi compatibility.
+// Based on reverse engineering: table[0] is the table's size in bytes, and
+// each later word is a function pointer (table[648/8] is the device handle
+// lookup).
+//
+// The size word is what a caller bounds its reads with, so the array must be
+// exactly that long. A 615 nvidia-smi reads past slot 255; when the table
+// claimed 4 KiB but held 2, it took whatever word followed the array for a
+// function pointer and crashed `nvidia-smi -q`.
+const exportTableSlots = C.MOCK_EXPORT_TABLE_SLOTS
+
 var (
-	internalExportTable    [256]uintptr
+	internalExportTable    [exportTableSlots]uintptr
 	exportTableInitialized = false
 )
 
@@ -496,18 +653,16 @@ func initExportTable() {
 	if exportTableInitialized {
 		return
 	}
-	// Set up the export table
-	// Offset 0: size field (must be > 648 = 0x288)
-	internalExportTable[0] = 0x1000
+	internalExportTable[0] = uintptr(len(internalExportTable)) * unsafe.Sizeof(internalExportTable[0])
 
 	// Every slot gets its own trampoline so a call can be attributed to the
 	// internal entry point nvidia-smi asked for.
-	for i := 1; i < 256; i++ {
+	for i := 1; i < len(internalExportTable); i++ {
 		internalExportTable[i] = uintptr(C.getSlotStubAddress(C.uint(i)))
 	}
 
 	exportTableInitialized = true
-	debugLog("[MOCK-NVML] Export table initialized with %d per-slot trampolines\n", 255)
+	debugLog("[MOCK-NVML] Export table initialized with %d per-slot trampolines\n", len(internalExportTable)-1)
 }
 
 // Internal function used by nvidia-smi for version verification

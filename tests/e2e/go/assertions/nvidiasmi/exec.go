@@ -49,6 +49,18 @@ func Inventory(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.P
 		strings.Join(problems, "\n"))
 }
 
+// Branch asserts the pod runs the nvidia-smi of the profile's driver branch, the
+// binary the node agent stages for it.
+func Branch(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi comes from driver branch %d", p.DriverMajor()))
+	res, err := k.Exec(ctx, pod, "nvidia-smi")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvidia-smi exited with error: %s", res.Combined())
+	problems := BranchProblems(res.Stdout, p.DriverMajor())
+	gomega.Expect(problems).To(gomega.BeEmpty(), "%s\n%s", strings.Join(problems, "\n"), res.Stdout)
+}
+
 // JpgOfaUtilization asserts nvidia-smi -q -x reports the given JPEG and OFA
 // percentages on every GPU. Both elements read N/A until the NVML getters
 // existed, so the configured values were silently dropped. See issue #637.

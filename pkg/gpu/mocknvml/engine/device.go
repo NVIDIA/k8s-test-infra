@@ -1700,16 +1700,16 @@ func (d *ConfigurableDevice) GetGpuOperationMode() (nvml.GpuOperationMode, nvml.
 }
 
 // nvlinkLinkInRange reports whether a link index is within the valid
-// per-device NVLink range. Negative or out-of-range indices map to
-// ERROR_INVALID_ARGUMENT, matching real NVML.
-func nvlinkLinkInRange(link int) bool {
-	return link >= 0 && link < nvLinkMaxLinks
+// per-device NVLink range of the configured driver. Negative or out-of-range
+// indices map to ERROR_INVALID_ARGUMENT, matching real NVML.
+func (d *ConfigurableDevice) nvlinkLinkInRange(link int) bool {
+	return link >= 0 && link < d.fabric.LinkBound()
 }
 
 // GetNvLinkState returns NvLink state for a specific link, derived from
 // the node fabric's resolved per-device links.
 func (d *ConfigurableDevice) GetNvLinkState(link int) (nvml.EnableState, nvml.Return) {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return nvml.FEATURE_DISABLED, nvml.ERROR_INVALID_ARGUMENT
 	}
 	if d.fabric != nil {
@@ -1724,7 +1724,7 @@ func (d *ConfigurableDevice) GetNvLinkState(link int) (nvml.EnableState, nvml.Re
 
 // GetNvLinkVersion returns the NvLink version for a link from the fabric.
 func (d *ConfigurableDevice) GetNvLinkVersion(link int) (uint32, nvml.Return) {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return 0, nvml.ERROR_INVALID_ARGUMENT
 	}
 	version := uint32(0)
@@ -1741,7 +1741,7 @@ func (d *ConfigurableDevice) GetNvLinkVersion(link int) (uint32, nvml.Return) {
 
 // GetNvLinkCapability returns whether a capability bit is set for a link.
 func (d *ConfigurableDevice) GetNvLinkCapability(link int, capability nvml.NvLinkCapability) (uint32, nvml.Return) {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return 0, nvml.ERROR_INVALID_ARGUMENT
 	}
 	val := uint32(0)
@@ -1757,7 +1757,7 @@ func (d *ConfigurableDevice) GetNvLinkCapability(link int, capability nvml.NvLin
 // GetNvLinkRemoteDeviceType returns the kind of device on the far end of a
 // link (GPU, SWITCH for NVSwitch endpoints, or IBMNPU/UNKNOWN otherwise).
 func (d *ConfigurableDevice) GetNvLinkRemoteDeviceType(link int) (nvml.IntNvLinkDeviceType, nvml.Return) {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return nvml.NVLINK_DEVICE_TYPE_UNKNOWN, nvml.ERROR_INVALID_ARGUMENT
 	}
 	t := nvml.NVLINK_DEVICE_TYPE_UNKNOWN
@@ -1840,7 +1840,7 @@ func (d *ConfigurableDevice) GetP2PStatus(other nvml.Device, _ nvml.GpuP2PCapsIn
 // link. Healthy links accrue at rate 0 (always 0); a configured error
 // rate accrues monotonically against the shared epoch.
 func (d *ConfigurableDevice) GetNvLinkErrorCounter(link int, counter nvml.NvLinkErrorCounter) (uint64, nvml.Return) {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return 0, nvml.ERROR_INVALID_ARGUMENT
 	}
 	val := uint64(0)
@@ -1885,7 +1885,7 @@ func (d *ConfigurableDevice) nvLinkInjectedErrorCount(link int) uint64 {
 // utilization counters for a link. The values grow monotonically with
 // wall-clock time and across separate processes (shared epoch).
 func (d *ConfigurableDevice) GetNvLinkUtilizationCounter(link, counter int) (uint64, uint64, nvml.Return) {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return 0, 0, nvml.ERROR_INVALID_ARGUMENT
 	}
 	if d.fabric == nil {
@@ -1899,7 +1899,7 @@ func (d *ConfigurableDevice) GetNvLinkUtilizationCounter(link, counter int) (uin
 // FreezeNvLinkUtilizationCounter is a no-op success: the counters are a
 // pure function of time, so there is no mutable state to freeze.
 func (d *ConfigurableDevice) FreezeNvLinkUtilizationCounter(link, _ int, _ nvml.EnableState) nvml.Return {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
 	debugLog("[NVML] nvmlDeviceFreezeNvLinkUtilizationCounter(link=%d) -> no-op\n", link)
@@ -1908,7 +1908,7 @@ func (d *ConfigurableDevice) FreezeNvLinkUtilizationCounter(link, _ int, _ nvml.
 
 // ResetNvLinkUtilizationCounter is a no-op success (see Freeze).
 func (d *ConfigurableDevice) ResetNvLinkUtilizationCounter(link, _ int) nvml.Return {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
 	debugLog("[NVML] nvmlDeviceResetNvLinkUtilizationCounter(link=%d) -> no-op\n", link)
@@ -1917,7 +1917,7 @@ func (d *ConfigurableDevice) ResetNvLinkUtilizationCounter(link, _ int) nvml.Ret
 
 // ResetNvLinkErrorCounters is a no-op success.
 func (d *ConfigurableDevice) ResetNvLinkErrorCounters(link int) nvml.Return {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
 	debugLog("[NVML] nvmlDeviceResetNvLinkErrorCounters(link=%d) -> no-op\n", link)
@@ -1928,7 +1928,7 @@ func (d *ConfigurableDevice) ResetNvLinkErrorCounters(link int) nvml.Return {
 // via NVLink, derived from the fabric's resolved per-device links.
 func (d *ConfigurableDevice) GetNvLinkRemotePciInfo(link int) (nvml.PciInfo, nvml.Return) {
 	pci := nvml.PciInfo{}
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return pci, nvml.ERROR_INVALID_ARGUMENT
 	}
 	if d.fabric == nil {
