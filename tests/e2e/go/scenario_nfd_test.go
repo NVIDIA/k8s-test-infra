@@ -113,16 +113,7 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 	})
 
 	It("gets the label from NFD once NFD is installed", Label("nfd-provenance"), func(ctx SpecContext) {
-		Expect(h.Helm.RepoAdd(ctx, "nfd", nfdRepoURL)).To(Succeed(), "add NFD Helm repo")
-		Expect(h.Helm.UpgradeInstall(ctx, helm.Release{
-			Name:            nfdRelease,
-			Chart:           nfdChart,
-			Version:         nfdVersion,
-			Namespace:       nfdNamespace,
-			CreateNamespace: true,
-			Wait:            true,
-			Timeout:         config.HelmTimeout(),
-		})).To(Succeed(), "install NFD")
+		installNFD(ctx, h)
 
 		assertions.WaitNodeLabelsPresent(ctx, h.Kube, node,
 			[]string{pciVendorLabel}, nfdLabelTimeout, nfdLabelPoll)
@@ -136,6 +127,22 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 			nfdOwnedLabelsAnnotation, pciVendorFeature)
 	})
 })
+
+// installNFD installs the pinned NFD chart and waits for it. NFD's local source
+// is what turns the node agent's feature file into node labels.
+func installNFD(ctx context.Context, h *harness.Harness) {
+	GinkgoHelper()
+	Expect(h.Helm.RepoAdd(ctx, "nfd", nfdRepoURL)).To(Succeed(), "add NFD Helm repo")
+	Expect(h.Helm.UpgradeInstall(ctx, helm.Release{
+		Name:            nfdRelease,
+		Chart:           nfdChart,
+		Version:         nfdVersion,
+		Namespace:       nfdNamespace,
+		CreateNamespace: true,
+		Wait:            true,
+		Timeout:         config.HelmTimeout(),
+	})).To(Succeed(), "install NFD")
+}
 
 // nvmlMockPodOnWorker returns a running nvml-mock pod scheduled on a Kind
 // WORKER node, plus that node's name.
@@ -152,7 +159,7 @@ func nvmlMockPodOnWorker(ctx context.Context, h *harness.Harness) (kube.PodRef, 
 	GinkgoHelper()
 	workers, err := h.Cluster.Workers(ctx)
 	Expect(err).NotTo(HaveOccurred(), "list Kind worker nodes")
-	Expect(workers).NotTo(BeEmpty(), "NFD label provenance needs at least one Kind worker node")
+	Expect(workers).NotTo(BeEmpty(), "NFD-derived labels need at least one Kind worker node")
 	isWorker := make(map[string]bool, len(workers))
 	for _, w := range workers {
 		isWorker[w.Name] = true

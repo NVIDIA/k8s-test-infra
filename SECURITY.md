@@ -2,9 +2,11 @@
 
 ## Supported Versions
 
-Security fixes ship as patch releases for every release line that the
-[support policy](docs/support-policy.md#support-status) marks Supported or
-Maintenance. That page holds the current status of each line.
+Only the latest release receives fixes. A security fix merges to `main` and
+ships in the next release; when it cannot wait, maintainers cut an out-of-cycle
+release from `main`. Older releases get no fixes, so upgrade to the latest
+release. The [support policy](docs/support-policy.md#life-cycle) describes the
+release life cycle.
 
 ## Reporting a Vulnerability
 

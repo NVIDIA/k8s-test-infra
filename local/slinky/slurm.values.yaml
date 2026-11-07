@@ -1,9 +1,5 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
-#
-# Values for the Slinky `slurm` chart: one GPU NodeSet whose slurmd pods each
-# claim every mock GPU on their node through the GPU Operator's device plugin,
-# and let Slurm discover them itself (AutoDetect) instead of being told.
 
 configFiles:
   gres.conf: |
@@ -18,8 +14,7 @@ controller:
 
 nodesets:
   gpu:
-    # One slurmd per mock-GPU worker, so the Slurm cluster follows whichever
-    # Kind cluster it lands on (2 workers by default, 4 under compute-domain).
+    # Follows the Kind cluster's worker count: 2 by default, 4 under compute-domain.
     scalingMode: DaemonSet
     slurmd:
       resources:
@@ -28,16 +23,13 @@ nodesets:
           # driver files AutoDetect reads. Matches gpu.count in
           # local/slinky/nvml-mock.values.yaml.
           nvidia.com/gpu: 4
-    # sshd in every slurmd pod; pam_slurm_adopt confines a session to the job
-    # that owns the node.
+    # pam_slurm_adopt confines an ssh session to the job that owns the node.
     ssh:
       enabled: true
     podSpec:
       nodeSelector:
         mokka.nvidia.com/type: sgpu
 
-# Where users submit jobs from, as on a real cluster. It holds no GPUs; sackd
-# in the pod reaches slurmctld.
 loginsets:
   slinky:
     enabled: true

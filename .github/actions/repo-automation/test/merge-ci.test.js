@@ -136,7 +136,7 @@ test("requires both broad workflows and DCO instead of passing empty evidence", 
 
 test("does not authorize unsupported base branches", () => {
   assert.equal(evaluateCI(evidence({ baseBranch: "feature/demo" })), "PENDING");
-  assert.equal(evaluateCI(evidence({ baseBranch: "release-0.16" })), "SUCCESS");
+  assert.equal(evaluateCI(evidence({ baseBranch: "release-0.16" })), "PENDING");
   assert.equal(evaluateCI(evidence({ baseBranch: "release/subbranch" })), "PENDING");
 });
 
@@ -162,13 +162,11 @@ test("requires the exact DCO app and name on the current head", () => {
 });
 
 test("accepts plain-path fork runs without PR mappings only for the exact source tuple", () => {
-  for (const baseBranch of ["main", "release-0.16"]) {
-    for (const prNumber of [null, undefined]) {
-      for (const workflowSourceRef of [null, undefined]) {
-        const input = unmappedEvidence({ baseBranch });
-        input.runs = input.runs.map((entry) => ({ ...entry, prNumber, workflowSourceRef }));
-        assert.equal(evaluateCI(input), "SUCCESS");
-      }
+  for (const prNumber of [null, undefined]) {
+    for (const workflowSourceRef of [null, undefined]) {
+      const input = unmappedEvidence();
+      input.runs = input.runs.map((entry) => ({ ...entry, prNumber, workflowSourceRef }));
+      assert.equal(evaluateCI(input), "SUCCESS");
     }
   }
   assert.equal(evaluateCI(evidence({ headRepository: undefined, headBranch: undefined })), "SUCCESS");
@@ -273,6 +271,31 @@ test("selects the newest matching workflow by run number then ID regardless of o
   ] })), "FAILED");
 });
 
+test("a cancelled run does not outrank another run of the same workflow on the same head", () => {
+  // Label events in the same second start several runs at once; concurrency keeps an arbitrary one.
+  for (const [status, conclusion, want] of [
+    ["completed", "success", "SUCCESS"], ["in_progress", null, "PENDING"], ["completed", "failure", "FAILED"],
+  ]) {
+    const runs = [
+      run("validate-changelog.yaml", { id: 662, runNumber: 662, conclusion: "cancelled" }),
+      run("validate-changelog.yaml", { id: 663, runNumber: 663, status, conclusion }),
+      run("validate-changelog.yaml", { id: 664, runNumber: 664, conclusion: "cancelled" }),
+      run("basic-checks.yaml"),
+    ];
+    assert.equal(evaluateCI(evidence({ runs })), want);
+    assert.equal(evaluateCI(evidence({ runs: [...runs].reverse() })), want);
+  }
+  assert.equal(evaluateCI(evidence({ runs: [
+    run("validate-changelog.yaml", { id: 662, runNumber: 662, conclusion: "cancelled" }),
+    run("validate-changelog.yaml", { id: 664, runNumber: 664, conclusion: "cancelled" }), run("basic-checks.yaml"),
+  ] })), "FAILED");
+  assert.equal(evaluateCI(evidence({ runs: [
+    run("validate-changelog.yaml", { id: 663, runNumber: 663 }),
+    run("validate-changelog.yaml", { id: 664, runNumber: 664, headOid: OLD_HEAD, conclusion: "cancelled" }),
+    run("basic-checks.yaml", { conclusion: "cancelled" }),
+  ] })), "FAILED");
+});
+
 test("uses the current rerun attempt without allowing newer unrelated runs to hide it", () => {
   assert.equal(evaluateCI(evidence({ runs: [
     run("basic-checks.yaml", { runAttempt: 2, status: "in_progress", conclusion: null }),
@@ -299,7 +322,6 @@ test("uses the latest exact-head DCO check ID and ignores old failures", () => {
 test("requires conditional workflows for changed paths and both sides of renames", () => {
   const cases = [
     [".github/actions/repo-automation/src/index.js", ["automation-ci.yml"]],
-    [".github/scripts/cherrypick/backport.js", ["automation-ci.yml"]],
     [".github/scripts/issue-commands/run.js", ["automation-ci.yml"]],
     [".github/repo-automation/policy.yml", ["automation-ci.yml"]], [".github/workflows/new.yml", ["automation-ci.yml"]],
     ["hack/actionlint.sh", ["automation-ci.yml"]], ["OWNERS", ["automation-ci.yml"]], ["OWNERS_ALIASES", ["automation-ci.yml"]],
@@ -344,15 +366,13 @@ test("required workflow behavior follows tracked pull_request triggers", () => {
   ];
   for (const pattern of patterns) probes.push(pattern.replaceAll("**", "nested/changed.txt").replaceAll("*", "change"));
   const options = { dot: true, nocomment: true, nonegate: true };
-  for (const baseBranch of ["main", "release-0.16"]) {
-    for (const changedPath of new Set(probes)) {
-      for (const { workflow, trigger } of definitions) {
-        const branchesMatch = !trigger.branches || trigger.branches.some((pattern) => minimatch(baseBranch, pattern, options));
-        const pathsMatch = !trigger.paths || trigger.paths.some((pattern) => minimatch(changedPath, pattern, options));
-        assert.equal(evaluateCI(evidence({
-          baseBranch, files: [{ path: changedPath }], runs: WORKFLOWS.filter((name) => name !== workflow).map((name) => run(name)),
-        })), branchesMatch && pathsMatch ? "PENDING" : "SUCCESS", `${baseBranch}: ${changedPath}: ${workflow}`);
-      }
+  for (const changedPath of new Set(probes)) {
+    for (const { workflow, trigger } of definitions) {
+      const branchesMatch = !trigger.branches || trigger.branches.some((pattern) => minimatch("main", pattern, options));
+      const pathsMatch = !trigger.paths || trigger.paths.some((pattern) => minimatch(changedPath, pattern, options));
+      assert.equal(evaluateCI(evidence({
+        files: [{ path: changedPath }], runs: WORKFLOWS.filter((name) => name !== workflow).map((name) => run(name)),
+      })), branchesMatch && pathsMatch ? "PENDING" : "SUCCESS", `${changedPath}: ${workflow}`);
     }
   }
 });

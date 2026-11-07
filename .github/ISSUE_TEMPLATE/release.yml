@@ -1,99 +1,85 @@
 name: "Release"
-description: "Track a minor release (v0.X.0) and its candidates."
-title: "Release v0.X.0"
+description: "Track a scheduled release (vX.Y.0) or a major release (vX.0.0), cut from main."
+title: "Release vX.Y.0"
 labels: ["release", "kind/chore"]
-assignees: ["ArangoGutierrez"]
 body:
   - type: markdown
     attributes:
       value: |
-        Tracks one minor release from branch cut to published artefacts.
+        Tracks one release from `main` to published artefacts. A release is cut
+        from `main` every second week and ships whatever has merged by then.
+
         Do not remove checklist items: an item that does not apply is checked
         with a note saying why, so the record shows it was considered.
 
-        Patch releases on an existing `release-X.Y` branch use the
-        **Patch release** template instead.
+        A security or bug fix that cannot wait for the next scheduled release
+        uses the **Out-of-cycle release** template instead.
   - type: input
     id: version
     attributes:
       label: Version
-      description: "The final version this issue tracks, e.g. v0.4.0"
-      placeholder: "v0.4.0"
-    validations: { required: true }
-  - type: input
-    id: branch
-    attributes:
-      label: Release branch
-      description: "Per NVIDIA convention, no `v` prefix. e.g. release-0.4"
-      placeholder: "release-0.4"
+      description: "The release tag, e.g. v0.5.0. A major release is vX.0.0."
+      placeholder: "v0.5.0"
     validations: { required: true }
   - type: input
     id: basesha
     attributes:
       label: Base commit
-      description: "The main SHA the release branch is cut from. Must be fully green."
+      description: "The `main` SHA this release is cut from."
+    validations: { required: true }
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Release type
+      options:
+        - "Scheduled minor (vX.Y.0)"
+        - "Major (vX.0.0)"
     validations: { required: true }
   - type: checkboxes
     id: preflight
     attributes:
       label: Pre-flight
       options:
-        - label: "CI Pipeline is green on the base commit, including the full e2e matrix. A flake re-run to green is fine; record the job and the re-run."
-        - label: "No open PR is a fix that belongs in this release. Anything that does belong is merged before the branch is cut, or it becomes a cherry-pick."
-        - label: "The milestone for this release has no open items, or the remainder has been retargeted."
-  - type: checkboxes
-    id: branchcut
-    attributes:
-      label: Cut the release branch
-      options:
-        - label: "`git branch <release-branch> <base-sha>`"
-        - label: "`git push upstream <base-sha>:refs/heads/<release-branch>`"
-        - label: "Confirm it exists: `git ls-remote --heads upstream <release-branch>`"
-        - label: "`main` is now free for the next minor. Feature work does not wait for this release."
-        - label: "PR against `main` bumping both charts' `version` and `appVersion` to the next minor's `-dev` version (for example `0.6.0-dev`). Main builds publish the nvml-mock image under that tag, so it must never be a released version."
+        - label: "Open Dependabot PRs are merged, or listed in this issue as deferred with the reason."
+        - label: "Every `Removed` entry this release ships (the `Removed-*` fragments in `.changes/unreleased/`) removes something whose deprecation was announced, or a feature gate that reached GA, at least three Y releases earlier; Z releases do not count. A deprecation announced in 0.6.0 is removed no earlier than 0.9.0. New deprecations in this release are listed for the release notes."
+        - label: "Every breaking change merged since the last tag has a `**Breaking:**` changelog entry that states the action a user takes. Before 1.0 a breaking change ships in this Y release; from 1.0 it makes the release type Major."
   - type: checkboxes
     id: prep
     attributes:
-      label: Release-prep PR (against the release branch)
+      label: Release-prep PR (against `main`)
       options:
-        - label: "Bump `deployments/nvml-mock/helm/nvml-mock/Chart.yaml` `version` and `appVersion` to the release version without the `v` prefix. `appVersion` is the chart's default image tag, so a mismatch makes default installs pull an image that does not exist. Only the release branch carries the release version; `main` keeps the next `-dev` version."
-        - label: "Bump `deployments/mokka-crds/helm/mokka-crds/Chart.yaml` if the CRDs changed."
-        - label: "`make changelog-release RELEASE_VERSION=<version-without-v>` to fold the pending fragments into CHANGELOG.md. A candidate (`0.5.0-rc1`) lists only what is new since the previous candidate; the final `0.5.0` replaces every `0.5.0-*` section with a single one. Preview first with `make changelog-preview`."
-        - label: "Verify no changelog content was lost: the new section has one bullet per folded fragment plus every bullet of the candidate sections it replaced. Paste both counts in the PR."
+        - label: "`make changelog-preview RELEASE_VERSION=<version-without-v>` to review the section, then `make changelog-release RELEASE_VERSION=<version-without-v>` to fold the pending fragments into CHANGELOG.md."
+        - label: "Verify no changelog content was lost: the new section has one bullet per fragment the fold removed from `.changes/unreleased/`. Paste both counts in the PR."
         - label: "Add the compare link at the bottom of CHANGELOG.md following the existing pattern."
         - label: "Apply the `skip-changelog` label: a release PR removes fragments rather than adding one."
-        - label: "Gates: `make helm-tests`, `make helm-crds-tests`, `make lint`, `make build`, `make test`."
-        - label: "PR reviewed and merged. `main` requires one approving review and dismisses stale reviews on push, so batch any review feedback into a single push."
+        - label: "No `Chart.yaml` version is edited. The tag sets the published chart `version` and `appVersion`."
+        - label: "PR reviewed and merged. `main` dismisses stale approvals on push, so batch review fixes into one push. Rebase only if the PR gets the `needs-rebase` label ([Rebase only on a conflict](https://github.com/NVIDIA/k8s-test-infra/blob/main/docs/contributing/pull-requests.md#rebase-only-on-a-conflict)); never merge `main` into it."
   - type: checkboxes
     id: tag
     attributes:
       label: Tag
       options:
-        - label: "Annotated and signed: `git tag -s -m \"<version>\" <version> <prep-commit>`"
-        - label: "Tag message covers: headline change, breaking changes, and for a candidate an explicit statement that it is not the final release."
-        - label: "`git push upstream <version>`"
+        - label: "Before tagging, CI Pipeline is green on the prep PR's merge commit, the commit the tag goes on: `gh run list --workflow \"CI Pipeline\" --commit <prep-merge-commit>`. It runs the e2e matrix, which no merge check requires. If a newer push to `main` cancelled the run, rerun it with `gh run rerun <run-id>`."
+        - label: "Before tagging, list the changelog fragments that merged after the base commit: `git diff --name-only --diff-filter=A <base-commit> <prep-merge-commit> -- .changes/unreleased`. They ship in this tag but are not in its changelog section. Paste the list in this issue, even when it is empty. Each listed fragment also meets the two pre-flight checks above: do not tag over a `Removed` entry that breaks the floor, and the follow-up PR adds a missing `**Breaking:**` marker and user action."
+        - label: "Annotated and signed, on the prep PR's merge commit given explicitly: `git tag -s -m \"<message>\" <version> <prep-merge-commit>`"
+        - label: "Tag message covers the headline change and any breaking changes."
+        - label: "Only a stable `vMAJOR.MINOR.PATCH` tag publishes, and every publish workflow refuses any other `v*` tag. Never push an `-rc` tag."
+        - label: "`git push upstream <version>`. A ruleset restricts tag creation, so only a maintainer with bypass can push it."
   - type: checkboxes
     id: artefacts
     attributes:
       label: Verify published artefacts
       description: "Confirm by resolving the artefact, not by reading a green check."
       options:
-        - label: "`nvml-mock Publish` ran for the tag and succeeded."
-        - label: "`control-plane Publish` ran for the tag and succeeded."
-        - label: "`helm-publish` ran for the tag and succeeded."
-        - label: "Image resolves: `ghcr.io/nvidia/nvml-mock:<version-without-v>`. The image tag drops the `v`: tag `v0.4.0` publishes image `0.4.0`."
-        - label: "Image resolves: `ghcr.io/nvidia/mokka-control-plane:<version-without-v>`"
-        - label: "Chart resolves: `oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock:<version-without-v>`"
+        - label: "`make verify-release RELEASE_VERSION=<version-without-v>` exits 0. Paste its output in this issue. It needs `gh`, `docker buildx`, `helm`, `cosign` and `jq`, and checks the publish runs, that both images list `linux/amd64` and `linux/arm64`, that both images' `<X.Y>` tags and `nvml-mock:latest` carry the release digest, both charts' `version` and `appVersion`, and every signature and SBOM attestation. It does not compare `mokka-control-plane:latest`: that tag follows `main` builds, and a tag run does not move it."
   - type: checkboxes
     id: after
     attributes:
       label: After the release
       options:
-        - label: "Draft GitHub release notes from the changelog section and publish."
-        - label: "Close the milestone for this release."
-        - label: "Create the next milestone and retarget anything that slipped."
-        - label: "PR against `main` porting the release's changelog, or the next minor lists every entry again: copy the `## [VERSION]` section from the tag into CHANGELOG.md in place of any `VERSION-*` candidate sections, delete `.changes/<version-without-v>/` if present, and remove the fragments the release shipped: `git log --no-renames --diff-filter=D --name-only --format= $(git merge-base upstream/main <version>)..<version> -- .changes | xargs -n1 basename | sort -u | while read -r f; do git rm -q --ignore-unmatch \".changes/unreleased/$f\"; done`"
-        - label: "PR against `main` updating the status table in `docs/support-policy.md`: this line becomes Supported, the previous line Maintenance, every older line Deprecated. The docs site publishes from `main`, not from the release branch."
+        - label: "If the fragment list from the Tag section is not empty: a PR against `main` moves each listed fragment's entry into this release's section of CHANGELOG.md, under its kind heading, and deletes the fragment. Once it merges, this release's section has one bullet per fragment the fold removed plus one per fragment the list named. Paste the three counts in the PR, and apply `skip-changelog`: the PR removes fragments and adds none."
+        - label: "GitHub release, created after that PR merges (or after the tag when the list was empty), from this release's section of CHANGELOG.md on `main`, with the image and chart digests and one `cosign verify` command, published as the latest release: `gh release create <version> --verify-tag --latest`."
+        - label: "PR against `main` bumping both charts' `version` and `appVersion` to the next minor's `-dev` version (for example `0.6.0-dev` after `v0.5.0`). Not release-blocking: it keeps what `main` publishes sorting after this release."
         - label: "Link the tag and the release notes in this issue, then close it."
   - type: textarea
     id: changelog

@@ -432,18 +432,9 @@ func (d *ConfigurableDevice) GetMigMode() (int, int, nvml.Return) {
 //
 // Disabling MIG tears down the partitioning, as it does on hardware.
 func (d *ConfigurableDevice) SetMigMode(mode int) (nvml.Return, nvml.Return) {
-	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+	st, ret := d.migModeSettable(mode)
+	if ret != nvml.SUCCESS {
 		return ret, ret
-	}
-	if d.mig != nil {
-		return nvml.ERROR_NOT_SUPPORTED, nvml.ERROR_NOT_SUPPORTED
-	}
-	st := d.migState
-	if st == nil || !st.supported {
-		return nvml.ERROR_NOT_SUPPORTED, nvml.ERROR_NOT_SUPPORTED
-	}
-	if mode != nvml.DEVICE_MIG_ENABLE && mode != nvml.DEVICE_MIG_DISABLE {
-		return nvml.ERROR_INVALID_ARGUMENT, nvml.ERROR_INVALID_ARGUMENT
 	}
 
 	st.mu.Lock()
@@ -464,6 +455,31 @@ func (d *ConfigurableDevice) SetMigMode(mode int) (nvml.Return, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceSetMigMode(%d) -> SUCCESS (retired %d MIG devices, %d GPU instances)\n",
 		mode, len(retired.devices), len(retired.gpuInstances))
 	return nvml.SUCCESS, nvml.SUCCESS
+}
+
+// migModeSettable returns the device's MIG state when SetMigMode may switch it
+// to mode, and the error SetMigMode answers otherwise.
+func (d *ConfigurableDevice) migModeSettable(mode int) (*migState, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return nil, ret
+	}
+	if d.mig != nil {
+		return nil, nvml.ERROR_NOT_SUPPORTED
+	}
+	st := d.migState
+	if st == nil || !st.supported {
+		return nil, nvml.ERROR_NOT_SUPPORTED
+	}
+	if mode != nvml.DEVICE_MIG_ENABLE && mode != nvml.DEVICE_MIG_DISABLE {
+		return nil, nvml.ERROR_INVALID_ARGUMENT
+	}
+	// The config load refuses a vGPU host with MIG on (see
+	// validateNoMIGOnVGPUHost); this keeps NVML from turning it on afterwards.
+	if mode == nvml.DEVICE_MIG_ENABLE && d.IsVgpuHost() {
+		debugLog("[NVML] nvmlDeviceSetMigMode(%d) -> NOT_SUPPORTED (vGPU host)\n", mode)
+		return nil, nvml.ERROR_NOT_SUPPORTED
+	}
+	return st, nvml.SUCCESS
 }
 
 // GetMaxMigDeviceCount returns the board's MIG device ceiling. Real NVML
@@ -504,6 +520,17 @@ func (d *ConfigurableDevice) migEnabled() (*migState, nvml.Return) {
 		return nil, nvml.ERROR_NOT_SUPPORTED
 	}
 	return st, nvml.SUCCESS
+}
+
+// migPartitioned reports whether the device is a MIG device or a GPU with MIG
+// on, the state in which NVML withdraws the whole-GPU views such as accounting
+// and utilization samples. Callers must not hold st.mu.
+func (d *ConfigurableDevice) migPartitioned() bool {
+	if d.mig != nil {
+		return true
+	}
+	_, ret := d.migEnabled()
+	return ret == nvml.SUCCESS
 }
 
 // =============================================================================
@@ -1337,6 +1364,32 @@ func (d *ConfigurableDevice) GetGpuInstanceById(id int) (nvml.GpuInstance, nvml.
 		}
 	}
 	return nil, nvml.ERROR_NOT_FOUND
+}
+
+// gpuInstanceShare is the fraction of the board a live GPU instance occupies:
+// its slice count over the board's width. The width is max_gpu_instances, not
+// the widest advertised profile, because a declared table need not include a
+// whole-board row.
+func (d *ConfigurableDevice) gpuInstanceShare(id int) (float64, nvml.Return) {
+	gi, ret := d.GetGpuInstanceById(id)
+	if ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	info, ret := gi.GetInfo()
+	if ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	st := d.migState
+	st.mu.Lock()
+	boardSlices := st.maxGPUInstances
+	st.mu.Unlock()
+	slices := int(st.profiles.GpuInstanceProfiles[int(info.ProfileId)].SliceCount)
+	if slices == 0 || boardSlices <= 0 {
+		// A live instance always has a profile from this table; reaching here
+		// means the table and the instance tree disagree.
+		return 0, nvml.ERROR_UNKNOWN
+	}
+	return float64(slices) / float64(boardSlices), nvml.SUCCESS
 }
 
 // GetGpuInstanceRemainingCapacity reports how many more instances of a profile

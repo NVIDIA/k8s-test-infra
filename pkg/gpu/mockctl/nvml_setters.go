@@ -71,6 +71,110 @@ func SetRemoved(path string, index int, removed bool) error {
 	})
 }
 
+// SetPowerMizerMode persists the PowerMizer mode nvmlDeviceSetPowerMizerMode_v1
+// applied, spelled the way the profile schema names it.
+func SetPowerMizerMode(path string, index int, mode string) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, map[string]any{"power": map[string]any{"power_mizer_mode": mode}})
+		return nil
+	})
+}
+
+// SetPowerSmoothingState persists whether power smoothing is enabled on one
+// device.
+func SetPowerSmoothingState(path string, index int, enabled bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, powerSmoothingPatch(map[string]any{"state": enableState(enabled)}))
+		return nil
+	})
+}
+
+// SetPowerSmoothingActiveProfile persists the preset profile
+// nvmlDevicePowerSmoothingActivatePresetProfile made active.
+func SetPowerSmoothingActiveProfile(path string, index int, profileID uint32) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, powerSmoothingPatch(map[string]any{"active_profile": profileID}))
+		return nil
+	})
+}
+
+// SetPowerSmoothingProfileParam persists one preset profile parameter. Only
+// that parameter is written, so the rest of the preset stays the profile's.
+func SetPowerSmoothingProfileParam(
+	path string, index int, profileID uint32, param engine.PowerSmoothingParam, value float64,
+) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, engine.PowerSmoothingProfilePatch(profileID, param, value))
+		return nil
+	})
+}
+
+func powerSmoothingPatch(fields map[string]any) map[string]any {
+	return map[string]any{"power": map[string]any{"smoothing": fields}}
+}
+
+// SetAccountingMode persists whether per-process accounting is enabled on one
+// device. Disabling also records an empty terminated list, because turning
+// accounting off clears every record the driver held.
+func SetAccountingMode(path string, index int, enabled bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		patch := map[string]any{"mode": enableState(enabled)}
+		if !enabled {
+			patch[accountingTerminatedKey] = []any{}
+		}
+		d.SetFields(Target{Index: index}, map[string]any{"accounting": patch})
+		return nil
+	})
+}
+
+// ClearAccountingPids persists the clear nvmlDeviceClearAccountingPids applied.
+// It records an empty list rather than deleting the key, because the records it
+// clears may come from the profile, and only an explicit empty list outranks
+// them in the merge.
+func ClearAccountingPids(path string, index int) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, map[string]any{
+			"accounting": map[string]any{accountingTerminatedKey: []any{}},
+		})
+		return nil
+	})
+}
+
+// SetEccModePending persists the ECC mode that applies after the next GPU
+// reset. The current mode is not written: a mode change is a reset away on
+// hardware, so the two diverge until then.
+func SetEccModePending(path string, index int, enabled bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, map[string]any{
+			"ecc": map[string]any{"mode_pending": enableState(enabled)},
+		})
+		return nil
+	})
+}
+
+// ClearEccErrorCounts persists the zeroing of one scope of ECC counters.
+func ClearEccErrorCounts(path string, index int, scope engine.EccCounterScope) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, engine.EccClearPatch(scope))
+		return nil
+	})
+}
+
+// SetDramEncryptionPending persists the DRAM encryption mode the next reboot
+// applies.
+func SetDramEncryptionPending(path string, index int, enabled bool) error {
+	return mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{Index: index}, map[string]any{
+			"ecc": map[string]any{"dram_encryption": map[string]any{"mode_pending": enableState(enabled)}},
+		})
+		return nil
+	})
+}
+
+// accountingTerminatedKey is the accounting field both accounting setters
+// empty.
+const accountingTerminatedKey = "terminated"
+
 // enableState spells a toggle the way the profile schema does.
 func enableState(enabled bool) string {
 	if enabled {
@@ -119,6 +223,27 @@ func SetNvlinkBwMode(path string, index int, mode uint8, allDevices bool) error 
 			d.ClearDeviceField(nvlinkBwModeKey)
 		}
 		d.SetFields(nvlinkTarget(index, allDevices), NvlinkBwModePatch(mode))
+		return nil
+	})
+}
+
+// UpdateFanControl persists new per-fan control state for one device, computed
+// by apply from the state already on disk.
+//
+// apply takes the whole list for the same reason UpdateWorkloadProfiles does:
+// the NVML fan setters address one fan while the recorded state covers every
+// one, so the base has to be read under the same lock as the write or two
+// callers writing different fans lose one of the two writes.
+func UpdateFanControl(
+	path string, index int,
+	apply func(base []engine.FanControlConfig, present bool) ([]engine.FanControlConfig, error),
+) error {
+	return mutateDevice(path, func(d *Doc) error {
+		next, err := apply(d.FanControls(index))
+		if err != nil {
+			return err
+		}
+		d.SetFields(Target{Index: index}, FanControlPatch(next))
 		return nil
 	})
 }
@@ -297,4 +422,33 @@ func (d *Doc) WorkloadRequestedProfiles(index int) (requested []uint32, present 
 		return nil, false
 	}
 	return merged.Power.WorkloadProfiles.Requested, true
+}
+
+// FanControlPatch builds an override patch that replaces a device's per-fan
+// control state. A nil list is normalised to an empty one for the same reason
+// WorkloadProfilesPatch does: nil marshals to null, which reads back as
+// "nothing was ever written" and would make a caller who released every fan
+// indistinguishable from one that never wrote.
+func FanControlPatch(controls []engine.FanControlConfig) map[string]any {
+	if controls == nil {
+		controls = []engine.FanControlConfig{}
+	}
+	return map[string]any{"fan": map[string]any{"controls": controls}}
+}
+
+// FanControls reports the per-fan control state written for device index by a
+// previous fan setter, and whether any setter has written at all.
+//
+// Like WorkloadRequestedProfiles it resolves through the engine rather than
+// reading the raw document, so the answer is what the running mock would act
+// on — including the mock refusing a malformed document, which leaves the
+// device with the control state its profile declares.
+func (d *Doc) FanControls(index int) (controls []engine.FanControlConfig, present bool) {
+	overrides := &engine.ConfigOverrideDoc{All: d.All, Devices: d.Devices}
+
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, overrides.DeviceConfigOverride(index))
+	if err != nil || merged.Fan == nil || merged.Fan.Controls == nil {
+		return nil, false
+	}
+	return merged.Fan.Controls, true
 }

@@ -54,58 +54,6 @@ test("requires exact argument counts and a safe canonical target branch", () => 
   );
 });
 
-test("skips the agent-owned /cherry-pick command without a command or diagnostic", () => {
-  for (const body of [
-    "/cherry-pick release-1.2",
-    "  /cherry-pick release-1.2\t",
-    "/cherry-pick",
-    "/cherry-pick release branch",
-    "/cherry-pick --upload-pack=evil",
-  ]) {
-    assert.deepEqual(parseCommands(body), { commands: [], diagnostics: [] }, body);
-  }
-});
-
-test("the parser's line guards run before the agent-owned skip", () => {
-  const parsed = parseCommands([
-    "/cherry-pick release-1.2\u200b",
-    `/cherry-pick ${"a".repeat(4_096)}`,
-    "/cherry-pick\u00a0release-1.2",
-  ].join("\n"));
-
-  assert.deepEqual(parsed.commands, []);
-  assert.deepEqual(parsed.diagnostics.map(({ line, code }) => ({ line, code })), [
-    { line: 1, code: "unsafe-command" },
-    { line: 2, code: "line-too-large" },
-    { line: 3, code: "unsupported-command" },
-  ]);
-});
-
-test("a /cherry-pick line mixed with /lgtm yields exactly the /lgtm command", () => {
-  const parsed = parseCommands("/cherry-pick release-1.2\n/lgtm");
-
-  assert.deepEqual(parsed.diagnostics, []);
-  assert.deepEqual(
-    parsed.commands.map(({ name, line, raw }) => ({ name, line, raw })),
-    [{ name: "lgtm", line: 2, raw: "/lgtm" }],
-  );
-});
-
-test("only the exact agent-owned command name is skipped", () => {
-  const parsed = parseCommands([
-    "/cherry-picks release-1.2",
-    "/CHERRY-PICK release-1.2",
-    "/cherry_pick release-1.2",
-    "/cherrypick release-1.2",
-  ].join("\n"));
-
-  assert.deepEqual(parsed.commands, []);
-  assert.deepEqual(
-    parsed.diagnostics.map(({ line, code }) => ({ line, code })),
-    [1, 2, 3, 4].map((line) => ({ line, code: "unsupported-command" })),
-  );
-});
-
 test("skips the agent-owned Prow commands without a command or diagnostic", () => {
   for (const body of [
     "/assign",
@@ -169,7 +117,7 @@ test("the parser's line guards run before the Prow command skip", () => {
   ]);
 });
 
-test("/backport is an ordinary unsupported command", () => {
+test("/backport and /cherry-pick are ordinary unsupported commands", () => {
   const unsupported = {
     commands: [],
     diagnostics: [{ line: 1, code: "unsupported-command", message: "command is not supported" }],
@@ -177,7 +125,13 @@ test("/backport is an ordinary unsupported command", () => {
 
   assert.deepEqual(parseCommands("/backport release-1.2"), unsupported);
   assert.deepEqual(parseCommands("/backport"), unsupported);
+  assert.deepEqual(parseCommands("/cherry-pick release-1.2"), unsupported);
+  assert.deepEqual(parseCommands("/cherry-pick"), unsupported);
   assert.deepEqual(parseCommands("/foo release-1.2"), unsupported);
+
+  const mixed = parseCommands("/cherry-pick release-1.2\n/lgtm");
+  assert.deepEqual(mixed.diagnostics.map(({ line, code }) => ({ line, code })), [{ line: 1, code: "unsupported-command" }]);
+  assert.deepEqual(mixed.commands.map(({ name, line }) => ({ name, line })), [{ name: "lgtm", line: 2 }]);
 });
 
 test("ignores commands in CommonMark fences and block quotes", () => {

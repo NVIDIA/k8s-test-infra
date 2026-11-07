@@ -170,3 +170,39 @@ tests:
     asserts:
       - matchRegexRaw:
           pattern: "OPTION C: GPU Operator[^━]*nodeAgent.containerRuntime is off, so each node needs\n  CDI enabled in containerd and the nvidia runtime handler registered"
+
+  # ComputeDomains need a board whose NVLink spans nodes; elsewhere the DRA
+  # driver install keeps them off.
+  - it: should enable ComputeDomains in the DRA install only on multi-node NVLink profiles
+    set:
+      gpu:
+        profile: gb200
+    asserts:
+      - matchRegexRaw:
+          pattern: "resources.computeDomains.enabled=true"
+      - matchRegexRaw:
+          pattern: "altProcDevices=/var/lib/nvml-mock/imex/proc-devices"
+
+  - it: should keep ComputeDomains off and say why when NRI is disabled
+    set:
+      gpu:
+        profile: gb200
+      nri:
+        enabled: false
+    asserts:
+      - matchRegexRaw:
+          pattern: "resources.computeDomains.enabled=false"
+      - notMatchRegexRaw:
+          pattern: "altProcDevices"
+      - matchRegexRaw:
+          pattern: "ComputeDomains are off: they need nri.enabled=true"
+
+  - it: should keep ComputeDomains off in the DRA install on single-node NVLink profiles
+    set:
+      gpu:
+        profile: h100
+    asserts:
+      - matchRegexRaw:
+          pattern: "resources.computeDomains.enabled=false"
+      - notMatchRegexRaw:
+          pattern: "altProcDevices"

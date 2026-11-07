@@ -16,7 +16,11 @@ package engine
 // rather than calling the writer directly, because the writer lives in mockctl
 // and mockctl imports this package.
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
+)
 
 // OverrideWriter records setter writes in the shared override document.
 type OverrideWriter interface {
@@ -64,6 +68,51 @@ type OverrideWriter interface {
 
 	// SetClockOffset records the offset applied to one clock domain.
 	SetClockOffset(index int, domain ClockDomain, offsetMHz int32) error
+
+	// UpdateFanControl replaces a device's per-fan control state with the one
+	// apply computes from the state already recorded.
+	//
+	// apply is passed the whole list rather than one fan's entry because the
+	// fan setters address a single fan while the recorded state covers every
+	// one, so the fold has to happen under the write's lock for the same
+	// reason UpdateWorkloadProfiles does. present separates "nothing has been
+	// written" from "written, then emptied"; only the first falls back to the
+	// control state the profile declares.
+	UpdateFanControl(index int, apply func(base []FanControlConfig, present bool) ([]FanControlConfig, error)) error
+
+	// SetPowerMizerMode records the PowerMizer mode, by its config name, for
+	// one device.
+	SetPowerMizerMode(index int, mode string) error
+
+	// SetPowerSmoothingState records whether power smoothing is enabled.
+	SetPowerSmoothingState(index int, enabled bool) error
+
+	// SetPowerSmoothingActiveProfile records the preset profile in force.
+	SetPowerSmoothingActiveProfile(index int, profileID uint32) error
+
+	// SetPowerSmoothingProfileParam records one parameter of one preset
+	// profile. The value has already been validated for param.
+	SetPowerSmoothingProfileParam(index int, profileID uint32, param PowerSmoothingParam, value float64) error
+
+	// SetAccountingMode records whether per-process accounting is enabled.
+	// Disabling also empties the terminated records, because turning
+	// accounting off clears every record the driver held.
+	SetAccountingMode(index int, enabled bool) error
+
+	// ClearAccountingPids empties the records of processes that have exited.
+	ClearAccountingPids(index int) error
+
+	// SetEccModePending records the ECC mode that applies after the next GPU
+	// reset. The current mode is left alone, as it is on hardware.
+	SetEccModePending(index int, enabled bool) error
+
+	// ClearEccErrorCounts records the zeroing of one scope of ECC error
+	// counters, DRAM and SRAM alike.
+	ClearEccErrorCounts(index int, scope EccCounterScope) error
+
+	// SetDramEncryptionPending records the DRAM encryption mode that applies
+	// after the next reboot.
+	SetDramEncryptionPending(index int, enabled bool) error
 }
 
 // ClockDomain names a clock domain the locked-clock and offset setters write
@@ -98,4 +147,22 @@ func overrideWriter() OverrideWriter {
 		return *w
 	}
 	return nil
+}
+
+// recordSetterWrite runs one setter write against the override writer and
+// invalidates the cache so the write is visible to the next read in this
+// process. A setter with nowhere to record has failed and must say so.
+func recordSetterWrite(op string, write func(OverrideWriter) error) nvml.Return {
+	w := overrideWriter()
+	if w == nil {
+		warnLog("[NVML] %s -> NO_PERMISSION (no override writer)\n", op)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	if err := write(w); err != nil {
+		warnLog("[NVML] %s -> NO_PERMISSION: %v\n", op, err)
+		return nvml.ERROR_NO_PERMISSION
+	}
+	configOverrides.invalidateAfterLocalWrite()
+	debugLog("[NVML] %s\n", op)
+	return nvml.SUCCESS
 }

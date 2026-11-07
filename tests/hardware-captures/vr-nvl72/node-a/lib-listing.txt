@@ -1,0 +1,52 @@
+lrwxrwxrwx 1 root root        12 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libcuda.so -> libcuda.so.1
+lrwxrwxrwx 1 root root        20 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libcuda.so.1 -> libcuda.so.615.71.09
+-rw-r--r-- 1 root root 111655440 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libcuda.so.615.71.09
+lrwxrwxrwx 1 root root        28 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libcudadebugger.so.1 -> libcudadebugger.so.615.71.09
+-rw-r--r-- 1 root root  10811624 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libcudadebugger.so.615.71.09
+lrwxrwxrwx 1 root root        32 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-allocator.so.1 -> libnvidia-allocator.so.615.71.09
+-rw-r--r-- 1 root root    148744 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-allocator.so.615.71.09
+-rw-r--r-- 1 root root    749544 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-api.so.1
+lrwxrwxrwx 1 root root        26 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-cfg.so.1 -> libnvidia-cfg.so.615.71.09
+-rw-r--r-- 1 root root    412192 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-cfg.so.615.71.09
+lrwxrwxrwx 1 root root        26 Sep  8 08:00 /usr/lib/aarch64-linux-gnu/libnvidia-egl-gbm.so.1 -> libnvidia-egl-gbm.so.1.1.4
+-rw-r--r-- 1 root root     68080 Sep  8 08:00 /usr/lib/aarch64-linux-gnu/libnvidia-egl-gbm.so.1.1.4
+lrwxrwxrwx 1 root root        31 Sep  4 08:00 /usr/lib/aarch64-linux-gnu/libnvidia-egl-wayland2.so.1 -> libnvidia-egl-wayland2.so.1.0.2
+-rw-r--r-- 1 root root    134616 Sep  4 08:00 /usr/lib/aarch64-linux-gnu/libnvidia-egl-wayland2.so.1.0.2
+lrwxrwxrwx 1 root root        26 Sep  4 08:00 /usr/lib/aarch64-linux-gnu/libnvidia-egl-xcb.so.1 -> libnvidia-egl-xcb.so.1.0.6
+-rw-r--r-- 1 root root    134256 Sep  4 08:00 /usr/lib/aarch64-linux-gnu/libnvidia-egl-xcb.so.1.0.6
+lrwxrwxrwx 1 root root        27 Sep  4 08:00 /usr/lib/aarch64-linux-gnu/libnvidia-egl-xlib.so.1 -> libnvidia-egl-xlib.so.1.0.6
+-rw-r--r-- 1 root root    134296 Sep  4 08:00 /usr/lib/aarch64-linux-gnu/libnvidia-egl-xlib.so.1.0.6
+-rw-r--r-- 1 root root  23583704 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-eglcore.so.615.71.09
+lrwxrwxrwx 1 root root        21 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-encode.so -> libnvidia-encode.so.1
+lrwxrwxrwx 1 root root        29 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-encode.so.1 -> libnvidia-encode.so.615.71.09
+-rw-r--r-- 1 root root    268464 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-encode.so.615.71.09
+lrwxrwxrwx 1 root root        26 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-fbc.so.1 -> libnvidia-fbc.so.615.71.09
+-rw-r--r-- 1 root root    352016 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-fbc.so.615.71.09
+-rw-r--r-- 1 root root  25888688 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-glcore.so.615.71.09
+-rw-r--r-- 1 root root    644880 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-glsi.so.615.71.09
+-rw-r--r-- 1 root root  10033240 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-glvkspirv.so.615.71.09
+-rw-r--r-- 1 root root 116610176 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-gpucomp.so.615.71.09
+lrwxrwxrwx 1 root root        25 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-ml.so.1 -> libnvidia-ml.so.615.71.09
+-rw-r--r-- 1 root root   2888320 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-ml.so.615.71.09
+lrwxrwxrwx 1 root root        26 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-ngx.so.1 -> libnvidia-ngx.so.615.71.09
+-rw-r--r-- 1 root root   5425568 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-ngx.so.615.71.09
+lrwxrwxrwx 1 root root        19 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-nscq.so -> libnvidia-nscq.so.2
+lrwxrwxrwx 1 root root        21 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-nscq.so.2 -> libnvidia-nscq.so.2.0
+lrwxrwxrwx 1 root root        27 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-nscq.so.2.0 -> libnvidia-nscq.so.615.71.09
+-rw-r--r-- 1 root root   1732376 Sep  4 20:59 /usr/lib/aarch64-linux-gnu/libnvidia-nscq.so.615.71.09
+lrwxrwxrwx 1 root root        27 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-nvvm.so.4 -> libnvidia-nvvm.so.615.71.09
+-rw-r--r-- 1 root root  76067784 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-nvvm.so.615.71.09
+-rw-r--r-- 1 root root  21476008 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-nvvm70.so.4
+lrwxrwxrwx 1 root root        29 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-opencl.so.1 -> libnvidia-opencl.so.615.71.09
+-rw-r--r-- 1 root root 106957912 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-opencl.so.615.71.09
+lrwxrwxrwx 1 root root        34 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-opticalflow.so.1 -> libnvidia-opticalflow.so.615.71.09
+-rw-r--r-- 1 root root     63568 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-opticalflow.so.615.71.09
+-rw-r--r-- 1 root root   5388992 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-present.so.615.71.09
+lrwxrwxrwx 1 root root        37 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-ptxjitcompiler.so.1 -> libnvidia-ptxjitcompiler.so.615.71.09
+-rw-r--r-- 1 root root  36391528 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-ptxjitcompiler.so.615.71.09
+-rw-r--r-- 1 root root    377568 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-rmapi-tegra.so.615.71.09
+-rw-r--r-- 1 root root  35268520 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-rtcore.so.615.71.09
+lrwxrwxrwx 1 root root        35 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-sandboxutils.so.1 -> libnvidia-sandboxutils.so.615.71.09
+-rw-r--r-- 1 root root     83480 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-sandboxutils.so.615.71.09
+-rw-r--r-- 1 root root 102154072 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-tileiras.so.615.71.09
+-rw-r--r-- 1 root root     10312 Sep  9 23:10 /usr/lib/aarch64-linux-gnu/libnvidia-tls.so.615.71.09

@@ -768,51 +768,8 @@ func nvmlDeviceGetMigMode(nvmlDevice C.nvmlDevice_t, currentMode *C.uint, pendin
 
 //export nvmlDeviceGetComputeRunningProcesses_v3
 func nvmlDeviceGetComputeRunningProcesses_v3(nvmlDevice C.nvmlDevice_t, infoCount *C.uint, infos *C.nvmlProcessInfo_t) C.nvmlReturn_t {
-	if ret, ok := bridgeVersionCheck("nvmlDeviceGetComputeRunningProcesses_v3"); !ok {
-		return ret
-	}
-	if infoCount == nil {
-		return C.NVML_ERROR_INVALID_ARGUMENT
-	}
-	handle := unsafe.Pointer(nvmlDevice.handle)
-	dev := engine.GetEngine().LookupConfigurableDevice(handle)
-	if dev == nil {
-		return C.NVML_ERROR_INVALID_ARGUMENT
-	}
-	procs, ret := dev.GetComputeRunningProcesses()
-	if ret != nvml.SUCCESS {
-		return toReturn(ret)
-	}
-	// Count probe. NVML's form for it is *infoCount = 0 with infos allowed to be
-	// NULL, and the return code — not the count — is what tells the caller
-	// whether to allocate and call again: INSUFFICIENT_SIZE means "there are
-	// processes", SUCCESS means "there are none". Answering SUCCESS either way
-	// reads as an idle GPU to a caller written to the header, which then never
-	// makes the filling call.
-	if infos == nil {
-		*infoCount = C.uint(len(procs))
-		if len(procs) == 0 {
-			return C.NVML_SUCCESS
-		}
-		return C.NVML_ERROR_INSUFFICIENT_SIZE
-	}
-	bufSize := int(*infoCount)
-	if len(procs) > bufSize {
-		*infoCount = C.uint(len(procs))
-		return C.NVML_ERROR_INSUFFICIENT_SIZE
-	}
-	*infoCount = C.uint(len(procs))
-	if len(procs) > 0 {
-		// Write process info to the caller's buffer
-		outSlice := unsafe.Slice(infos, len(procs))
-		for i, p := range procs {
-			outSlice[i].pid = C.uint(p.Pid)
-			outSlice[i].usedGpuMemory = C.ulonglong(p.UsedGpuMemory)
-			outSlice[i].gpuInstanceId = C.uint(p.GpuInstanceId)
-			outSlice[i].computeInstanceId = C.uint(p.ComputeInstanceId)
-		}
-	}
-	return C.NVML_SUCCESS
+	return runningProcessesExport("nvmlDeviceGetComputeRunningProcesses_v3", nvmlDevice, infoCount, infos,
+		(*engine.ConfigurableDevice).GetComputeRunningProcesses)
 }
 
 //export nvmlDeviceGetProcessUtilization
@@ -2299,46 +2256,8 @@ func nvmlDeviceGetOfaUtilization(device C.nvmlDevice_t, utilization *C.uint, sam
 
 //export nvmlDeviceGetGraphicsRunningProcesses_v3
 func nvmlDeviceGetGraphicsRunningProcesses_v3(device C.nvmlDevice_t, infoCount *C.uint, infos *C.nvmlProcessInfo_t) C.nvmlReturn_t {
-	if ret, ok := bridgeVersionCheck("nvmlDeviceGetGraphicsRunningProcesses_v3"); !ok {
-		return ret
-	}
-	if infoCount == nil {
-		return C.NVML_ERROR_INVALID_ARGUMENT
-	}
-	handle := unsafe.Pointer(device.handle)
-	dev := engine.GetEngine().LookupConfigurableDevice(handle)
-	if dev == nil {
-		return C.NVML_ERROR_INVALID_ARGUMENT
-	}
-	procs, ret := dev.GetGraphicsRunningProcesses()
-	if ret != nvml.SUCCESS {
-		return toReturn(ret)
-	}
-	// Same count-probe contract as the compute query above: the return code, not
-	// the count, is how the caller learns whether to allocate and call again.
-	if infos == nil {
-		*infoCount = C.uint(len(procs))
-		if len(procs) == 0 {
-			return C.NVML_SUCCESS
-		}
-		return C.NVML_ERROR_INSUFFICIENT_SIZE
-	}
-	bufSize := int(*infoCount)
-	if len(procs) > bufSize {
-		*infoCount = C.uint(len(procs))
-		return C.NVML_ERROR_INSUFFICIENT_SIZE
-	}
-	*infoCount = C.uint(len(procs))
-	if len(procs) > 0 {
-		outSlice := unsafe.Slice(infos, len(procs))
-		for i, p := range procs {
-			outSlice[i].pid = C.uint(p.Pid)
-			outSlice[i].usedGpuMemory = C.ulonglong(p.UsedGpuMemory)
-			outSlice[i].gpuInstanceId = C.uint(p.GpuInstanceId)
-			outSlice[i].computeInstanceId = C.uint(p.ComputeInstanceId)
-		}
-	}
-	return C.NVML_SUCCESS
+	return runningProcessesExport("nvmlDeviceGetGraphicsRunningProcesses_v3", device, infoCount, infos,
+		(*engine.ConfigurableDevice).GetGraphicsRunningProcesses)
 }
 
 //export nvmlDeviceGetNvLinkVersion

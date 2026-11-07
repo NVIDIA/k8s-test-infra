@@ -558,6 +558,45 @@ func TestValidateYAMLConfig_AcceptsEveryShippedProfile(t *testing.T) {
 	}
 }
 
+// Of the shipped profiles, only gb200 and gb300 span nodes with NVLink; Vera
+// Rubin and NVL576 profiles would join them. HGX boards also declare an NVLink
+// fabric, so the flag, not the presence of a fabric, is what tells the two
+// apart; a profile that gained or lost it would change which nodes simulate
+// IMEX.
+func TestShippedProfiles_MultiNodeNVLink(t *testing.T) {
+	t.Parallel()
+
+	globs := []string{
+		"../../../../deployments/nvml-mock/helm/nvml-mock/profiles/*.yaml",
+		"../configs/*.yaml",
+	}
+	for _, glob := range globs {
+		paths, err := filepath.Glob(glob)
+		require.NoError(t, err)
+		require.NotEmptyf(t, paths, "no profiles matched %q", glob)
+
+		for _, path := range paths {
+			if strings.HasSuffix(path, ".mig.yaml") {
+				continue
+			}
+			t.Run(filepath.Base(path), func(t *testing.T) {
+				t.Parallel()
+
+				data, err := os.ReadFile(path)
+				require.NoError(t, err)
+
+				var yc YAMLConfig
+				require.NoError(t, yaml.Unmarshal(data, &yc), "yaml decode")
+
+				base := filepath.Base(path)
+				want := strings.Contains(base, "gb200") || strings.Contains(base, "gb300")
+				got := yc.NVLink != nil && yc.NVLink.MultiNode
+				require.Equal(t, want, got, "nvlink.multi_node")
+			})
+		}
+	}
+}
+
 // TestLoadYAMLConfig_ShippedConfigsResolveTheirMIGTable is the end-to-end
 // check that the split arrives: each standalone config finds its own
 // mock-nvml-config-<board>.mig.yaml with no environment set, and comes out

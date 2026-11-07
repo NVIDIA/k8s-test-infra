@@ -12,7 +12,7 @@ import (
 )
 
 // TestAdjustImexChannelOptInAddsChannelDevices covers #437: an annotated pod
-// gets the channel nodes staged by imex.mockChannels at their real kernel path.
+// gets the channel nodes the node agent staged at their real kernel path.
 func TestAdjustImexChannelOptInAddsChannelDevices(t *testing.T) {
 	t.Parallel()
 
@@ -68,8 +68,9 @@ func TestAdjustWithoutImexAnnotationInjectsNoChannels(t *testing.T) {
 }
 
 // TestAdjustImexChannelOptInFailsOpenWhenTreeMissing mirrors the device path:
-// imex.mockChannels is off by default, so an annotation on a node that never
-// staged channels must degrade to an empty adjustment rather than block the pod.
+// only multi-node NVLink profiles stage channels, so an annotation on a node
+// that never staged them must degrade to an empty adjustment rather than block
+// the pod.
 func TestAdjustImexChannelOptInFailsOpenWhenTreeMissing(t *testing.T) {
 	t.Parallel()
 
@@ -119,8 +120,8 @@ func TestAdjustImexChannelsSurviveDevicePluginAllocation(t *testing.T) {
 
 // TestAdjustCDIModeStillDeliversImexChannelsAsRawDevices pins the interaction
 // between the two opt-ins. IMEX channels are deliberately outside the CDI spec:
-// they are a fabric capability with their own annotation, staged by
-// imex.mockChannels rather than by the GPU device tree. So a container that asks
+// they are a fabric capability with their own annotation, staged by the
+// node agent's imex simulator rather than by the GPU device tree. So a container that asks
 // for both gets its GPUs through CDI and its channels as raw device nodes, in
 // one adjustment. Losing the channels here would deny a ComputeDomain workload
 // the fabric it explicitly requested.

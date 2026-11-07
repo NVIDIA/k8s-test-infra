@@ -1,31 +1,14 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Kind cluster config for the compute-domain Tilt scenario.
+# The DynamicResourceAllocation gate and resource.k8s.io/v1beta1 are on because
+# the scenario supports --compute-domain --dra. The ComputeDomain e2e and guide use
+# the two-rack tests/e2e/kind-compute-domain-racks.yaml instead.
 #
-# Copied from tests/e2e/kind-compute-domain-config.yaml with two
-# deltas for local dev:
-#
-#   1. Explicit `name: nvml-mock-compute-domain` at cluster level.
-#      The tests/e2e file relies on `kind create --name` for this; the
-#      Tilt Makefile passes --name too, but hardcoding it here documents
-#      the load-bearing worker-name coupling — Kind derives worker names
-#      as <cluster>-worker[N], and topology.yaml (both in this dir and
-#      in docs/guides/compute-domain) hardcodes those worker names.
-#
-#   2. DRA feature gates + apiServer runtime-config.
-#      tests/e2e's compute-domain config omits these because CI runs DRA
-#      on separate clusters. The Tilt scenario supports the
-#      --compute-domain --dra combo, so DRA support is baked in here.
-#
-# Each worker carries mokka.nvidia.com/type=sgpu, the simulated-GPU fleet
-# marker local/compute-domain/nvml-mock.values.yaml selects on. It keeps the
-# mock off the control plane, which topology.yaml gives no clique — a mock pod
-# there would report a fabric identity the topology never declared.
-#
-# Usage:
-#   make cluster-create PROFILE=compute-domain
-#   tilt up -- --compute-domain --k8s-context=kind-nvml-mock-compute-domain
+# Workers are named worker-0..3 through JoinConfiguration, and
+# local/compute-domain/topology.yaml assigns cliques by those names. No node
+# carries a clique label: consumers such as topograph read the fabric from the
+# mock driver.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: mokka-compute-domain
@@ -45,7 +28,6 @@ nodes:
           name: control-0
   - role: worker
     labels:
-      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000ab.0"
       mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |
@@ -54,7 +36,6 @@ nodes:
           name: worker-0
   - role: worker
     labels:
-      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000ab.1"
       mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |
@@ -63,7 +44,6 @@ nodes:
           name: worker-1
   - role: worker
     labels:
-      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000cd.0"
       mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |
@@ -72,7 +52,6 @@ nodes:
           name: worker-2
   - role: worker
     labels:
-      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000cd.1"
       mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |

@@ -12,12 +12,12 @@ function metadataWorkflow() {
 
 test("PR metadata repairs conflicts after PR changes, supported base pushes, and scheduled scans", () => {
   const workflow = metadataWorkflow();
-  assert.deepEqual(workflow.on.pull_request_target.branches, ["main", "release-*"]);
+  assert.deepEqual(workflow.on.pull_request_target.branches, ["main"]);
   for (const action of ["opened", "reopened", "synchronize", "edited", "ready_for_review", "converted_to_draft"]) {
     assert.ok(workflow.on.pull_request_target.types.includes(action));
   }
   assert.ok(workflow.on.push, "supported base pushes must trigger conflict repair");
-  assert.deepEqual(workflow.on.push.branches, ["main", "release-*"]);
+  assert.deepEqual(workflow.on.push.branches, ["main"]);
   assert.deepEqual(workflow.on.schedule, [{ cron: "17 * * * *" }],
     "full scans must fit the hourly API budget and avoid the busy start of the hour");
   assert.equal(workflow.on.pull_request, undefined);

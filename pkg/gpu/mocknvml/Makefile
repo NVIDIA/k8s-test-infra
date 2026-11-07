@@ -14,7 +14,7 @@
 DOCKER   ?= docker
 MKDIR    ?= mkdir
 
-GOLANG_VERSION ?= 1.27.2
+GOLANG_VERSION ?= 1.27.3
 IMAGE_TAG ?= mock-nvml-builder
 BUILDIMAGE ?= $(IMAGE_TAG)
 

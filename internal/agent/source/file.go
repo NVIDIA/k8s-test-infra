@@ -314,6 +314,21 @@ func parseProfile(data []byte, configPath string) (engine.YAMLConfig, error) {
 	return cfg, engine.ValidateConfig(&cfg)
 }
 
+// compileIMEX gives a multi-node NVLink board the IMEX capability surface the
+// NVIDIA kernel module provides on a real node of such a board, which the DRA
+// driver's ComputeDomain plugin reads. The chart sets the device numbers the
+// agent prefers; the IMEX simulator replaces any the host already uses.
+func compileIMEX(nvlink *engine.NVLinkConfig) agent.IMEXState {
+	if nvlink == nil || !nvlink.MultiNode {
+		return agent.IMEXState{}
+	}
+	return agent.IMEXState{
+		Enabled:   true,
+		IMEXMajor: envIntOrDefault("IMEX_CHANNEL_MAJOR", 235),
+		CapsMajor: envIntOrDefault("IMEX_CAPS_MAJOR", 236),
+	}
+}
+
 // compileState parses raw YAML config bytes and builds the agent State.
 // Runtime telemetry fields (utilization, power, temperature, clocks) are
 // discarded — they belong to the runtime override file owned by nvml-mock-ctl.
@@ -393,16 +408,7 @@ func compileState(data []byte, configPath string) (*agent.State, error) {
 	}
 	state.NodeShape.Network = network
 
-	// IMEX mock surface: opt-in via IMEX_MOCK_CHANNELS=true, same shim
-	// pattern as GPU_COUNT until MEP-0001 embeds this in the profile.
-	if os.Getenv("IMEX_MOCK_CHANNELS") == "true" {
-		state.IMEX = agent.IMEXState{
-			Enabled:      true,
-			IMEXMajor:    envIntOrDefault("IMEX_CHANNEL_MAJOR", 235),
-			CapsMajor:    envIntOrDefault("IMEX_CAPS_MAJOR", 236),
-			ChannelCount: envIntOrDefault("IMEX_CHANNEL_COUNT", 2048),
-		}
-	}
+	state.IMEX = compileIMEX(cfg.NVLink)
 
 	state.MIG = compileMIG(&cfg, numDevices)
 
@@ -493,6 +499,12 @@ func buildDeviceSpec(i int, defaults engine.DeviceConfig, devices []engine.Devic
 		spec.PCIDeviceID = defaults.PCI.DeviceID
 		spec.PCISubsystemID = defaults.PCI.SubsystemID
 		spec.PCIBusID = defaults.PCI.BusID
+	}
+	if g := defaults.Virtualization.Guest(); g != nil {
+		spec.VGPUGuest = &agent.VGPUGuestSpec{
+			HostDriverVersion: g.HostDriverVersion,
+			HostDriverBranch:  g.HostDriverBranch,
+		}
 	}
 	for _, ov := range devices {
 		if ov.Index != i {

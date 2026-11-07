@@ -41,6 +41,31 @@ static void* contractSym(const char* name) {
     return dlsym(lib, name);
 }
 
+// Match the toolkit v1.20.1 caller independently of Mokka's type definition.
+typedef struct {
+    const char* nameSpace;
+    unsigned long long softLimit;
+    unsigned long long hardLimit;
+} contractMemoryLimits_v1_t;
+
+static unsigned int contractSetMemoryLimits(unsigned long long softLimit,
+                                            unsigned long long hardLimit) {
+    unsigned int (*getDevice)(unsigned int, contractDevice_t*) =
+        (unsigned int (*)(unsigned int, contractDevice_t*))contractSym("nvmlDeviceGetHandleByIndex_v2");
+    unsigned int (*setLimits)(contractDevice_t, contractMemoryLimits_v1_t*) =
+        (unsigned int (*)(contractDevice_t, contractMemoryLimits_v1_t*))contractSym("nvmlDeviceSetMemoryLimits_v1");
+    if (getDevice == NULL || setLimits == NULL) {
+        return CONTRACT_SYMBOL_MISSING;
+    }
+    contractDevice_t device;
+    unsigned int ret = getDevice(0, &device);
+    if (ret != NVML_SUCCESS) {
+        return ret;
+    }
+    contractMemoryLimits_v1_t limits = {"/sys/fs/cgroup/mokka-test", softLimit, hardLimit};
+    return setLimits(device, &limits);
+}
+
 static unsigned int contractDeviceHandleByIndex(unsigned int index, contractDevice_t* device) {
     unsigned int (*fn)(unsigned int, contractDevice_t*) =
         (unsigned int (*)(unsigned int, contractDevice_t*))contractSym("nvmlDeviceGetHandleByIndex_v2");
@@ -112,13 +137,36 @@ import (
 	"unsafe"
 )
 
+func testMemoryLimitsStubFromC() []testResult {
+	cases := []struct {
+		name string
+		soft uint64
+		hard uint64
+	}{
+		{"equal", 20 << 30, 20 << 30},
+		{"soft-below-hard", 10 << 30, 20 << 30},
+		{"clear", 0, ^uint64(0)},
+	}
+	var results []testResult
+	for _, tc := range cases {
+		ret := C.contractSetMemoryLimits(C.ulonglong(tc.soft), C.ulonglong(tc.hard))
+		detail := ""
+		if ret != C.NVML_SUCCESS {
+			detail = fmt.Sprintf("nvmlDeviceSetMemoryLimits_v1 returned %d; want SUCCESS", ret)
+		}
+		results = append(results, testResult{"memory-limits/abi/" + tc.name, ret == C.NVML_SUCCESS, detail})
+	}
+	return results
+}
+
 // Fixture values from util-test-config.yaml. Devices are picked for what they
-// run: 0 has one compute process, 1 has none at all (`processes: []`), and 3
-// has the one graphics process in the file.
+// run: 0 has one compute process, 1 has none at all (`processes: []`), 3 has
+// the one graphics process in the file and 5 the one MPS client.
 const (
 	contractComputeDevice  = 0
 	contractEmptyDevice    = 1
 	contractGraphicsDevice = 3
+	contractMPSDevice      = 5
 
 	contractProcessPID = 4242
 	contractProcName   = "python"
@@ -153,7 +201,7 @@ func testArrayContractProbesFromC(deviceCount int) []testResult {
 	return append(results, checkTopologyZeroCountFromC(deviceCount)...)
 }
 
-// checkRunningProcessProbesFromC covers the probe NVML documents for the two
+// checkRunningProcessProbesFromC covers the probe NVML documents for the
 // running-process queries: `*infoCount = 0` with a NULL `infos`, whose return
 // code — not the count — is how the caller learns whether to allocate and call
 // again. Answering SUCCESS when processes exist tells a conforming caller there
@@ -175,6 +223,22 @@ func checkRunningProcessProbesFromC() []testResult {
 			contractGraphicsDevice, C.NVML_ERROR_INSUFFICIENT_SIZE, 1},
 		{"contract/abi/graphics-processes-none", "nvmlDeviceGetGraphicsRunningProcesses_v3",
 			contractEmptyDevice, C.NVML_SUCCESS, 0},
+		{"contract/abi/mps-processes-present", "nvmlDeviceGetMPSComputeRunningProcesses_v3",
+			contractMPSDevice, C.NVML_ERROR_INSUFFICIENT_SIZE, 1},
+		{"contract/abi/mps-processes-none", "nvmlDeviceGetMPSComputeRunningProcesses_v3",
+			contractComputeDevice, C.NVML_SUCCESS, 0},
+		// The unversioned name is a linker alias, which dlsym is the only way
+		// to reach; go-nvml always calls the _v3 symbol.
+		{"contract/abi/mps-processes-unversioned", "nvmlDeviceGetMPSComputeRunningProcesses",
+			contractMPSDevice, C.NVML_ERROR_INSUFFICIENT_SIZE, 1},
+		// _v2 shares _v3's layout, and a binary built against an older header
+		// still resolves it by name.
+		{"contract/abi/compute-processes-v2", "nvmlDeviceGetComputeRunningProcesses_v2",
+			contractComputeDevice, C.NVML_ERROR_INSUFFICIENT_SIZE, 1},
+		{"contract/abi/graphics-processes-v2", "nvmlDeviceGetGraphicsRunningProcesses_v2",
+			contractGraphicsDevice, C.NVML_ERROR_INSUFFICIENT_SIZE, 1},
+		{"contract/abi/mps-processes-v2", "nvmlDeviceGetMPSComputeRunningProcesses_v2",
+			contractMPSDevice, C.NVML_ERROR_INSUFFICIENT_SIZE, 1},
 	}
 
 	var results []testResult

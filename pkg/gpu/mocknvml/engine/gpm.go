@@ -97,6 +97,10 @@ type gpmSnapshot struct {
 	// PCIe MiB/s at sample time (utilization-scaled config value).
 	pcieTxMiBPerSec float64
 	pcieRxMiBPerSec float64
+	// share is the fraction of the board the sample covers: 1 for a whole
+	// GPU, the slice share for a MIG GPU instance. It scales throughput only;
+	// activity metrics are percentages of the sampled scope's own capacity.
+	share float64
 }
 
 // gpmRegistry maps sample-handle keys to snapshots. Package-level because
@@ -132,8 +136,30 @@ func GpmSampleFree(key uint64) bool {
 	return true
 }
 
-// GpmSnapshotInto snapshots the device's current activity into the sample buffer.
+// GpmSnapshotInto snapshots the device's current activity into the sample
+// buffer. A MIG device samples its GPU instance, the same partition
+// nvmlGpmMigSampleGet names by ID, so the two entry points agree.
 func (d *ConfigurableDevice) GpmSnapshotInto(key uint64) nvml.Return {
+	if d.mig != nil {
+		return d.mig.parent.GpmMigSnapshotInto(int(d.mig.giID), key)
+	}
+	return d.gpmSnapshotInto(key, 1)
+}
+
+// GpmMigSnapshotInto snapshots one GPU instance of this physical GPU.
+//
+// The mock spreads the board's load uniformly across its slices, so an
+// instance is exactly as busy as the board and its activity metrics equal the
+// board's, while its throughput is its slice share of the board's.
+func (d *ConfigurableDevice) GpmMigSnapshotInto(gpuInstanceID int, key uint64) nvml.Return {
+	share, ret := d.gpuInstanceShare(gpuInstanceID)
+	if ret != nvml.SUCCESS {
+		return ret
+	}
+	return d.gpmSnapshotInto(key, share)
+}
+
+func (d *ConfigurableDevice) gpmSnapshotInto(key uint64, share float64) nvml.Return {
 	if supported, _ := d.GetGpmSupport(); supported == 0 {
 		return nvml.ERROR_NOT_SUPPORTED
 	}
@@ -156,6 +182,7 @@ func (d *ConfigurableDevice) GpmSnapshotInto(key uint64) nvml.Return {
 		ts:         ts,
 		utilGPU:    float64(util.Gpu),
 		utilMemory: float64(util.Memory),
+		share:      share,
 	}
 
 	utilFrac := snap.utilGPU / 100.0
@@ -178,7 +205,8 @@ func (d *ConfigurableDevice) GpmSnapshotInto(key uint64) nvml.Return {
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
 	gpmSamples[key] = snap
-	debugLog("[NVML] nvmlGpmSampleGet(key=%d) -> gpu=%.0f%% mem=%.0f%%\n", key, snap.utilGPU, snap.utilMemory)
+	debugLog("[NVML] nvmlGpmSampleGet(key=%d) -> gpu=%.0f%% mem=%.0f%% share=%.3f\n",
+		key, snap.utilGPU, snap.utilMemory, snap.share)
 	return nvml.SUCCESS
 }
 
@@ -253,19 +281,19 @@ func gpmMetricValue(id uint32, s1, s2 *gpmSnapshot, dt float64) (float64, nvml.R
 	case gpmMetricFP16Util:
 		return gpu * gpmRatioFP16, nvml.SUCCESS
 	case gpmMetricPcieTxPerSec:
-		return s2.pcieTxMiBPerSec, nvml.SUCCESS
+		return s2.pcieTxMiBPerSec * s2.share, nvml.SUCCESS
 	case gpmMetricPcieRxPerSec:
-		return s2.pcieRxMiBPerSec, nvml.SUCCESS
+		return s2.pcieRxMiBPerSec * s2.share, nvml.SUCCESS
 	case gpmMetricNvlinkTotalRxPerSec:
-		return nvlinkRateMiBPerSec(s1, s2, dt, -1, false), nvml.SUCCESS
+		return nvlinkRateMiBPerSec(s1, s2, dt, -1, false) * s2.share, nvml.SUCCESS
 	case gpmMetricNvlinkTotalTxPerSec:
-		return nvlinkRateMiBPerSec(s1, s2, dt, -1, true), nvml.SUCCESS
+		return nvlinkRateMiBPerSec(s1, s2, dt, -1, true) * s2.share, nvml.SUCCESS
 	}
 	// Per-link NVLink rates: L{n} RX/TX pairs, ids 62..97.
 	if id >= gpmMetricNvlinkL0RxPerSec && id <= gpmMetricNvlinkL17TxPerSec {
 		link := int(id-gpmMetricNvlinkL0RxPerSec) / 2
 		tx := (id-gpmMetricNvlinkL0RxPerSec)%2 == 1
-		return nvlinkRateMiBPerSec(s1, s2, dt, link, tx), nvml.SUCCESS
+		return nvlinkRateMiBPerSec(s1, s2, dt, link, tx) * s2.share, nvml.SUCCESS
 	}
 	return 0, nvml.ERROR_NOT_SUPPORTED
 }

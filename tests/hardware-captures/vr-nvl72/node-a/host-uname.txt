@@ -1,0 +1,1 @@
+Linux node-a 7.0.0-2022-nvidia-bos-64k #23-Ubuntu SMP PREEMPT_DYNAMIC Fri Oct  9 02:13:39 UTC 2026 aarch64 aarch64 aarch64 GNU/Linux

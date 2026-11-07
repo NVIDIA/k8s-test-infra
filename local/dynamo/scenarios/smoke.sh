@@ -2,8 +2,6 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Smoke check: the Dynamo mocker graph runs on a mock GPU and serves a request.
-#
 # Asserts four things, each of which can fail while every pod reads Running:
 #   1. The decode worker sits on a node that still advertises nvidia.com/gpu.
 #      If nvml-mock goes away, the GPU Operator scales its operands to zero and

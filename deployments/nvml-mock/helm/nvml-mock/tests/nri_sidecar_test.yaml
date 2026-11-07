@@ -467,8 +467,8 @@ tests:
             mountPath: /var/lib/nvml-mock
             readOnly: true
 
-  # Mock IMEX channel delivery (#437). The channel nodes are staged by the main
-  # DaemonSet under imex.mockChannels; the plugin must read them from that one
+  # Mock IMEX channel delivery (#437). The channel node is staged by the node
+  # agent in the same pod; the plugin must read it from that one
   # location. A host path that disagrees with where the imex simulator writes
   # them makes the annotation a silent no-op, so pin it against the overlay
   # root.

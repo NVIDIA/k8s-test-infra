@@ -1,0 +1,12 @@
+0: mlx5_0: node_type ca fw 82.48.4222 node_guid 0000:0000:0000:0001 sys_image_guid 0000:0000:0000:0001 
+1: mlx5_1: node_type ca fw 82.48.4222 node_guid 0000:0000:0000:0002 sys_image_guid 0000:0000:0000:0002 
+2: mlx5_2: node_type ca fw 82.48.4222 node_guid 0000:0000:0000:0005 sys_image_guid 0000:0000:0000:0005 
+3: mlx5_3: node_type ca fw 82.48.4238 node_guid 0000:0000:0000:0006 sys_image_guid 0000:0000:0000:000c 
+4: mlx5_4: node_type ca fw 82.48.4238 node_guid 0000:0000:0000:0007 sys_image_guid 0000:0000:0000:000c 
+5: mlx5_5: node_type ca fw 82.48.4222 node_guid 0000:0000:0000:0008 sys_image_guid 0000:0000:0000:0008 
+6: mlx5_6: node_type ca fw 82.48.4222 node_guid 0000:0000:0000:0009 sys_image_guid 0000:0000:0000:0009 
+7: mlx5_7: node_type ca fw 82.48.4222 node_guid 0000:0000:0000:000a sys_image_guid 0000:0000:0000:000a 
+8: mlx5_8: node_type ca fw 82.48.4222 node_guid 0000:0000:0000:000b sys_image_guid 0000:0000:0000:000b 
+9: mlx5_9: node_type ca fw 82.48.4238 node_guid 0000:0000:0000:000c sys_image_guid 0000:0000:0000:000c 
+10: mlx5_10: node_type ca fw 82.48.4238 node_guid 0000:0000:0000:0003 sys_image_guid 0000:0000:0000:000c 
+11: mlx5_11: node_type ca fw 82.48.4222 node_guid 0000:0000:0000:0004 sys_image_guid 0000:0000:0000:0004 

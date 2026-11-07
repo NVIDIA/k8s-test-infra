@@ -19,6 +19,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestFieldAvailable_PowerSmoothingNeedsDriver570(t *testing.T) {
+	t.Parallel()
+	for _, id := range []uint32{fiPwrSmoothingEnabled, fiPwrSmoothingProfilePercentTMPFloor,
+		fiPwrSmoothingAdminOverrideRampDownHyst} {
+		require.False(t, FieldAvailable(id, "550.163.01"), "field %d on 550", id)
+		require.True(t, FieldAvailable(id, "570.0"), "field %d on 570", id)
+		require.True(t, FieldAvailable(id, "580.65.06"), "field %d on 580", id)
+	}
+	require.True(t, FieldAvailable(fiPwrSmoothingEnabled-1, "550.163.01"),
+		"a field outside the power smoothing range keeps its availability")
+}
+
 func TestCompareDriverVersions(t *testing.T) {
 	tests := []struct {
 		name string
@@ -94,6 +106,8 @@ func TestFunctionAvailable(t *testing.T) {
 		{"gpm not available on 510", "510.0", "nvmlGpmQueryDeviceSupport", false},
 		{"gpm available on 535", "535.0", "nvmlGpmQueryDeviceSupport", true},
 		{"gpm available on 560", "560.0", "nvmlGpmQueryDeviceSupport", true},
+		{"gpm mig sample not available on 530", "530.30.02", "nvmlGpmMigSampleGet", false},
+		{"gpm mig sample available on 535", "535.0", "nvmlGpmMigSampleGet", true},
 		{"gpm streaming not available on 550", "550.163.01", "nvmlGpmQueryIfStreamingEnabled", false},
 		{"gpm streaming available on 555", "555.0", "nvmlGpmQueryIfStreamingEnabled", true},
 

@@ -8,10 +8,20 @@ effect when the service restarts.
 
 ## Available gates
 
-No gates are registered in this release, so the chart accepts only the
-`AllAlpha` and `AllBeta` toggles described under [Set gates](#set-gates). Each
-gate added later is listed here with its stage, default, the release that
-introduced it, the services that read it, and its tracking issue.
+| Gate | Stage | Default | Since | Read by | Issue |
+|------|-------|---------|-------|---------|-------|
+| `IMEXDownload` | Beta | On | 0.6 | node agent | [#821](https://github.com/NVIDIA/k8s-test-infra/issues/821) |
+
+`IMEXDownload` lets the node agent on a multi-node NVLink profile, such as
+gb200, download the IMEX archive it pins from NVIDIA into a node cache under
+`/var/lib/nvml-mock/cache/imex`, when neither `imex.binaries.image` nor that
+cache provides it. Each attempt is limited by `imex.binaries.download.timeout`, a minute
+by default. It retries for about a minute per node-agent start, then leaves
+the node without IMEX, which fails ComputeDomain daemons there as on a
+real node without the IMEX package. The download needs HTTPS access to
+`developer.download.nvidia.com`; turn the gate off where nodes must not reach
+the internet.
+It is to be deprecated once Mokka publishes the IMEX binaries image.
 
 ## Set gates
 
@@ -56,10 +66,12 @@ registered, it logs the state of every gate.
 | GA (generally available) | On | No | Permanent behavior. The gate stays for compatibility; setting it logs a warning |
 | Deprecated | Off | Until locked | Being removed. Setting it logs a warning |
 
-A GA or deprecated gate stays for at least one minor release, then is removed.
-Once a gate is removed, an upgrade that still sets it fails with an error
-naming the gate, so drop it from `featureGates`, including values carried over
-by `--reuse-values`, before upgrading. The
+A GA or deprecated gate is removed no earlier than three minor (Y) releases
+after it is deprecated or reaches GA, the floor the
+[support policy](support-policy.md#deprecation) sets. Once a gate is removed,
+an upgrade that still sets it fails with an error naming the gate, so drop it
+from `featureGates`, including values carried over by `--reuse-values`, before
+upgrading. The
 [changelog](https://github.com/NVIDIA/k8s-test-infra/blob/main/CHANGELOG.md)
 records when each gate is added, changes stage, or is removed.
 

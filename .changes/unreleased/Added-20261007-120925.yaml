@@ -1,4 +1,0 @@
-kind: Added
-body: |-
-  helm: spread control-plane replicas across zones or nodes with `controlPlane.topologySpreadConstraints`.
-time: 2026-10-07T10:09:25Z

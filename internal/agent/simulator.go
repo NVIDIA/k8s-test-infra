@@ -42,3 +42,11 @@ type Daemon interface {
 	// applies without a pod restart. No-op for daemons holding no staged state.
 	Reload(ctx context.Context, state *State) error
 }
+
+// Requeuer is implemented by simulators whose Stage publishes work they finish
+// in the background, such as a download. Each value on Requeue reconciles the
+// latest State again, so that work is staged under the same staging lock as
+// the rest of the tree instead of being written while NRI decides.
+type Requeuer interface {
+	Requeue() <-chan struct{}
+}

@@ -143,7 +143,7 @@ running on another. See [Runtime Control](nvml-mock-ctl.md).
 
 ### Mounts pile up on a node with NRI enabled
 
-Up to and including 0.4.0, an injected container that also had a
+Up to and including 0.4.1, an injected container that also had a
 `Bidirectional` volume, such as a DRA kubelet plugin or the GPU Operator's
 validator, copied the overlay's writable config bind onto the node. Each such
 container doubled the copies at `/var/lib/nvml-mock/driver/config`, and they
@@ -161,7 +161,7 @@ for NODE in $(kind get nodes --name mokka); do
 done
 ```
 
-To stay on 0.4.0 without the growth, keep the plugin out of the namespace
+To stay on 0.4.x without the growth, keep the plugin out of the namespace
 those pods run in, for example `--set 'nri.excludedNamespaces={gpu-operator}'`
 for the GPU Operator. Pods in an excluded namespace get no overlay, so leave
 out only namespaces whose pods do not need the node's GPU profile.

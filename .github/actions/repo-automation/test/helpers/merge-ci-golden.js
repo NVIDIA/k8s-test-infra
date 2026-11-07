@@ -14,7 +14,7 @@ const WORKFLOWS = [
   "dependency-integrity.yaml",
   "deploy-pages.yaml",
 ];
-const BASE_BRANCHES = ["main", "release-0.16", "feature/demo", "release/subbranch"];
+const BASE_BRANCHES = ["main", "feature/demo", "release/subbranch"];
 const CHANGED_PATHS = [
   "pkg/code.go",
   "README.md",

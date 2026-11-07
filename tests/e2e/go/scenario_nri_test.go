@@ -66,15 +66,13 @@ const (
 	nriDomainName = "node-wide-domain"
 	nriDomainUUID = "00000000-0000-0000-0000-0000000000cd"
 
-	// Mock IMEX channel injection (#437). imex.mockChannels defaults to 2048
-	// channels to match the DRA driver's getImexChannelCount(); the count is
-	// irrelevant to the injection path and every channel is a real mknod on
-	// every node, so the suite runs a small one.
-	nriImexChannelCount = 8
-	nriImexChannelDir   = "/dev/nvidia-caps-imex-channels"
-	nriImexAnnotation   = "nvml-mock.nvidia.com/imex-channels"
-	// nriImexChannelMajor must equal imex.mockChannels.channelMajor, which is
-	// also the major the rendered proc-devices advertises to the DRA driver.
+	// Mock IMEX channel injection (#437). Like a real node's driver, the node
+	// agent stages channel0 only.
+	nriImexChannelDir = "/dev/nvidia-caps-imex-channels"
+	nriImexAnnotation = "nvml-mock.nvidia.com/imex-channels"
+	// nriImexChannelMajor is imex.deviceNumbers.channelMajor. The agent
+	// advertises it unless the host already uses it; then it advertises a free
+	// major from 384 to 511.
 	nriImexChannelMajor = 235
 
 	// nriDeviceAnnotation is the per-pod opt-in for device-node injection.
@@ -623,18 +621,21 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		BeforeAll(func(ctx SpecContext) {
 			Expect(selectedProfiles).NotTo(BeEmpty())
 			p := loadProfile(selectedProfiles[0])
+			if !p.MultiNodeNVLink() {
+				Skip("profile " + p.Name + " is not multi-node NVLink, so its nodes stage no IMEX channels")
+			}
 			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 			gpuNode = workers[0].Name
 		})
 
-		It("delivers every staged channel into an annotated pod", Label("imex-channels"), func(ctx SpecContext) {
+		It("delivers the staged channel0 into an annotated pod", Label("imex-channels"), func(ctx SpecContext) {
 			pod := applyNRIWorkload(ctx, h,
 				nriImexPodManifest("nri-imex-annotated", gpuNode, true),
 				"nri-imex-annotated")
 
-			Expect(imexChannelNames(ctx, h, pod)).To(HaveLen(nriImexChannelCount),
-				"annotated pod should see all %d channels staged by imex.mockChannels", nriImexChannelCount)
+			Expect(imexChannelNames(ctx, h, pod)).To(Equal([]string{"channel0"}),
+				"annotated pod should see channel0, the one channel the node agent stages")
 			// A channel is not a GPU: without the overlay, nothing in the pod
 			// can enumerate the node's mock GPUs.
 			res, err := h.Kube.ExecSh(ctx, pod, `test ! -e /opt/nvml-mock && test -z "${MOCK_NVML_CONFIG:-}"`)
@@ -656,8 +657,8 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		})
 
 		// The invariant that keeps the mock self-consistent, and the reason this
-		// feature consumes imex.mockChannels instead of provisioning its own
-		// nodes. The DRA driver's compute-domain plugin reads the channel major
+		// feature consumes the node agent's channels instead of provisioning
+		// its own nodes. The DRA driver's compute-domain plugin reads the channel major
 		// out of the rendered proc-devices; the injected nodes must carry that
 		// same major. Two provisioning paths with different majors would leave
 		// the directory split across majors while proc-devices advertised one,
@@ -668,8 +669,9 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				"nri-imex-major")
 
 			advertised := advertisedImexMajor(ctx, h, gpuNode)
-			Expect(advertised).To(Equal(nriImexChannelMajor),
-				"rendered proc-devices should advertise the chart's channelMajor")
+			Expect(advertised == nriImexChannelMajor || (advertised >= 384 && advertised <= 511)).To(BeTrue(),
+				"rendered proc-devices advertises %d: neither the chart's channelMajor %d nor a free major from 384 to 511",
+				advertised, nriImexChannelMajor)
 
 			for _, name := range imexChannelNames(ctx, h, pod) {
 				res, err := h.Kube.ExecSh(ctx, pod, `stat -c %t `+nriImexChannelDir+`/`+name)
@@ -950,18 +952,13 @@ func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 		Namespace:       nvmlMockNamespace,
 		CreateNamespace: true,
 		HideOutput:      true,
-		Set: map[string]string{
+		Set: withSuiteFeatureGates(map[string]string{
 			"gpu.count":        strconv.Itoa(p.ExpectedGPUs()),
 			"gpu.profile":      p.Name,
 			"image.repository": repo,
 			"image.tag":        tag,
 			"nri.enabled":      "true",
-			// Stage the mock IMEX channel nodes so the NRI channel opt-in has
-			// something to deliver (#437). This is the ONLY mechanism that
-			// creates them; the NRI plugin consumes what this stages.
-			"imex.mockChannels.enabled":      "true",
-			"imex.mockChannels.channelCount": strconv.Itoa(nriImexChannelCount),
-		},
+		}),
 		Wait:    true,
 		Timeout: config.HelmTimeout(),
 	}
@@ -1078,9 +1075,9 @@ func assertNodeCliqueIdentities(ctx context.Context, h *harness.Harness, workers
 	}
 }
 
-// deployDevicePluginOnWorkers reuses the gfd scenario's device-plugin
-// deployment and extends the capacity wait to every worker, so the composition
-// specs can pin pods to a node knowing it advertises the full profile count.
+// deployDevicePluginOnWorkers reuses deployDevicePlugin and extends the
+// capacity wait to every worker, so the composition specs can pin pods to a
+// node knowing it advertises the full profile count.
 func deployDevicePluginOnWorkers(ctx SpecContext, h *harness.Harness, workers []cluster.Node, expectedGPUs int) {
 	GinkgoHelper()
 	By("deploying the upstream device plugin alongside the NRI plugin")
@@ -1265,15 +1262,14 @@ func installNRICDIChart(ctx context.Context, h *harness.Harness, p profile.Profi
 		Namespace:       nvmlMockNamespace,
 		CreateNamespace: true,
 		HideOutput:      true,
-		Set: map[string]string{
-			"gpu.count":                 strconv.Itoa(p.ExpectedGPUs()),
-			"gpu.profile":               p.Name,
-			"image.repository":          repo,
-			"image.tag":                 tag,
-			"nri.enabled":               "true",
-			"nri.deviceInjectionMode":   "cdi",
-			"imex.mockChannels.enabled": "false",
-		},
+		Set: withSuiteFeatureGates(map[string]string{
+			"gpu.count":               strconv.Itoa(p.ExpectedGPUs()),
+			"gpu.profile":             p.Name,
+			"image.repository":        repo,
+			"image.tag":               tag,
+			"nri.enabled":             "true",
+			"nri.deviceInjectionMode": "cdi",
+		}),
 		Wait:    true,
 		Timeout: config.HelmTimeout(),
 	}
@@ -1365,7 +1361,7 @@ func imexChannelNames(ctx context.Context, h *harness.Harness, pod kube.PodRef) 
 }
 
 // advertisedImexMajor reads the channel major out of the proc-devices file that
-// imex.mockChannels renders for the DRA driver, as staged on the node itself.
+// the node agent renders for the DRA driver, as staged on the node itself.
 func advertisedImexMajor(ctx context.Context, h *harness.Harness, node string) int {
 	GinkgoHelper()
 	pod := nriMockPodOnNode(ctx, h, node)

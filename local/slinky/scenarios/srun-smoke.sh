@@ -2,8 +2,6 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Smoke check: Slurm schedules GPU jobs onto the mock GPUs slurmd discovered.
-#
 # Asserts three things, each of which can fail while every slurmd pod reads
 # Ready:
 #   1. Every Slurm node is idle and registered every GPU its slurmd pod holds.
@@ -22,7 +20,6 @@ set -euo pipefail
 NAMESPACE="${NAMESPACE:-slurm}"
 # The NodeSet's nvidia.com/gpu limit in local/slinky/slurm.values.yaml.
 GPUS_PER_NODE="${GPUS_PER_NODE:-4}"
-# How long srun waits for an allocation before giving up rather than queueing.
 IMMEDIATE_S="${IMMEDIATE_S:-60}"
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }

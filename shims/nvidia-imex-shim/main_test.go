@@ -63,14 +63,15 @@ func TestBuildArgv(t *testing.T) {
 func TestRealBin(t *testing.T) {
 	t.Run("default when env unset", func(t *testing.T) {
 		t.Setenv(envRealBin, "")
-		require.Equal(t, "/usr/bin/nvidia-imex.real", realBin())
+		require.Equal(t, "/opt/nvml-mock/driver/usr/bin/nvidia-imex.real",
+			realBin("/opt/nvml-mock/driver/usr/bin/nvidia-imex"))
 	})
 	t.Run("env override wins", func(t *testing.T) {
 		t.Setenv(envRealBin, "/opt/imex/nvidia-imex")
-		require.Equal(t, "/opt/imex/nvidia-imex", realBin())
+		require.Equal(t, "/opt/imex/nvidia-imex", realBin("/usr/bin/nvidia-imex"))
 	})
 	t.Run("constant pins the documented literal", func(t *testing.T) {
 		require.Equal(t, "IMEX_SHIM_REAL_BIN", envRealBin,
-			"documented in Dockerfile.compute-domain-daemon's shim stage; the constant must match")
+			"the documented environment override and constant must match")
 	})
 }

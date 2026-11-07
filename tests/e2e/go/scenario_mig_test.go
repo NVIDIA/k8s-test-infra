@@ -728,7 +728,7 @@ func installMIGChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 		Namespace:       nvmlMockNamespace,
 		CreateNamespace: true,
 		HideOutput:      true,
-		Set: map[string]string{
+		Set: withSuiteFeatureGates(map[string]string{
 			"gpu.count":                       strconv.Itoa(p.ExpectedGPUs()),
 			"gpu.profile":                     p.Name,
 			"image.repository":                repo,
@@ -736,7 +736,7 @@ func installMIGChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 			"gpu.mig.enabled":                 strconv.FormatBool(on),
 			"gpu.mig.gpuInstances[0].profile": layout.Profile,
 			"gpu.mig.gpuInstances[0].count":   strconv.Itoa(layout.Count),
-		},
+		}),
 		Wait:    true,
 		Timeout: config.HelmTimeout(),
 	}

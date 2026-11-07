@@ -107,9 +107,9 @@ cover, but it is not authoritative.
 ## Rebase only on a conflict
 
 A pull request does not need to be up to date with its base branch to merge.
-The merge agent merges an approved pull request that is behind `main` or a
-`release-*` branch, so other pull requests merging first is not a reason to
-update yours, and the **Update branch** button no longer appears for that case.
+The merge agent merges an approved pull request that is behind `main`, so
+other pull requests merging first is not a reason to update yours, and the
+**Update branch** button no longer appears for that case.
 
 Rebase only when the pull request carries the `needs-rebase` label. The
 automation adds it when GitHub reports a merge conflict with the base branch and

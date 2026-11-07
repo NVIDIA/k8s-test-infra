@@ -79,7 +79,7 @@ function metadataState(overrides = {}) {
       baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
     },
     filePages: [
-      [{ path: "docs/guide.md", additions: 30, deletions: 10, status: "modified" }],
+      [{ path: "docs/guide.md", additions: 70, deletions: 20, status: "modified" }],
       [{ path: "pkg/gpu/mocknvml/model.go", additions: 8, deletions: 2, status: "modified" }],
     ],
     commitPages: [[signedCommit()]],

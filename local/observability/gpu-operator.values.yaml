@@ -1,15 +1,5 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
-#
-# GPU Operator values overlay for the observability consumer.
-#
-# Layered by the root Tiltfile ON TOP OF local/gpu-operator/gpu-operator.values.yaml
-# (later --values wins), so this file carries only the deltas: that baseline
-# disables dcgm-exporter because the plain --gpu-operator scenario has nothing to
-# scrape it, and this consumer's whole point is scraping it.
-#
-# Standalone DCGM (nv-hostengine) stays disabled — dcgm-exporter embeds its own
-# hostengine and nothing here polls one directly.
 
 dcgmExporter:
   enabled: true
@@ -27,13 +17,9 @@ dcgmExporter:
     # dcgm-exporter is never scraped.
     interval: 10s
     additionalLabels:
-      # THE most fragile coupling in this consumer. kube-prometheus-stack
-      # defaults serviceMonitorSelectorNilUsesHelmValues=true, so Prometheus
-      # only selects ServiceMonitors labelled with its own Helm release name and
-      # ignores the rest SILENTLY — no error, no warning, just a target that was
-      # never discovered and a dashboard where every GPU panel is empty.
-      #
-      # Must equal RELEASE in local/observability/observability.tiltfile, which
-      # is the release name the stack is installed under. Both files are owned by
-      # this consumer, so the two move together or not at all.
+      # The most fragile coupling here. kube-prometheus-stack defaults
+      # serviceMonitorSelectorNilUsesHelmValues=true, so Prometheus selects only
+      # ServiceMonitors labelled with its own release name and ignores the rest
+      # silently: the target is never discovered and every GPU panel stays empty.
+      # Must equal RELEASE in observability.tiltfile.
       release: kube-prometheus-stack

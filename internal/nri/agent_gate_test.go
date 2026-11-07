@@ -6,6 +6,7 @@ package nri
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/imex"
 	"github.com/NVIDIA/k8s-test-infra/internal/staginggate"
 )
 
@@ -123,4 +125,40 @@ func TestAgentRestartSuspendsAdjustments(t *testing.T) {
 	require.Nil(t, adjust(), "a dead or restarting agent must leave new containers unmodified")
 	agentReady.Store(true)
 	require.NotNil(t, adjust(), "adjustments resume only after restaging")
+}
+
+// The ComputeDomain daemon is adjusted while the node agent stages: NRI would
+// not see the container again until it restarts, and the shim tells a
+// complete IMEX set from a partial one.
+func TestComputeDomainDaemonIsAdjustedBehindAClosedGate(t *testing.T) {
+	t.Parallel()
+
+	lockPath := filepath.Join(t.TempDir(), staginggate.FileName)
+	lock, err := staginggate.Exclusive(t.Context(), lockPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = lock.Close() })
+	overlay := t.TempDir()
+	for _, binary := range []string{imex.DaemonBinary, imex.RealDaemonBinary} {
+		path := filepath.Join(overlay, imex.BinDir, binary)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, nil, 0o755))
+	}
+
+	cfg := DefaultConfig()
+	cfg.AgentStagedURL = "http://127.0.0.1:1/stagedz"
+	cfg.StagingLockPath = lockPath
+	cfg.Inject.HostOverlayPath = overlay
+	plugin := NewPlugin(cfg)
+
+	pod := &api.PodSandbox{
+		Name:      "compute-domain-daemon-abc",
+		Namespace: "nvidia-dra-driver-gpu",
+		Labels:    map[string]string{"resource.nvidia.com/computeDomain": "6b4f0c0e-0000-4000-8000-000000000001"},
+	}
+	adjustment, _, err := plugin.CreateContainer(t.Context(), pod, &api.Container{Name: "compute-domain-daemon"})
+
+	require.NoError(t, err)
+	require.NotNil(t, adjustment, "the daemon gets nvidia-imex.real while the node agent stages")
+	require.Len(t, adjustment.GetMounts(), 1)
+	require.Equal(t, imex.ContainerBinDir+"/"+imex.RealDaemonBinary, adjustment.GetMounts()[0].GetDestination())
 }
