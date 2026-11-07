@@ -12,7 +12,8 @@
 // limitations under the License.
 
 // mokka-capture captures a real GPU node, scrubs the capture so it can be
-// committed, and compares it with what Mokka serves. It runs on the developer's
+// committed, writes a mock profile from it, and compares it with what Mokka
+// serves. It runs on the developer's
 // machine and reaches the nodes through kubectl. See
 // docs/contributing/capturing-a-real-node.md.
 package main
@@ -24,6 +25,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/collect"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/nvmldump"
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/profile"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/scrub"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/smidiff"
 )
@@ -33,6 +35,7 @@ const usage = `Usage: mokka-capture <command> [args]
 Commands:
   collect    capture nodes and the cluster through kubectl
   scrub      replace identifiers in a capture, or -check that none are left
+  profile    write a mock NVML profile from a scrubbed capture
   diff smi   compare two nvidia-smi -q -x documents
   diff nvml  compare two NVML recordings
   dump       record the NVML library on the loader path (collect runs this
@@ -55,6 +58,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return collect.Run(rest, stdout, stderr)
 	case "scrub":
 		return scrub.Run(rest, stdout, stderr)
+	case "profile":
+		return profile.Run(rest, stdout, stderr)
 	case "dump":
 		return nvmldump.Dump(rest, stdout, stderr)
 	case "diff":

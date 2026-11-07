@@ -1,7 +1,7 @@
 # mokka-capture
 
-Captures a real GPU node, scrubs the capture so it can be committed, and
-compares it with what Mokka serves. It runs on your machine and reaches the
+Captures a real GPU node, scrubs the capture so it can be committed, writes a
+mock profile from it, and compares it with what Mokka serves. It runs on your machine and reaches the
 nodes through `kubectl`. The procedure is in
 [Capturing a real node](../contributing/capturing-a-real-node.md).
 
@@ -13,6 +13,7 @@ go build -o bin/mokka-capture ./cmd/mokka-capture
 | --- | --- |
 | [`collect`](#collect) | Captures nodes and the cluster through `kubectl` |
 | [`scrub`](#scrub) | Replaces identifiers in a capture, or checks that none are left |
+| [`profile`](#profile) | Writes a mock NVML profile from a scrubbed capture |
 | [`diff smi`](#diff-smi) | Compares two `nvidia-smi -q -x` documents |
 | [`diff nvml`](#diff-nvml) | Compares two NVML recordings |
 | [`dump`](#dump) | Records the NVML library on the loader path; `collect` runs it in the driver container |
@@ -145,6 +146,86 @@ element still holds a value that is neither absent nor one of the placeholders
 the [hardware captures](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/go/assertions/nvidiasmi/testdata/hardware/README.md)
 use. It applies the same patterns as `TestHardwareCapturesAreScrubbed`.
 
+## profile
+
+```bash
+mokka-capture profile [-o file] [-base profile] [-explain] <capture node directory>
+```
+
+Writes a mock NVML profile from one node of a committed capture, such as
+`tests/hardware-captures/vr-nvl72/node-a`, so a profile is regenerated from
+evidence instead of typed. The format is that of
+`pkg/gpu/mocknvml/configs/mock-nvml-config-<name>.yaml`; the fields are in
+[Configuration](../configuration.md).
+
+Every value the profile gets carries a comment naming where it came from, so
+the profile can be checked against the capture line by line:
+
+```yaml
+inforom:
+  ecc_object: "7.16"              # GetInforomVersion(1)
+  # pwr_object: left out, GetInforomVersion(2) = ERROR_NOT_SUPPORTED
+memory:
+  total_bytes: 300442189824       # GetMemoryInfo_v2.Total
+pci:
+  device_id: 0x304110DE           # GetPciInfo.PciDeviceId = 809570526
+thermal:
+  temperature_gpu_c: 33           # GetTemperature(0) = 34 33 33 34, idle reading: lower median of the GPUs
+  tlimit:
+    reference_c: 87               # GetTemperature(0)+GetMarginTemperature.MarginTemperature per GPU: 34+53=87 33+54=87 33+53=86 34+53=87; lower median of the GPUs
+```
+
+A name such as `GetClockInfo(1)` is the dump's entry for that getter called with
+argument `1`; `.Field` is a field of its answer and `[n]` an element. When the
+comment shows `= value`, the capture's raw answer differs from what the profile
+key takes, for example an enum (`GetBrand = 14` is `"nvidia"`). A key the driver
+does not answer is left out, with a comment giving the return code.
+
+### Where each value comes from
+
+The mapping is one file, `internal/capture/profile/rules.go`. Each line names a
+profile key and its source; the verb says how GPUs that disagree are handled:
+
+| Kind | Examples | Value written |
+| --- | --- | --- |
+| Property of the board | limits, maximum clocks, PCI IDs, ECC mode, MIG table | From the capture. Once in `device_defaults` when every GPU agrees, otherwise under each `devices[]` entry |
+| Derived | T.Limit reference, the sum of `GetTemperature(0)` and `GetMarginTemperature` | Computed per GPU; the comment shows each GPU's working and the lower median is written |
+| Load reading | temperature, power draw, current clocks, utilisation | From `-base`; otherwise the capture's idle reading, the lower median when GPUs differ |
+| Identifier | UUID, serial, chassis serial, fabric cluster UUID | From `-base`; otherwise the placeholder the scrubbed capture holds |
+| Not in a capture | `features`, `cpu`, `dynamic_metrics`, NVSwitches, NIC GUID prefix | From `-base`; otherwise left out with a comment |
+
+The NVML dump supplies most values. The other files fill what it cannot record:
+
+| File | Gives |
+| --- | --- |
+| `smi-q.xml` | the supported clock table (the getters take a buffer size), NVLink-C2C, target temperature |
+| `smi-nvlink-s.txt` | per-link NVLink bandwidth |
+| `smi-mig-lgip.txt`, `smi-mig-lgipp.txt` | MIG profile names and placements |
+| `host-dmi.txt` | the system product name |
+| `host-ib-sysfs.txt`, `host-ibstat.txt` | the NIC block |
+| `host-pci-hierarchy.txt`, `host-pci-nvidia.txt` | PCIe root complexes and each GPU's NUMA node |
+
+A few keys follow the profile's meaning rather than NVML's encoding:
+`nvlink.version` is the NVLink generation (NVML reports its enum, `8` for
+NVLink 6.0), and a profile models one NIC type, so the NIC block describes the
+type most devices are and its comment lists the rest. With MIG disabled, the
+capture lists no compute instance profiles; each MIG table row assumes one
+compute instance spanning its GPU instance.
+
+### Output
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-o` | stdout | Write the profile to this file and the MIG table beside it as `<name>.mig.yaml`, where the mock looks for it. Without `-o` only the profile is written |
+| `-base` | none | Profile to take load readings, identifiers and mock-only blocks from, usually the closest existing profile |
+| `-explain` | off | Print a table of every key with its value, rule, source and each GPU's raw answer, instead of the profile |
+
+The output depends only on the capture and `-base`, so regenerating gives the
+same bytes. `internal/capture/profile/testdata/` holds the profile generated
+from each committed capture; the tests fail when a rule change alters it, check
+that it loads in the mock engine, and check that every key is one the engine
+reads. `go test ./internal/capture/profile -update` rewrites it.
+
 ## diff smi
 
 ```bash
@@ -244,6 +325,6 @@ mock library is on the loader path, and run `mokka-capture dump` there.
 | Code | Meaning |
 | --- | --- |
 | `0` | The command completed. `collect` succeeds even when single commands on a node fail; those are in `errors.log` |
-| `1` | The cluster was unreachable, a file could not be read or written, the output directory is not empty, NVML failed to initialise, or `scrub -check` found an identifier |
+| `1` | The cluster was unreachable, a file could not be read or written, the output directory is not empty, NVML failed to initialise, `scrub -check` found an identifier, or `profile` found GPUs that disagree on a key with no per-device form |
 | `2` | Bad usage |
 | `130` | `collect` was interrupted; the host pod is deleted first |
