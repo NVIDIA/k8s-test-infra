@@ -138,18 +138,10 @@ func (g *generator) deviceDefaultRules(s *section) {
 	thermal := s.sub("thermal")
 	thermal.reading("temperature_gpu_c", getter(call("GetTemperature", nvml.TEMPERATURE_GPU)))
 	thermal.reading("temperature_memory_c", field(nvml.FI_DEV_MEMORY_TEMP))
-	thermal.prop("shutdown_threshold_c", getter(call("GetTemperatureThreshold", nvml.TEMPERATURE_THRESHOLD_SHUTDOWN)))
-	thermal.prop("slowdown_threshold_c", getter(call("GetTemperatureThreshold", nvml.TEMPERATURE_THRESHOLD_SLOWDOWN)))
-	thermal.prop("max_operating_c", getter(call("GetTemperatureThreshold", nvml.TEMPERATURE_THRESHOLD_GPU_MAX)))
 	thermal.prop("target_temperature_c", smi("temperature/gpu_target_temperature").as(celsius))
-	tlimit := thermal.sub("tlimit")
-	// The margin NVML reports is the T.Limit reference minus the current
-	// temperature, so their sum is the reference. Both are rounded to whole
-	// degrees, which is why the GPUs can differ by one.
-	tlimit.derive("reference_c", "GetTemperature(0)+GetMarginTemperature.MarginTemperature", g.tlimitReference)
-	tlimit.prop("shutdown_c", field(nvml.FI_DEV_TEMPERATURE_SHUTDOWN_TLIMIT))
-	tlimit.prop("slowdown_c", field(nvml.FI_DEV_TEMPERATURE_SLOWDOWN_TLIMIT))
-	tlimit.prop("max_operating_c", field(nvml.FI_DEV_TEMPERATURE_GPU_MAX_TLIMIT))
+	// shutdown_threshold_c, slowdown_threshold_c, max_operating_c and the
+	// tlimit block, all from one reference temperature: see thermal.go.
+	g.thermalLimits(thermal)
 
 	fan := s.sub("fan")
 	fan.prop("count", getter("GetNumFans"))

@@ -104,23 +104,6 @@ func (s *section) baseFirst(key string, src source, note string) {
 	}
 }
 
-func (g *generator) tlimitReference(gpu int) (int64, string, string) {
-	temp, why := recorded(g.c, gpu, call("GetTemperature", nvml.TEMPERATURE_GPU), nil)
-	if why != "" {
-		return 0, "", "GetTemperature(0) = " + why
-	}
-	margin, why := recorded(g.c, gpu, "GetMarginTemperature", []any{"MarginTemperature"})
-	if why != "" {
-		return 0, "", "GetMarginTemperature = " + why
-	}
-	t, okT := asInt(temp)
-	m, okM := asInt(margin)
-	if !okT || !okM {
-		return 0, "", "unreadable"
-	}
-	return t + m, fmt.Sprintf("%d+%d", t, m), ""
-}
-
 func (g *generator) maxGPUInstances(gpu int) (int64, string, string) {
 	best := int64(-1)
 	for idx := range migProfileNames {

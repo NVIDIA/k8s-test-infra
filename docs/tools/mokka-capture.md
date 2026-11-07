@@ -171,8 +171,10 @@ pci:
   device_id: 0x304110DE           # GetPciInfo.PciDeviceId = 809570526
 thermal:
   temperature_gpu_c: 33           # GetTemperature(0) = 34 33 33 34, idle reading: lower median of the GPUs
+  max_operating_c: 89             # tlimit.reference_c - tlimit.slowdown_c = 87 - (-2); GetTemperatureThreshold(3) reads 90 on every GPU
   tlimit:
-    reference_c: 87               # GetTemperature(0)+GetMarginTemperature.MarginTemperature per GPU: 34+53=87 33+54=87 33+53=86 34+53=87; lower median of the GPUs
+    reference_c: 87               # max of GetTemperature(0)+GetMarginTemperature.MarginTemperature per GPU: 34+53=87 33+54=87 33+53=86 34+53=87
+    slowdown_c: -2                # GetFieldValues(id=194)
 ```
 
 A name such as `GetClockInfo(1)` is the dump's entry for that getter called with
@@ -189,7 +191,7 @@ profile key and its source; the verb says how GPUs that disagree are handled:
 | Kind | Examples | Value written |
 | --- | --- | --- |
 | Property of the board | limits, maximum clocks, PCI IDs, ECC mode, MIG table | From the capture. Once in `device_defaults` when every GPU agrees, otherwise under each `devices[]` entry |
-| Derived | T.Limit reference, the sum of `GetTemperature(0)` and `GetMarginTemperature` | Computed per GPU; the comment shows each GPU's working and the lower median is written |
+| Derived | thermal thresholds, the largest MIG instance count | Computed from several capture values; the comment shows the working on each GPU |
 | Load reading | temperature, power draw, current clocks, utilisation | From `-base`; otherwise the capture's idle reading, the lower median when GPUs differ |
 | Identifier | UUID, serial, chassis serial, fabric cluster UUID | From `-base`; otherwise the placeholder the scrubbed capture holds |
 | Not in a capture | `features`, `cpu`, `dynamic_metrics`, NVSwitches, NIC GUID prefix | From `-base`; otherwise left out with a comment |
@@ -204,6 +206,23 @@ The NVML dump supplies most values. The other files fill what it cannot record:
 | `host-dmi.txt` | the system product name |
 | `host-ib-sysfs.txt`, `host-ibstat.txt` | the NIC block |
 | `host-pci-hierarchy.txt`, `host-pci-nvidia.txt` | PCIe root complexes and each GPU's NUMA node |
+
+The thermal limits come from one reference temperature, so the absolute
+thresholds and the T.Limit view agree in the mock. On each GPU the reference is
+`GetTemperature(0)` plus `GetMarginTemperature`; the two calls are read at
+different moments, so the sums can differ by a degree, and the highest is
+`tlimit.reference_c`. The T.Limit offsets are field values, and the absolute
+thresholds follow:
+
+| Key | Value |
+| --- | --- |
+| `slowdown_threshold_c` | `tlimit.reference_c` |
+| `max_operating_c` | `tlimit.reference_c - tlimit.slowdown_c` |
+| `shutdown_threshold_c` | `tlimit.reference_c - tlimit.shutdown_c` |
+
+Each comment also gives the driver's `GetTemperatureThreshold` answer for
+comparison. A board without a margin or T.Limit offsets keeps the driver's
+thresholds.
 
 A few keys follow the profile's meaning rather than NVML's encoding:
 `nvlink.version` is the NVLink generation (NVML reports its enum, `8` for

@@ -15,6 +15,8 @@ package profile
 
 import (
 	"bytes"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -81,31 +83,63 @@ func lineOf(t *testing.T, profile, key string) string {
 	return ""
 }
 
-func TestTLimitReferenceIsTemperaturePlusMarginPerGPU(t *testing.T) {
+// signedField is a GetFieldValues answer holding a signed int.
+func signedField(v int32) map[string]any {
+	b := make([]byte, 8)
+	binary.LittleEndian.PutUint32(b, uint32(v))
+	return ok(map[string]any{"valueType": 5, "value": hex.EncodeToString(b)})
+}
+
+func TestThermalThresholdsFollowTheTLimitReference(t *testing.T) {
 	t.Parallel()
 	gpu := func(temp, margin int) map[string]any {
 		return map[string]any{
-			"GetTemperature(0)":    ok(temp),
-			"GetMarginTemperature": ok(map[string]any{"MarginTemperature": margin}),
+			"GetTemperature(0)":          ok(temp),
+			"GetMarginTemperature":       ok(map[string]any{"MarginTemperature": margin}),
+			"GetTemperatureThreshold(0)": ok(93),
+			"GetTemperatureThreshold(1)": ok(88),
+			"GetTemperatureThreshold(3)": ok(90),
+			"GetFieldValues(id=193)":     signedField(-5),
+			"GetFieldValues(id=194)":     signedField(-2),
+			"GetFieldValues(id=196)":     signedField(0),
 		}
 	}
-	// Sums 87, 87, 86, 87: rounding moves one GPU down a degree.
+	// Sums 87, 87, 86, 87: the calls are read at different moments, so one
+	// GPU comes out a degree low; the reference is the highest.
 	dir := writeCapture(t, []map[string]any{gpu(34, 53), gpu(33, 54), gpu(33, 53), gpu(34, 53)}, nil)
 	_, profile := generateFrom(t, dir, nil)
 	require.Equal(t,
-		"reference_c: 87 # GetTemperature(0)+GetMarginTemperature.MarginTemperature per GPU: 34+53=87 33+54=87 33+53=86 34+53=87; lower median of the GPUs",
+		"reference_c: 87 # max of GetTemperature(0)+GetMarginTemperature.MarginTemperature per GPU: 34+53=87 33+54=87 33+53=86 34+53=87",
 		lineOf(t, profile, "reference_c"))
+	require.Equal(t,
+		"slowdown_threshold_c: 87 # tlimit.reference_c = 87; GetTemperatureThreshold(1) reads 88 on every GPU",
+		lineOf(t, profile, "slowdown_threshold_c"))
+	require.Equal(t,
+		"shutdown_threshold_c: 92 # tlimit.reference_c - tlimit.shutdown_c = 87 - (-5); GetTemperatureThreshold(0) reads 93 on every GPU",
+		lineOf(t, profile, "shutdown_threshold_c"))
+	require.Contains(t, profile,
+		"max_operating_c: 89 # tlimit.reference_c - tlimit.slowdown_c = 87 - (-2); GetTemperatureThreshold(3) reads 90 on every GPU")
+	require.Contains(t, profile, "max_operating_c: 0 # GetFieldValues(id=196)")
 	// The temperature itself is a load reading.
 	require.Equal(t,
 		"temperature_gpu_c: 33 # GetTemperature(0) = 34 33 33 34, idle reading: lower median of the GPUs",
 		lineOf(t, profile, "temperature_gpu_c"))
 }
 
-func TestTLimitReferenceIsLeftOutWithoutAMargin(t *testing.T) {
+func TestThermalThresholdsAreTheDriversWithoutATLimitView(t *testing.T) {
 	t.Parallel()
-	dir := writeCapture(t, []map[string]any{{"GetTemperature(0)": ok(34), "GetMarginTemperature": failed("ERROR_NOT_SUPPORTED")}}, nil)
+	dir := writeCapture(t, []map[string]any{{
+		"GetTemperature(0)":          ok(34),
+		"GetMarginTemperature":       failed("ERROR_NOT_SUPPORTED"),
+		"GetTemperatureThreshold(0)": ok(95),
+		"GetTemperatureThreshold(1)": ok(90),
+		"GetTemperatureThreshold(3)": ok(85),
+	}}, nil)
 	_, profile := generateFrom(t, dir, nil)
-	require.Contains(t, profile, "# tlimit.reference_c: left out, GetTemperature(0)+GetMarginTemperature.MarginTemperature = GetMarginTemperature = ERROR_NOT_SUPPORTED")
+	require.Equal(t, "shutdown_threshold_c: 95 # GetTemperatureThreshold(0)", lineOf(t, profile, "shutdown_threshold_c"))
+	require.Equal(t, "slowdown_threshold_c: 90 # GetTemperatureThreshold(1)", lineOf(t, profile, "slowdown_threshold_c"))
+	require.Contains(t, profile, "# the thresholds above are the driver's, not derived from T.Limit: GPU 0: GetMarginTemperature = ERROR_NOT_SUPPORTED")
+	require.Contains(t, profile, "# tlimit.reference_c: left out, GPU 0: GetMarginTemperature = ERROR_NOT_SUPPORTED")
 }
 
 func TestPropertyThatDiffersPerGPUIsSetPerDevice(t *testing.T) {
@@ -290,5 +324,5 @@ func TestRun(t *testing.T) {
 
 	stdout.Reset()
 	require.Equal(t, 0, Run([]string{"-explain", capture}, &stdout, &bytes.Buffer{}))
-	require.Regexp(t, `device_defaults\.thermal\.tlimit\.reference_c\s+87\s+lower median of the GPUs\s+GetTemperature\(0\)\+GetMarginTemperature\.MarginTemperature\s+34\+53=87 \| 33\+54=87 \| 33\+53=86 \| 34\+53=87`, stdout.String())
+	require.Regexp(t, `device_defaults\.thermal\.max_operating_c\s+89\s+from the T\.Limit reference and offsets\s+tlimit\.reference_c - tlimit\.slowdown_c = 87 - \(-2\); GetTemperatureThreshold\(3\) reads 90 on every GPU`, stdout.String())
 }

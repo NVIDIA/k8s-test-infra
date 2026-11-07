@@ -83,12 +83,12 @@ device_defaults:
   thermal:
     temperature_gpu_c: 33           # GetTemperature(0) = 34 33 33 34, idle reading: lower median of the GPUs
     # temperature_memory_c: left out, GetFieldValues(id=82) = ERROR_NOT_SUPPORTED
-    shutdown_threshold_c: 93        # GetTemperatureThreshold(0)
-    slowdown_threshold_c: 88        # GetTemperatureThreshold(1)
-    max_operating_c: 90             # GetTemperatureThreshold(3)
     # target_temperature_c: left out, smi-q.xml temperature/gpu_target_temperature = N/A
+    shutdown_threshold_c: 92        # tlimit.reference_c - tlimit.shutdown_c = 87 - (-5); GetTemperatureThreshold(0) reads 93 on every GPU
+    slowdown_threshold_c: 87        # tlimit.reference_c = 87; GetTemperatureThreshold(1) reads 88 on every GPU
+    max_operating_c: 89             # tlimit.reference_c - tlimit.slowdown_c = 87 - (-2); GetTemperatureThreshold(3) reads 90 on every GPU
     tlimit:
-      reference_c: 87               # GetTemperature(0)+GetMarginTemperature.MarginTemperature per GPU: 34+53=87 33+54=87 33+53=86 34+53=87; lower median of the GPUs
+      reference_c: 87               # max of GetTemperature(0)+GetMarginTemperature.MarginTemperature per GPU: 34+53=87 33+54=87 33+53=86 34+53=87
       shutdown_c: -5                # GetFieldValues(id=193)
       slowdown_c: -2                # GetFieldValues(id=194)
       max_operating_c: 0            # GetFieldValues(id=196)
