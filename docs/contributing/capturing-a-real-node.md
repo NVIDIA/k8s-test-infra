@@ -284,22 +284,37 @@ That is the number to quote for how much of the node a profile reproduces.
 
 ## From capture to profile
 
-1. Write the profile in `deployments/nvml-mock/helm/nvml-mock/profiles/<name>.yaml`;
-   it is the source of truth. The standalone copy for running the library outside
-   Kubernetes is `pkg/gpu/mocknvml/configs/mock-nvml-config-<name>.yaml`.
+1. Generate the profile from the committed capture, with the closest existing
+   profile as `-base` for what a capture cannot give (load readings,
+   identifiers, mock-only blocks):
+
+   ```bash
+   bin/mokka-capture profile \
+     -base deployments/nvml-mock/helm/nvml-mock/profiles/<closest>.yaml \
+     -o pkg/gpu/mocknvml/configs/mock-nvml-config-<name>.yaml \
+     tests/hardware-captures/<platform>/<node>
+   ```
+
+   Every value's comment names its source in the capture, and `-explain` lists
+   each GPU's answer for every key; see
+   [`profile`](../tools/mokka-capture.md#profile). Fix a wrong value in the
+   rules, not in the generated file. The dump records the per-device NVLink
+   bandwidth-mode getters only, so a board whose mode is system-wide (Hopper)
+   takes `nvlink.bw_mode` from `-base`.
+2. Copy the result, and the `.mig.yaml` beside it, to
+   `deployments/nvml-mock/helm/nvml-mock/profiles/<name>.yaml` and
+   `profiles/mig/<name>.yaml`; the chart's copy is the source of truth, and the
+   one under `pkg/gpu/mocknvml/configs/` runs the library outside Kubernetes.
    [Configuration](../configuration.md) documents every field.
-2. Choose the NVLink bandwidth-mode scope from what the node answers, not from the
-   manual. A Hopper board takes `system`, a Blackwell board `device`, and an
-   earlier board omits the block; the `nvidia-smi` manual marks the mode
-   deprecated for Blackwell, and some drivers do not recognise `-gBwMode` at all.
-   When `nvidia-smi` does not, read the NVML bandwidth-mode getters in the
-   dump.
-3. Deploy it and look: `tilt up -- --gpu-profile <name>`, then check that
+3. Add the capture to `goldens` in `internal/capture/profile/golden_test.go` and
+   run `go test ./internal/capture/profile -update`, so a later change to a rule
+   shows up as a diff of this profile.
+4. Deploy it and look: `tilt up -- --gpu-profile <name>`, then check that
    `nvidia-smi` on the mock reports what the capture shows.
-4. Run the drift guard: `go test -tags=e2e ./tests/e2e/go/profile/...
+5. Run the drift guard: `go test -tags=e2e ./tests/e2e/go/profile/...
    ./tests/e2e/go/assertions/...` asserts derived expectations across all
    profiles, so an inconsistent profile fails here before it fails on a cluster.
-5. Add the `nvidia-smi -q -x` fixture to
+6. Add the `nvidia-smi -q -x` fixture to
    `tests/e2e/go/assertions/nvidiasmi/testdata/hardware/` with a row in that
    folder's README. `hardware_test.go` asserts on readings, not on the parse
    succeeding, because a renamed element decodes as absent rather than as an
