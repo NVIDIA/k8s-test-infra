@@ -176,12 +176,13 @@ that file):
   `GpuThermalMarginWatch` ships in **dry-run** (store-only) mode: it emits events
   but never touches the node. Turning store-only off lets a closing thermal margin
   actually drive the cordon/drain pipeline (and the uncordon on recovery).
-- **`gpu-health-monitor.dcgmHealthCheck.suppressedErrorCodes`** includes
-  `DCGM_FR_NVLINK_EFFECTIVE_BER_THRESHOLD`. The mock reports an NVLink effective-BER
-  threshold breach on every GPU at boot — a mock-data artifact, not the fault under
-  test. Left active it stays a "failing check" forever and keeps the node quarantined
-  even after the GPU cools, so recovery never completes. Suppressing it lets all
-  checks clear on cooldown.
+- **`gpu-health-monitor.dcgmHealthCheck.suppressedErrorCodes`** mirrors the NVSentinel
+  chart default as of v1.27.0. Helm replaces this list rather than merging it with the
+  chart default, so a shorter demo list would silently drop upstream suppressions. The
+  mock can report both `DCGM_FR_NVLINK_EFFECTIVE_BER_THRESHOLD` and
+  `DCGM_FR_NVLINK_SYMBOL_BER_THRESHOLD` while idle; these mock-data artifacts are not
+  the thermal fault under test. Leaving either active can keep the health check failing
+  after cooldown and prevent recovery.
 - **`fault-quarantine.circuitBreaker.enabled: false`**. The circuit breaker trips
   when ≥ 50% of GPU nodes are cordoned within a 5-minute window and then halts *all*
   event processing (including the uncordon on recovery). With only two GPU workers a
