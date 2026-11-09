@@ -64,6 +64,13 @@ type DeviceConfig struct {
 	BoardPartNumber string `json:"board_part_number,omitempty"`
 	VBIOSVersion    string `json:"vbios_version,omitempty"`
 
+	// PDI is the Per Device Identifier nvmlDeviceGetPdi reports. Nil derives
+	// one from the GPU's UUID, which keeps it distinct per GPU and the same in
+	// every process; set it to report an ID a capture or an outside inventory
+	// assigned. A pointer so that an explicit zero stays distinguishable from
+	// an unset key.
+	PDI *HexID `json:"pdi,omitempty"`
+
 	// Hostname seeds nvmlDeviceGetHostname_v1 before anything calls the setter.
 	// Blackwell and newer only, matching NVML's support statement.
 	Hostname string `json:"hostname,omitempty"`
@@ -249,9 +256,15 @@ type PlatformConfig struct {
 	// "switch_connected" through an NVSwitch tray, or "direct_connected".
 	// Empty defaults to direct. See PeerType* constants.
 	PeerType string `json:"peer_type,omitempty"`
-	// ModuleID is the id of this GPU within the node, and the one field a
-	// profile is expected to vary per device.
+	// ModuleID is the id of this GPU within the node, so a profile sets it
+	// per device.
 	ModuleID uint8 `json:"module_id,omitzero"`
+	// GPUFabricGUID is what nvidia-smi reports as "GPU Fabric GUID"
+	// (platform.gpu_fabric_guid), carried in nvmlPlatformInfo_t.ibGuid. NVLink
+	// fabric managers identify a GPU by it, so it has to differ between GPUs.
+	// Nil leaves it zero; "pdi" reports the GPU's PDI, as Grace-Blackwell does;
+	// a hex value is reported as given, which takes a per-device entry.
+	GPUFabricGUID *FabricGUIDConfig `json:"gpu_fabric_guid,omitempty"`
 }
 
 // NVLinkErrorInjectionConfig injects NVLink data-link error accrual on a
