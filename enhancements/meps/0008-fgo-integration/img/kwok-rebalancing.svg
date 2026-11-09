@@ -101,10 +101,10 @@
   <text class="note" x="860" y="346" text-anchor="middle">but keeps its Nodes' GPUs</text>
 
   <path class="wire w-dp" d="M150,392 H639" marker-end="url(#arrow-dp)"/>
-  <text class="label halo" x="395" y="384" text-anchor="middle">GET /v1alpha1/racks/{rack}/runtime</text>
+  <text class="label halo" x="395" y="384" text-anchor="middle">POST /v1alpha1/racks/runtime:batchGet</text>
 
   <path class="wire w-cp event" d="M640,432 H151" marker-end="url(#arrow-cp)"/>
-  <text class="label halo" x="395" y="424" text-anchor="middle">views at the rack's generation</text>
+  <text class="label halo" x="395" y="424" text-anchor="middle">views at each rack's generation</text>
 
   <rect class="n-dp" x="40" y="452" width="220" height="30" rx="6"/>
   <text class="note" x="150" y="471" text-anchor="middle">serves the rack's metrics</text>
