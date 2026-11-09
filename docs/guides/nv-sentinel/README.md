@@ -118,7 +118,8 @@ rebuild from scratch. Useful overrides: `GPU_PROFILE`, `HOT_TEMP_C`, `TARGET_GPU
 The script exits non-zero at the first step that does not happen: the sample
 workload not starting, a worker cordoned before the heat, no cordon, no
 reschedule, or no uncordon. It then prints each worker's cordon state and the
-NVSentinel checks failing on it.
+NVSentinel checks failing on it, and cools the GPU if it is still hot, so a
+re-run starts from a healthy node.
 
 ## The fault and the recovery
 

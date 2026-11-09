@@ -86,6 +86,19 @@ report_workers() {
       | grep '^Gpu' || echo "(no failing NVSentinel checks)"
   done
 }
+# On any exit: drop the chart pulled below and, if a phase failed while the GPU
+# was still pinned hot, cool it so that a re-run starts from a healthy node.
+gpu_hot=false
+cleanup() {
+  if [[ "${gpu_hot}" == "true" ]]; then
+    warn "cooling GPU ${TARGET_GPU} on ${TARGET_NODE} before exiting"
+    kubectl_ctx -n "${NAMESPACE}" exec "${MOCK_POD}" -- nvml-mock-ctl reset --gpu "${TARGET_GPU}" || true
+  fi
+  if [[ -n "${NVSENTINEL_CHART_DIR:-}" ]]; then
+    rm -rf "${NVSENTINEL_CHART_DIR}"
+  fi
+}
+trap cleanup EXIT
 
 # --- Preflight ----------------------------------------------------------------
 for bin in docker kind kubectl helm; do
@@ -224,7 +237,6 @@ kubectl_ctx -n cert-manager wait --for=condition=Available deploy --all --timeou
 # and wait for them; Helm then finds them present. Server-side, because they
 # are too large for the annotation client-side apply writes.
 NVSENTINEL_CHART_DIR="$(mktemp -d)"
-trap 'rm -rf "${NVSENTINEL_CHART_DIR}"' EXIT
 helm pull "${NVSENTINEL_CHART}" --version "${NVSENTINEL_VERSION}" \
   --untar --untardir "${NVSENTINEL_CHART_DIR}"
 PSMDB_CRDS="${NVSENTINEL_CHART_DIR}/nvsentinel/charts/mongodb-store/charts/psmdb-operator/crds"
@@ -293,6 +305,7 @@ done
 info "PHASE 1: heating GPU ${TARGET_GPU} to ${HOT_TEMP_C}C on node ${TARGET_NODE} (pod ${MOCK_POD})"
 kubectl_ctx -n "${NAMESPACE}" exec "${MOCK_POD}" -- \
   nvml-mock-ctl temp --gpu "${TARGET_GPU}" "${HOT_TEMP_C}"
+gpu_hot=true
 
 info "Waiting for NVSentinel to cordon ${TARGET_NODE} (detect -> quarantine)"
 cordoned=false
@@ -336,6 +349,7 @@ fi
 # the demo through the thermal-margin check.
 info "PHASE 2: cooling GPU ${TARGET_GPU} back down on ${TARGET_NODE} (clear temp override)"
 kubectl_ctx -n "${NAMESPACE}" exec "${MOCK_POD}" -- nvml-mock-ctl reset --gpu "${TARGET_GPU}"
+gpu_hot=false
 
 info "Waiting for NVSentinel to uncordon ${TARGET_NODE} (cooldown -> recovery)"
 recovered=false
