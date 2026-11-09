@@ -136,7 +136,9 @@ func (c *collector) drvStdin(argv ...string) []string {
 	return append([]string{"kubectl", "-n", c.driverNS, "exec", "-i", c.driverPod, "-c", c.driverCtr, "--"}, argv...)
 }
 
-// podContainer is the container name in hostPodManifest.
+// podContainer names the container in hostPodManifest. The -mock stand-in is
+// made from that manifest and takes the driver container's place, so drv's -c
+// must name it too.
 const podContainer = "c"
 
 const hostPodManifest = `apiVersion: v1

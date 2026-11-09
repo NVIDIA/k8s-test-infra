@@ -343,8 +343,6 @@ func (c *collector) report() {
 	c.logf("The raw capture holds serial numbers, UUIDs and addresses; scrub it before sharing.")
 }
 
-// hostPodName is capture-<node>-<suffix>, and standInName
-// capture-driver-<node>-<suffix>.
 func hostPodName(node, suffix string) string { return podName("capture-", node, suffix) }
 func standInName(node, suffix string) string { return podName("capture-driver-", node, suffix) }
 
