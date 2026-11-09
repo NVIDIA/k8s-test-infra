@@ -272,8 +272,8 @@ test, built for that node's architecture, and save the outputs under `MOCK`.
 
    The report says how many of the real document's elements the mock has, how
    many carry the same value, and lists the missing elements and the differing
-   values. Readings that move with load and identifiers are matched on presence
-   only.
+   values. Values that are not a property of the board are not compared;
+   [`diff smi`](../tools/mokka-capture.md#diff-smi) lists them.
 4. **Surfaces.** There is no tool for the `host-*`, `proc-*`, `rdma-*` and `net-*`
    files. Read each against what the node agent renders for the profile, and
    decide whether a difference matters. A real node and a mock differ in

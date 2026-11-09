@@ -161,10 +161,27 @@ among its same-named siblings in document order, so the first GPU is
 - how many of those carry the same value;
 - the paths only one side has, and the values that differ.
 
-Readings that move with load (temperatures, utilisation, power draw, memory
-used) and identifiers are matched on presence only, since a real node and a mock
-cannot agree on them. `-ignore` replaces that set; `-max` (default `40`) limits
-the entries listed per kind.
+A value that is not a property of the board is not compared, since a mock of
+the captured node cannot be expected to reproduce it:
+
+| Left out | Elements |
+| --- | --- |
+| Readings that move with load | `gpu_temp`, `gpu_temp_tlimit`, `memory_temp`, `utilization`, power draw (`power_draw`, `average_power_draw`, `instant_power_draw`), `power_state`, `performance_state`, the clocks in use (`clocks`, `dla_cur_engine_clock`), `graphics_volt`, `fan_speed`, memory `used` and `free`, clock event reasons and their counters, PCIe `tx_util` and `rx_util`, processes |
+| Readings that move with time | `timestamp`, `time_run`, `inforom_bbx_flush` |
+| Identifiers | `uuid`, `serial`, `pdi`, `gpu_fabric_guid`, `clusterUuid`, `minor_number`, the PCI bus location |
+
+Everything else is compared, including the temperature thresholds and T.Limit
+offsets, `max_clocks` and the supported clocks. An element name is matched
+whole, so `clocks` does not hide `max_clocks`.
+
+Only readings are left out, not the lack of one. When either side answers
+`N/A`, `Not Supported`, `Insufficient Permissions`, `Requested functionality has
+been deprecated` or `Unknown Error`, the two answers are compared like any
+value: a mock that reads a temperature where the real GPU answers `N/A` counts
+as a difference, and `N/A` on both sides counts as a match.
+
+`-ignore` replaces the set with a regexp over paths; `-max` (default `40`)
+limits the entries listed per kind.
 
 ## diff nvml
 
@@ -177,21 +194,48 @@ Example output:
 ```text
 calls compared:        412
 return code matches:   398 of 412 (96.6%)
-value matches:         301 of 340 (88.5%) (of 412 calls answered SUCCESS on both sides, excluding 72 whose value is load or identity)
+value matches:         301 of 340 (88.5%) (of 412 calls answered SUCCESS on both sides, excluding 72 whose value is a reading or an identifier)
 only on real device:   3
 only on mock device:   0
 ```
 
-Return codes are compared for every call. A value is compared only where both
-sides answered `SUCCESS`; a call both sides answer with the same error counts as
-a return-code match and nothing more. Getters that report load, time or identity
-(temperatures, power draw, utilisation, clocks in use, UUIDs and serials) are
-excluded from the value rate and counted separately. Names are matched whole:
-`GetClockInfo` is excluded and `GetMaxClockInfo` is compared. Override the list
-with `-ignore <regexp>` over whole call names, and the number of mismatches
-shown per kind with `-max <n>`. Devices pair by index, which holds when both
-sides expose the same GPUs in the same order. Gzipped recordings (`.json.gz`)
-are read directly, which is how a committed capture is stored.
+Return codes are compared for every call, so a real and a mock GPU must agree on
+whether each getter is supported. A value is compared only where both sides
+answered `SUCCESS`; a call both sides answer with the same error counts as a
+return-code match and nothing more. A value that is not a property of the board
+is excluded from the value rate and counted separately:
+
+| Left out | Calls |
+| --- | --- |
+| Readings that move with load | temperatures, power draw and energy, utilisation (including `GetDynamicPstatesInfo`), the clocks in use (`GetClockInfo`, `GetClock` with clock ID 0, `GetCurrentClockFreqs`), clock event reasons, fan speed, processes, PCIe and NVLink throughput and error counters, ECC, retired-page and remapped-row counts |
+| Readings that move with time | `GetBBXTimeData` (how long the GPU has run), `GetLastBBXFlushTime`, `GetSamples`, `GetViolationStatus` |
+| What the host decides | `GetCpuAffinity`, `GetCpuAffinityWithinScope`: a Kind node has its own CPUs |
+| Identifiers | UUID, serial, PDI, platform and fabric information |
+
+Names are matched whole: `GetClockInfo` is excluded and `GetMaxClockInfo` is
+compared. Some answers mix readings with values that describe the board; only
+the readings are left out of those:
+
+- `GetMemoryInfo` and `GetMemoryInfo_v2`: `Free` and `Used`. `Total` and the
+  driver's `Reserved` are compared. The same holds for `GetBAR1MemoryInfo` and
+  `GetConfComputeProtectedMemoryUsage`.
+- `GetThermalSettings`: each sensor's `CurrentTemp`.
+- Every answer's `Version`, the struct version the call carries back, which
+  belongs to the API and not to the GPU.
+- `GetFieldValues`: the fields that are counters, energy, power draw or
+  temperatures. The fields that describe the board (ECC mode, NVLink count,
+  speed and version, power limits, T.Limit offsets, capabilities) are compared.
+  Field IDs follow go-nvml's header, which drivers from 580.95 on use; older
+  drivers number the fields from 251 to 273 differently.
+
+`-ignore <regexp>` replaces all of these. It is matched against whole call names
+and against the parts of an answer, named `Call.Field` for a struct field and
+`Call[i]` for an array element, as in `GetMemoryInfo_v2.Free` or
+`GetThermalSettings(0).Sensor[0].CurrentTemp`. `-max <n>` sets the number of
+mismatches shown per kind; a listed value shows only the parts that were
+compared. Devices pair by index, which holds when both sides expose the same
+GPUs in the same order. Gzipped recordings (`.json.gz`) are read directly, which
+is how a committed capture is stored.
 
 ## dump
 

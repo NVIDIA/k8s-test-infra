@@ -19,9 +19,11 @@
 // Each document is flattened to path=value pairs, where a repeated element
 // carries its position (gpu[1]/clocks[0]/graphics_clock[0]). The report says how many
 // paths exist on both sides, how many of those carry the same value, and lists
-// the paths only one side has and the values that differ. Paths that move with
-// load or name a machine (temperatures, utilisation, power draw, identifiers)
-// are matched on presence only; -ignore changes that set.
+// the paths only one side has and the values that differ. A value that is not a
+// property of the board (a reading that moves with load or time, or an
+// identifier) is not compared while both sides read one; -ignore changes that
+// set. An answer that is not a reading, such as N/A, is still compared, so a
+// mock that reads a value where the real GPU has none counts as a difference.
 package smidiff
 
 import (
@@ -35,20 +37,41 @@ import (
 	"strings"
 )
 
-// loadOrIdentity names the elements whose value is not a property of the board:
-// readings that move with load or time, and identifiers. They are matched on
-// presence only. An element name is matched whole, as one path segment, so
-// "used" does not hide "used_gpu_memory_ratio".
+// loadOrIdentity names the elements whose value is not a property of the board,
+// so a mock of a captured node cannot be expected to reproduce it. An element
+// name is matched whole, as one path segment: "clocks" (the clocks in use) does
+// not hide "max_clocks", and "used" does not hide "used_gpu_memory_ratio". A
+// name that holds a subtree hides everything under it.
 var loadOrIdentity = []string{
-	"temperature", "utilization", "power_draw", "power_state", "performance_state",
-	"fan_speed", "used", "free", "clocks_event_reasons", "clocks_throttle_reasons",
-	"uuid", "serial", "pdi", "gpu_fabric_guid", "clusterUuid", "timestamp", "pid",
-	"processes", "process_info", "minor_number", "pci_bus", "pci_device", "pci_domain",
-	"bus_id", "tx_util", "rx_util", "value",
+	// Readings that move with load. Temperature thresholds and T.Limit offsets
+	// describe the board and are compared; only the readings are listed.
+	"gpu_temp", "gpu_temp_tlimit", "memory_temp", "utilization", "power_draw",
+	"average_power_draw", "instant_power_draw", "power_state", "performance_state",
+	"clocks", "dla_cur_engine_clock", "graphics_volt", "fan_speed", "used", "free",
+	"clocks_event_reasons", "clocks_throttle_reasons", "clocks_event_reasons_counters",
+	"tx_util", "rx_util", "processes", "process_info", "pid",
+	// Readings that move with time: when the document was taken, how long the
+	// GPU has run, and its last black-box flush.
+	"timestamp", "time_run", "inforom_bbx_flush",
+	// Identifiers of the unit and of where the host placed it.
+	"uuid", "serial", "pdi", "gpu_fabric_guid", "clusterUuid", "minor_number",
+	"pci_bus", "pci_device", "pci_domain", "bus_id",
 }
 
 // defaultIgnore matches a path in which any segment is one of those elements.
 var defaultIgnore = `(?:^|/)(?:` + strings.Join(loadOrIdentity, "|") + `)\[[0-9]+\](?:/|$)`
+
+// notAReading lists what nvidia-smi prints in place of a value it could not
+// read. Such an answer is a property of the board and driver (the GPU does not
+// support the query, or the caller may not make it), so it is compared even on
+// a path whose readings are not.
+var notAReading = map[string]bool{
+	"N/A":                      true,
+	"Not Supported":            true,
+	"Insufficient Permissions": true,
+	"Requested functionality has been deprecated": true,
+	"Unknown Error": true,
+}
 
 // Run runs the comparison with the given arguments.
 func Run(args []string, stdout, stderr io.Writer) int { return run(args, stdout, stderr) }
@@ -56,7 +79,7 @@ func Run(args []string, stdout, stderr io.Writer) int { return run(args, stdout,
 func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("diff smi", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	ignore := fs.String("ignore", defaultIgnore, "regexp of paths whose value is not compared (presence still is)")
+	ignore := fs.String("ignore", defaultIgnore, "regexp of paths whose reading is not compared (presence, and an answer such as N/A, still are)")
 	limit := fs.Int("max", 40, "maximum entries to list per kind")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -180,7 +203,7 @@ func compare(hw, mock map[string]string, ignore *regexp.Regexp) result {
 		}
 		r.both++
 		switch {
-		case ignore.MatchString(path):
+		case ignore.MatchString(path) && !notAReading[rv] && !notAReading[mv]:
 			r.ignored++
 		case rv == mv:
 			r.same++
@@ -204,7 +227,7 @@ func report(w io.Writer, r result, limit int) {
 	_, _ = fmt.Fprintf(w, "paths in the real document: %d\n", total)
 	_, _ = fmt.Fprintf(w, "present in the mock:        %s\n", ratio(r.both, total))
 	compared := r.both - r.ignored
-	_, _ = fmt.Fprintf(w, "same value:                 %s (excluding %d paths whose value is load or identity)\n",
+	_, _ = fmt.Fprintf(w, "same value:                 %s (excluding %d paths whose value is a reading or an identifier)\n",
 		ratio(r.same, compared), r.ignored)
 	_, _ = fmt.Fprintf(w, "only in the mock:           %d\n", len(r.onlyMock))
 	list(w, "only in the real document", r.onlyReal, limit)
