@@ -410,6 +410,19 @@ func TestPlatformIdentityIsRackScaleOnly(t *testing.T) {
 	}
 }
 
+// The GB200 and GB300 captures report each GPU's PDI as its fabric GUID, while
+// the B200 and Vera Rubin captures report a value of their own, so only the
+// Grace-Blackwell profiles may ask the e2e check to expect the PDI there.
+func TestFabricGUIDIsPDIOnGraceBlackwellOnly(t *testing.T) {
+	want := map[string]bool{"gb200": true, "gb300": true}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		identity, _ := p.PlatformIdentity()
+		require.Equal(t, want[name], identity.FabricGUIDIsPDI, "%s: gpu_fabric_guid is \"pdi\"", name)
+	}
+}
+
 // The per-device module ids must survive the profile decode distinctly: they are
 // the only field that tells one of a node's GPUs from another, and a decode that
 // read them from device_defaults alone would hand every GPU the same one.

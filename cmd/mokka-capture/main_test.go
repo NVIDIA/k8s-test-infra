@@ -32,6 +32,7 @@ func TestRunDispatchesAndRejectsUnknownCommands(t *testing.T) {
 	require.Equal(t, 2, run([]string{"diff", "smi", "only-one"}, io.Discard, io.Discard))
 	require.Equal(t, 2, run([]string{"diff", "nvml", "only-one"}, io.Discard, io.Discard))
 	require.Equal(t, 2, run([]string{"scrub"}, io.Discard, io.Discard))
+	require.Equal(t, 2, run([]string{"profile"}, io.Discard, io.Discard))
 	require.Equal(t, 2, run([]string{"dump", "extra"}, io.Discard, io.Discard))
 	require.Equal(t, 0, run([]string{"collect", "-h"}, io.Discard, io.Discard))
 }

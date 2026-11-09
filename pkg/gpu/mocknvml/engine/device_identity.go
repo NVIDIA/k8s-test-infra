@@ -70,18 +70,30 @@ func (d *ConfigurableDevice) GetCapabilities() (nvml.DeviceCapabilities, nvml.Re
 }
 
 // GetPdi returns the Per Device Identifier, a 64-bit ID fused into the GPU.
-// It is derived from the physical GPU's UUID so that every process loading the
-// mock agrees on it; a MIG device carries its parent's UUID here and so
-// reports the PDI of the GPU it is carved from.
 func (d *ConfigurableDevice) GetPdi() (nvml.Pdi, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return nvml.Pdi{}, ret
 	}
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(d.UUID)) // hash.Hash.Write never returns an error
-	pdi := h.Sum64()
+	pdi := d.pdi(d.cfg())
 	debugLog("[NVML] nvmlDeviceGetPdi -> %#016x\n", pdi)
 	return nvml.Pdi{Value: pdi}, nvml.SUCCESS
+}
+
+// pdi is the configured PDI, or else one derived from the physical GPU's UUID
+// so that every process loading the mock agrees on it. A MIG device shares its
+// parent's config and UUID, and so reports the PDI of the GPU it is carved from.
+func (d *ConfigurableDevice) pdi(cfg *DeviceConfig) uint64 {
+	if cfg.PDI != nil {
+		return uint64(*cfg.PDI)
+	}
+	return pdiFromUUID(d.UUID)
+}
+
+// pdiFromUUID is the PDI of a GPU that declares none.
+func pdiFromUUID(uuid string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(uuid)) // hash.Hash.Write never returns an error
+	return h.Sum64()
 }
 
 // OnSameBoard reports whether two devices share a physical board. Every mocked

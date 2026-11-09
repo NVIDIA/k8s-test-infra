@@ -49,3 +49,14 @@ func Dump(args []string, stdout, stderr io.Writer) int {
 func Diff(args []string, stdout, stderr io.Writer) int {
 	return runDiff(args, stdout, stderr)
 }
+
+// Recording is a dump as Load reads it back: System and each device's Calls
+// map a call name such as "GetClockInfo(0)" to its return code and value.
+// Numbers are json.Number, so 64-bit values keep every digit.
+type Recording = dump
+
+// Call is one recorded answer.
+type Call = call
+
+// Load reads a recording written by Dump, gzipped (.json.gz) or not.
+func Load(path string) (Recording, error) { return load(path) }

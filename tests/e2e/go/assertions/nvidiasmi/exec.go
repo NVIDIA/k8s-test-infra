@@ -222,6 +222,7 @@ func PlatformIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p pr
 			HostID:              identity.HostID,
 			PeerType:            identity.PeerType,
 			ModuleIDs:           identity.ModuleIDs,
+			FabricGUIDIsPDI:     identity.FabricGUIDIsPDI,
 		}
 	}
 

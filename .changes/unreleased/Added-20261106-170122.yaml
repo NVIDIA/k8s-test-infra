@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  mokka-capture: `mokka-capture profile` writes a mock NVML profile from a committed capture of a real node, with each value's source in a comment; see [mokka-capture](docs/tools/mokka-capture.md#profile).
+time: 2026-11-07T00:01:22Z
