@@ -251,6 +251,33 @@ func TestPropertyTheEngineCannotTakePerDeviceFails(t *testing.T) {
 	require.ErrorContains(t, err, "device_defaults.pcie.max_link_width: the GPUs disagree (16, 8) and the key has no per-device form")
 }
 
+// Fault counts and the link's current state are readings: a GPU that has had
+// faults neither stops the generator nor gets devices[] entries of its own,
+// and the profile takes the lower median, here the healthy GPUs' values.
+func TestFaultCountsAreReadings(t *testing.T) {
+	t.Parallel()
+	gpu := func(replays, linkGen, remappedRows, eccErrors int) map[string]any {
+		return map[string]any{
+			"GetPcieReplayCounter":      ok(replays),
+			"GetCurrPcieLinkGeneration": ok(linkGen),
+			"GetRemappedRows":           ok([]any{remappedRows, 0, false, false}),
+			"GetTotalEccErrors(0,0)":    ok(eccErrors),
+		}
+	}
+	g, profile := generateFrom(t, writeCapture(t, []map[string]any{gpu(0, 6, 0, 0), gpu(3, 1, 1, 2), gpu(0, 6, 0, 0)}, nil), nil)
+	for _, block := range []string{"pcie", "ecc", "remapped_rows"} {
+		require.Nil(t, g.devices[1].find(block), "GPU 1 has a devices[] %s block", block)
+	}
+	for _, line := range []string{
+		"replay_counter: 0 # GetPcieReplayCounter = 0 3 0, idle reading: lower median of the GPUs",
+		"current_link_gen: 6 # GetCurrPcieLinkGeneration = 6 1 6, idle reading: lower median of the GPUs",
+		"correctable: 0 # GetRemappedRows[0] = 0 1 0, idle reading: lower median of the GPUs",
+		"total: 0 # GetTotalEccErrors(0,0) = 0 2 0, idle reading: lower median of the GPUs",
+	} {
+		require.Contains(t, profile, line)
+	}
+}
+
 func TestUnsupportedGetterIsNotedNotInvented(t *testing.T) {
 	t.Parallel()
 	dir := writeCapture(t, []map[string]any{{

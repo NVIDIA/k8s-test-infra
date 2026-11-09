@@ -20,8 +20,9 @@ import (
 //	            for a key the engine reads only from device_defaults), and
 //	            left out with a comment when the driver does not answer.
 //	propOrNA    prop for keys that spell "not supported" as "N/A".
-//	reading     moves with load or time: the capture's idle reading (the
-//	            lower median when GPUs differ), never -base's.
+//	reading     moves with load or time, as a temperature or an error count
+//	            does: the capture's idle reading (the lower median when GPUs
+//	            differ), never -base's.
 //	remainder   a reading that is the rest of a total, such as free memory:
 //	            the total less the parts written before it, so they add up,
 //	            per GPU; a used reading a GPU has no room for is lowered.
@@ -114,12 +115,15 @@ func (g *generator) deviceDefaultRules(s *section) {
 	pci.prop("device_id", pciDeviceID)
 	pci.prop("subsystem_id", getter("GetPciInfo", "PciSubSystemId").as(hex32))
 
+	// The link trains down when idle and counts the packets it had to resend:
+	// its current state and replays describe the link at that moment, not
+	// the board.
 	pcie := s.sub("pcie")
 	pcie.prop("max_link_gen", getter("GetMaxPcieLinkGeneration"))
-	pcie.prop("current_link_gen", getter("GetCurrPcieLinkGeneration"))
+	pcie.reading("current_link_gen", getter("GetCurrPcieLinkGeneration"))
 	pcie.prop("max_link_width", getter("GetMaxPcieLinkWidth"))
-	pcie.prop("current_link_width", getter("GetCurrPcieLinkWidth"))
-	pcie.prop("replay_counter", getter("GetPcieReplayCounter"))
+	pcie.reading("current_link_width", getter("GetCurrPcieLinkWidth"))
+	pcie.reading("replay_counter", getter("GetPcieReplayCounter"))
 	pcie.reading("tx_throughput_kbps", getter(call("GetPcieThroughput", nvml.PCIE_UTIL_TX_BYTES)))
 	pcie.reading("rx_throughput_kbps", getter(call("GetPcieThroughput", nvml.PCIE_UTIL_RX_BYTES)))
 
@@ -212,6 +216,10 @@ func (g *generator) deviceDefaultRules(s *section) {
 	fbc.reading("average_fps", getter("GetFBCStats", "AverageFPS"))
 	fbc.reading("average_latency_us", getter("GetFBCStats", "AverageLatency"))
 
+	// The ECC modes are settings that hold until an admin changes them. The
+	// counts after them (ECC and SRAM errors, retired pages, remapped rows)
+	// are one GPU's fault history, so they are readings: one faulty GPU must
+	// neither stop the generator nor give the mock its errors.
 	ecc := s.sub("ecc")
 	ecc.prop("mode_current", getter("GetEccMode", 0).as(enabledName))
 	ecc.prop("mode_pending", getter("GetEccMode", 1).as(enabledName))
@@ -226,48 +234,48 @@ func (g *generator) deviceDefaultRules(s *section) {
 			typ nvml.MemoryErrorType
 		}{{"single_bit", nvml.MEMORY_ERROR_TYPE_CORRECTED}, {"double_bit", nvml.MEMORY_ERROR_TYPE_UNCORRECTED}} {
 			k := errors.sub(counter.key).sub(kind.key)
-			k.prop("device_memory", getter(call("GetDetailedEccErrors", kind.typ, counter.typ), "DeviceMemory"))
-			k.prop("l1_cache", getter(call("GetDetailedEccErrors", kind.typ, counter.typ), "L1Cache"))
-			k.prop("l2_cache", getter(call("GetDetailedEccErrors", kind.typ, counter.typ), "L2Cache"))
-			k.prop("register_file", getter(call("GetDetailedEccErrors", kind.typ, counter.typ), "RegisterFile"))
-			k.prop("total", getter(call("GetTotalEccErrors", kind.typ, counter.typ)))
+			k.reading("device_memory", getter(call("GetDetailedEccErrors", kind.typ, counter.typ), "DeviceMemory"))
+			k.reading("l1_cache", getter(call("GetDetailedEccErrors", kind.typ, counter.typ), "L1Cache"))
+			k.reading("l2_cache", getter(call("GetDetailedEccErrors", kind.typ, counter.typ), "L2Cache"))
+			k.reading("register_file", getter(call("GetDetailedEccErrors", kind.typ, counter.typ), "RegisterFile"))
+			k.reading("total", getter(call("GetTotalEccErrors", kind.typ, counter.typ)))
 		}
 	}
 	sram := ecc.sub("sram")
 	for _, scope := range []struct{ key, field string }{{"volatile", "Volatile"}, {"aggregate", "Aggregate"}} {
 		c := sram.sub(scope.key)
-		c.prop("correctable", getter("GetSramEccErrorStatus", scope.field+"Cor"))
-		c.prop("uncorrectable_parity", getter("GetSramEccErrorStatus", scope.field+"UncParity"))
-		c.prop("uncorrectable_secded", getter("GetSramEccErrorStatus", scope.field+"UncSecDed"))
+		c.reading("correctable", getter("GetSramEccErrorStatus", scope.field+"Cor"))
+		c.reading("uncorrectable_parity", getter("GetSramEccErrorStatus", scope.field+"UncParity"))
+		c.reading("uncorrectable_secded", getter("GetSramEccErrorStatus", scope.field+"UncSecDed"))
 	}
 	sources := sram.sub("uncorrectable_sources")
-	sources.prop("l2", getter("GetSramEccErrorStatus", "AggregateUncBucketL2"))
-	sources.prop("sm", getter("GetSramEccErrorStatus", "AggregateUncBucketSm"))
-	sources.prop("microcontroller", getter("GetSramEccErrorStatus", "AggregateUncBucketMcu"))
-	sources.prop("pcie", getter("GetSramEccErrorStatus", "AggregateUncBucketPcie"))
-	sources.prop("other", getter("GetSramEccErrorStatus", "AggregateUncBucketOther"))
-	sram.prop("threshold_exceeded", getter("GetSramEccErrorStatus", "BThresholdExceeded").as(bit(1)))
+	sources.reading("l2", getter("GetSramEccErrorStatus", "AggregateUncBucketL2"))
+	sources.reading("sm", getter("GetSramEccErrorStatus", "AggregateUncBucketSm"))
+	sources.reading("microcontroller", getter("GetSramEccErrorStatus", "AggregateUncBucketMcu"))
+	sources.reading("pcie", getter("GetSramEccErrorStatus", "AggregateUncBucketPcie"))
+	sources.reading("other", getter("GetSramEccErrorStatus", "AggregateUncBucketOther"))
+	sram.reading("threshold_exceeded", getter("GetSramEccErrorStatus", "BThresholdExceeded").as(bit(1)))
 	dram := ecc.sub("dram_encryption")
 	dram.prop("mode_current", getter("GetDramEncryptionMode", 0, "EncryptionState").as(enabledName))
 	dram.prop("mode_pending", getter("GetDramEncryptionMode", 1, "EncryptionState").as(enabledName))
 
 	retired := s.sub("retired_pages")
-	retired.sub("single_bit_retirement").prop("count", getter(call("GetRetiredPages", nvml.PAGE_RETIREMENT_CAUSE_MULTIPLE_SINGLE_BIT_ECC_ERRORS)).as(length))
-	retired.sub("double_bit_retirement").prop("count", getter(call("GetRetiredPages", nvml.PAGE_RETIREMENT_CAUSE_DOUBLE_BIT_ECC_ERROR)).as(length))
-	retired.prop("pending_blacklist", getter("GetRetiredPagesPendingStatus").as(bit(1)))
-	retired.prop("pending_retirement", getter("GetRetiredPagesPendingStatus").as(bit(1)))
+	retired.sub("single_bit_retirement").reading("count", getter(call("GetRetiredPages", nvml.PAGE_RETIREMENT_CAUSE_MULTIPLE_SINGLE_BIT_ECC_ERRORS)).as(length))
+	retired.sub("double_bit_retirement").reading("count", getter(call("GetRetiredPages", nvml.PAGE_RETIREMENT_CAUSE_DOUBLE_BIT_ECC_ERROR)).as(length))
+	retired.reading("pending_blacklist", getter("GetRetiredPagesPendingStatus").as(bit(1)))
+	retired.reading("pending_retirement", getter("GetRetiredPagesPendingStatus").as(bit(1)))
 
 	remapped := s.sub("remapped_rows")
-	remapped.prop("correctable", getter("GetRemappedRows", 0))
-	remapped.prop("uncorrectable", getter("GetRemappedRows", 1))
-	remapped.prop("pending", getter("GetRemappedRows", 2))
-	remapped.prop("failure_occurred", getter("GetRemappedRows", 3))
+	remapped.reading("correctable", getter("GetRemappedRows", 0))
+	remapped.reading("uncorrectable", getter("GetRemappedRows", 1))
+	remapped.reading("pending", getter("GetRemappedRows", 2))
+	remapped.reading("failure_occurred", getter("GetRemappedRows", 3))
 	histogram := remapped.sub("availability_histogram")
-	histogram.prop("max", getter("GetRowRemapperHistogram", "Max"))
-	histogram.prop("high", getter("GetRowRemapperHistogram", "High"))
-	histogram.prop("partial", getter("GetRowRemapperHistogram", "Partial"))
-	histogram.prop("low", getter("GetRowRemapperHistogram", "Low"))
-	histogram.prop("none", getter("GetRowRemapperHistogram", "None"))
+	histogram.reading("max", getter("GetRowRemapperHistogram", "Max"))
+	histogram.reading("high", getter("GetRowRemapperHistogram", "High"))
+	histogram.reading("partial", getter("GetRowRemapperHistogram", "Partial"))
+	histogram.reading("low", getter("GetRowRemapperHistogram", "Low"))
+	histogram.reading("none", getter("GetRowRemapperHistogram", "None"))
 
 	display := s.sub("display")
 	display.prop("mode", getter("GetDisplayMode").as(enabledName))

@@ -64,10 +64,10 @@ device_defaults:
     subsystem_id: 0x221A10DE        # GetPciInfo.PciSubSystemId = 572133598
   pcie:
     max_link_gen: 6                 # GetMaxPcieLinkGeneration
-    current_link_gen: 6             # GetCurrPcieLinkGeneration
+    current_link_gen: 6             # GetCurrPcieLinkGeneration, idle reading
     max_link_width: 16              # GetMaxPcieLinkWidth
-    current_link_width: 2           # GetCurrPcieLinkWidth
-    replay_counter: 0               # GetPcieReplayCounter
+    current_link_width: 2           # GetCurrPcieLinkWidth, idle reading
+    replay_counter: 0               # GetPcieReplayCounter, idle reading
     tx_throughput_kbps: 0           # GetPcieThroughput(0), idle reading
     rx_throughput_kbps: 0           # GetPcieThroughput(1), idle reading
   power:
@@ -218,46 +218,46 @@ device_defaults:
     errors:
       volatile:
         single_bit:
-          device_memory: 0          # GetDetailedEccErrors(0,0).DeviceMemory
-          l1_cache: 0               # GetDetailedEccErrors(0,0).L1Cache
-          l2_cache: 0               # GetDetailedEccErrors(0,0).L2Cache
-          register_file: 0          # GetDetailedEccErrors(0,0).RegisterFile
-          total: 0                  # GetTotalEccErrors(0,0)
+          device_memory: 0          # GetDetailedEccErrors(0,0).DeviceMemory, idle reading
+          l1_cache: 0               # GetDetailedEccErrors(0,0).L1Cache, idle reading
+          l2_cache: 0               # GetDetailedEccErrors(0,0).L2Cache, idle reading
+          register_file: 0          # GetDetailedEccErrors(0,0).RegisterFile, idle reading
+          total: 0                  # GetTotalEccErrors(0,0), idle reading
         double_bit:
-          device_memory: 0          # GetDetailedEccErrors(1,0).DeviceMemory
-          l1_cache: 0               # GetDetailedEccErrors(1,0).L1Cache
-          l2_cache: 0               # GetDetailedEccErrors(1,0).L2Cache
-          register_file: 0          # GetDetailedEccErrors(1,0).RegisterFile
-          total: 0                  # GetTotalEccErrors(1,0)
+          device_memory: 0          # GetDetailedEccErrors(1,0).DeviceMemory, idle reading
+          l1_cache: 0               # GetDetailedEccErrors(1,0).L1Cache, idle reading
+          l2_cache: 0               # GetDetailedEccErrors(1,0).L2Cache, idle reading
+          register_file: 0          # GetDetailedEccErrors(1,0).RegisterFile, idle reading
+          total: 0                  # GetTotalEccErrors(1,0), idle reading
       aggregate:
         single_bit:
-          device_memory: 0          # GetDetailedEccErrors(0,1).DeviceMemory
-          l1_cache: 0               # GetDetailedEccErrors(0,1).L1Cache
-          l2_cache: 0               # GetDetailedEccErrors(0,1).L2Cache
-          register_file: 0          # GetDetailedEccErrors(0,1).RegisterFile
-          total: 0                  # GetTotalEccErrors(0,1)
+          device_memory: 0          # GetDetailedEccErrors(0,1).DeviceMemory, idle reading
+          l1_cache: 0               # GetDetailedEccErrors(0,1).L1Cache, idle reading
+          l2_cache: 0               # GetDetailedEccErrors(0,1).L2Cache, idle reading
+          register_file: 0          # GetDetailedEccErrors(0,1).RegisterFile, idle reading
+          total: 0                  # GetTotalEccErrors(0,1), idle reading
         double_bit:
-          device_memory: 0          # GetDetailedEccErrors(1,1).DeviceMemory
-          l1_cache: 0               # GetDetailedEccErrors(1,1).L1Cache
-          l2_cache: 0               # GetDetailedEccErrors(1,1).L2Cache
-          register_file: 0          # GetDetailedEccErrors(1,1).RegisterFile
-          total: 0                  # GetTotalEccErrors(1,1)
+          device_memory: 0          # GetDetailedEccErrors(1,1).DeviceMemory, idle reading
+          l1_cache: 0               # GetDetailedEccErrors(1,1).L1Cache, idle reading
+          l2_cache: 0               # GetDetailedEccErrors(1,1).L2Cache, idle reading
+          register_file: 0          # GetDetailedEccErrors(1,1).RegisterFile, idle reading
+          total: 0                  # GetTotalEccErrors(1,1), idle reading
     sram:
       volatile:
-        correctable: 0              # GetSramEccErrorStatus.VolatileCor
-        uncorrectable_parity: 0     # GetSramEccErrorStatus.VolatileUncParity
-        uncorrectable_secded: 0     # GetSramEccErrorStatus.VolatileUncSecDed
+        correctable: 0              # GetSramEccErrorStatus.VolatileCor, idle reading
+        uncorrectable_parity: 0     # GetSramEccErrorStatus.VolatileUncParity, idle reading
+        uncorrectable_secded: 0     # GetSramEccErrorStatus.VolatileUncSecDed, idle reading
       aggregate:
-        correctable: 0              # GetSramEccErrorStatus.AggregateCor
-        uncorrectable_parity: 0     # GetSramEccErrorStatus.AggregateUncParity
-        uncorrectable_secded: 0     # GetSramEccErrorStatus.AggregateUncSecDed
+        correctable: 0              # GetSramEccErrorStatus.AggregateCor, idle reading
+        uncorrectable_parity: 0     # GetSramEccErrorStatus.AggregateUncParity, idle reading
+        uncorrectable_secded: 0     # GetSramEccErrorStatus.AggregateUncSecDed, idle reading
       uncorrectable_sources:
-        l2: 0                       # GetSramEccErrorStatus.AggregateUncBucketL2
-        sm: 0                       # GetSramEccErrorStatus.AggregateUncBucketSm
-        microcontroller: 0          # GetSramEccErrorStatus.AggregateUncBucketMcu
-        pcie: 0                     # GetSramEccErrorStatus.AggregateUncBucketPcie
-        other: 0                    # GetSramEccErrorStatus.AggregateUncBucketOther
-      threshold_exceeded: false     # GetSramEccErrorStatus.BThresholdExceeded = 0
+        l2: 0                       # GetSramEccErrorStatus.AggregateUncBucketL2, idle reading
+        sm: 0                       # GetSramEccErrorStatus.AggregateUncBucketSm, idle reading
+        microcontroller: 0          # GetSramEccErrorStatus.AggregateUncBucketMcu, idle reading
+        pcie: 0                     # GetSramEccErrorStatus.AggregateUncBucketPcie, idle reading
+        other: 0                    # GetSramEccErrorStatus.AggregateUncBucketOther, idle reading
+      threshold_exceeded: false     # GetSramEccErrorStatus.BThresholdExceeded = 0, idle reading
     # dram_encryption.mode_current: left out, GetDramEncryptionMode[0].EncryptionState = ERROR_NOT_SUPPORTED
     # dram_encryption.mode_pending: left out, GetDramEncryptionMode[1].EncryptionState = ERROR_NOT_SUPPORTED
   # retired_pages.single_bit_retirement.count: left out, GetRetiredPages(0) = ERROR_NOT_SUPPORTED
@@ -265,16 +265,16 @@ device_defaults:
   # retired_pages.pending_blacklist: left out, GetRetiredPagesPendingStatus = ERROR_NOT_SUPPORTED
   # retired_pages.pending_retirement: left out, GetRetiredPagesPendingStatus = ERROR_NOT_SUPPORTED
   remapped_rows:
-    correctable: 0                  # GetRemappedRows[0]
-    uncorrectable: 0                # GetRemappedRows[1]
-    pending: false                  # GetRemappedRows[2]
-    failure_occurred: false         # GetRemappedRows[3]
+    correctable: 0                  # GetRemappedRows[0], idle reading
+    uncorrectable: 0                # GetRemappedRows[1], idle reading
+    pending: false                  # GetRemappedRows[2], idle reading
+    failure_occurred: false         # GetRemappedRows[3], idle reading
     availability_histogram:
-      max: 12096                    # GetRowRemapperHistogram.Max
-      high: 0                       # GetRowRemapperHistogram.High
-      partial: 0                    # GetRowRemapperHistogram.Partial
-      low: 0                        # GetRowRemapperHistogram.Low
-      none: 0                       # GetRowRemapperHistogram.None
+      max: 12096                    # GetRowRemapperHistogram.Max, idle reading
+      high: 0                       # GetRowRemapperHistogram.High, idle reading
+      partial: 0                    # GetRowRemapperHistogram.Partial, idle reading
+      low: 0                        # GetRowRemapperHistogram.Low, idle reading
+      none: 0                       # GetRowRemapperHistogram.None, idle reading
   display:
     mode: "enabled"                 # GetDisplayMode = 1
     active: "disabled"              # GetDisplayActive = 0
