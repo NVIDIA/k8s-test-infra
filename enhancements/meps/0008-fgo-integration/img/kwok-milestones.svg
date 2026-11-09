@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 532" width="1000" height="532" role="img" aria-labelledby="title desc">
+  <title id="title">KWOK integration milestones</title>
+  <desc id="desc">Four milestones. M1, GPUs on KWOK Nodes, needs MEP0001's runtime view computation and rack delivery generation, and leads to M2, FGO parity for Run:ai, which needs MEP0010's NUMA layout and enables MEP0009's workload metrics on KWOK Nodes. M2 leads to M3, scale out. M4, the optional KWOK provisioner, needs only M1 and can run alongside M2 and M3.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .title { font-size: 14px; font-weight: 600; }
+    .item { font-size: 12.5px; }
+    .body { font-size: 12px; fill: #59636e; }
+    .done { font-size: 12px; fill: #59636e; }
+    .strong { font-weight: 600; fill: #1f2328; }
+    .label { font-size: 12px; fill: #59636e; }
+    .ms { fill: #ffffff; stroke: #1f2328; stroke-width: 1.5; }
+    .ext { fill: #ffffff; stroke: #59636e; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .rule { stroke: #d1d9e0; stroke-width: 1; }
+    .wire { fill: none; stroke: #59636e; stroke-width: 1.5; }
+    .head { fill: #59636e; }
+    .cp { fill: #8250df; } .dp { fill: #1a7f37; } .prov { fill: #0969da; } .doc { fill: #59636e; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .body, .done, .label { fill: #9198a1; }
+      .strong { fill: #f0f6fc; }
+      .ms { fill: #0d1117; stroke: #f0f6fc; }
+      .ext { fill: #0d1117; stroke: #9198a1; }
+      .rule { stroke: #3d444d; }
+      .wire { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+      .cp { fill: #ab7df8; } .dp { fill: #3fb950; } .prov { fill: #4493f8; } .doc { fill: #9198a1; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="531" rx="12"/>
+
+  <!-- Prerequisites from other MEPs -->
+  <rect class="ext" x="24" y="20" width="300" height="44" rx="8"/>
+  <text class="item strong" x="40" y="38">MEP0001</text>
+  <text class="body" x="40" y="55">runtime views, rack delivery generation</text>
+  <path class="wire" d="M174,64 V95" marker-end="url(#arrow)"/>
+
+  <rect class="ext" x="350" y="20" width="300" height="44" rx="8"/>
+  <text class="item strong" x="366" y="38">MEP0010</text>
+  <text class="body" x="366" y="55">NUMA layout for NodeResourceTopology</text>
+  <path class="wire" d="M500,64 V95" marker-end="url(#arrow)"/>
+
+  <!-- M1 -->
+  <rect class="ms" x="24" y="96" width="300" height="208" rx="8"/>
+  <text class="title" x="40" y="122">M1 · GPUs on KWOK Nodes</text>
+  <circle class="cp" cx="46" cy="144" r="4"/><text class="item" x="58" y="148">node.type and KWOK placement</text>
+  <circle class="cp" cx="46" cy="163" r="4"/><text class="item" x="58" y="167">batched runtime views for racks</text>
+  <circle class="cp" cx="46" cy="182" r="4"/><text class="item" x="58" y="186">rack shard labels from Leases</text>
+  <circle class="dp" cx="46" cy="201" r="4"/><text class="item" x="58" y="205">nvidia.com/gpu, GFD and NFD labels</text>
+  <circle class="dp" cx="46" cy="220" r="4"/><text class="item" x="58" y="224">GPU allocation on Pods</text>
+  <circle class="doc" cx="46" cy="239" r="4"/><text class="item" x="58" y="243">kwok.enabled, Node template</text>
+  <line class="rule" x1="40" y1="256" x2="308" y2="256"/>
+  <text class="done" x="40" y="274"><tspan class="strong">Done when</tspan> KAI's whole-GPU tests pass</text>
+  <text class="done" x="40" y="291">on Nodes from kwokctl</text>
+
+  <!-- M2 -->
+  <rect class="ms" x="350" y="96" width="300" height="208" rx="8"/>
+  <text class="title" x="366" y="122">M2 · FGO parity for Run:ai</text>
+  <circle class="dp" cx="372" cy="144" r="4"/><text class="item" x="384" y="148">ResourceSlices and DRA claims</text>
+  <circle class="dp" cx="372" cy="163" r="4"/><text class="item" x="384" y="167">NodeResourceTopology</text>
+  <circle class="dp" cx="372" cy="182" r="4"/><text class="item" x="384" y="186">DCGM metrics and exporter Service</text>
+  <circle class="doc" cx="372" cy="201" r="4"/><text class="item" x="384" y="205">ServiceMonitor</text>
+  <circle class="doc" cx="372" cy="220" r="4"/><text class="item" x="384" y="224">FGO migration guide</text>
+  <line class="rule" x1="366" y1="256" x2="634" y2="256"/>
+  <text class="done" x="366" y="274"><tspan class="strong">Done when</tspan> Run:ai's harness runs</text>
+  <text class="done" x="366" y="291">on Mokka instead of FGO</text>
+
+  <!-- M3 -->
+  <rect class="ms" x="676" y="96" width="300" height="208" rx="8"/>
+  <text class="title" x="692" y="122">M3 · Scale out</text>
+  <circle class="cp" cx="698" cy="144" r="4"/><text class="item" x="710" y="148">rebalancing on join and leave</text>
+  <circle class="dp" cx="698" cy="163" r="4"/><text class="item" x="710" y="167">several replicas, rack handover</text>
+  <circle class="dp" cx="698" cy="182" r="4"/><text class="item" x="710" y="186">Lease expiry and scale-down</text>
+  <circle class="doc" cx="698" cy="201" r="4"/><text class="item" x="710" y="205">replica autoscaling</text>
+  <circle class="doc" cx="698" cy="220" r="4"/><text class="item" x="710" y="224">data plane scenarios in tests/kwok</text>
+  <line class="rule" x1="692" y1="256" x2="960" y2="256"/>
+  <text class="done" x="692" y="274"><tspan class="strong">Done when</tspan> 1,000 racks run across</text>
+  <text class="done" x="692" y="291">replicas and a failover moves none</text>
+
+  <path class="wire" d="M324,200 H349" marker-end="url(#arrow)"/>
+  <path class="wire" d="M650,200 H675" marker-end="url(#arrow)"/>
+
+  <!-- M4, alongside M2 and M3 -->
+  <path class="wire" d="M174,304 V411 H349" marker-end="url(#arrow)"/>
+  <text class="label" x="184" y="372">can run alongside</text>
+  <text class="label" x="184" y="387">M2 and M3</text>
+
+  <rect class="ms" x="350" y="336" width="300" height="150" rx="8"/>
+  <text class="title" x="366" y="362">M4 · KWOK provisioner (optional)</text>
+  <circle class="prov" cx="372" cy="384" r="4"/><text class="item" x="384" y="388">node.source and node.template</text>
+  <circle class="prov" cx="372" cy="403" r="4"/><text class="item" x="384" y="407">creates, replaces, scales down Nodes</text>
+  <circle class="doc" cx="372" cy="422" r="4"/><text class="item" x="384" y="426">kwok.provisioner.enabled</text>
+  <line class="rule" x1="366" y1="440" x2="634" y2="440"/>
+  <text class="done" x="366" y="458"><tspan class="strong">Done when</tspan> a node.source: Mokka</text>
+  <text class="done" x="366" y="475">group comes up without kwokctl</text>
+
+  <!-- Enabled by M2 -->
+  <path class="wire" d="M620,304 V320 H826 V335" marker-end="url(#arrow)"/>
+  <rect class="ext" x="676" y="336" width="300" height="44" rx="8"/>
+  <text class="item strong" x="692" y="354">MEP0009</text>
+  <text class="body" x="692" y="371">workload metrics on KWOK Nodes</text>
+
+  <!-- Legend -->
+  <circle class="cp" cx="30" cy="511" r="4"/><text class="label" x="40" y="515">control plane</text>
+  <circle class="dp" cx="140" cy="511" r="4"/><text class="label" x="150" y="515">KWOK data plane</text>
+  <circle class="prov" cx="268" cy="511" r="4"/><text class="label" x="278" y="515">KWOK provisioner</text>
+  <circle class="doc" cx="400" cy="511" r="4"/><text class="label" x="410" y="515">chart, docs and tests</text>
+  <rect class="ext" x="552" y="503" width="28" height="16" rx="4"/><text class="label" x="588" y="515">another MEP</text>
+  <path class="wire" d="M690,511 H724" marker-end="url(#arrow)"/><text class="label" x="732" y="515">comes first</text>
+</svg>

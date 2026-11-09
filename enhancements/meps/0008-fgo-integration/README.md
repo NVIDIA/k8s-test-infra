@@ -14,7 +14,6 @@ Author: [Roman Hlushko](https://github.com/roma-glushko)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
-  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [KWOK Integration](#kwok-integration)
@@ -27,6 +26,7 @@ Author: [Roman Hlushko](https://github.com/roma-glushko)
     - [GPU Footprint in KWOK Virtual Nodes](#gpu-footprint-in-kwok-virtual-nodes)
     - [KWOK Installation](#kwok-installation)
     - [KAI Use Cases](#kai-use-cases)
+  - [Milestones](#milestones)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
 <!-- /toc -->
@@ -555,47 +555,72 @@ The data plane applies the effective runtime view, as the node daemon does on CP
 The data plane takes each input from where it's published:
 
 - **Stored state comes from Kubernetes.** Racks, including their delivery status, and the profiles they use arrive through the watches listed in [Separating CPU and KWOK Racks](#separating-cpu-and-kwok-racks). Profiles contribute static facts such as GPU model and memory, never `defaults.runtime`.
-- **The effective runtime view comes from the control plane API**, one rack at a time.
+- **The effective runtime view comes from the control plane API**, for many racks per request.
 - **Policy objects aren't watched.** No KWOK component watches `SGPUInventory` or `SGPURuntimePolicy`. The data plane could compile policies with `internal/sgpu/policy`, which makes no API calls, but it would then be a second component deciding which policies apply. While the two caches disagree, it could apply a policy the control plane reports as rejected, or one already deleted.
 
-The control plane API serves the view per rack:
+The control plane API serves the views of many racks in one request, so the data plane's requests don't grow with its rack count:
 
 ```http
-GET /v1alpha1/racks/{rackName}/runtime?rackUID=<rack UID>&minRackDeliveryGeneration=13
+POST /v1alpha1/racks/runtime:batchGet
 ```
 
 ```json
 {
+  "racks": [
+    {"name": "dev-ci-0-3f9c2a17b04e", "uid": "<rack UID>", "minRackDeliveryGeneration": 13},
+    {"name": "dev-ci-7-9b1e04c2a6d1", "uid": "<rack UID>", "minRackDeliveryGeneration": 4}
+  ]
+}
+```
+
+The response has one entry per requested rack, in request order:
+
+```json
+{
   "apiVersion": "v1alpha1",
-  "rack": {"name": "dev-ci-0-3f9c2a17b04e", "uid": "<rack UID>"},
-  "rackDeliveryGeneration": 13,
-  "nodes": [
+  "racks": [
     {
-      "index": 0,
-      "node": {"name": "kwok-node-17", "uid": "<Node UID>"},
-      "assignmentRevision": 3,
-      "gpus": [
+      "rack": {"name": "dev-ci-0-3f9c2a17b04e", "uid": "<rack UID>"},
+      "rackDeliveryGeneration": 13,
+      "nodes": [
         {
           "index": 0,
-          "runtime": {
-            "deviceState": "Healthy",
-            "telemetry": {
-              "utilization": {
-                "mode": "Pattern",
-                "pattern": {"type": "Bursty", "gpuPercent": {"minimum": 20, "maximum": 90}}
+          "node": {"name": "kwok-node-17", "uid": "<Node UID>"},
+          "assignmentRevision": 3,
+          "gpus": [
+            {
+              "index": 0,
+              "runtime": {
+                "deviceState": "Healthy",
+                "telemetry": {
+                  "utilization": {
+                    "mode": "Pattern",
+                    "pattern": {"type": "Bursty", "gpuPercent": {"minimum": 20, "maximum": 90}}
+                  }
+                }
               }
             }
-          }
+          ]
         }
       ]
+    },
+    {
+      "rack": {"name": "dev-ci-7-9b1e04c2a6d1", "uid": "<rack UID>"},
+      "status": "NotReady"
     }
   ]
 }
 ```
 
-The response holds the effective `RuntimeState` of every GPU in the rack, grouped by logical Node (one of each is shown), and the delivery generation it was computed from. The data plane passes the generation it last saw on the rack as the minimum. A replica whose cache is behind returns not-ready (`503`), and the data plane retries with backoff while it keeps the values it applied last. This is MEP0001's publication-floor check, applied per rack. Each Node entry names the Kubernetes Node bound to the slot and its assignment revision, and the data plane applies the node daemon's ordering to each Node: it accepts a view only if the pair of assignment revision and rack delivery generation doesn't go backwards. The control plane includes a Node only once its projection is published, so the data plane never publishes GPUs for an unsettled binding. The endpoint is a batch form of the per-Node one the node daemon polls: one request per rack instead of one per Node.
+It's a `POST` because a request names up to 100 racks, more than fits in a URL, but it only reads. A view holds the effective `RuntimeState` of every GPU in the rack, grouped by logical Node (one of each is shown), and the delivery generation it was computed from. For each rack, the data plane passes the generation it last saw on the rack as the minimum. A rack the replica can't serve at that generation yet, because its cache is behind, comes back `NotReady`, and a rack it doesn't know under that name and UID comes back `NotFound`, without failing the rest of the batch. Only a replica that isn't ready at all answers `503`, and the data plane retries the batch with backoff. This is MEP0001's publication-floor check, applied per rack. Each Node entry names the Kubernetes Node bound to the slot and its assignment revision, and the data plane applies the node daemon's ordering to each Node: it accepts a view only if the pair of assignment revision and rack delivery generation doesn't go backwards. The control plane includes a Node only once its projection is published, so the data plane never publishes GPUs for an unsettled binding. The endpoint is a batch form of the per-Node one the node daemon polls.
 
-The rack tells the data plane when to fetch. The control plane leader bumps a rack's delivery generation whenever anything feeding its views changes: a slot is bound or released, a policy that selects the rack is added, edited or deleted, the set of accepted policies changes, or the profile's runtime defaults change. For each rack UID, the data plane keeps the generation it last applied and fetches the rack whenever the generation in Kubernetes is ahead. The check compares two numbers, so a missed watch event only delays a fetch, and after a restart a replica fetches each of its racks once. A rack recreated under the same name has a new UID and starts a new generation sequence, so it counts as a new rack.
+Batching keeps both sides cheap:
+
+- **The data plane queues racks.** A rack whose generation in Kubernetes is ahead of the one applied joins a queue once, however many events arrive for it. The queue goes out as one request when it holds 100 racks or a second after its first rack arrived, with at most two requests in flight per replica. `NotReady` racks rejoin the queue with backoff while the replica keeps the values it applied last, and `NotFound` racks leave it. The Helm chart makes these limits configurable.
+- **Bursts turn into a few requests.** A replica that starts with 125 racks fetches them in two requests. A policy that selects all 1,000 racks of the example inventory costs each of eight replicas two requests, 16 in total instead of 1,000.
+- **The control plane shares work.** Any ready control plane replica serves batches, as it serves the node daemon's polls, so the load spreads across replicas. A replica looks up what racks share, such as the policies selecting their inventory or rack group, once per request, compresses responses with gzip, and answers `429` with `Retry-After` when it already serves its limit of concurrent batches.
+
+The rack tells the data plane when to fetch. The control plane leader bumps a rack's delivery generation whenever anything feeding its views changes: a slot is bound or released, a policy that selects the rack is added, edited or deleted, the set of accepted policies changes, or the profile's runtime defaults change. For each rack UID, the data plane keeps the generation it last applied and queues the rack for the next batch whenever the generation in Kubernetes is ahead. The check compares two numbers, so a missed watch event only delays a fetch, and after a restart a replica fetches each of its racks once, in batches. A rack recreated under the same name has a new UID and starts a new generation sequence, so it counts as a new rack.
 
 ```mermaid
 sequenceDiagram
@@ -609,19 +634,20 @@ sequenceDiagram
     API-->>Leader: policy event
     Leader->>API: accept policy, bump status.delivery of affected racks to 13
     API-->>DP: rack event, generation 13
-    DP->>Replica: GET /v1alpha1/racks/{rack}/runtime?minRackDeliveryGeneration=13
+    DP->>DP: queue the rack with the others whose generation moved
+    DP->>Replica: POST /v1alpha1/racks/runtime:batchGet, the rack at minimum 13
     alt replica is at generation 13 or later
-        Replica-->>DP: effective RuntimeState per GPU
+        Replica-->>DP: the rack's effective RuntimeState per GPU
         DP->>DP: apply it, remember generation 13
     else replica is behind
-        Replica-->>DP: 503 not ready
-        DP->>DP: retry with backoff, keep serving generation 12
+        Replica-->>DP: the rack is NotReady
+        DP->>DP: queue it again with backoff, keep serving generation 12
     end
 ```
 
 Values that change on their own never trigger a fetch. The view carries settings, such as a `Bursty` utilization pattern and its range, and [DCGM Metrics](#dcgm-metrics) describes how the data plane turns them into values.
 
-This puts one requirement on the control plane: a per-rack endpoint next to the per-Node one. Both serve views from the same computation. KWOK racks go through allocation like CPU racks, so their delivery generation advances with bindings and policies without extra work.
+This puts one requirement on the control plane: a batch endpoint for racks next to the per-Node one. Both serve views from the same computation. KWOK racks go through allocation like CPU racks, so their delivery generation advances with bindings and policies without extra work.
 
 Publishing the GPUs and policy-driven telemetry depend on that endpoint. GPU allocation and NodeResourceTopology follow Pods and don't wait for it.
 
@@ -657,7 +683,7 @@ The data plane computes values when it's scraped, at most once per 10-second ste
 
 KWOK virtual nodes are cheap. We can have a gigantic number of KWOK nodes to care about, much more than a typical, real Kubernetes CPU cluster can afford. KWOK data plane needs to emit K8s resources and then metrics for every single sGPU node it owns. So we need a way to distibute that ownership load across multiple KWOK Data Plane replicas. We propose to use sharding here.
 
-Each rack has exactly one owning data plane replica, so the data plane needs no leader election even though it writes. The rack is the shard unit because it's also the unit of the runtime fetch and the delivery generation, so everything about a rack stays in one replica. With eight replicas, each owns 2,250 Nodes and 9,000 GPUs of the example inventory and serves 27,000 series.
+Each rack has exactly one owning data plane replica, so the data plane needs no leader election even though it writes. The rack is the shard unit because it's also the unit of the runtime view and the delivery generation, so everything about a rack stays in one replica. With eight replicas, each owns 2,250 Nodes and 9,000 GPUs of the example inventory and serves 27,000 series.
 
 Which replica owns a rack is an assignment, so the control plane makes it, as it assigns Nodes to slots. It labels each KWOK rack with its owner, `mokka.nvidia.com/kwok-shard: mokka-kwok-data-plane-2`, and each replica watches only the racks labeled with its own name. The control plane learns which replicas exist from their shard Leases rather than from a replica count, so an autoscaler can change the count without telling it. A similar idea is employed by [kubernetes-controller-sharding](https://github.com/timebertt/kubernetes-controller-sharding).
 
@@ -698,12 +724,19 @@ Every control plane replica watches the shard Leases, so a standby takes over wi
 
 ##### Rebalancing
 
-For each KWOK rack, the control plane leader ranks the live shards by `hash(rack UID, shard name)` and labels the rack with the top one. A membership change only moves racks whose top shard changed:
+The control plane assigns racks to shards with [rendezvous hashing](https://en.wikipedia.org/wiki/Rendezvous_hashing), also called highest random weight hashing. It gives the guarantee consistent hashing is known for, that a membership change only moves racks to or from the shard that joined or left, without a ring. For each KWOK rack, the leader scores every live shard and labels the rack with the highest:
+
+```text
+score(rack, shard) = xxHash64("<rack UID>/<shard name>")
+owner(rack)        = the live shard with the highest score; equal scores go to the lower shard name
+```
+
+The hash only supplies the scores. Movement stays small because a rack's score for a shard doesn't depend on which other shards exist, so a membership change only moves racks whose top shard changed:
 
 - when a shard joins, the racks that rank it first move to it, about 1 in N, taken evenly from the others;
 - when a shard leaves, only its racks move, each to its runner-up.
 
-No rack moves between two shards that stay, and each moved rack costs its new owner one runtime fetch. A rack moves through its label:
+No rack moves between two shards that stay, and a new owner fetches the views of the racks it gains in a few batches. Replacing the hash or its input string is a different kind of change: it changes every score, so it relabels nearly every rack once, and both are part of the contract between control plane versions. A rack moves through its label:
 
 ![Rebalancing](./img/kwok-rebalancing.svg)
 
@@ -792,6 +825,17 @@ The KWOK chart won't be included in the Mokka Helm chart. The docs also give a K
 | KAI NUMA                | A current `NodeResourceTopology` for each node. It contains policy, scope, zones, and per-zone availability. Availability changes with allocation and release.                                                                                       | Mokka node daemon does [NUMA setup](../0010-numa-aware-scheduling/README.md#numa-setup) + real NFD deployment. In KWOK mode, the KWOK data plane creates NRT resources |
 | DRA                     | Claims with the same behavior on KWOK nodes and nodes that use the GPU Operator's DRA driver.                                                                                                                                                        | Mokka + real DRA deployment. In KWOK mode, the KWOK data plane creates `ResourceSlice` resources                                                                       |
 
+### Milestones
+
+We propose four milestones, each ending with something users can run. The FGO migration comes first and scale second. The KWOK provisioner is optional and can run alongside both:
+
+![Milestones](./img/kwok-milestones.svg)
+
+- **M1: GPUs on KWOK Nodes.** The control plane binds KWOK Nodes into KWOK groups by `node.type`, serves runtime views for racks in batches, and labels racks from shard Leases. One data plane replica holds a shard Lease, publishes `nvidia.com/gpu` and the GFD and NFD labels, and allocates GPUs to Pods. The chart gets `kwok.enabled`, and the docs get the Node template and the `kwokctl` command. Done when KAI's whole-GPU tests pass on Nodes from `kwokctl`. Control Plane [MEP0001](../0001-mokka-control-plane/README.md) should be in a sufficient state to incorporate most of the KWOK nodes. It lacks REST API, though, so that part is better be implement first.
+- **M2: FGO parity for Run:ai.** The data plane adds ResourceSlices and DRA claims, NodeResourceTopology from the NUMA layout of [MEP0010](../0010-numa-aware-scheduling/README.md), and DCGM metrics behind the `mokka-kwok-dcgm-exporter` Service. The chart gets the `ServiceMonitor`, and the docs get an FGO migration guide. Done when Run:ai's harness runs on Mokka instead of FGO. The workload metrics on KWOK Nodes in [MEP0009](../0009-workload-aware-dynamic-metrics/README.md#kwok-nodes-data-plane) build on this milestone.
+- **M3: Scale out.** Several data plane replicas share the racks: rebalancing on join and leave, the rack handover, Lease expiry, scale-down and autoscaling. The `tests/kwok` harness, which already exercises control plane binding with up to 100,000 KWOK Nodes, gets data plane scenarios. Done when 1,000 racks run across replicas and a control plane failover moves no racks.
+- **M4: KWOK provisioner.** `node.source`, `node.template`, the provisioner and `kwok.provisioner.enabled`. It needs only M1's `node` block and binding, so it can run alongside M2 and M3. Done when a `node.source: Mokka` group comes up without `kwokctl`.
+
 ## Drawbacks
 
 - **Components need wider permissions.** The [data plane](#kwok-data-plane) needs permission to patch any Pod to record its GPU allocation, and to patch Nodes, Node status and ResourceSlices to publish their GPUs. The control plane needs to watch Leases in its namespace.
@@ -805,4 +849,5 @@ The KWOK chart won't be included in the Mokka Helm chart. The docs also give a K
 - **A third node type.** A value such as `node.type: KWOKProvisioned` could replace `node.source`. But every component that reads the node type, from the selector compiler to the data plane and the node daemon's affinity, would have to learn a value that means nothing to it.
 - **The control plane creates the Nodes.** A controller in the control plane could share its Node cache. But the control plane would need permission to create and delete Nodes, and the code that binds Nodes would sit next to code that knows which Nodes Mokka created, which makes it easy to bind those differently.
 - **Replicas pick their own racks.** Each data plane replica could hash rack UIDs against its ordinal and the StatefulSet's `spec.replicas`, as kube-state-metrics does. Nothing in the API would show which replica serves a rack, `spec.replicas` counts Pods that aren't serving yet or are already leaving, and replicas that see a new count at different moments can leave a rack with two owners or none.
+- **A hash ring.** The control plane could place the shards on a consistent hash ring, as [kubernetes-controller-sharding](https://github.com/timebertt/kubernetes-controller-sharding) does with xxHash and 100 virtual nodes per shard. It moves racks just as little, but it spreads them evenly only through the virtual nodes. Rendezvous hashing needs no extra state and costs one hash per shard and rack, which stays small with tens of shards.
 - **The control plane publishes the GPUs.** It could write `nvidia.com/gpu`, GFD and NFD labels and ResourceSlices with the projection. But on a CPU Node they come from daemons on the Node, part of them follows runtime state such as GPU health, and every write would go through the single control plane leader, which would also need the DRA API.
