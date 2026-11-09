@@ -173,7 +173,7 @@ helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --kube-context "${KUBE_CONTEXT}" \
   --namespace "${NAMESPACE}" --create-namespace \
   --set "image.repository=${IMAGE_REPOSITORY}" \
-  --set "image.tag=${IMAGE_TAG}" \
+  --set-string "image.tag=${IMAGE_TAG}" \
   --set "gpu.profile=${GPU_PROFILE}" \
   --set gpu.dynamicMetrics.enabled=true \
   --set-string "nodeSelector.nvml-mock-gpu=true" \
