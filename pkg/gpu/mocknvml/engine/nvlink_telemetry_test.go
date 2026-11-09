@@ -181,3 +181,24 @@ func TestNVLinkTelemetry_InjectionReachesTheFields(t *testing.T) {
 		require.Equal(t, uint64(1000), v, "field %d: 100 err/s * 10s", id)
 	}
 }
+
+// A MIG device reports NVLink telemetry like its GPU: the driver decides which
+// calls exist, for every handle it serves.
+func TestNVLinkTelemetry_MigDeviceFollowsItsGPU(t *testing.T) {
+	t.Parallel()
+	dev := newTestDeviceWithConfig(t, a100MIGConfig())
+	dev.driverVersion = "615.71.09"
+	enableMIG(t, dev)
+	createSpanningCI(t, createOneSliceGI(t, dev))
+	handle, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	mig, ok := handle.(*ConfigurableDevice)
+	require.True(t, ok)
+
+	for name, d := range map[string]*ConfigurableDevice{"GPU": dev, "MIG device": mig} {
+		_, ret := d.GetNvLinkErrorCounter(0, nvml.NVLINK_ERROR_DL_CRC_FLIT)
+		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "%s GetNvLinkErrorCounter", name)
+		_, _, ret = d.GetNvLinkUtilizationCounter(0, 0)
+		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "%s GetNvLinkUtilizationCounter", name)
+	}
+}

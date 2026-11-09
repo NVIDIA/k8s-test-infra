@@ -754,6 +754,7 @@ func (st *migState) newMigDeviceLocked(
 		mig:         id,
 
 		absentNotSupported: parent.absentNotSupported,
+		driverVersion:      parent.driverVersion,
 	}
 	dev.effective.Store(parent.effective.Load())
 
