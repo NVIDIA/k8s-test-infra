@@ -80,6 +80,11 @@ Two things differ from a real node, and `-mock` handles both:
   and `nvml-mock.nvidia.com/imex-channels` set to `"true"`. Without them, the
   host pod sees the Kind node underneath, with no GPUs.
 
+The MIG table is staged elsewhere too. Mokka writes `mig-minors` under its
+driver root (`/opt/nvml-mock/driver/proc/driver/nvidia-caps/` in the stand-in),
+where nvidia-container-toolkit reads it, and leaves `/proc/driver/nvidia-caps`
+alone, so with `-mock` the `proc-*-minors.txt` files are read from there.
+
 Four files come out empty for reasons outside the mock. The mock's library and
 `nvidia-smi` live under `/opt/nvml-mock`, so `lib-listing.txt` and
 `bin-listing.txt` find nothing. The stand-in's image has no `nm` or `modinfo`, so

@@ -148,6 +148,14 @@ func TestMockRunsTheDriverCommandsInAStandIn(t *testing.T) {
 	require.Contains(t, got, "-n default delete pod "+pod+" --wait=false")
 	require.NotContains(t, got, "--field-selector")
 	require.NotContains(t, got, "apt-get")
+
+	// The mock stages the MIG table under its driver root, not in /proc.
+	minors, err := os.ReadFile(filepath.Join(out, "node-a", "proc-mig-minors.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "answer to: -n default exec "+pod+` -c c -- sh -c cat "${MOCK_NVML_CONFIG%/config/config.yaml}/proc/driver/nvidia-caps/mig-minors"`+"\n", string(minors))
+	version, err := os.ReadFile(filepath.Join(out, "node-a", "proc-nvidia-version.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "answer to: -n default exec "+pod+" -c c -- cat /proc/driver/nvidia/version\n", string(version))
 }
 
 // -mock opts both pods into the mock with the NRI plugin's own annotation

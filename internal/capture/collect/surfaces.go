@@ -96,10 +96,26 @@ func (c *collector) captureDriver(node string) {
 		{"proc-sys-minors.txt", "/proc/driver/nvidia-caps/sys-minors"},
 		{"sys-module-version.txt", "/sys/module/nvidia/version"},
 	} {
-		c.capture(f.file, nil, c.drv("cat", f.path)...)
+		c.capture(f.file, nil, c.drv(c.driverFile(f.path)...)...)
 	}
 
 	c.captureNVMLDump()
+}
+
+const nvidiaCapsDir = "/proc/driver/nvidia-caps/"
+
+// driverFile prints one of the driver's files. On a Mokka node the node agent
+// stages mig-minors under the mock driver root, where nvidia-container-toolkit
+// reads it, and the mock's file shim leaves /proc/driver/nvidia-caps alone
+// because it names kernel interfaces, not GPUs. So -mock reads the tables
+// there: the driver root is the injected MOCK_NVML_CONFIG less its
+// config/config.yaml, and without that variable the path is the real one.
+func (c *collector) driverFile(path string) []string {
+	name, caps := strings.CutPrefix(path, nvidiaCapsDir)
+	if !c.cfg.mock || !caps {
+		return []string{"cat", path}
+	}
+	return sh(`cat "${MOCK_NVML_CONFIG%/config/config.yaml}` + nvidiaCapsDir + name + `"`)
 }
 
 // captureNVMLDump copies a Linux mokka-capture into the driver container, which
