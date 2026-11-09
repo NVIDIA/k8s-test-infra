@@ -79,7 +79,22 @@ device_defaults:
   board_part_number: "900-21001-0000-000"
   vbios_version: "92.00.45.00.03"
   hostname: "gpu-node-0"              # nvmlDeviceGetHostname_v1; Blackwell or newer
+
+devices:
+  - index: 0
+    pdi: "0x9c1f4d2e8a7b6c50"         # nvmlDeviceGetPdi; quoted, 0x and up to 16 hex digits
 ```
+
+The PDI (Per Device Identifier) is a 64-bit ID fused into each GPU, which
+`nvidia-smi -q` prints as `PDI` from driver 580. Without `pdi` the mock derives
+one from the GPU's UUID, so it differs between GPUs and stays the same in every
+process. Set it per device to report the IDs a captured node or an external
+inventory assigned. A MIG device reports the PDI of the GPU it is carved from.
+
+Write the value as a quoted string. YAML reads an unquoted `0x…` as a number,
+and the config is rejected with an error asking for quotes. Two devices that would
+report the same PDI, for example from one `pdi` set in `device_defaults`, are
+rejected too.
 
 ### Architecture
 
@@ -160,6 +175,7 @@ device_defaults:
     tray_index: 11                  # position among compute trays only
     host_id: 1                      # the OS domain within the tray — this node
     peer_type: "switch_connected"    # or "direct_connected"
+    gpu_fabric_guid: "pdi"          # or a quoted hex value, set per device
 
 devices:
   - index: 0
@@ -170,11 +186,11 @@ devices:
       module_id: 2
 ```
 
-Only `module_id` varies between the GPUs of a node: NVML defines it as the ID of
-the GPU within the node, while the other fields describe the node, which occupies
-exactly one tray in one slot of one chassis. All six are settable per device
-anyway, and a device override merges field by field, so a device declares just
-its `module_id`.
+Only `module_id` and `gpu_fabric_guid` vary between the GPUs of a node: NVML
+defines the module ID as the ID of the GPU within the node, while the location
+fields describe the node, which occupies exactly one tray in one slot of one
+chassis. Every field is settable per device anyway, and a device override merges
+field by field, so a device declares just its `module_id`.
 
 `slot_number` counts switch trays and compute trays alike while `tray_index`
 counts compute trays only, so on an NVL72 rack — 18 compute trays, 9 switch
@@ -187,10 +203,35 @@ including an absent key, renders as `Direct Connected`.
 As everywhere else in a device override, a zero is indistinguishable from an
 unset key, so `module_id` numbers from 1.
 
+`gpu_fabric_guid` is the `GPU Fabric GUID` row of the block
+(`platform.gpu_fabric_guid` in `nvidia-smi --query-gpu`). NVLink fabric
+managers identify a GPU by it, so it has to differ between GPUs. It takes one
+of three forms:
+
+| Value | Reported GUID | Use it for |
+|-------|---------------|------------|
+| absent | `0x0000000000000000` | Boards nothing reads the GUID from |
+| `"pdi"` | The GPU's own PDI, derived or set with [`pdi`](#basic-identification) | Grace-Blackwell (GB200, GB300), whose captures report the PDI here |
+| `"0x…"` | The value as given | Boards that report a GUID of their own, such as B200 and Vera Rubin |
+
+`gb200` and `gb300` set `"pdi"` in `device_defaults`, so a tool that rewrites
+their UUIDs per node still gets a distinct GUID per GPU without listing one. A
+fixed value names one GPU, so it belongs in that GPU's `devices` entry. Two
+devices that would report the same GUID are rejected, whether it is fixed or
+taken from a PDI. The check covers every value known when the config loads; a
+GPU with no `uuid` and no `pdi` gets its PDI only at startup, so it is left out.
+
+!!! note "Distinct within a node, not across nodes"
+    Every node that loads the same profile reports the same GPU UUIDs, and so
+    the same PDIs and fabric GUIDs. That is fine for software that reads one
+    node at a time. A consumer that compares fabric GUIDs across a rack, such
+    as an NVLink partition manager, sees GPUs on different nodes collide. To
+    simulate that rack, give each node a config with its own `uuid`, `pdi` or
+    `gpu_fabric_guid` values.
+
 Declaring the block also requires a driver new enough to have the API:
 `nvmlDeviceGetPlatformInfo` arrived in 560, so a profile on an older
-`system.driver_version` reports `N/A` regardless. The `GPU Fabric GUID` row of
-the same block is not modelled and reads `0x0000000000000000`.
+`system.driver_version` reports `N/A` regardless.
 
 ### Power
 
@@ -1437,7 +1478,6 @@ renders one, it matches the hardware captures of a freshly loaded driver:
 |-------|--------|
 | Bus type | PCIe, on every profile including Grace boards |
 | EGM (`capabilities` block) | `disabled` |
-| PDI | A fixed 64-bit value derived from the GPU's UUID, the same in every process |
 | Clock monitor | No faults, on Ampere and newer |
 | InfoROM BBX flush | `N/A`: not flushed yet during this driver run |
 | Bridge chips, IRQ number, PRM registers | Not supported |

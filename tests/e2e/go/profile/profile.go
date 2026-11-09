@@ -157,6 +157,7 @@ type rawPlatform struct {
 	HostID              int    `json:"host_id"`
 	PeerType            string `json:"peer_type"`
 	ModuleID            int    `json:"module_id"`
+	GPUFabricGUID       string `json:"gpu_fabric_guid"`
 }
 
 // PlatformIdentity is the platform identity a profile configures — where its
@@ -170,6 +171,9 @@ type PlatformIdentity struct {
 	HostID              int
 	PeerType            string
 	ModuleIDs           []int
+	// FabricGUIDIsPDI is set when device_defaults declares gpu_fabric_guid:
+	// "pdi". Fixed per-device GUIDs are not read: no shipped profile uses them.
+	FabricGUIDIsPDI bool
 }
 
 // Profile is the typed, validated view of a chart GPU profile.
@@ -408,6 +412,7 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 			HostID:              pl.HostID,
 			PeerType:            pl.PeerType,
 			ModuleIDs:           deviceModuleIDs(raw, pl.ModuleID),
+			FabricGUIDIsPDI:     strings.EqualFold(strings.TrimSpace(pl.GPUFabricGUID), "pdi"),
 		}
 	}
 }
