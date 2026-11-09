@@ -181,7 +181,8 @@ if active_consumers:
     helm_repo('nvidia', 'https://helm.ngc.nvidia.com/nvidia', labels=active_consumers)
 
 if with_topograph:
-    helm_repo('topograph-repo', 'https://dsx-ai-factory.github.io/topograph', labels=['topograph'])
+    # Topograph's release channel; its dsx-ai-factory.github.io index has no 1.1.0.
+    helm_repo('topograph-repo', 'https://helm.ngc.nvidia.com/nvidia/topograph', labels=['topograph'])
 
 if with_observability:
     helm_repo('prometheus-community', 'https://prometheus-community.github.io/helm-charts',

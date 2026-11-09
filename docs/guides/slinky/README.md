@@ -42,7 +42,8 @@ visible inside the `slurmd` container. runc does not allow mounts inside
 - [Docker](https://docs.docker.com/get-started/get-docker/) and
   [Kind](https://kind.sigs.k8s.io/)
 - [Helm 3.8 or newer](https://helm.sh/docs/intro/install/)
-- [kubectl](https://kubernetes.io/docs/reference/kubectl/)
+- [kubectl 1.33 or newer](https://kubernetes.io/docs/reference/kubectl/), whose
+  `kubectl wait --for=create` waits for a label selector to match
 
 Takes about 20 minutes, most of it pulling the GPU Operator and Slurm images.
 
@@ -150,6 +151,8 @@ helm install slurm oci://ghcr.io/slinkyproject/charts/slurm \
   -f slurm-values.yaml
 
 kubectl -n slurm wait pod -l app.kubernetes.io/name=slurmd \
+  --for=create --timeout=300s
+kubectl -n slurm wait pod -l app.kubernetes.io/name=slurmd \
   --for=condition=Ready --timeout=600s
 ```
 
@@ -164,6 +167,10 @@ kubectl -n slurm wait pod -l app.kubernetes.io/name=slurmd \
    give `slurmd` the driver files: it injects only containers that hold GPUs.
 5. Mokka labels its nodes with the NVIDIA PCI vendor ID through Node Feature
    Discovery, so `slurmd` lands only on mock-GPU nodes.
+
+The operator creates the `slurmd` pods after `helm install` returns, so the
+first `kubectl wait` waits for them to exist. Waiting for `Ready` straight away
+fails with `no matching resources found`.
 
 ## Step 6 — Verify
 
