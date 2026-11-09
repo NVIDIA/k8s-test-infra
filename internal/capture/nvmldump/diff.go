@@ -23,21 +23,25 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
 
 // loadOrIdentity lists the getters whose value is not a property of the board:
-// readings that move with load or time, and the identifiers a capture is
-// scrubbed of. Their return codes are still compared: a real and a mock GPU must
-// agree on whether such a getter is supported, not on what it reads. Names are
-// matched whole, so GetClockInfo is here and GetMaxClockInfo, a board value a
-// profile should reproduce, is not.
+// readings that move with load or time, the identifiers a capture is scrubbed
+// of, and what the host decides (which CPUs a Kind node has). Their return codes
+// are still compared: a real and a mock GPU must agree on whether such a getter
+// is supported, not on what it reads. Names are matched whole, so GetClockInfo
+// is here and GetMaxClockInfo, a board value a profile should reproduce, is not.
 var loadOrIdentity = []string{
-	"AccountingPids", "ClockInfo", "ComputeRunningProcesses", "CurrentClocksEventReasons",
-	"CurrentClocksThrottleReasons", "DecoderUtilization", "DetailedEccErrors", "EncoderUtilization",
-	"FanSpeed", "FanSpeedRPM", "FieldValues", "GpuFabricInfo", "GpuFabricInfoV",
-	"GraphicsRunningProcesses", "JpgUtilization", "MPSComputeRunningProcesses", "MarginTemperature",
-	"MemoryInfo", "NvLinkErrorCounter", "NvLinkUtilizationCounter", "OfaUtilization",
+	"AccountingPids", "BBXTimeData", "ClockInfo", "ComputeRunningProcesses", "CpuAffinity",
+	"CpuAffinityWithinScope", "CurrentClockFreqs", "CurrentClocksEventReasons",
+	"CurrentClocksThrottleReasons", "DecoderUtilization", "DetailedEccErrors", "DynamicPstatesInfo",
+	"EncoderUtilization", "FanSpeed", "FanSpeedRPM", "GpuFabricInfo", "GpuFabricInfoV",
+	"GraphicsRunningProcesses", "JpgUtilization", "LastBBXFlushTime", "MPSComputeRunningProcesses",
+	"MarginTemperature", "NvLinkErrorCounter", "NvLinkUtilizationCounter", "OfaUtilization",
 	"PcieReplayCounter", "PcieThroughput", "Pdi", "PerformanceState", "PlatformInfo", "PowerState",
 	"PowerUsage", "ProcessUtilization", "ProcessesUtilizationInfo", "RemappedRows", "RetiredPages",
 	"RetiredPagesPendingStatus", "Samples", "Serial", "TargetFanSpeed", "Temperature", "TemperatureV",
@@ -46,9 +50,69 @@ var loadOrIdentity = []string{
 	"VgpuUtilization", "ViolationStatus",
 }
 
+// readingParts matches the parts of an answer that are readings, where the rest
+// of the answer describes the board. A struct field is named Call.Field and an
+// array element Call[i], so GetMemoryInfo_v2.Free is the free memory and
+// GetThermalSettings(0).Sensor[0].CurrentTemp the first sensor's reading.
+var readingParts = []string{
+	// The clocks in use: GetClock(type, NVML_CLOCK_ID_CURRENT).
+	`GetClock\([0-9]+,0\)`,
+	// Memory in use and free; the total and the driver's reservation are compared.
+	`Get(?:MemoryInfo(?:_v[0-9]+)?|ConfComputeProtectedMemoryUsage)\.(?:Free|Used)`,
+	`GetBAR1MemoryInfo\.Bar1(?:Free|Used)`,
+	`GetThermalSettings\([0-9]+\)\.Sensor\[[0-9]+\]\.CurrentTemp`,
+	// The struct version a versioned getter is called with, which the answer
+	// carries back. It belongs to the API, not to the GPU.
+	`.+\.Version`,
+}
+
+// liveFieldIDs are the field values that are readings, as inclusive ranges of
+// field IDs: the same counters, energy, power draw and temperatures the getters
+// in loadOrIdentity read. Every other field (ECC mode, link counts, speeds and
+// versions, power limits, T.Limit offsets, capabilities) describes the board and
+// is compared. The IDs are go-nvml's, which drivers from 580.95 on use; older
+// drivers number the fields from 251 to 273 differently.
+var liveFieldIDs = [][2]int{
+	{nvml.FI_DEV_ECC_SBE_VOL_TOTAL, nvml.FI_DEV_TOTAL_ENERGY_CONSUMPTION},              // ECC and retired-page counts, NVLink errors and bandwidth, time throttled, memory temperature, energy
+	{nvml.FI_DEV_RETIRED_PENDING_SBE, nvml.FI_DEV_PCIE_REPLAY_ROLLOVER_COUNTER},        // pending retirements, PCIe replays
+	{nvml.FI_DEV_NVLINK_CRC_FLIT_ERROR_COUNT_L6, nvml.FI_DEV_NVLINK_BANDWIDTH_C1_L11},  // NVLink errors and bandwidth, links 6-11
+	{nvml.FI_DEV_NVLINK_THROUGHPUT_DATA_TX, nvml.FI_DEV_REMAPPED_FAILURE},              // NVLink throughput, remapped rows
+	{nvml.FI_DEV_NVLINK_ECC_DATA_ERROR_COUNT_L0, nvml.FI_DEV_NVLINK_ERROR_DL_CRC},      // NVLink errors
+	{nvml.FI_DEV_PCIE_L0_TO_RECOVERY_COUNTER, nvml.FI_DEV_PCIE_L0_TO_RECOVERY_COUNTER}, // PCIe recoveries
+	{nvml.FI_DEV_PCIE_COUNT_CORRECTABLE_ERRORS, nvml.FI_DEV_PCIE_COUNT_LANE_ERROR},     // PCIe errors
+	{nvml.FI_DEV_POWER_AVERAGE, nvml.FI_DEV_POWER_INSTANT},                             // power draw
+	{nvml.FI_DEV_ENERGY, nvml.FI_DEV_ENERGY},                                           // energy
+	{nvml.FI_DEV_PCIE_COUNT_TX_BYTES, nvml.FI_DEV_PCIE_COUNT_RX_BYTES},                 // PCIe traffic
+	{nvml.FI_DEV_NVLINK_COUNT_XMIT_PACKETS, nvml.FI_DEV_NVLINK_COUNT_SYMBOL_BER},       // NVLink traffic, errors and bit error rates
+	{nvml.FI_DEV_C2C_LINK_ERROR_INTR, nvml.FI_DEV_C2C_LINK_ERROR_REPLAY_B2B},           // C2C errors
+	{nvml.FI_DEV_NVLINK_COUNT_FEC_HISTORY_0, nvml.FI_DEV_NVLINK_COUNT_FEC_HISTORY_15},  // NVLink corrected blocks
+	{nvml.FI_PWR_SMOOTHING_HW_CIRCUITRY_PERCENT_LIFETIME_REMAINING,
+		nvml.FI_PWR_SMOOTHING_HW_CIRCUITRY_PERCENT_LIFETIME_REMAINING}, // power smoothing wear
+	{nvml.FI_DEV_CLOCKS_EVENT_REASON_SW_THERM_SLOWDOWN, nvml.FI_DEV_POWER_SYNC_BALANCING_AF}, // time throttled, power sync balancing
+	{nvml.FI_DEV_NVLINK_COUNT_RAW_ERRORS_LANE0, nvml.FI_DEV_NVLINK_PLR_XMIT_RETRY_BLOCKS},    // NVLink lane errors and retries
+	{nvml.FI_DEV_MMA_STALL_PERCENT, nvml.FI_DEV_MMA_STALL_PERCENT},                           // utilisation
+	{nvml.FI_DEV_REMAPPED_ROWS_COR_INACTIVE, nvml.FI_DEV_INACTIVE_BANK_REMAPPINGS},           // remapped rows and banks
+}
+
 // defaultIgnore matches a call name (Get<name>, optionally with a version suffix
-// or arguments, as in GetClockInfo(1) or GetTemperatureV_v2) against that list.
-var defaultIgnore = `^(?:Get|Is)(?:` + strings.Join(loadOrIdentity, "|") + `)(?:_v[0-9]+)?(?:\(.*\))?$`
+// or arguments, as in GetClockInfo(1) or GetTemperatureV_v2) against
+// loadOrIdentity, a live field value as GetFieldValues(id=N), and the reading
+// parts of an answer.
+var defaultIgnore = `^(?:` + strings.Join([]string{
+	`(?:Get|Is)(?:` + strings.Join(loadOrIdentity, "|") + `)(?:_v[0-9]+)?(?:\(.*\))?`,
+	`GetFieldValues\(id=(?:` + strings.Join(fieldIDs(liveFieldIDs), "|") + `)\)`,
+	strings.Join(readingParts, "|"),
+}, "|") + `)$`
+
+func fieldIDs(ranges [][2]int) []string {
+	var out []string
+	for _, r := range ranges {
+		for id := r[0]; id <= r[1]; id++ {
+			out = append(out, strconv.Itoa(id))
+		}
+	}
+	return out
+}
 
 // verdict is the outcome of comparing one call across the two dumps.
 type verdict int
@@ -71,13 +135,22 @@ type finding struct {
 	verdict verdict
 	hw      call
 	mock    call
+	// leftOut is what was not compared of a call both sides answered SUCCESS:
+	// the whole answer, or the parts of it that are readings.
+	leftOut []part
+}
+
+// part is one value left out of the comparison, named as -ignore matches it.
+type part struct {
+	path     string
+	hw, mock any
 }
 
 func runDiff(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	ignore := fs.String("ignore", defaultIgnore, "regexp of whole call names whose value is not compared (return codes still are)")
-	limit := fs.Int("max", 40, "maximum mismatches to list per kind")
+	ignore := fs.String("ignore", defaultIgnore, "regexp of call names, or Call.Field parts of an answer, whose value is not compared (return codes still are)")
+	limit := fs.Int("max", 40, "maximum entries to list per kind")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -122,7 +195,7 @@ func load(path string) (dump, error) {
 			return d, fmt.Errorf("%s: %w", path, err)
 		}
 	}
-	// Keep numbers as written: as float64, 64-bit values such as CPU affinity
+	// Keep numbers as written: as float64, 64-bit values such as clock event
 	// masks would round, and two different masks would compare equal.
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
@@ -174,15 +247,18 @@ func compareCalls(where string, hw, mock map[string]call, ignore *regexp.Regexp)
 	for _, name := range sorted {
 		r, inReal := hw[name]
 		m, inMock := mock[name]
-		out = append(out, finding{
-			where: where, name: name, hw: r, mock: m,
-			verdict: classify(name, r, inReal, m, inMock, ignore),
-		})
+		f := finding{where: where, name: name, hw: r, mock: m, verdict: classify(r, inReal, m, inMock)}
+		if f.verdict == match {
+			f.compareValue(ignore)
+		}
+		out = append(out, f)
 	}
 	return out
 }
 
-func classify(name string, r call, inReal bool, m call, inMock bool, ignore *regexp.Regexp) verdict {
+// classify sorts a call by where it exists and what it returned. A call both
+// sides answered SUCCESS comes back as a match, for compareValue to check.
+func classify(r call, inReal bool, m call, inMock bool) verdict {
 	switch {
 	case !inMock:
 		return onlyReal
@@ -194,14 +270,108 @@ func classify(name string, r call, inReal bool, m call, inMock bool, ignore *reg
 		// Both sides answered the same error: the return code matches, and
 		// there is no value on either side to compare.
 		return sameError
-	case ignore.MatchString(name):
-		return ignoredValue
-	case !sameValue(r.Value, m.Value):
-		return valueDiffers
 	}
 	return match
 }
 
+// compareValue compares the answers of a call both sides answered SUCCESS,
+// leaving out what ignore matches and recording it in leftOut.
+func (f *finding) compareValue(ignore *regexp.Regexp) {
+	if ignore.MatchString(f.name) {
+		f.verdict = ignoredValue
+		f.leftOut = []part{{path: f.name, hw: f.hw.Value, mock: f.mock.Value}}
+		return
+	}
+	rv, rok, rDropped := comparedParts(f.name, f.hw.Value, ignore)
+	mv, mok, mDropped := comparedParts(f.name, f.mock.Value, ignore)
+	f.leftOut = parts(rDropped, mDropped)
+	switch {
+	case !rok && !mok:
+		// Every part of the answer is a reading.
+		f.verdict = ignoredValue
+	case !sameValue(rv, mv):
+		f.verdict = valueDiffers
+		// List what was compared, not the readings left out of it.
+		f.hw.Value, f.mock.Value = rv, mv
+	}
+}
+
+// comparedParts returns the parts of an answer that ignore does not match,
+// whether any are left, and the parts it dropped by path. The answer is first
+// put in the shape load gives it, so a value built in Go and one read from a
+// file prune alike.
+func comparedParts(name string, v any, ignore *regexp.Regexp) (any, bool, map[string]any) {
+	dropped := map[string]any{}
+	// A value that does not survive the round trip did not come from a dump
+	// (which is JSON); it is then compared as it is.
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return v, true, dropped
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var generic any
+	if err := dec.Decode(&generic); err != nil {
+		return v, true, dropped
+	}
+	kept, ok := prune(name, generic, ignore, dropped)
+	return kept, ok, dropped
+}
+
+func prune(path string, v any, ignore *regexp.Regexp, dropped map[string]any) (any, bool) {
+	switch t := v.(type) {
+	case map[string]any:
+		out := map[string]any{}
+		for k, x := range t {
+			p := path + "." + k
+			if ignore.MatchString(p) {
+				dropped[p] = x
+				continue
+			}
+			if y, ok := prune(p, x, ignore, dropped); ok {
+				out[k] = y
+			}
+		}
+		return out, len(out) > 0 || len(t) == 0
+	case []any:
+		// An element left empty keeps its place, so the elements after it still
+		// pair by index.
+		out := make([]any, len(t))
+		kept := len(t) == 0
+		for i, x := range t {
+			p := fmt.Sprintf("%s[%d]", path, i)
+			if ignore.MatchString(p) {
+				dropped[p] = x
+				continue
+			}
+			y, ok := prune(p, x, ignore, dropped)
+			out[i] = y
+			kept = kept || ok
+		}
+		return out, kept
+	}
+	return v, true
+}
+
+// parts pairs what the two sides dropped by path, in path order.
+func parts(hw, mock map[string]any) []part {
+	paths := map[string]bool{}
+	for p := range hw {
+		paths[p] = true
+	}
+	for p := range mock {
+		paths[p] = true
+	}
+	out := make([]part, 0, len(paths))
+	for p := range paths {
+		out = append(out, part{path: p, hw: hw[p], mock: mock[p]})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].path < out[j].path })
+	return out
+}
+
+// sameValue compares two answers by their JSON. Both come from a dump, which is
+// JSON, so marshalling them cannot fail.
 func sameValue(a, b any) bool {
 	ja, _ := json.Marshal(a)
 	jb, _ := json.Marshal(b)
@@ -220,7 +390,7 @@ func report(w io.Writer, findings []finding, limit int) {
 	// A value is compared only where the real device answered SUCCESS, and only
 	// for getters that describe the board.
 	valued := count[match] + count[valueDiffers]
-	_, _ = fmt.Fprintf(w, "value matches:         %s (of %d calls answered SUCCESS on both sides, excluding %d whose value is load or identity)\n",
+	_, _ = fmt.Fprintf(w, "value matches:         %s (of %d calls answered SUCCESS on both sides, excluding %d whose value is a reading or an identifier)\n",
 		ratio(count[match], valued), valued+count[ignoredValue], count[ignoredValue])
 	_, _ = fmt.Fprintf(w, "only on real device:   %d\n", count[onlyReal])
 	_, _ = fmt.Fprintf(w, "only on mock device:   %d\n", count[onlyMock])
@@ -229,6 +399,31 @@ func report(w io.Writer, findings []finding, limit int) {
 	list(w, findings, valueDiffers, "value differs", limit)
 	list(w, findings, onlyReal, "only on the real device", limit)
 	list(w, findings, onlyMock, "only on the mock device", limit)
+	listLeftOut(w, findings, limit)
+}
+
+// listLeftOut names every value the value rate leaves out: whole answers, and
+// the parts of compared answers that are readings.
+func listLeftOut(w io.Writer, findings []finding, limit int) {
+	total := 0
+	for _, f := range findings {
+		total += len(f.leftOut)
+	}
+	if total == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "\nnot compared, a reading or an identifier (%d):\n", total)
+	shown := 0
+	for _, f := range findings {
+		for _, p := range f.leftOut {
+			if shown == limit {
+				_, _ = fmt.Fprintf(w, "  ... %d more\n", total-shown)
+				return
+			}
+			shown++
+			_, _ = fmt.Fprintf(w, "  %-9s %-40s real=%s mock=%s\n", f.where, p.path, short(p.hw), short(p.mock))
+		}
+	}
 }
 
 func ratio(n, d int) string {
