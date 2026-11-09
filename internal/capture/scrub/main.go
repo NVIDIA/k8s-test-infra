@@ -652,7 +652,6 @@ func sourceHolding(out string, srcs []string) string {
 	return ""
 }
 
-// options are the flags of `mokka-capture scrub`.
 type options struct {
 	out, report               string
 	replaces, excludes, seeds []string
@@ -720,7 +719,9 @@ func Command() *cli.Command {
 	}
 }
 
-// replacements splits each -replace value into its old and new halves.
+// replacements splits each -replace value at its first "=", so the new half
+// may itself hold one. An empty old half is refused: strings.ReplaceAll would
+// insert the new half between every character of every file.
 func replacements(values []string) ([][2]string, error) {
 	var reps [][2]string
 	for _, r := range values {

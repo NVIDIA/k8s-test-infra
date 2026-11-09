@@ -181,8 +181,6 @@ func newCommand(kubectl string) *cli.Command {
 	}
 }
 
-// run runs the collect command named command on nodes.
-//
 //nolint:cyclop // one case per command, in the order the help lists them
 func (c *collector) run(command string, nodes []string, stdout io.Writer) int {
 	// An interrupted run must not leave a privileged pod on the node.

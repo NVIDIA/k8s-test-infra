@@ -22,7 +22,6 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/cmdline"
 )
 
-// options are the flags of `mokka-capture profile`.
 type options struct {
 	out, base string
 	explain   bool
