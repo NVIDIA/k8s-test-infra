@@ -7,8 +7,8 @@
 package profile
 
 import (
+	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -16,45 +16,70 @@ import (
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/urfave/cli/v3"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/cmdline"
 )
 
-// Run is `mokka-capture profile`.
-func Run(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("profile", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	out := fs.String("o", "", "write the profile to this file, and the MIG table beside it as <name>.mig.yaml (default: the profile to stdout)")
-	basePath := fs.String("base", "", "profile of the same GPU to take identifiers and mock-only blocks from")
-	explain := fs.Bool("explain", false, "print every key with its source and each GPU's answer instead of the profile")
-	fs.Usage = func() {
-		_, _ = fmt.Fprintln(stderr, "usage: mokka-capture profile [-o file] [-base profile] [-explain] <capture node directory>")
-		fs.PrintDefaults()
-	}
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
-	}
-	if fs.NArg() != 1 {
-		fs.Usage()
-		return 2
-	}
+// options are the flags of `mokka-capture profile`.
+type options struct {
+	out, base string
+	explain   bool
+}
 
-	g, err := load(fs.Arg(0), *basePath)
+// Command is `mokka-capture profile`.
+func Command() *cli.Command {
+	var opts options
+	return &cli.Command{
+		Name:  "profile",
+		Usage: "write a mock NVML profile from a scrubbed capture",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        "o",
+				Usage:       "write the profile to this file, and the MIG table beside it as <name>.mig.yaml",
+				DefaultText: "the profile to stdout",
+				Destination: &opts.out,
+			},
+			&cli.StringFlag{
+				Name:        "base",
+				Usage:       "profile of the same GPU to take identifiers and mock-only blocks from",
+				Destination: &opts.base,
+			},
+			&cli.BoolFlag{
+				Name:        "explain",
+				Usage:       "print every key with its source and each GPU's answer instead of the profile",
+				Destination: &opts.explain,
+			},
+		},
+		Arguments: []cli.Argument{
+			&cli.StringArg{Name: "directory", UsageText: "<capture node directory>", Required: true},
+		},
+		Action: func(_ context.Context, cmd *cli.Command) error {
+			if err := cmdline.RejectExtraArgs(cmd); err != nil {
+				return err
+			}
+			return cmdline.Exit(run(opts, cmd.StringArg("directory"), cmd.Root().Writer, cmd.Root().ErrWriter))
+		},
+	}
+}
+
+func run(opts options, dir string, stdout, stderr io.Writer) int {
+	g, err := load(dir, opts.base)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
 
-	if *explain {
+	if opts.explain {
 		if err := writeExplain(stdout, g); err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
 			return 1
 		}
 		return 0
 	}
-	profile, mig := g.documents(filepath.Base(*out))
-	if err := write(*out, profile, mig, stdout, stderr); err != nil {
+	profile, mig := g.documents(filepath.Base(opts.out))
+	if err := write(opts.out, profile, mig, stdout, stderr); err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}

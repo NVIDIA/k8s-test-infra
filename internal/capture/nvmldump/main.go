@@ -34,20 +34,55 @@
 // reviewed.
 package nvmldump
 
-import "io"
+import (
+	"context"
 
-// Dump writes a recording of the NVML library on the loader path to stdout.
-func Dump(args []string, stdout, stderr io.Writer) int {
-	if len(args) > 0 {
-		_, _ = io.WriteString(stderr, "usage: mokka-capture dump\n")
-		return 2
+	"github.com/urfave/cli/v3"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/cmdline"
+)
+
+// DumpCommand is `mokka-capture dump`, which writes a recording of the NVML
+// library on the loader path to standard output.
+func DumpCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "dump",
+		Usage: "record the NVML library on the loader path (collect runs this in the driver container)",
+		Action: func(_ context.Context, cmd *cli.Command) error {
+			if err := cmdline.RejectExtraArgs(cmd); err != nil {
+				return err
+			}
+			return cmdline.Exit(runDump(cmd.Root().Writer, cmd.Root().ErrWriter))
+		},
 	}
-	return runDump(stdout, stderr)
 }
 
-// Diff compares two recordings.
-func Diff(args []string, stdout, stderr io.Writer) int {
-	return runDiff(args, stdout, stderr)
+// DiffCommand is `mokka-capture diff nvml`, which compares two recordings.
+func DiffCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "nvml",
+		Usage: "compare two NVML recordings",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        "ignore",
+				Value:       defaultIgnore,
+				DefaultText: "readings and identifiers, as docs/tools/mokka-capture.md lists",
+				Usage:       "regexp of call names, or Call.Field parts of an answer, whose value is not compared (return codes still are)",
+			},
+			&cli.IntFlag{Name: "max", Value: 40, Usage: "maximum entries to list per kind"},
+		},
+		Arguments: []cli.Argument{
+			&cli.StringArg{Name: "real.json", Required: true},
+			&cli.StringArg{Name: "mock.json", Required: true},
+		},
+		Action: func(_ context.Context, cmd *cli.Command) error {
+			if err := cmdline.RejectExtraArgs(cmd); err != nil {
+				return err
+			}
+			return cmdline.Exit(runDiff(cmd.String("ignore"), cmd.Int("max"), cmd.StringArg("real.json"), cmd.StringArg("mock.json"),
+				cmd.Root().Writer, cmd.Root().ErrWriter))
+		},
+	}
 }
 
 // Recording is a dump as Load reads it back: System and each device's Calls

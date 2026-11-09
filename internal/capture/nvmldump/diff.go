@@ -17,7 +17,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -146,36 +145,25 @@ type part struct {
 	hw, mock any
 }
 
-func runDiff(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	ignore := fs.String("ignore", defaultIgnore, "regexp of call names, or Call.Field parts of an answer, whose value is not compared (return codes still are)")
-	limit := fs.Int("max", 40, "maximum entries to list per kind")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	if fs.NArg() != 2 {
-		_, _ = fmt.Fprintln(stderr, "usage: mokka-capture diff nvml [-ignore regexp] [-max n] real.json mock.json")
-		return 2
-	}
-	re, err := regexp.Compile(*ignore)
+func runDiff(ignore string, limit int, realPath, mockPath string, stdout, stderr io.Writer) int {
+	re, err := regexp.Compile(ignore)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "-ignore: %v\n", err)
 		return 2
 	}
-	hw, err := load(fs.Arg(0))
+	hw, err := load(realPath)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
-	mock, err := load(fs.Arg(1))
+	mock, err := load(mockPath)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
 
 	findings := compare(hw, mock, re)
-	report(stdout, findings, *limit)
+	report(stdout, findings, limit)
 	return 0
 }
 
