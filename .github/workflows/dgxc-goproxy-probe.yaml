@@ -73,7 +73,6 @@ jobs:
         uses: ./.github/actions/setup-dgxc-goproxy
         with:
           mode: enforced
-          repo-key: dgxc-go-virtual-curated
 
       # Catches what the download cannot: the action silently no-opping, or a
       # revert to `routed`. Either looks healthy while routing nothing.
@@ -82,7 +81,7 @@ jobs:
           set -euo pipefail
           proxy="$(go env GOPROXY)"
           echo "GOPROXY=${proxy}"
-          expected="https://edge.urm.nvidia.com/artifactory/api/go/dgxc-go-virtual-curated"
+          expected="https://edge.urm.nvidia.com/artifactory/api/go/dgxc-go-virtual"
           [ "${proxy}" = "${expected}" ] \
             || { echo "::error::GOPROXY is '${proxy}', expected exactly '${expected}'"; exit 1; }
           case "${proxy}" in

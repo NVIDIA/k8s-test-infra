@@ -86,7 +86,6 @@ jobs:
         uses: ./.github/actions/setup-dgxc-goproxy
         with:
           mode: enforced
-          repo-key: dgxc-go-virtual-curated
 
       - name: Assert the proxy is actually in front
         run: ./hack/check-goproxy.sh enforced
@@ -120,7 +119,7 @@ jobs:
           # the public proxy; with only the build arg it points at Artifactory
           # with no credential and fails closed.
           build-args: |
-            GOPROXY=https://edge.urm.nvidia.com/artifactory/api/go/dgxc-go-virtual-curated
+            GOPROXY=https://edge.urm.nvidia.com/artifactory/api/go/dgxc-go-virtual
           secret-files: |
             goauth=${{ runner.temp }}/dgxc-goauth
           tags: ${{ steps.meta.outputs.tags }}
