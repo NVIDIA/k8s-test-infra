@@ -20,6 +20,7 @@ Author: [Roman Hlushko](https://github.com/roma-glushko)
   - [KWOK Integration](#kwok-integration)
     - [KWOK Components](#kwok-components)
     - [KWOK Nodes](#kwok-nodes)
+    - [KWOK Provisioner](#kwok-provisioner)
     - [KWOK Data Plane](#kwok-data-plane)
     - [Sharding](#sharding)
     - [Separating CPU and KWOK Racks](#separating-cpu-and-kwok-racks)
@@ -221,25 +222,15 @@ Mokka and the real NVIDIA components on top of it.
 
 ### User Stories
 
-1. **A scheduler load test.** A scheduler team creates 18,000 KWOK Nodes with `kwokctl` and adds a KWOK rack group of 1,000 `gb300-nvl72` racks that selects them. The control plane binds each Node to a rack slot, the KWOK data plane gives it GPU capacity, labels and a ResourceSlice, and the team runs its load test on a cluster with a few CPU Nodes and no GPUs.
+1. **A scheduler load test.** A scheduler team adds a KWOK rack group of 1,000 `gb300-nvl72` racks with `node.source: Mokka` to an inventory. The KWOK provisioner creates 18,000 Nodes, the control plane binds each Node to a rack slot, the KWOK data plane gives it GPU capacity, labels and a ResourceSlice, and the team runs its load test on a cluster with a few CPU Nodes and no GPUs.
 2. **Run:ai on virtual Nodes.** Run:ai's test harness keeps creating KWOK Nodes for its node pools, as it does for FGO, and adds Mokka's two labels to them. A KWOK rack group selects each pool. Run:ai's cluster operator finds the `mokka-kwok-dcgm-exporter` Service with the metrics it checks, and an `SGPURuntimePolicy` with a `Bursty` pattern moves the GPUs' utilization, as on CPU Nodes.
 3. **Two kinds of Node in one inventory.** An inventory has a CPU rack group for tests that run `nvidia-smi` in Pods and a KWOK rack group for scale, both with the same profile. GPUs on both keep stable UUIDs, PCI addresses and NUMA placement. A test reads the Node bound to rack 0, Node 0 from the rack's `nodeRef` and pins a Pod to it with `kubernetes.io/hostname`.
 
-### Notes/Constraints/Caveats (Optional)
-
-<!--
-What are the caveats to the proposal?
-What are some important details that didn't come across above?
-Go in to as much detail as necessary here.
-This might be a good place to talk about core concepts and how they relate.
--->
-
 ### Risks and Mitigations
 
-- **Large inventories load the API server.** Each KWOK Node adds a projection patch from the control plane, and a status patch, a label patch, a ResourceSlice and an NRT from the data plane. Each GPU Pod adds an allocation patch and an NRT update. KWOK mode is off by default, and Mokka writes only when bindings or Pods change. Metrics stay in memory.
+- **Large inventories load the API server.** Each KWOK Node adds a projection patch from the control plane, and a status patch, a label patch, a ResourceSlice and an NRT from the data plane. The provisioner adds the Node itself in groups that ask Mokka for their Nodes. Each GPU Pod adds an allocation patch and an NRT update. KWOK mode is off by default, the provisioner creates Nodes at a limited rate, and Mokka writes only when slot counts, bindings or Pods change. Metrics stay in memory.
 - **DaemonSets that tolerate every taint run on KWOK Nodes.** KWOK fakes their Pods, but each such DaemonSet adds a Pod object per KWOK Node. Mokka keeps its node daemon off them with node affinity on `mokka.nvidia.com/node-type`, and the GPU Operator's operands with `nvidia.com/gpu.deploy.operands=false`. Cluster admins add the same affinity to their own DaemonSets, such as CNI or log agents.
 - **DCGM metrics load Prometheus.** The example inventory's 72,000 GPUs serve 216,000 series. The `ServiceMonitor` is optional, and `kwok.dataPlane.metrics.enabled: false` leaves metrics out of tests that don't need them.
-- **KWOK Nodes drift from real ones.** The data plane stands in for the device plugin, GFD, NFD, the DRA driver and dcgm-exporter, so a test can pass on a KWOK Node and fail on a real one. e2e tests compare a KWOK Node's labels, ResourceSlices, NRT and metric labels with those of a CPU Node with the same profile. The binding labels come from the same projection on both kinds of Node.
 - **Node sources set GPU keys themselves.** A Node template written for FGO may already carry `nvidia.com/gpu` capacity or `nvidia.com/gpu.*` labels. The data plane doesn't force ownership of those keys: it reports the conflict as an Event on the Node, and the migration guide tells sources to drop them.
 
 ## Design Details
@@ -249,9 +240,14 @@ This might be a good place to talk about core concepts and how they relate.
 A rack group's Nodes are one of two types:
 
 - `CPU` (default): real Nodes with a kubelet. The control plane binds racks to them, and the node daemon simulates the GPUs on them.
-- `KWOK`: virtual Nodes that [KWOK](#kwok) runs, created by anyone, such as `kwokctl`, a CI harness or an autoscaler's KWOK provider. The control plane binds racks to them the same way, and the [KWOK data plane](#kwok-data-plane) stands in for the daemons that would run on them.
+- `KWOK`: virtual Nodes that [KWOK](#kwok) runs. The control plane binds racks to them the same way, and the [KWOK data plane](#kwok-data-plane) stands in for the daemons that would run on them.
 
-The node type is set per rack group in `SGPUInventory`, so one inventory can mix CPU and KWOK rack groups:
+They come from one of two sources:
+
+- `External` (default): created outside Mokka. That's every CPU Node, and KWOK Nodes from `kwokctl`, a CI harness or [an autoscaler's KWOK provider](https://github.com/kubernetes-sigs/karpenter/tree/main/kwok) ([KWOK Nodes](#kwok-nodes)).
+- `Mokka`: KWOK Nodes that Mokka's [KWOK provisioner](#kwok-provisioner) creates, as many as the group has rack slots.
+
+A rack group sets both in its `node` block in `SGPUInventory`, so one inventory can mix CPU and KWOK rack groups:
 
 ```yaml
 apiVersion: mokka.nvidia.com/v1alpha1
@@ -261,7 +257,8 @@ metadata:
 spec:
   rackGroups:
     - id: training
-      nodeType: CPU # the default
+      node:
+        type: CPU # the default
       count: 10
       profileRef:
         name: gb300-nvl72
@@ -272,7 +269,8 @@ spec:
             mokka.nvidia.com/sgpu: training
 
     - id: ci
-      nodeType: KWOK
+      node:
+        type: KWOK # with the default source: External
       count: 1000 # a thousand gb300-nvl72 racks
       profileRef:
         name: gb300-nvl72
@@ -283,14 +281,17 @@ spec:
             run.ai/simulated-gpu-node-pool: ci
 ```
 
-The KWOK group `ci` binds up to `rackGroup.count` × `profile.nodesPerRack` KWOK Nodes (18,000 in this example).
+The KWOK group `ci` binds up to `rackGroup.count` × `profile.nodesPerRack` KWOK Nodes (18,000 in this example). A group with `node.source: Mokka` gets that many from the [KWOK provisioner](#kwok-provisioner) instead.
 
 The CRD validation enforces these rules on a rack group:
 
-- `nodeType` is `CPU` or `KWOK`, defaults to `CPU`, and can't change, so a rack is simulated by the same component for its whole life. To change a group's node type, replace the group with one under a new `id`.
+- `node.type` is `CPU` or `KWOK`, defaults to `CPU`, and can't change, so a rack is simulated by the same component for its whole life. To change a group's node type, replace the group with one under a new `id`.
+- `node.source` is `External` or `Mokka`, defaults to `External`, and can't change, since a change would leave open whether the Nodes already there are deleted or left behind. `Mokka` requires `node.type: KWOK`.
+- `node.template` is allowed only with `node.source: Mokka`.
+- `node` defaults to an empty block, so a group that leaves it out still stores `type: CPU` and `source: External`.
 - `placement.nodeSelector` can't reference `mokka.nvidia.com/node-type`, which the node type already decides (see [Separating CPU and KWOK Racks](#separating-cpu-and-kwok-racks)).
 
-The Mokka Control Plane ([MEP0001](../0001-mokka-control-plane/README.md)) watches `SGPUInventory` and creates `SGPURacks` as usual, and copies `nodeType` from the rack group into each rack. A KWOK rack looks like this:
+The Mokka Control Plane ([MEP0001](../0001-mokka-control-plane/README.md)) watches `SGPUInventory` and creates `SGPURacks` as usual, and copies `node.type` from the rack group into each rack's `spec.nodeType`. The field stays flat on the rack, where `spec.nodes` lists the slots. `node.source` and `node.template` stay in the inventory, since only the [KWOK provisioner](#kwok-provisioner) reads them. A KWOK rack looks like this:
 
 ```yaml
 apiVersion: mokka.nvidia.com/v1alpha1
@@ -314,7 +315,7 @@ metadata:
       controller: true
       blockOwnerDeletion: false
 spec:
-  nodeType: KWOK # copied from the rack group
+  nodeType: KWOK # copied from the rack group's node.type
   inventoryRef:
     name: dev
     uid: <inventory UID>
@@ -350,57 +351,30 @@ KWOK racks are rendered and bound exactly like CPU racks, so their simulated GPU
 
 #### KWOK Components
 
-A KWOK Node involves three parties: whoever creates it, the control plane, and the KWOK data plane, the one component KWOK mode adds:
+A KWOK Node involves three parties: its Node source, the control plane, and the KWOK data plane. KWOK mode always adds the data plane, and the [KWOK provisioner](#kwok-provisioner) is an optional Node source for groups that ask Mokka for their Nodes:
 
-```mermaid
-flowchart LR
-    source["Node source<br/>kwokctl, CI harness,<br/>autoscaler KWOK provider"]
-    kwok["KWOK controller"]
-    cp["Mokka control plane"]
-    dp["Mokka KWOK data plane<br/>StatefulSet sharded by rack"]
+![KWOK Components](./img/kwok-components.svg)
 
-    subgraph api["Kubernetes API"]
-        inv["SGPUInventory,<br/>SGPURackProfile"]
-        racks["SGPURacks"]
-        nodes["KWOK Nodes"]
-        leases["Shard Leases"]
-        gpu["ResourceSlices,<br/>NodeResourceTopology"]
-        pods["Pods on KWOK Nodes"]
-    end
-
-    source -->|"creates"| nodes
-    kwok -->|"fakes Node and Pod status"| nodes
-    cp -->|"watches"| inv
-    cp -->|"renders, binds,<br/>labels with a shard"| racks
-    cp -->|"projects the binding"| nodes
-    cp -->|"watches"| leases
-    dp -->|"renews its own"| leases
-    dp -->|"watches its shard's"| racks
-    dp -->|"GPU capacity,<br/>GFD and NFD labels"| nodes
-    dp -->|"writes"| gpu
-    dp -->|"allocates GPUs"| pods
-    dp -->|"fetches runtime views"| cp
-```
-
-|               | Node source                                                              | Control plane                                     | [KWOK data plane](#kwok-data-plane)                                                                         |
-|---------------|--------------------------------------------------------------------------|---------------------------------------------------|-------------------------------------------------------------------------------------------------------------|
-| Owns          | the machine                                                              | rack slots and shards                             | what the Node's daemons would publish                                                                       |
-| Writes        | the Node: name, taints, CPU, memory and pod capacity, Mokka's two labels | `nodeRef`, the Node projection, rack shard labels | `nvidia.com/gpu` capacity, GFD and NFD labels, ResourceSlices, GPU allocation on Pods, NodeResourceTopology |
-| Serves        | nothing                                                                  | runtime views                                     | DCGM metrics                                                                                                |
-| Load follows  | the test                                                                 | inventories, Nodes and shard Leases               | Pods, scrapes and runtime views                                                                             |
-| Runs as       | anything that creates Nodes                                              | `Deployment` with leader election                 | `StatefulSet` sharded by rack                                                                               |
-| Stands in for | Node registration                                                        | nothing: it does what it does for CPU Nodes       | the device plugin, GFD, NFD, the DRA driver and dcgm-exporter                                               |
+|               | Node source                                                                             | Control plane                                     | [KWOK data plane](#kwok-data-plane)                                                                         |
+|---------------|-----------------------------------------------------------------------------------------|---------------------------------------------------|-------------------------------------------------------------------------------------------------------------|
+| Owns          | the machine                                                                             | rack slots and shards                             | what the Node's daemons would publish                                                                       |
+| Writes        | the Node: name, taints, CPU, memory and pod capacity, Mokka's two labels                | `nodeRef`, the Node projection, rack shard labels | `nvidia.com/gpu` capacity, GFD and NFD labels, ResourceSlices, GPU allocation on Pods, NodeResourceTopology |
+| Serves        | nothing                                                                                 | runtime views                                     | DCGM metrics                                                                                                |
+| Load follows  | the test                                                                                | inventories, Nodes and shard Leases               | Pods, scrapes and runtime views                                                                             |
+| Runs as       | anything that creates Nodes, such as the optional [KWOK provisioner](#kwok-provisioner) | `Deployment` with leader election                 | `StatefulSet` sharded by rack                                                                               |
+| Stands in for | Node registration                                                                       | nothing: it does what it does for CPU Nodes       | the device plugin, GFD, NFD, the DRA driver and dcgm-exporter                                               |
 
 The split follows load and ownership:
 
 - **Load.** The control plane's work follows inventories, Node registrations and shard membership, which change rarely, so one leader is enough. The data plane's work grows with the test: the GPUs of every bound Node, an allocation and a NodeResourceTopology update for every GPU Pod, and 216,000 metric series for the example inventory's 72,000 GPUs. It scales by sharding racks across replicas.
 - **Ownership.** Per-Node state needs one writer per Node, not one for the whole cluster. Sharding gives each Node exactly one owning replica, as a real cluster runs one set of daemons per Node, so only cluster-wide decisions need the control plane leader.
 - **Failures.** A Pod burst or a slow scrape can't stall binding, and a control plane failover doesn't interrupt allocation or metrics.
+- **Sources.** Node creation stays out of the control plane, even when Mokka does it. The control plane binds a provisioned Node exactly as it binds one from `kwokctl`, so binding never depends on who created a Node.
 - **Future surfaces.** GPU health, MIG reconfiguration, ComputeDomain readiness and InfiniBand counters all change while a Node runs, so they'll join the data plane instead of adding components.
 
 #### KWOK Nodes
 
-Mokka uses KWOK Nodes whoever creates them: `kwokctl scale` with a Node template, a CI harness's own manifests, as FGO's users write them today, or an autoscaler's KWOK provider. The docs give a Node template and a `kwokctl` command. A Node joins with two labels next to the ones its rack group selects:
+Mokka uses KWOK Nodes whoever creates them: `kwokctl scale` with a Node template, a CI harness's own manifests, as FGO's users write them today, [an autoscaler's KWOK provider](https://github.com/kubernetes-sigs/karpenter/tree/main/kwok), or, for groups with `node.source: Mokka`, the [KWOK provisioner](#kwok-provisioner). The docs give a Node template and a `kwokctl` command for the other sources. A Node joins with two labels next to the ones its rack group selects:
 
 ```yaml
 apiVersion: v1
@@ -430,46 +404,117 @@ status:
     pods: "250"
 ```
 
-The source owns the Node: its name, taints, and CPU, memory and pod capacity. Mokka never changes or deletes them. Once the control plane binds the Node to a rack slot, two components add to it:
+The source owns the Node: its name, taints, and CPU, memory and pod capacity. The control plane and the data plane never change or delete them. Once the control plane binds the Node to a rack slot, two components add to it:
 
 - the control plane projects the binding, exactly as on a CPU Node: `mokka.nvidia.com/sgpu-assigned`, `nvidia.com/gpu.clique` and the `mokka.nvidia.com/sgpu-assignment` annotation;
 - the [KWOK data plane](#kwok-data-plane) publishes the GPUs: `nvidia.com/gpu` in capacity and allocatable, GFD and NFD labels, and a ResourceSlice ([Publishing the GPUs](#publishing-the-gpus)).
 
 The control plane binds KWOK Nodes as it binds CPU Nodes: valid bindings stay, and new Nodes are ordered by creation time, name and UID and fill free slots in rack and index order. A Node's name says nothing about its slot, so tests find the Node bound to a slot through the rack's `nodeRef`. Nodes beyond the group's capacity stay pending without GPUs, and the inventory reports them as `pendingNodes`. When a binding goes away, the Node loses its GPUs and stays with its source. When a source deletes a bound Node, the control plane releases its slot, and the next pending Node takes it.
 
+#### KWOK Provisioner
+
+We will introduce an optional component, the KWOK provisioner, as a `Deployment` named `mokka-kwok-provisioner`. It creates the Nodes of the KWOK rack groups that set `node.source: Mokka`, as Cluster API or a cloud's node groups create the machines of a real cluster. It's a Node source like any other: it writes only Nodes, the control plane binds them as it binds Nodes from `kwokctl`, and the [KWOK data plane](#kwok-data-plane) publishes their GPUs.
+
+```yaml
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SGPUInventory
+metadata:
+  name: load-test
+spec:
+  rackGroups:
+    - id: scale
+      node:
+        type: KWOK
+        source: Mokka # External, the default, uses Nodes others create
+        template: # only with source: Mokka
+          labels:
+            topology.kubernetes.io/zone: zone-a
+          taints:
+            - key: kwok.x-k8s.io/node # keeps regular pods off the virtual Nodes
+              value: fake
+              effect: NoSchedule
+          maxPods: 250 # the pod capacity a kubelet would report
+      count: 100
+      profileRef:
+        name: gb300-nvl72
+
+      placement:
+        nodeSelector:
+          matchLabels:
+            run.ai/simulated-gpu-node-pool: scale # the provisioner puts these on its Nodes
+```
+
+A group opts in because its slot count means something different for each source. For Nodes from elsewhere, it's a ceiling: the group binds up to that many. For the provisioner, it's a target. Free slots alone can't tell a harness that hasn't created its Nodes yet from one that never will.
+
+For each such group, the provisioner keeps as many Nodes as the group has slots, `status.rackGroups[].capacity.nodes`, so it follows the racks the control plane materialized instead of computing them. Its Nodes look like this:
+
+```yaml
+apiVersion: v1
+kind: Node
+metadata:
+  name: load-test-scale-x7k2p # <inventory>-<rack group>-<random suffix>
+  annotations:
+    kwok.x-k8s.io/node: fake # matched by KWOK's default annotation selector
+  labels:
+    app.kubernetes.io/managed-by: mokka-kwok-provisioner
+    mokka.nvidia.com/inventory: load-test # the group the Node was made for, not a slot
+    mokka.nvidia.com/rack-group: scale
+    mokka.nvidia.com/sgpu-node: "true"
+    mokka.nvidia.com/node-type: KWOK
+    run.ai/simulated-gpu-node-pool: scale # from the group's placement
+    topology.kubernetes.io/zone: zone-a # from node.template
+    nvidia.com/gpu.deploy.operands: "false"
+    kubernetes.io/hostname: load-test-scale-x7k2p
+    kubernetes.io/os: linux
+    kubernetes.io/arch: arm64 # from the profile's node.host.cpu.architecture
+  ownerReferences:
+    - apiVersion: mokka.nvidia.com/v1alpha1
+      kind: SGPUInventory
+      name: load-test
+      uid: <inventory UID>
+      blockOwnerDeletion: false
+spec:
+  taints: # from node.template
+    - key: kwok.x-k8s.io/node
+      value: fake
+      effect: NoSchedule
+status:
+  capacity:
+    cpu: "144" # from the profile's node.host.cpu.cores
+    memory: 960Gi # from the profile's node.host.memory.capacity
+    pods: "250" # from node.template.maxPods
+  allocatable:
+    cpu: "144"
+    memory: 960Gi
+    pods: "250"
+  nodeInfo:
+    architecture: arm64
+    operatingSystem: linux
+    kubeletVersion: fake
+```
+
+- **Counting.** It counts the Nodes it made for a group by their labels and owner, and creates more until there are as many as the group has slots. Nodes from other sources that match the same placement compete for the slots and show up as `pendingNodes`, as usual.
+- **Names.** A Node's name is the inventory, the group and a random suffix. The provisioner picks the suffix itself instead of using `generateName`, so `kubernetes.io/hostname` carries the name from the start. If the name is taken, it picks another. Names never point at a slot: the control plane picks the slot and can later bind the Node elsewhere.
+- **Nothing about slots or GPUs.** It never writes `nodeRef`, a projection key or a GPU key. Those come from the control plane and the data plane, as on any other KWOK Node.
+- **Shape.** CPU, memory and architecture come from the profile's `node.host`, and pod capacity from `node.template.maxPods`, since there's no kubelet to report it. A group whose profile has no host CPU cores or memory gets no Nodes, and the provisioner reports why as an Event on the inventory.
+- **Replacement.** When a Node it created is deleted, it creates another, as a cloud's node group replaces a terminated instance, and the control plane binds the new Node to the free slot. A test that needs a host gone for good cordons it or marks it NotReady with a KWOK `Stage` instead.
+- **Changes.** The provisioner never updates a Node after creating it, so tests can change its labels, taints and conditions. A template change applies to Nodes created after it, and deleting a Node replaces it with one from the current template.
+- **Scale-down.** When a group has fewer slots, it deletes surplus Nodes that aren't bound, those without `mokka.nvidia.com/sgpu-assigned`, and waits for the control plane to release the rest. It deletes every Node of a group that leaves the inventory. When the inventory itself is deleted, the garbage collector deletes its Nodes through their owner reference.
+
+The CRD validation adds these rules for groups with `node.source: Mokka`:
+
+- `placement.nodeSelector` uses `matchLabels` only, so the provisioner can put those labels on its Nodes.
+- `node.template.labels` can't set a key that `placement` sets, or keys under `mokka.nvidia.com/`, `nvidia.com/` or `feature.node.kubernetes.io/`, which Mokka writes.
+- `node.template.maxPods` is at least 1 and defaults to 110, the kubelet's default.
+- The inventory name and the group ID have at most 56 characters together, so a Node name fits the 63-character limit of the `kubernetes.io/hostname` label.
+
+The provisioner runs one active replica under leader election and creates Nodes at a rate the Helm chart sets. It watches `SGPUInventory` and `SGPURackProfile` objects and the metadata of the Nodes it created. It reads no racks, shard Leases or runtime views.
+
 #### KWOK Data Plane
 
 We will introduce a new component, the KWOK data plane, as an optional `StatefulSet` named `mokka-kwok-data-plane`. It stands in for the daemons of a GPU Node for as long as a KWOK Node is bound: it publishes the Node's GPUs, allocates them to the Pods bound to the Node, keeps the Node's NodeResourceTopology current, and serves DCGM metrics for them. It takes over FGO's KWOK plugins: `kwok-gpu-device-plugin`, `nvidia-dcgm-exporter-kwok` and `kwok-dra-plugin`. Each replica serves the racks the control plane assigns to it, as [Sharding](#sharding) describes.
 
-```mermaid
-flowchart LR
-    cp["Control plane"]
-
-    subgraph api["Kubernetes API"]
-        racks["SGPURacks labeled<br/>with this replica"]
-        nodes["Their bound KWOK Nodes"]
-        slices["ResourceSlices"]
-        pods["Pods on those Nodes"]
-        nrt["NodeResourceTopology"]
-        lease["This replica's shard Lease"]
-    end
-
-    dp["mokka-kwok-data-plane<br/>one replica"]
-    svc["Service mokka-kwok-dcgm-exporter<br/>port 9400"]
-    prom["Prometheus"]
-    runai["Run:ai cluster operator"]
-
-    dp -->|"watches"| racks
-    dp -->|"GPU capacity,<br/>GFD and NFD labels"| nodes
-    dp -->|"one per Node"| slices
-    dp -->|"allocates GPUs,<br/>records them on the Pod"| pods
-    dp -->|"keeps availability current"| nrt
-    dp -->|"renews"| lease
-    dp -->|"fetches runtime views<br/>on generation bump"| cp
-    svc -->|"routes to"| dp
-    prom -->|"scrapes each replica"| dp
-    runai -->|"checks /metrics"| svc
-```
+![KWOK Data Plane](./img/kwok-data-plane.svg)
 
 ##### Publishing the GPUs
 
@@ -610,9 +655,13 @@ The data plane computes values when it's scraped, at most once per 10-second ste
 
 #### Sharding
 
+KWOK virtual nodes are cheap. We can have a gigantic number of KWOK nodes to care about, much more than a typical, real Kubernetes CPU cluster can afford. KWOK data plane needs to emit K8s resources and then metrics for every single sGPU node it owns. So we need a way to distibute that ownership load across multiple KWOK Data Plane replicas. We propose to use sharding here.
+
 Each rack has exactly one owning data plane replica, so the data plane needs no leader election even though it writes. The rack is the shard unit because it's also the unit of the runtime fetch and the delivery generation, so everything about a rack stays in one replica. With eight replicas, each owns 2,250 Nodes and 9,000 GPUs of the example inventory and serves 27,000 series.
 
-Which replica owns a rack is an assignment, so the control plane makes it, as it assigns Nodes to slots. It labels each KWOK rack with its owner, `mokka.nvidia.com/kwok-shard: mokka-kwok-data-plane-2`, and each replica watches only the racks labeled with its own name. The control plane learns which replicas exist from their shard Leases rather than from a replica count, so an autoscaler can change the count without telling it. This is the pattern of [kubernetes-controller-sharding](https://github.com/timebertt/kubernetes-controller-sharding).
+Which replica owns a rack is an assignment, so the control plane makes it, as it assigns Nodes to slots. It labels each KWOK rack with its owner, `mokka.nvidia.com/kwok-shard: mokka-kwok-data-plane-2`, and each replica watches only the racks labeled with its own name. The control plane learns which replicas exist from their shard Leases rather than from a replica count, so an autoscaler can change the count without telling it. A similar idea is employed by [kubernetes-controller-sharding](https://github.com/timebertt/kubernetes-controller-sharding).
+
+![Sharding](./img/kwok-sharding.svg)
 
 ##### Shard Leases
 
@@ -695,19 +744,21 @@ The scheme accepts three limits:
 
 Each service lists and watches only the objects it needs, and the API server applies the selectors, so little else reaches the service's cache. The KWOK data plane's Pod watch is the exception: a field selector matches one Node name, not a set. The control plane's first two filters exist today; the rest are new:
 
-| Service         | Resource                                       | Server-side selector                          | Result                                                    |
-|-----------------|------------------------------------------------|-----------------------------------------------|-----------------------------------------------------------|
-| Control plane   | `SGPUInventory`, `SGPURackProfile`, `SGPURack` | none                                          | creates and retires every rack                            |
-| Control plane   | `Node`                                         | `mokka.nvidia.com/sgpu-node=true`             | receives every Node that asks for a slot, CPU or KWOK     |
-| Control plane   | `Lease`                                        | `mokka.nvidia.com/shard-ring=kwok-data-plane` | the data plane's shard Leases                             |
-| KWOK data plane | `SGPURack`                                     | `mokka.nvidia.com/kwok-shard=<its Pod name>`  | only the racks it owns                                    |
-| KWOK data plane | `SGPURackProfile`                              | none                                          | a handful of small objects                                |
-| KWOK data plane | `Pod`                                          | `spec.nodeName!=`                             | receives every bound Pod, keeps those on its racks' Nodes |
-| KWOK data plane | `ResourceClaim`                                | none                                          | keeps the claims allocated on its racks' Nodes            |
-| KWOK data plane | `StatefulSet`                                  | `metadata.name=mokka-kwok-data-plane`         | its replica count, read when it shuts down                |
+| Service          | Resource                                       | Server-side selector                                  | Result                                                              |
+|------------------|------------------------------------------------|-------------------------------------------------------|---------------------------------------------------------------------|
+| Control plane    | `SGPUInventory`, `SGPURackProfile`, `SGPURack` | none                                                  | creates and retires every rack                                      |
+| Control plane    | `Node`                                         | `mokka.nvidia.com/sgpu-node=true`                     | receives every Node that asks for a slot, CPU or KWOK               |
+| Control plane    | `Lease`                                        | `mokka.nvidia.com/shard-ring=kwok-data-plane`         | the data plane's shard Leases                                       |
+| KWOK provisioner | `SGPUInventory`, `SGPURackProfile`             | none                                                  | groups with `node.source: Mokka`, their slot counts and host values |
+| KWOK provisioner | `Node`, metadata only                          | `app.kubernetes.io/managed-by=mokka-kwok-provisioner` | only the Nodes it created                                           |
+| KWOK data plane  | `SGPURack`                                     | `mokka.nvidia.com/kwok-shard=<its Pod name>`          | only the racks it owns                                              |
+| KWOK data plane  | `SGPURackProfile`                              | none                                                  | a handful of small objects                                          |
+| KWOK data plane  | `Pod`                                          | `spec.nodeName!=`                                     | receives every bound Pod, keeps those on its racks' Nodes           |
+| KWOK data plane  | `ResourceClaim`                                | none                                                  | keeps the claims allocated on its racks' Nodes                      |
+| KWOK data plane  | `StatefulSet`                                  | `metadata.name=mokka-kwok-data-plane`                 | its replica count, read when it shuts down                          |
 
-- **The node type picks the path.** `spec.nodeType` is the source of truth. A KWOK group's compiled placement selector requires `mokka.nvidia.com/node-type=KWOK`, and a CPU group's excludes it, which unlabeled CPU Nodes still match. A Node with KWOK's `kwok.x-k8s.io/node` annotation also counts as a KWOK Node, so a source that forgets the label can't put a virtual Node in a CPU group.
-- **Each field has one writer.** The Node source writes the Node. The control plane writes `SGPURack`, including its status and shard label, and the Node projection. The KWOK data plane writes the GPUs on its Nodes, their ResourceSlices, the GPU allocation on Pods, the NodeResourceTopology of its Nodes, and its own shard Lease. Server-side apply field managers keep the writers of a Node's fields apart.
+- **The node type picks the path.** The group's `node.type`, copied into each rack's `spec.nodeType`, is the source of truth. A KWOK group's compiled placement selector requires `mokka.nvidia.com/node-type=KWOK`, and a CPU group's excludes it, which unlabeled CPU Nodes still match. A Node with KWOK's `kwok.x-k8s.io/node` annotation also counts as a KWOK Node, so a source that forgets the label can't put a virtual Node in a CPU group.
+- **Each field has one writer.** The Node source writes the Node, and for groups with `node.source: Mokka` that's the KWOK provisioner. The control plane writes `SGPURack`, including its status and shard label, and the Node projection. The KWOK data plane writes the GPUs on its Nodes, their ResourceSlices, the GPU allocation on Pods, the NodeResourceTopology of its Nodes, and its own shard Lease. Server-side apply field managers keep the writers of a Node's fields apart.
 - **KWOK groups use placement like CPU groups.** They go through allocation, Node event routing and usage reporting, so the inventory reports bound, pending and available KWOK Nodes. They count towards capacity and the rack group limit.
 - **The node daemon stays off KWOK Nodes.** Its DaemonSet tolerates every taint, so the chart adds the node affinity `mokka.nvidia.com/node-type NotIn [KWOK]`, which unlabeled CPU nodes still match.
 
@@ -730,9 +781,10 @@ so cluster admins don't need to install all CRDs just to try out KWOK integratio
 
 The KWOK functionality in Mokka should be disabled by default.
 The Mokka Helm chart will get a new flag, `kwok.enabled`, that decides whether to deploy the [KWOK data plane](#kwok-data-plane) and lets the control plane watch shard Leases. `kwok.dataPlane.replicas` sets its starting number of [shards](#sharding), which an autoscaler can change later. `kwok.dataPlane.metrics.enabled: false` turns the DCGM metrics off for tests that don't need them, and `kwok.dataPlane.serviceMonitor.enabled` adds a Prometheus Operator `ServiceMonitor` for them.
+`kwok.provisioner.enabled` also deploys the [KWOK provisioner](#kwok-provisioner), which groups with `node.source: Mokka` need. Without it, such a group gets no Nodes, and its status shows free slots and no requested Nodes.
 
 Cluster admins are expected to install KWOK before enabling Mokka's KWOK functionality, and the docs will say so.
-The KWOK chart won't be included in the Mokka Helm chart. The docs also give a KWOK Node template with Mokka's two labels and a `kwokctl` command that creates Nodes from it.
+The KWOK chart won't be included in the Mokka Helm chart. The docs also give a KWOK Node template with Mokka's two labels and a `kwokctl` command that creates Nodes from it, for groups whose Nodes come from elsewhere.
 
 #### KAI Use Cases
 
@@ -749,9 +801,13 @@ The KWOK chart won't be included in the Mokka Helm chart. The docs also give a K
 
 - **Components need wider permissions.** The [data plane](#kwok-data-plane) needs permission to patch any Pod to record its GPU allocation, and to patch Nodes, Node status and ResourceSlices to publish their GPUs. The control plane needs to watch Leases in its namespace.
 - **The data plane can write any Lease in its namespace.** RBAC can't restrict `create` by object name, so the permission behind shard Leases also covers the control plane's leader-election Lease. A namespace of their own for shard Leases removes that, at the cost of the owner reference to the StatefulSet.
+- **The provisioner can delete any Node.** It needs permission to create and delete Nodes, and RBAC can't limit `delete` to Nodes with a label, so only its code keeps it to the Nodes it created. It's off by default, and on Kubernetes 1.30 and later a ValidatingAdmissionPolicy can enforce the limit.
 
 ## Alternatives
 
-- **Mokka creates a Node for each rack slot.** A KWOK provisioner could create one Node per slot, named by the slot's coordinates, such as `dev-ci-0-0`, and owned by the rack, and the control plane could bind each slot to the Node made for it. Names would point at slots, and the garbage collector would delete a rack's Nodes with it. But the control plane would only ever bind Nodes Mokka built, and harnesses that create their own KWOK Nodes for FGO couldn't move over.
+- **The provisioner creates a Node for each rack slot.** It could name each Node by its slot's coordinates, such as `dev-ci-0-0`, make the rack its owner, and have the control plane bind each slot to the Node made for it. Names would point at slots, and the garbage collector would delete a rack's Nodes with it. But the control plane would need a second way to bind, one for Mokka's Nodes and one for everyone else's, and tests on Mokka's Nodes would no longer cover the path that harness Nodes take.
+- **The provisioner fills every KWOK group's free slots.** No group would need `node.source`. But free slots look the same whether a harness hasn't created its Nodes yet or never will, so a harness that brings 100 Nodes to a 1,000-rack group would get 17,900 more.
+- **A third node type.** A value such as `node.type: KWOKProvisioned` could replace `node.source`. But every component that reads the node type, from the selector compiler to the data plane and the node daemon's affinity, would have to learn a value that means nothing to it.
+- **The control plane creates the Nodes.** A controller in the control plane could share its Node cache. But the control plane would need permission to create and delete Nodes, and the code that binds Nodes would sit next to code that knows which Nodes Mokka created, which makes it easy to bind those differently.
 - **Replicas pick their own racks.** Each data plane replica could hash rack UIDs against its ordinal and the StatefulSet's `spec.replicas`, as kube-state-metrics does. Nothing in the API would show which replica serves a rack, `spec.replicas` counts Pods that aren't serving yet or are already leaving, and replicas that see a new count at different moments can leave a rack with two owners or none.
 - **The control plane publishes the GPUs.** It could write `nvidia.com/gpu`, GFD and NFD labels and ResourceSlices with the projection. But on a CPU Node they come from daemons on the Node, part of them follows runtime state such as GPU health, and every write would go through the single control plane leader, which would also need the DRA API.
