@@ -1,7 +1,7 @@
 # mokka-capture
 
-Captures a real GPU node, scrubs the capture so it can be committed, and
-compares it with what Mokka serves. It runs on your machine and reaches the
+Captures a real GPU node, scrubs the capture so it can be committed, writes a
+mock profile from it, and compares it with what Mokka serves. It runs on your machine and reaches the
 nodes through `kubectl`. The procedure is in
 [Capturing a real node](../contributing/capturing-a-real-node.md).
 
@@ -13,6 +13,7 @@ go build -o bin/mokka-capture ./cmd/mokka-capture
 | --- | --- |
 | [`collect`](#collect) | Captures nodes and the cluster through `kubectl` |
 | [`scrub`](#scrub) | Replaces identifiers in a capture, or checks that none are left |
+| [`profile`](#profile) | Writes a mock NVML profile from a scrubbed capture |
 | [`diff smi`](#diff-smi) | Compares two `nvidia-smi -q -x` documents |
 | [`diff nvml`](#diff-nvml) | Compares two NVML recordings |
 | [`dump`](#dump) | Records the NVML library on the loader path; `collect` runs it in the driver container |
@@ -27,7 +28,7 @@ mokka-capture collect [flags] build-dump
 
 | Command | Runs | Takes |
 | --- | --- | --- |
-| `driver <node>...` | in the GPU Operator driver container | `nvidia-smi`, the NVML dump, `/proc/driver/nvidia` |
+| `driver <node>...` | in the GPU Operator driver container, or with `-mock` a stand-in pod | `nvidia-smi`, the NVML dump, `/proc/driver/nvidia` |
 | `host <node>...` | in a temporary privileged pod | PCI, NUMA, device files, NICs, CDI specs |
 | `network <node>...` | in the same pod | only the NIC, interface and RDMA surfaces, plus the cluster's network objects |
 | `cluster` | on your machine | node labels, ResourceSlices, `ClusterPolicy`, DCGM metrics |
@@ -54,9 +55,46 @@ the file given with `-dump-binary` into the driver container, runs
 `mokka-capture dump` there, and removes it. Without `-dump-binary` the dump is
 skipped.
 
+### A Mokka node
+
+`-mock` captures a Mokka node the same way, so the result can be compared with
+a real capture using [`diff smi`](#diff-smi) and [`diff nvml`](#diff-nvml):
+
+```bash
+mokka-capture collect -mock -dump-binary <linux binary> -out mock all <node>
+mokka-capture diff smi real/<node>/smi-q.xml mock/<node>/smi-q.xml
+```
+
+Two things differ from a real node, and `-mock` handles both:
+
+- **No driver container.** Mokka's GPU Operator mode runs no driver, so
+  `driver` finds no driver pod. With `-mock`, `collect` starts a stand-in pod,
+  `capture-driver-<node>-<pid>`, and runs the driver commands there. It has the
+  host pod's spec (privileged, host PID namespace), installs nothing, and is
+  deleted like the host pod.
+- **The mock is opt-in.** The mock NVML library, `nvidia-smi`,
+  `/proc/driver/nvidia`, the GPUs in PCI sysfs and the InfiniBand devices reach
+  a container only when Mokka's NRI plugin injects them, which it does for
+  containers that ask with its annotations. With `-mock`, the stand-in and the
+  host pod carry `nvml-mock.nvidia.com/devices`, `nvml-mock.nvidia.com/infiniband`
+  and `nvml-mock.nvidia.com/imex-channels` set to `"true"`. Without them, the
+  host pod sees the Kind node underneath, with no GPUs.
+
+The MIG table is staged elsewhere too. Mokka writes `mig-minors` under its
+driver root (`/opt/nvml-mock/driver/proc/driver/nvidia-caps/` in the stand-in),
+where nvidia-container-toolkit reads it, and leaves `/proc/driver/nvidia-caps`
+alone, so with `-mock` the `proc-*-minors.txt` files are read from there.
+
+Four files come out empty for reasons outside the mock. The mock's library and
+`nvidia-smi` live under `/opt/nvml-mock`, so `lib-listing.txt` and
+`bin-listing.txt` find nothing. The stand-in's image has no `nm` or `modinfo`, so
+`nvml-symbols.txt` and `modinfo-nvidia.txt` are empty too. Any other empty file
+is a gap in the mock.
+
 | Flag | Default | Description |
 | --- | --- | --- |
 | `-out` | `./capture` | Output directory |
+| `-mock` | off | The nodes are Mokka nodes: run the driver commands in a stand-in pod and opt both pods into the mock |
 | `-dump-binary` | none | Linux `mokka-capture` to run `dump` with in the driver container |
 | `-operator-namespace` | `gpu-operator` | GPU Operator namespace |
 | `-driver-container` | `nvidia-driver-ctr` | Driver container name |
@@ -145,6 +183,119 @@ element still holds a value that is neither absent nor one of the placeholders
 the [hardware captures](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/go/assertions/nvidiasmi/testdata/hardware/README.md)
 use. It applies the same patterns as `TestHardwareCapturesAreScrubbed`.
 
+## profile
+
+```bash
+mokka-capture profile [-o file] [-base profile] [-explain] <capture node directory>
+```
+
+Writes a mock NVML profile from one node of a committed capture, such as
+`tests/hardware-captures/vr-nvl72/node-a`, so a profile is regenerated from
+evidence instead of typed. The format is that of
+`pkg/gpu/mocknvml/configs/mock-nvml-config-<name>.yaml`; the fields are in
+[Configuration](../configuration.md).
+
+Every value the profile gets carries a comment naming where it came from, so
+the profile can be checked against the capture line by line:
+
+```yaml
+inforom:
+  ecc_object: "7.16"              # GetInforomVersion(1)
+  # pwr_object: left out, GetInforomVersion(2) = ERROR_NOT_SUPPORTED
+memory:
+  total_bytes: 300442189824       # GetMemoryInfo_v2.Total
+pci:
+  device_id: 0x304110DE           # GetPciInfo.PciDeviceId = 809570526
+thermal:
+  temperature_gpu_c: 34           # GetTemperature(0) on GPU 0, idle reading; GPUs read 34 33 33 34
+  max_operating_c: 90             # tlimit.reference_c - tlimit.slowdown_c = 88 - (-2); GetTemperatureThreshold(3) reads 90 on every GPU
+  tlimit:
+    reference_c: 88               # GetTemperatureThreshold(1) on GPU 0
+    slowdown_c: -2                # GetFieldValues(id=194) on GPU 0
+```
+
+A name such as `GetClockInfo(1)` is the dump's entry for that getter called with
+argument `1`; `.Field` is a field of its answer and `[n]` an element. When the
+comment shows `= value`, the capture's raw answer differs from what the profile
+key takes, for example an enum (`GetBrand = 14` is `"nvidia"`). A key the driver
+does not answer is left out, with a comment giving the return code.
+
+### Where each value comes from
+
+The mapping is one file, `internal/capture/profile/rules.go`. Each line names a
+profile key and its source; the verb says how GPUs that disagree are handled:
+
+| Kind | Examples | Value written |
+| --- | --- | --- |
+| Property of the board | limits, maximum clocks, PCI IDs, ECC mode, MIG table | From the capture. Once in `device_defaults` when every GPU agrees, otherwise under each `devices[]` entry. The engine replaces a `devices[]` block such as `memory` or `power` whole, so that block repeats the values the GPUs share. GPUs that disagree on a key the engine reads only from `device_defaults`, such as `pcie`, stop the generator |
+| Derived | thermal thresholds, the largest MIG instance count | Computed from several capture values; the comment shows the working on each GPU |
+| Reading | temperature, power draw, current clocks and PCIe link, utilisation, and counts of faults: ECC and SRAM errors, PCIe replays, retired pages, remapped rows | The capture's idle reading, never `-base`'s: GPU 0's for the temperature, the lower median for the rest when GPUs differ, so one faulty GPU neither stops the generator nor gives the mock its errors |
+| Rest of a total | free memory, free BAR1 | The total less the reserved and used values written, so they add up; the comment gives the capture's reading beside it. Worked out per GPU: on a GPU that reserves more than its siblings, a used reading it has no room for is lowered to what it has |
+| Identifier | UUID, serial, chassis serial, fabric cluster UUID | From `-base`; otherwise the placeholder the scrubbed capture holds |
+| Host CPU | `cpu` | Written only when the GPUs reach the CPU over NVLink-C2C, so the CPU is part of the board: the family and cores per socket from `host-lscpu.txt`, `memory_gb` from the first NUMA node with CPUs in `host-numactl.txt`, as other values are GPU 0's |
+| Not in a capture | `features`, `dynamic_metrics`, NVSwitches, NIC GUID prefix | From `-base`; otherwise left out with a comment |
+
+The NVML dump supplies most values. The other files fill what it cannot record:
+
+| File | Gives |
+| --- | --- |
+| `smi-q.xml` | the supported clock table (the getters take a buffer size), NVLink-C2C, target temperature |
+| `smi-nvlink-s.txt` | per-link NVLink bandwidth |
+| `smi-mig-lgip.txt`, `smi-mig-lgipp.txt` | MIG profile names and placements |
+| `host-dmi.txt` | the system product name |
+| `host-lscpu.txt`, `host-numactl.txt` | the CPU block |
+| `host-ib-sysfs.txt`, `host-ibstat.txt` | the NIC block |
+| `rdma-sysfs.txt`, `pci-nic-functions.txt` | each RDMA device's PCI function, and which functions are SR-IOV virtual functions |
+| `host-pci-hierarchy.txt`, `host-pci-nvidia.txt` | PCIe root complexes and each GPU's NUMA node |
+
+The thermal values are GPU 0's readings, so they add up in the mock. The
+T.Limit view is read, and the absolute thresholds follow from it:
+
+| Key | Value |
+| --- | --- |
+| `tlimit.reference_c` | `GetTemperatureThreshold(1)`, the driver's SLOWDOWN threshold |
+| `tlimit.shutdown_c`, `slowdown_c`, `max_operating_c` | T.Limit fields 193, 194 and 196 |
+| `shutdown_threshold_c` | `tlimit.reference_c - tlimit.shutdown_c` |
+| `slowdown_threshold_c` | `tlimit.reference_c` |
+| `max_operating_c` | `tlimit.reference_c - tlimit.slowdown_c` |
+| `temperature_gpu_c` | `GetTemperature(0)` |
+
+The mock answers `GetMarginTemperature` as `tlimit.reference_c` minus the
+temperature, and a note under `tlimit` compares that with GPU 0's reading. On
+the captured tray the two differ by a degree: the driver's temperature plus
+margin does not come to its own reference. The pairing is the driver's: it
+answers SLOWDOWN with the T.Limit reference, where field 196 reads 0, and
+GPU_MAX with the hardware-slowdown point. Each threshold's comment also gives
+the driver's `GetTemperatureThreshold` answer for comparison. A board without
+the T.Limit fields keeps the driver's thresholds.
+
+A few keys follow the profile's meaning rather than NVML's encoding:
+`nvlink.version` is the NVLink generation (NVML reports its enum, `8` for
+NVLink 6.0), `power.supported_power_mizer_modes` names the modes set in
+`GetPowerMizerMode_v1`'s mask (`7` is `adaptive`, `prefer_maximum_performance`
+and `auto`), and a profile models one NIC type, so the NIC block describes the
+type most devices are and its comment lists the rest. Only physical functions
+count: an SR-IOV virtual function, which sysfs links to its parent with
+`physfn`, is a slice of a NIC already counted. Two types tied for the most
+devices stop the generator rather than one being picked by name, and so does a
+tie in any other NIC value. With MIG disabled, the
+capture lists no compute instance profiles; each MIG table row assumes one
+compute instance spanning its GPU instance.
+
+### Output
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-o` | stdout | Write the profile to this file and the MIG table beside it as `<name>.mig.yaml`, where the mock looks for it. When the capture has no MIG table, a `<name>.mig.yaml` an earlier run left is removed. Without `-o` only the profile is written |
+| `-base` | none | Profile of the same GPU to take identifiers and mock-only blocks from. A base whose `device_defaults.pci.device_id` is not the capture's, or that has none, is refused |
+| `-explain` | off | Print a table of every key with its value, rule, source and each GPU's raw answer, instead of the profile |
+
+The output depends only on the capture and `-base`, so regenerating gives the
+same bytes. `internal/capture/profile/testdata/` holds the profile generated
+from each committed capture; the tests fail when a rule change alters it, check
+that it loads in the mock engine, and check that every key is one the engine
+reads. `go test ./internal/capture/profile -update` rewrites it.
+
 ## diff smi
 
 ```bash
@@ -159,12 +310,32 @@ among its same-named siblings in document order, so the first GPU is
 
 - how many of the real document's paths exist in the mock;
 - how many of those carry the same value;
-- the paths only one side has, and the values that differ.
+- the paths only one side has, and the values that differ;
+- every path whose value is not compared, with both values, so a fidelity
+  score says exactly what it leaves out.
 
-Readings that move with load (temperatures, utilisation, power draw, memory
-used) and identifiers are matched on presence only, since a real node and a mock
-cannot agree on them. `-ignore` replaces that set; `-max` (default `40`) limits
-the entries listed per kind.
+A value that is not a property of the board is not compared, since a mock of
+the captured node cannot be expected to reproduce it:
+
+| Left out | Elements |
+| --- | --- |
+| Readings that move with load | `gpu_temp`, `gpu_temp_tlimit`, `memory_temp`, `utilization`, power draw (`power_draw`, `average_power_draw`, `instant_power_draw`), `power_state`, `performance_state`, the clocks in use (`clocks`, `dla_cur_engine_clock`), `graphics_volt`, `fan_speed`, memory `used` and `free`, clock event reasons and their counters, PCIe `tx_util` and `rx_util`, processes |
+| Readings that move with time | `timestamp`, `time_run`, `inforom_bbx_flush` |
+| Identifiers | `uuid`, `serial`, `pdi`, `gpu_fabric_guid`, `clusterUuid`, `minor_number`, the PCI bus location |
+
+Everything else is compared, including the temperature thresholds and T.Limit
+offsets, `max_clocks` and the supported clocks. An element name is matched
+whole, so `clocks` does not hide `max_clocks`.
+
+Only readings are left out, not the lack of one. When either side answers
+`N/A`, `Not Supported`, `Insufficient Permissions`, `Requested functionality has
+been deprecated` or `Unknown Error`, the two answers are compared like any
+value: a mock that reads a temperature where the real GPU answers `N/A` counts
+as a difference, and `N/A` on both sides counts as a match.
+
+`-ignore` replaces the set with a regexp over paths; `-max` (default `40`)
+limits the entries listed per kind. Pass `-max 100000` to see every value left
+out of the score.
 
 ## diff nvml
 
@@ -177,21 +348,61 @@ Example output:
 ```text
 calls compared:        412
 return code matches:   398 of 412 (96.6%)
-value matches:         301 of 340 (88.5%) (of 412 calls answered SUCCESS on both sides, excluding 72 whose value is load or identity)
+value matches:         301 of 340 (88.5%) (of 412 calls answered SUCCESS on both sides, excluding 72 whose value is a reading or an identifier)
 only on real device:   3
 only on mock device:   0
+
+...
+
+not compared, a reading or an identifier (88):
+  device 0  GetBBXTimeData_v1                        real={"TimeRun":7058642} mock={"TimeRun":45182}
+  device 0  GetMemoryInfo_v2.Free                    real=299103551488 mock=299103158272
+  ...
 ```
 
-Return codes are compared for every call. A value is compared only where both
-sides answered `SUCCESS`; a call both sides answer with the same error counts as
-a return-code match and nothing more. Getters that report load, time or identity
-(temperatures, power draw, utilisation, clocks in use, UUIDs and serials) are
-excluded from the value rate and counted separately. Names are matched whole:
-`GetClockInfo` is excluded and `GetMaxClockInfo` is compared. Override the list
-with `-ignore <regexp>` over whole call names, and the number of mismatches
-shown per kind with `-max <n>`. Devices pair by index, which holds when both
-sides expose the same GPUs in the same order. Gzipped recordings (`.json.gz`)
-are read directly, which is how a committed capture is stored.
+The report lists the calls whose return code differs, the values that differ,
+the calls only one side has, and last, every value left out of the value rate:
+whole answers, and the parts of compared answers that are readings (such as
+`GetMemoryInfo_v2.Free` above). A fidelity score taken from it therefore says
+exactly what it does not cover.
+
+Return codes are compared for every call, so a real and a mock GPU must agree on
+whether each getter is supported. A value is compared only where both sides
+answered `SUCCESS`; a call both sides answer with the same error counts as a
+return-code match and nothing more. A value that is not a property of the board
+is excluded from the value rate and counted separately:
+
+| Left out | Calls |
+| --- | --- |
+| Readings that move with load | temperatures, power draw and energy, utilisation (including `GetDynamicPstatesInfo`), the clocks in use (`GetClockInfo`, `GetClock` with clock ID 0, `GetCurrentClockFreqs`), clock event reasons, fan speed, processes, PCIe and NVLink throughput and error counters, ECC, retired-page and remapped-row counts |
+| Readings that move with time | `GetBBXTimeData` (how long the GPU has run), `GetLastBBXFlushTime`, `GetSamples`, `GetViolationStatus` |
+| What the host decides | `GetCpuAffinity`, `GetCpuAffinityWithinScope`: a Kind node has its own CPUs |
+| Identifiers | UUID, serial, PDI, platform and fabric information |
+
+Names are matched whole: `GetClockInfo` is excluded and `GetMaxClockInfo` is
+compared. Some answers mix readings with values that describe the board; only
+the readings are left out of those:
+
+- `GetMemoryInfo` and `GetMemoryInfo_v2`: `Free` and `Used`. `Total` and the
+  driver's `Reserved` are compared. The same holds for `GetBAR1MemoryInfo` and
+  `GetConfComputeProtectedMemoryUsage`.
+- `GetThermalSettings`: each sensor's `CurrentTemp`.
+- Every answer's `Version`, the struct version the call carries back, which
+  belongs to the API and not to the GPU.
+- `GetFieldValues`: the fields that are counters, energy, power draw or
+  temperatures. The fields that describe the board (ECC mode, NVLink count,
+  speed and version, power limits, T.Limit offsets, capabilities) are compared.
+  Field IDs follow go-nvml's header, which drivers from 580.95 on use; older
+  drivers number the fields from 251 to 273 differently.
+
+`-ignore <regexp>` replaces all of these. It is matched against whole call names
+and against the parts of an answer, named `Call.Field` for a struct field and
+`Call[i]` for an array element, as in `GetMemoryInfo_v2.Free` or
+`GetThermalSettings(0).Sensor[0].CurrentTemp`. `-max <n>` sets the number of
+entries listed per kind (`-max 100000` lists every value left out); a listed
+difference shows only the parts that were compared. Devices pair by index, which holds when both sides expose the same
+GPUs in the same order. Gzipped recordings (`.json.gz`) are read directly, which
+is how a committed capture is stored.
 
 ## dump
 
@@ -236,14 +447,14 @@ the earlier ones (the file is then truncated JSON; the devices written are
 intact). A new field that names an identifier is covered; one that does not is
 not, so a reviewer still reads a dump before it is committed.
 
-To dump the mock, copy the same Linux binary into an nvml-mock pod, where the
-mock library is on the loader path, and run `mokka-capture dump` there.
+To dump the mock, run `collect -mock` with the same `-dump-binary` (see
+[A Mokka node](#a-mokka-node)).
 
 ## Exit codes
 
 | Code | Meaning |
 | --- | --- |
 | `0` | The command completed. `collect` succeeds even when single commands on a node fail; those are in `errors.log` |
-| `1` | The cluster was unreachable, a file could not be read or written, the output directory is not empty, NVML failed to initialise, or `scrub -check` found an identifier |
+| `1` | The cluster was unreachable, a file could not be read or written, the output directory is not empty, NVML failed to initialise, `scrub -check` found an identifier, or `profile` found GPUs that disagree on a key with no per-device form |
 | `2` | Bad usage |
-| `130` | `collect` was interrupted; the host pod is deleted first |
+| `130` | `collect` was interrupted; the pods it started are deleted first |

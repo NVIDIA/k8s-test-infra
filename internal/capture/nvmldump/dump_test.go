@@ -284,7 +284,7 @@ func TestLoadKeepsLargeIntegersExact(t *testing.T) {
 	dir := t.TempDir()
 	write := func(name, mask string) string {
 		p := filepath.Join(dir, name)
-		raw := `{"devices":[{"index":0,"calls":{"GetCpuAffinity":{"ret":"SUCCESS","value":[` + mask + `]}}}]}`
+		raw := `{"devices":[{"index":0,"calls":{"GetSupportedClocksEventReasons":{"ret":"SUCCESS","value":` + mask + `}}}]}`
 		require.NoError(t, os.WriteFile(p, []byte(raw), 0o644))
 		return p
 	}
