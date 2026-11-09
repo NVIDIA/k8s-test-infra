@@ -145,12 +145,7 @@ type part struct {
 	hw, mock any
 }
 
-func runDiff(ignore string, limit int, realPath, mockPath string, stdout, stderr io.Writer) int {
-	re, err := regexp.Compile(ignore)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "-ignore: %v\n", err)
-		return 2
-	}
+func runDiff(ignore *regexp.Regexp, limit int, realPath, mockPath string, stdout, stderr io.Writer) int {
 	hw, err := load(realPath)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
@@ -162,7 +157,7 @@ func runDiff(ignore string, limit int, realPath, mockPath string, stdout, stderr
 		return 1
 	}
 
-	findings := compare(hw, mock, re)
+	findings := compare(hw, mock, ignore)
 	report(stdout, findings, limit)
 	return 0
 }

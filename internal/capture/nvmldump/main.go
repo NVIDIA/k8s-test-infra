@@ -36,6 +36,8 @@ package nvmldump
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 
 	"github.com/urfave/cli/v3"
 
@@ -79,7 +81,11 @@ func DiffCommand() *cli.Command {
 			if err := cmdline.RejectExtraArgs(cmd); err != nil {
 				return err
 			}
-			return cmdline.Exit(runDiff(cmd.String("ignore"), cmd.Int("max"), cmd.StringArg("real.json"), cmd.StringArg("mock.json"),
+			ignore, err := regexp.Compile(cmd.String("ignore"))
+			if err != nil {
+				return cmdline.Usage(cmd, fmt.Sprintf("-ignore: %v", err))
+			}
+			return cmdline.Exit(runDiff(ignore, cmd.Int("max"), cmd.StringArg("real.json"), cmd.StringArg("mock.json"),
 				cmd.Root().Writer, cmd.Root().ErrWriter))
 		},
 	}

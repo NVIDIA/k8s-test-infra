@@ -39,12 +39,17 @@ func TestRunDispatchesAndRejectsUnknownCommands(t *testing.T) {
 		{"diff", "smi", "only-one"},
 		{"diff", "nvml", "only-one"},
 		{"diff", "nvml", "a.json", "b.json", "c.json"},
+		{"diff", "smi", "-ignore", "(", "a.xml", "b.xml"},
 		{"scrub"},
+		{"scrub", "-out", "out", "-replace", "worker-7", "src"},
 		{"profile"},
 		{"dump", "extra"},
 		{"collect"},
 		{"collect", "nope"},
 		{"collect", "-nope", "cluster"},
+		{"collect", "driver"},
+		{"help", "nope"},
+		{"collect", "help", "nope"},
 	} {
 		var stdout, stderr bytes.Buffer
 		require.Equal(t, 2, run(args, &stdout, &stderr), args)

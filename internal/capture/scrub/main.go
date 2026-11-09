@@ -711,26 +711,33 @@ func Command() *cli.Command {
 			if opts.out == "" {
 				return cmdline.Usage(cmd, "-out is required unless -check is given")
 			}
-			return cmdline.Exit(run(opts, srcs, stderr))
+			reps, err := replacements(opts.replaces)
+			if err != nil {
+				return cmdline.Usage(cmd, err.Error())
+			}
+			return cmdline.Exit(run(opts, reps, srcs, stderr))
 		},
 	}
 }
 
+// replacements splits each -replace value into its old and new halves.
+func replacements(values []string) ([][2]string, error) {
+	var reps [][2]string
+	for _, r := range values {
+		i := strings.Index(r, "=")
+		if i <= 0 {
+			return nil, fmt.Errorf("-replace %q: want old=new", r)
+		}
+		reps = append(reps, [2]string{r[:i], r[i+1:]})
+	}
+	return reps, nil
+}
+
 //nolint:cyclop // the walk over the capture, in the order it runs
-func run(opts options, srcs []string, stderr io.Writer) int {
+func run(opts options, reps [][2]string, srcs []string, stderr io.Writer) int {
 	out, excludes := opts.out, opts.excludes
 	if len(excludes) == 0 {
 		excludes = []string{"errors.log", "*.so", "*.so.*"}
-	}
-
-	var reps [][2]string
-	for _, r := range opts.replaces {
-		i := strings.Index(r, "=")
-		if i <= 0 {
-			_, _ = fmt.Fprintf(stderr, "-replace %q: want old=new\n", r)
-			return 2
-		}
-		reps = append(reps, [2]string{r[:i], r[i+1:]})
 	}
 
 	if src := sourceHolding(out, srcs); src != "" {

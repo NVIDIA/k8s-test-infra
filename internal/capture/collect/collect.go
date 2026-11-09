@@ -96,7 +96,12 @@ func newCommand(kubectl string) *cli.Command {
 			Name:      name,
 			Usage:     usage,
 			Arguments: []cli.Argument{&cli.StringArgs{Name: "node", UsageText: "node [node ...]", Max: -1}},
-			Action:    action,
+			Action: func(ctx context.Context, cmd *cli.Command) error {
+				if len(cmd.StringArgs("node")) == 0 {
+					return cmdline.Usage(cmd, "error: "+name+" needs at least one node")
+				}
+				return action(ctx, cmd)
+			},
 		}
 	}
 	return &cli.Command{
@@ -186,11 +191,6 @@ func (c *collector) run(command string, nodes []string, stdout io.Writer) int {
 		c.stopPod(c.ctx, &c.standIn)
 	}()
 
-	needsNodes := map[string]bool{"driver": true, "host": true, "network": true, "all": true}
-	if needsNodes[command] && len(nodes) == 0 {
-		c.logf("error: %s needs at least one node", command)
-		return 2
-	}
 	switch command {
 	case "driver", "host", "network", "all":
 		for _, node := range nodes {

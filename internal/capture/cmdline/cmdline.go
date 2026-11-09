@@ -1,15 +1,5 @@
-// Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 
 // Package cmdline runs the mokka-capture command line on urfave/cli with the
 // tool's exit codes: 0 when a command completed, 2 for a bad invocation, and
@@ -29,7 +19,7 @@ import (
 )
 
 // exitUsage is the exit code of a bad invocation: an unknown command or flag,
-// a missing or extra argument, or a flag value that does not parse.
+// a missing or extra argument, or an invalid flag value.
 const exitUsage = 2
 
 // Run runs root with args, which leave out the program name, and returns the
@@ -39,9 +29,26 @@ func Run(ctx context.Context, root *cli.Command, args []string, stdout, stderr i
 	// The default handler prints the error and exits the process itself; Run
 	// returns the code instead, so the caller owns the exit.
 	root.ExitErrHandler = func(context.Context, *cli.Command, error) {}
-	reportUsageErrors(root)
+	// Route every usage error through Usage. urfave/cli's own reporting splits
+	// one across both streams (the message on stderr, the help on stdout), and
+	// exits 3 when help is asked about a command that does not exist.
+	// CommandNotFound cannot fail the run, so Run fails it once it returns.
+	unknownTopic := false
+	_ = root.Walk(func(cmd *cli.Command) error {
+		cmd.OnUsageError = func(_ context.Context, errCmd *cli.Command, err error, _ bool) error {
+			return Usage(errCmd, err.Error())
+		}
+		cmd.CommandNotFound = func(_ context.Context, parent *cli.Command, name string) {
+			_ = Usage(parent, fmt.Sprintf("unknown command %q", name))
+			unknownTopic = true
+		}
+		return nil
+	})
 
 	err := root.Run(ctx, append([]string{root.Name}, args...))
+	if err == nil && unknownTopic {
+		return exitUsage
+	}
 	if err == nil {
 		return 0
 	}
@@ -104,17 +111,4 @@ func Usage(cmd *cli.Command, reason string) error {
 	// help printed because an invocation was wrong belongs on standard error.
 	cli.HelpPrinter(w, template, cmd)
 	return cli.Exit("", exitUsage)
-}
-
-// reportUsageErrors routes the flag and argument errors of cmd and of every
-// command under it through Usage. urfave/cli's own reporting splits such an
-// error across both streams: the message on standard error, the help on
-// standard output.
-func reportUsageErrors(cmd *cli.Command) {
-	cmd.OnUsageError = func(_ context.Context, errCmd *cli.Command, err error, _ bool) error {
-		return Usage(errCmd, err.Error())
-	}
-	for _, sub := range cmd.Commands {
-		reportUsageErrors(sub)
-	}
 }

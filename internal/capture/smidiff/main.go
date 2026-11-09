@@ -99,18 +99,17 @@ func Command() *cli.Command {
 			if err := cmdline.RejectExtraArgs(cmd); err != nil {
 				return err
 			}
-			return cmdline.Exit(run(cmd.String("ignore"), cmd.Int("max"), cmd.StringArg("real.xml"), cmd.StringArg("mock.xml"),
+			ignore, err := regexp.Compile(cmd.String("ignore"))
+			if err != nil {
+				return cmdline.Usage(cmd, fmt.Sprintf("-ignore: %v", err))
+			}
+			return cmdline.Exit(run(ignore, cmd.Int("max"), cmd.StringArg("real.xml"), cmd.StringArg("mock.xml"),
 				cmd.Root().Writer, cmd.Root().ErrWriter))
 		},
 	}
 }
 
-func run(ignore string, limit int, realPath, mockPath string, stdout, stderr io.Writer) int {
-	re, err := regexp.Compile(ignore)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "-ignore: %v\n", err)
-		return 2
-	}
+func run(ignore *regexp.Regexp, limit int, realPath, mockPath string, stdout, stderr io.Writer) int {
 	hw, err := flattenFile(realPath)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
@@ -121,7 +120,7 @@ func run(ignore string, limit int, realPath, mockPath string, stdout, stderr io.
 		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
-	report(stdout, compare(hw, mock, re), limit)
+	report(stdout, compare(hw, mock, ignore), limit)
 	return 0
 }
 
