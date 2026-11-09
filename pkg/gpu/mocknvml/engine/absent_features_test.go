@@ -161,3 +161,25 @@ func TestGetCapabilities_PerDeviceEGM(t *testing.T) {
 		require.Equal(t, want, caps.CapMask, "GPU %d", i)
 	}
 }
+
+// A MIG device answers a feature its GPU's profile leaves out the way the GPU
+// does: absent_features belongs to the board, not to one handle on it.
+func TestAbsentFeatures_MigDeviceFollowsItsGPU(t *testing.T) {
+	t.Parallel()
+	dev := newTestDeviceWithConfig(t, a100MIGConfig())
+	dev.absentNotSupported = true
+	enableMIG(t, dev)
+	createSpanningCI(t, createOneSliceGI(t, dev))
+	handle, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	mig, ok := handle.(*ConfigurableDevice)
+	require.True(t, ok)
+
+	gpu := absentFeatureReturns(dev)
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, gpu["GetTemperatureThreshold(GPS)"], "the GPU must refuse at least one call")
+	for call, ret := range absentFeatureReturns(mig) {
+		if gpu[call] == nvml.ERROR_NOT_SUPPORTED {
+			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "MIG device %s", call)
+		}
+	}
+}
