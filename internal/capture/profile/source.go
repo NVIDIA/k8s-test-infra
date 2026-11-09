@@ -179,7 +179,6 @@ func steps(path []any) string {
 	return b.String()
 }
 
-// as replaces the source's formatting.
 func (s source) as(format func(any) (string, bool)) source {
 	s.format = format
 	return s
@@ -243,7 +242,8 @@ func hex32(raw any) (string, bool) {
 	return fmt.Sprintf("0x%08X", uint32(n)), true
 }
 
-// named maps an NVML enum value onto the profile's name for it.
+// named spells an NVML enum the way the profile does. A value the profile has
+// no name for is left out with a note rather than guessed.
 func named(names map[int64]string) func(any) (string, bool) {
 	return func(raw any) (string, bool) {
 		n, ok := asInt(raw)
@@ -285,7 +285,8 @@ func namedBits(names map[int64]string) func(any) (string, bool) {
 // enabledName is NVML's nvmlEnableState_t (and the 0/1 modes that share it).
 var enabledName = named(map[int64]string{0: "disabled", 1: "enabled"})
 
-// oneOf maps a text answer (from smi-q.xml) onto the profile's YAML.
+// oneOf translates nvidia-smi's words, such as "Enabled", into the profile's
+// values; an answer it does not list is left out rather than guessed.
 func oneOf(values map[string]string) func(any) (string, bool) {
 	return func(raw any) (string, bool) {
 		s, ok := raw.(string)
@@ -297,7 +298,6 @@ func oneOf(values map[string]string) func(any) (string, bool) {
 	}
 }
 
-// equals is true when the answer is want.
 func equals(want int64) func(any) (string, bool) {
 	return func(raw any) (string, bool) {
 		n, ok := asInt(raw)
@@ -324,7 +324,8 @@ func celsius(raw any) (string, bool) {
 	return v, true
 }
 
-// length counts a list answer, such as the retired page addresses.
+// length is for keys the profile holds as a count where NVML answers with the
+// list itself, such as the retired page addresses.
 func length(raw any) (string, bool) {
 	if raw == nil {
 		return "0", true
@@ -342,7 +343,6 @@ func pstate(raw any) (string, bool) {
 	return strconv.Quote("P" + strconv.FormatInt(n, 10)), true
 }
 
-// bit is true when the answer has mask set.
 func bit(mask int64) func(any) (string, bool) {
 	return func(raw any) (string, bool) {
 		n, ok := asInt(raw)
