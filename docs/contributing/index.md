@@ -66,6 +66,10 @@ Profiles are YAML. The deployed ones live in
 `pkg/gpu/mocknvml/configs/` holds standalone equivalents for running the library
 outside Kubernetes.
 
+Start from a capture of the real board where you can:
+[Capturing a real node](capturing-a-real-node.md) lists what to record and how
+to compare a profile with it.
+
 Add the file, then deploy it with `tilt up -- --gpu-profile <name>` and check
 `nvidia-smi` reports what you intended. [Configuration](../configuration.md)
 documents every field.

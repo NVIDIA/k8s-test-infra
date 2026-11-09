@@ -2093,15 +2093,58 @@ test("a labels-only load error fails the run and writes nothing, keeping the hol
       assert.deepEqual(error.summary, {
         status: "failed",
         candidates: [42],
-        pullRequests: [{ number: 42, failClosed: false }],
+        pullRequests: [{ number: 42, failClosed: false, reason: "unavailable" }],
       });
-      return /evaluation failed closed/.test(error.message);
+      return error.message === "pull request evaluation failed closed: #42: unavailable";
     },
   );
   assert.deepEqual(github.calls.addPolicyLabel, []);
   assert.deepEqual(github.calls.removePolicyLabel, []);
   assertNoMergeOperations(github);
   assert.deepEqual(github.snapshot().map(({ name }) => name), ["lgtm", "approved", "do-not-merge/hold"]);
+});
+
+for (const labelsOnly of [true, false]) {
+  test(`a ${labelsOnly ? "labels-only" : "merge"} evaluation failure reports its reason`, async () => {
+    const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+    const github = createFakeGitHub(labelsOnly ? heldState() : evaluatorState());
+    const getRevision = github.getDefaultBranchRevision.bind(github);
+    let reads = 0;
+    github.getDefaultBranchRevision = async () => {
+      const value = await getRevision();
+      return ++reads < 2 ? value : NEXT_HEAD;
+    };
+
+    await assert.rejects(
+      () => runMergeEvaluate({ event: WORKFLOW_EVENT, eventName: "workflow_dispatch", github,
+        config, policyRevision: REVISION, dryRun: false, prNumber: "42", labelsOnly }),
+      (error) => {
+        assert.equal(error.summary.pullRequests[0].reason, "trusted policy revision changed during evaluation");
+        assert.equal(error.message,
+          "pull request evaluation failed closed: #42: trusted policy revision changed during evaluation");
+        return true;
+      },
+    );
+  });
+}
+
+test("an evaluation failure reason is truncated and failures beyond the first few are counted", async () => {
+  const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+  const github = createFakeGitHub(heldState());
+  github.getPullRequest = async () => { throw new Error("x".repeat(500)); };
+  const numbers = [42, 43, 44, 45, 46, 47, 48];
+  github.listOpenPullRequestNumbers = async () => numbers;
+
+  await assert.rejects(
+    () => runMergeEvaluate({ event: { ...WORKFLOW_EVENT, schedule: "*/15 * * * *" }, eventName: "schedule", github,
+      config, policyRevision: REVISION, dryRun: false, labelsOnly: true }),
+    (error) => {
+      for (const entry of error.summary.pullRequests) assert.equal(entry.reason.length, 200);
+      assert.match(error.message, /#46: x{199}…; and 2 more$/);
+      assert.doesNotMatch(error.message, /#47/);
+      return true;
+    },
+  );
 });
 
 test("policy-labels mode runs labels-only evaluation through the action entry point", async () => {

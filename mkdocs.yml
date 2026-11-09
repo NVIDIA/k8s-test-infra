@@ -166,6 +166,9 @@ nav:
       - Local Development: contributing/local-development.md
       - Testing: contributing/testing.md
       - Gating New Behavior: contributing/feature-gates.md
+      - Capturing a Real Node:
+          - Guide: contributing/capturing-a-real-node.md
+          - mokka-capture: tools/mokka-capture.md
       - Tools:
           - check-fabric: tools/check-fabric.md
           - generate-bridge: tools/generate-bridge.md

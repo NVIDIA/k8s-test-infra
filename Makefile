@@ -254,6 +254,10 @@ mokka-image: ## Build the main Mokka image (node daemon and mock libraries): mak
 		--tag "$(MOKKA_IMAGE)" \
 		.
 
+.PHONY: nvidia-smi-smoke
+nvidia-smi-smoke: ## Run every nvidia-smi the image bundles against its mock NVML, no cluster: make nvidia-smi-smoke [MOKKA_IMAGE=repo:tag]
+	./hack/nvidia-smi-smoke.sh "$(MOKKA_IMAGE)"
+
 .PHONY: mokka-control-plane-publish mokka-control-plane-image-push
 .PHONY: mokka-control-plane-image-sign mokka-control-plane-image-sbom
 .PHONY: mokka-control-plane-image-attest

@@ -374,6 +374,30 @@ func TestNodeFabric_BuiltinProfiles(t *testing.T) {
 	}
 }
 
+// The link bound is the configured driver's, whichever way the driver is
+// configured, and a board on an older driver cannot declare more links than
+// that driver addresses.
+func TestNodeFabric_LinkBoundFollowsTheDriver(t *testing.T) {
+	t.Parallel()
+	yc, err := LoadYAMLConfig(filepath.Join("..", "configs", "mock-nvml-config-gb300.yaml"))
+	require.NoError(t, err)
+	n := len(yc.Devices)
+
+	require.Equal(t, 18, BuildNodeFabric(&Config{NumDevices: n, YAMLConfig: yc}).LinkBound(), "the profile's 580 driver")
+	require.Equal(t, 36, BuildNodeFabric(&Config{NumDevices: n, DriverVersion: "615.71.09", YAMLConfig: yc}).LinkBound(),
+		"a resolved 615 driver, as the chart's driverVersion sets it")
+	require.Equal(t, 18, (*NodeFabric)(nil).LinkBound(), "a board with no fabric")
+
+	wide := *yc
+	nv := *yc.NVLink
+	nv.LinksPerGPU = 36
+	wide.NVLink = &nv
+	f := BuildNodeFabric(&Config{NumDevices: n, YAMLConfig: &wide})
+	require.Equal(t, 18, f.NVLinkCount(0, 1), "a 580 driver addresses 18 of the 36 declared links")
+	f = BuildNodeFabric(&Config{NumDevices: n, DriverVersion: "615.71.09", YAMLConfig: &wide})
+	require.Equal(t, 36, f.NVLinkCount(0, 1))
+}
+
 // TestNodeFabric_ConcurrentReads hammers the read-only fabric accessors
 // from many goroutines; with -race this guards the immutability claim.
 func TestNodeFabric_ConcurrentReads(_ *testing.T) {
