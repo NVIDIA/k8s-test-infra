@@ -113,13 +113,11 @@ func (g *generator) gpu0Int(src source) (int64, string) {
 	return n, ""
 }
 
-// gpu0Raw is GPU 0's answer as the capture recorded it.
 func (g *generator) gpu0Raw(src source) (string, bool) {
 	a := g.answers(src)
 	return a[0].raw, a[0].missing == ""
 }
 
-// onEveryGPU says a value once when every GPU has it, else lists them.
 func onEveryGPU(values []string) string {
 	if allEqual(values) {
 		return values[0] + " on every GPU"
