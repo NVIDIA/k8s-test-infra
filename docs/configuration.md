@@ -1452,9 +1452,22 @@ or later; an older driver does not export the symbols.
 
 `power.power_mizer_mode` sets the mode `nvmlDeviceGetPowerMizerMode_v1` reports:
 `adaptive`, `prefer_maximum_performance`, `auto` (the default) or
-`prefer_consistent_performance`. Every mode is advertised as supported on
-Maxwell and later; earlier architectures decline. `nvmlDeviceSetPowerMizerMode_v1`
-writes the mode to the runtime override document, so other processes read it back.
+`prefer_consistent_performance`. Earlier than Maxwell, both calls decline.
+`power.supported_power_mizer_modes` lists the modes the device accepts, by the
+same names; it becomes the `supportedPowerMizerModes` mask. Left out, empty, or
+naming no NVML mode, all four are supported. Names NVML does not define are
+ignored, with a warning. The `vrnvl72` profile lists `adaptive`, `prefer_maximum_performance`
+and `auto`, which is the mask of 7 the real tray reports.
+
+```yaml
+power:
+  power_mizer_mode: "adaptive"
+  supported_power_mizer_modes: ["adaptive", "prefer_maximum_performance", "auto"]
+```
+
+`nvmlDeviceSetPowerMizerMode_v1` writes the mode to the runtime override
+document, so other processes read it back. It refuses a mode the device does
+not list with `NVML_ERROR_INVALID_ARGUMENT`, as it does an undefined mode.
 Both entry points need `system.driver_version` 580 or later. nvidia-smi 580 does
 not show this mode, so only an NVML consumer observes it.
 

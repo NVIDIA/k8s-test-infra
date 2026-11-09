@@ -151,6 +151,10 @@ device_defaults:
     power_state: "P0"
     total_energy_consumption_mj: 1000000  # millijoules since boot
     power_mizer_mode: "adaptive"    # GetPowerMizerMode_v1.CurrentMode = 0
+    supported_power_mizer_modes:    # GetPowerMizerMode_v1.SupportedPowerMizerModes = 7
+      - "adaptive"
+      - "prefer_maximum_performance"
+      - "auto"
 
   # ---------------------------------------------------------------------------
   # Thermal configuration: GPU 0's readings in the NVML dump of the captured

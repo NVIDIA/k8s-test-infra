@@ -378,6 +378,11 @@ type PowerConfig struct {
 	// mode.
 	PowerMizerMode string `json:"power_mizer_mode,omitempty"`
 
+	// SupportedPowerMizerModes lists the modes the device accepts, by the
+	// names PowerMizerMode uses. Unset, empty, or naming no NVML mode, it is
+	// all four; names NVML does not define are ignored.
+	SupportedPowerMizerModes []string `json:"supported_power_mizer_modes,omitempty"`
+
 	// Smoothing configures the datacenter power smoothing feature that
 	// `nvidia-smi power-smoothing` drives. Absent still models the feature on
 	// Blackwell and newer, disabled and with all-zero presets.
