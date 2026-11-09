@@ -705,24 +705,7 @@ For each KWOK rack, the control plane leader ranks the live shards by `hash(rack
 
 No rack moves between two shards that stay, and each moved rack costs its new owner one runtime fetch. A rack moves through its label:
 
-```mermaid
-sequenceDiagram
-    participant New as New owner
-    participant API as Kubernetes API
-    participant CP as Control plane leader
-    participant Old as Old owner
-
-    New->>API: create its shard Lease
-    API-->>CP: Lease added
-    CP->>API: relabel the racks the new shard wins
-    API-->>Old: rack leaves its watch
-    Old->>Old: stop allocating and serving the rack, keep its Nodes' GPUs
-    API-->>New: rack enters its watch
-    New->>New: read allocations from Pods, re-apply the GPUs, recompute NRT
-    New->>CP: GET /v1alpha1/racks/{rack}/runtime
-    CP-->>New: views at the rack's generation
-    New->>New: serve the rack's metrics
-```
+![Rebalancing](./img/kwok-rebalancing.svg)
 
 The old owner keeps the Nodes' GPUs because the binding hasn't changed, and the new owner re-applies them with the same field manager. Allocations live on Pods, so the new owner reads them back instead of recomputing them. Metric series keep their identity, since the `ServiceMonitor` sets `instance` from the KWOK Node name.
 
@@ -742,20 +725,32 @@ The scheme accepts three limits:
 
 #### Separating CPU and KWOK Racks
 
-Each service lists and watches only the objects it needs, and the API server applies the selectors, so little else reaches the service's cache. The KWOK data plane's Pod watch is the exception: a field selector matches one Node name, not a set. The control plane's first two filters exist today; the rest are new:
+Each service lists and watches only the objects it needs, and the API server applies the selectors, so little else reaches the service's cache.
 
-| Service          | Resource                                       | Server-side selector                                  | Result                                                              |
-|------------------|------------------------------------------------|-------------------------------------------------------|---------------------------------------------------------------------|
-| Control plane    | `SGPUInventory`, `SGPURackProfile`, `SGPURack` | none                                                  | creates and retires every rack                                      |
-| Control plane    | `Node`                                         | `mokka.nvidia.com/sgpu-node=true`                     | receives every Node that asks for a slot, CPU or KWOK               |
-| Control plane    | `Lease`                                        | `mokka.nvidia.com/shard-ring=kwok-data-plane`         | the data plane's shard Leases                                       |
-| KWOK provisioner | `SGPUInventory`, `SGPURackProfile`             | none                                                  | groups with `node.source: Mokka`, their slot counts and host values |
-| KWOK provisioner | `Node`, metadata only                          | `app.kubernetes.io/managed-by=mokka-kwok-provisioner` | only the Nodes it created                                           |
-| KWOK data plane  | `SGPURack`                                     | `mokka.nvidia.com/kwok-shard=<its Pod name>`          | only the racks it owns                                              |
-| KWOK data plane  | `SGPURackProfile`                              | none                                                  | a handful of small objects                                          |
-| KWOK data plane  | `Pod`                                          | `spec.nodeName!=`                                     | receives every bound Pod, keeps those on its racks' Nodes           |
-| KWOK data plane  | `ResourceClaim`                                | none                                                  | keeps the claims allocated on its racks' Nodes                      |
-| KWOK data plane  | `StatefulSet`                                  | `metadata.name=mokka-kwok-data-plane`                 | its replica count, read when it shuts down                          |
+The control plane's first two filters exist today, and the Lease watch is new:
+
+| Resource                                       | Server-side selector                          | Result                                                |
+|------------------------------------------------|-----------------------------------------------|-------------------------------------------------------|
+| `SGPUInventory`, `SGPURackProfile`, `SGPURack` | none                                          | creates and retires every rack                        |
+| `Node`                                         | `mokka.nvidia.com/sgpu-node=true`             | receives every Node that asks for a slot, CPU or KWOK |
+| `Lease`                                        | `mokka.nvidia.com/shard-ring=kwok-data-plane` | the data plane's shard Leases                         |
+
+The [KWOK provisioner](#kwok-provisioner) reads its groups and sees only the Nodes it created:
+
+| Resource                           | Server-side selector                                  | Result                                                              |
+|------------------------------------|-------------------------------------------------------|---------------------------------------------------------------------|
+| `SGPUInventory`, `SGPURackProfile` | none                                                  | groups with `node.source: Mokka`, their slot counts and host values |
+| `Node`, metadata only              | `app.kubernetes.io/managed-by=mokka-kwok-provisioner` | only the Nodes it created                                           |
+
+The [KWOK data plane](#kwok-data-plane) sees only its own racks. Its Pod watch is the exception: a field selector matches one Node name, not a set:
+
+| Resource          | Server-side selector                         | Result                                                    |
+|-------------------|----------------------------------------------|-----------------------------------------------------------|
+| `SGPURack`        | `mokka.nvidia.com/kwok-shard=<its Pod name>` | only the racks it owns                                    |
+| `SGPURackProfile` | none                                         | a handful of small objects                                |
+| `Pod`             | `spec.nodeName!=`                            | receives every bound Pod, keeps those on its racks' Nodes |
+| `ResourceClaim`   | none                                         | keeps the claims allocated on its racks' Nodes            |
+| `StatefulSet`     | `metadata.name=mokka-kwok-data-plane`        | its replica count, read when it shuts down                |
 
 - **The node type picks the path.** The group's `node.type`, copied into each rack's `spec.nodeType`, is the source of truth. A KWOK group's compiled placement selector requires `mokka.nvidia.com/node-type=KWOK`, and a CPU group's excludes it, which unlabeled CPU Nodes still match. A Node with KWOK's `kwok.x-k8s.io/node` annotation also counts as a KWOK Node, so a source that forgets the label can't put a virtual Node in a CPU group.
 - **Each field has one writer.** The Node source writes the Node, and for groups with `node.source: Mokka` that's the KWOK provisioner. The control plane writes `SGPURack`, including its status and shard label, and the Node projection. The KWOK data plane writes the GPUs on its Nodes, their ResourceSlices, the GPU allocation on Pods, the NodeResourceTopology of its Nodes, and its own shard Lease. Server-side apply field managers keep the writers of a Node's fields apart.
