@@ -237,9 +237,15 @@ Each comparison is a command that takes the real capture and the same surface
 taken from the mock. In the commands, `REAL` is the real node's directory (a raw
 capture, or a committed one) and `MOCK` is a directory holding the mock's files.
 
-Getting the mock's files is not automated here. Run the mock's `nvidia-smi` and
-the same Linux `mokka-capture dump` in an nvml-mock pod on a node of the profile under
-test, built for that node's architecture, and save the outputs under `MOCK`.
+Take the mock's files with the same command, pointed at a Mokka cluster running
+the profile under test. `-mock` runs the driver commands in a stand-in pod and
+opts the pods into the mock ([A Mokka node](../tools/mokka-capture.md#a-mokka-node)
+says why), and `-dump-binary` is built for that cluster's architecture:
+
+```bash
+bin/mokka-capture collect -mock -dump-binary <linux binary> -out mock all <node>
+MOCK=mock/<node>
+```
 
 1. **Symbols.** Which of the real library's functions does the bridge answer?
    `generate-bridge -symbols` reads the real library's exported symbols and says
@@ -249,11 +255,12 @@ test, built for that node's architecture, and save the outputs under `MOCK`.
    (`nm -D --defined-only libnvidia-ml.so.1 | awk '{print $3}' | sort`) as
    `-mock-symbols`; without them the report reads the bridge sources, which do not
    show the legacy unversioned names the C shim exports, and counts them as
-   missing:
+   missing. `collect -mock` leaves `$MOCK/nvml-symbols.txt` empty, so take them
+   from the library you built:
 
    ```bash
    go run ./cmd/generate-bridge -symbols "$REAL/nvml-symbols.txt" \
-     -mock-symbols "$MOCK/nvml-symbols.txt"
+     -mock-symbols mock-nvml-symbols.txt
    ```
 2. **Values.** Compare the NVML dumps, which gives return-code and board-value
    match rates and lists every difference:
@@ -272,34 +279,52 @@ test, built for that node's architecture, and save the outputs under `MOCK`.
 
    The report says how many of the real document's elements the mock has, how
    many carry the same value, and lists the missing elements and the differing
-   values. Readings that move with load and identifiers are matched on presence
-   only.
+   values. Values that are not a property of the board are not compared; the
+   report lists each of them, and [`diff smi`](../tools/mokka-capture.md#diff-smi)
+   says which they are.
 4. **Surfaces.** There is no tool for the `host-*`, `proc-*`, `rdma-*` and `net-*`
    files. Read each against what the node agent renders for the profile, and
    decide whether a difference matters. A real node and a mock differ in
    numbering and counters, so this step has no pass or fail.
 
 Report coverage per surface, for example "NVML return codes: 472 of 588 match".
-That is the number to quote for how much of the node a profile reproduces.
+That is the number to quote for how much of the node a profile reproduces. Each
+diff ends by listing the values it did not compare; state those next to the
+score, since the score says nothing about them.
 
 ## From capture to profile
 
-1. Write the profile in `deployments/nvml-mock/helm/nvml-mock/profiles/<name>.yaml`;
-   it is the source of truth. The standalone copy for running the library outside
-   Kubernetes is `pkg/gpu/mocknvml/configs/mock-nvml-config-<name>.yaml`.
+1. Generate the profile from the committed capture, with an existing profile of
+   the same GPU as `-base` for what a capture cannot give (identifiers,
+   mock-only blocks); for a GPU with no profile yet, leave `-base` out:
+
+   ```bash
+   bin/mokka-capture profile \
+     -base deployments/nvml-mock/helm/nvml-mock/profiles/<name>.yaml \
+     -o pkg/gpu/mocknvml/configs/mock-nvml-config-<name>.yaml \
+     tests/hardware-captures/<platform>/<node>
+   ```
+
+   Every value's comment names its source in the capture, and `-explain` lists
+   each GPU's answer for every key; see
+   [`profile`](../tools/mokka-capture.md#profile). Fix a wrong value in the
+   rules, not in the generated file. The dump records the per-device NVLink
+   bandwidth-mode getters only, so a board whose mode is system-wide (Hopper)
+   takes `nvlink.bw_mode` from `-base`.
+2. Copy the result, and the `.mig.yaml` beside it, to
+   `deployments/nvml-mock/helm/nvml-mock/profiles/<name>.yaml` and
+   `profiles/mig/<name>.yaml`; the chart's copy is the source of truth, and the
+   one under `pkg/gpu/mocknvml/configs/` runs the library outside Kubernetes.
    [Configuration](../configuration.md) documents every field.
-2. Choose the NVLink bandwidth-mode scope from what the node answers, not from the
-   manual. A Hopper board takes `system`, a Blackwell board `device`, and an
-   earlier board omits the block; the `nvidia-smi` manual marks the mode
-   deprecated for Blackwell, and some drivers do not recognise `-gBwMode` at all.
-   When `nvidia-smi` does not, read the NVML bandwidth-mode getters in the
-   dump.
-3. Deploy it and look: `tilt up -- --gpu-profile <name>`, then check that
+3. Add the capture to `goldens` in `internal/capture/profile/golden_test.go` and
+   run `go test ./internal/capture/profile -update`, so a later change to a rule
+   shows up as a diff of this profile.
+4. Deploy it and look: `tilt up -- --gpu-profile <name>`, then check that
    `nvidia-smi` on the mock reports what the capture shows.
-4. Run the drift guard: `go test -tags=e2e ./tests/e2e/go/profile/...
+5. Run the drift guard: `go test -tags=e2e ./tests/e2e/go/profile/...
    ./tests/e2e/go/assertions/...` asserts derived expectations across all
    profiles, so an inconsistent profile fails here before it fails on a cluster.
-5. Add the `nvidia-smi -q -x` fixture to
+6. Add the `nvidia-smi -q -x` fixture to
    `tests/e2e/go/assertions/nvidiasmi/testdata/hardware/` with a row in that
    folder's README. `hardware_test.go` asserts on readings, not on the parse
    succeeding, because a renamed element decodes as absent rather than as an
