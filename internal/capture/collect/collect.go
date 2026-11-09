@@ -61,6 +61,8 @@ Commands:
                      machine's architecture (needs Docker and the repository)
 
 kubectl reaches the cluster as it is configured (KUBECONFIG, current context).
+On a Mokka node, pass -mock: Mokka runs no driver container, so the driver
+commands run in a temporary stand-in pod, and both pods opt into the mock.
 
 Flags:
 `
@@ -73,6 +75,7 @@ const defaultHostPodImage = "ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3
 type config struct {
 	out, operatorNS, driverCtr, toolkitCtr, toolkitCTK string
 	hostPodNS, hostPodImage, dumpBinary                string
+	mock                                               bool
 }
 
 type collector struct {
@@ -85,9 +88,12 @@ type collector struct {
 	// container) its own, so two runs against one node never collide.
 	suffix string
 
-	dir       string // the node or cluster directory being written
-	driverPod string
-	hostPod   string
+	dir string // the node or cluster directory being written
+	// driverPod, driverNS and driverCtr name the container the driver commands
+	// run in: the GPU Operator's driver container, or with -mock the stand-in.
+	driverPod, driverNS, driverCtr string
+	hostPod                        string
+	standIn                        string // the -mock stand-in pod, deleted like the host pod
 }
 
 // Run runs `mokka-capture collect` with the given arguments.
@@ -114,6 +120,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, kubectl s
 	flags.StringVar(&cfg.hostPodNS, "host-pod-namespace", "default", "namespace for the temporary host pod")
 	flags.StringVar(&cfg.hostPodImage, "host-pod-image", defaultHostPodImage, "image for the host pod; it is privileged, so pin it by digest")
 	flags.StringVar(&cfg.dumpBinary, "dump-binary", "", "Linux mokka-capture to run `dump` with in the driver container (see build-dump); without it the NVML value dump is skipped")
+	flags.BoolVar(&cfg.mock, "mock", false, "the nodes are Mokka nodes: run the driver commands in a temporary stand-in pod, and opt it and the host pod into the mock with the nvml-mock NRI annotations")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -126,7 +133,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, kubectl s
 	}
 	c := &collector{cfg: cfg, ctx: ctx, stderr: stderr, kubectl: kubectl, suffix: strconv.Itoa(os.Getpid())}
 	// An interrupted run must not leave a privileged pod on the node.
-	defer c.stopHostPod(ctx)
+	defer func() {
+		c.stopPod(ctx, &c.hostPod)
+		c.stopPod(ctx, &c.standIn)
+	}()
 
 	command, nodes := flags.Arg(0), flags.Args()[1:]
 	needsNodes := map[string]bool{"driver": true, "host": true, "network": true, "all": true}
@@ -259,7 +269,7 @@ func (c *collector) kubectlOut(args ...string) (string, error) {
 
 // drv returns the argv that runs a command in the node's driver container.
 func (c *collector) drv(argv ...string) []string {
-	return append([]string{"kubectl", "-n", c.cfg.operatorNS, "exec", c.driverPod, "-c", c.cfg.driverCtr, "--"}, argv...)
+	return append([]string{"kubectl", "-n", c.driverNS, "exec", c.driverPod, "-c", c.driverCtr, "--"}, argv...)
 }
 
 // host returns the argv that runs a command in the node's host pod.
@@ -333,14 +343,19 @@ func (c *collector) report() {
 	c.logf("The raw capture holds serial numbers, UUIDs and addresses; scrub it before sharing.")
 }
 
-// hostPodName is capture-<node>-<suffix>, the node name cut so the pod name
-// stays within 63 characters.
-func hostPodName(node, suffix string) string {
-	keep := 63 - len("capture-") - len(suffix) - 1
+// hostPodName is capture-<node>-<suffix>, and standInName
+// capture-driver-<node>-<suffix>.
+func hostPodName(node, suffix string) string { return podName("capture-", node, suffix) }
+func standInName(node, suffix string) string { return podName("capture-driver-", node, suffix) }
+
+// podName is <prefix><node>-<suffix>, the node name cut so the pod name stays
+// within 63 characters.
+func podName(prefix, node, suffix string) string {
+	keep := 63 - len(prefix) - len(suffix) - 1
 	if len(node) > keep {
 		node = node[:keep]
 	}
-	return "capture-" + node + "-" + suffix
+	return prefix + node + "-" + suffix
 }
 
 var crdNetworkRE = regexp.MustCompile(`(?i)mellanox|nvidia|sriov|nfd|k8s\.cni|dranet|topograph`)

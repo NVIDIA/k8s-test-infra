@@ -23,6 +23,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.yaml.in/yaml/v3"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/nri/inject"
 )
 
 // fakeKubectl writes a kubectl that logs each call, one per line, and answers
@@ -128,6 +131,48 @@ func TestHostPodNameFitsAPodName(t *testing.T) {
 }
 
 func fmtPID() string { return strconv.Itoa(os.Getpid()) }
+
+// On a Mokka node the driver commands run in a stand-in pod that collect
+// creates and deletes; no driver pod is looked up.
+func TestMockRunsTheDriverCommandsInAStandIn(t *testing.T) {
+	dir, log, kubectl := setup(t, "")
+	out := filepath.Join(dir, "capture")
+	require.Equal(t, 0, run(context.Background(), []string{"-out", out, "-mock", "driver", "node-a"}, io.Discard, io.Discard, kubectl))
+
+	pod := standInName("node-a", fmtPID())
+	xml, err := os.ReadFile(filepath.Join(out, "node-a", "smi-q.xml"))
+	require.NoError(t, err)
+	require.Equal(t, "answer to: -n default exec "+pod+" -c c -- nvidia-smi -q -x\n", string(xml))
+	got := calls(t, log)
+	require.Contains(t, got, "-n default wait --for=condition=Ready pod/"+pod)
+	require.Contains(t, got, "-n default delete pod "+pod+" --wait=false")
+	require.NotContains(t, got, "--field-selector")
+	require.NotContains(t, got, "apt-get")
+}
+
+// -mock opts both pods into the mock with the NRI plugin's own annotation
+// keys; without it the pods carry none.
+func TestMockAnnotatesThePods(t *testing.T) {
+	annotations := func(mock bool) map[string]string {
+		c := &collector{cfg: config{mock: mock, hostPodImage: "image"}}
+		var pod struct {
+			Metadata struct {
+				Name        string
+				Annotations map[string]string
+			}
+		}
+		require.NoError(t, yaml.Unmarshal([]byte(c.podManifest("p", "node-a")), &pod))
+		require.Equal(t, "p", pod.Metadata.Name)
+		return pod.Metadata.Annotations
+	}
+	require.Empty(t, annotations(false))
+	nri := inject.DefaultConfig()
+	require.Equal(t, map[string]string{
+		nri.DeviceAnnotation:      "true",
+		nri.InfiniBandAnnotation:  "true",
+		nri.ImexChannelAnnotation: "true",
+	}, annotations(true))
+}
 
 // Two matching pods, listed in reverse order, as during a driver rollout: the
 // choice must not depend on the order kubectl lists them in.

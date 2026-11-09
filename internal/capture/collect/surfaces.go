@@ -23,14 +23,24 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/nri/inject"
 )
 
 func (c *collector) captureDriver(node string) {
 	c.enter(node)
-	c.driverPod = c.podOn(node, "nvidia-driver-daemonset")
-	if c.driverPod == "" {
-		c.logf("no driver pod on %s; skipping", node)
-		return
+	if c.cfg.mock {
+		defer c.stopPod(c.ctx, &c.standIn)
+		if !c.startStandIn(node) {
+			return
+		}
+	} else {
+		c.driverPod = c.podOn(node, "nvidia-driver-daemonset")
+		c.driverNS, c.driverCtr = c.cfg.operatorNS, c.cfg.driverCtr
+		if c.driverPod == "" {
+			c.logf("no driver pod on %s; skipping (on a Mokka node, pass -mock)", node)
+			return
+		}
 	}
 	c.logf("== %s: driver container (%s)", node, c.driverPod)
 
@@ -123,21 +133,24 @@ func (c *collector) captureNVMLDump() {
 
 // drvStdin is drv with standard input attached.
 func (c *collector) drvStdin(argv ...string) []string {
-	return append([]string{"kubectl", "-n", c.cfg.operatorNS, "exec", "-i", c.driverPod, "-c", c.cfg.driverCtr, "--"}, argv...)
+	return append([]string{"kubectl", "-n", c.driverNS, "exec", "-i", c.driverPod, "-c", c.driverCtr, "--"}, argv...)
 }
+
+// podContainer is the container name in hostPodManifest.
+const podContainer = "c"
 
 const hostPodManifest = `apiVersion: v1
 kind: Pod
 metadata:
   name: %s
-spec:
+%sspec:
   nodeName: %s
   hostPID: true
   hostNetwork: true
   restartPolicy: Never
   tolerations: [{operator: Exists}]
   containers:
-  - name: c
+  - name: ` + podContainer + `
     image: %s
     command: ["sleep", "3600"]
     securityContext: {privileged: true}
@@ -145,22 +158,50 @@ spec:
   volumes: [{name: host, hostPath: {path: /}}]
 `
 
+// podManifest is hostPodManifest for a pod called name on node. With -mock it
+// carries the annotations that make Mokka's NRI plugin inject the mock into
+// the pod's container, as into any workload that asks for it: the GPUs (device
+// nodes, the mock NVML library and nvidia-smi, the mock /proc/driver/nvidia and
+// PCI sysfs), the InfiniBand mocks and the IMEX channels. Without them the pod
+// sees the bare node underneath the simulation.
+func (c *collector) podManifest(name, node string) string {
+	var annotations strings.Builder
+	if c.cfg.mock {
+		nri := inject.DefaultConfig()
+		annotations.WriteString("  annotations:\n")
+		for _, key := range []string{nri.DeviceAnnotation, nri.InfiniBandAnnotation, nri.ImexChannelAnnotation} {
+			annotations.WriteString("    " + key + ": \"true\"\n")
+		}
+	}
+	return fmt.Sprintf(hostPodManifest, name, annotations.String(), node, c.cfg.hostPodImage)
+}
+
+// startPod creates the pod name on node in the host pod namespace and waits
+// until it is ready. what names the pod in log lines.
+func (c *collector) startPod(name, node, what string) bool {
+	errs := c.errorsLog()
+	defer func() { _ = errs.Close() }()
+	if err := c.exec(strings.NewReader(c.podManifest(name, node)), io.Discard, errs, "kubectl", "-n", c.cfg.hostPodNS, "apply", "-f", "-"); err != nil {
+		c.logf("could not create the %s on %s", what, node)
+		return false
+	}
+	if err := c.exec(nil, io.Discard, errs, "kubectl", "-n", c.cfg.hostPodNS, "wait", "--for=condition=Ready", "pod/"+name, "--timeout=180s"); err != nil {
+		c.logf("%s did not become ready on %s", what, node)
+		return false
+	}
+	return true
+}
+
 // startHostPod starts a privileged pod on node that sees the node's /sys, /dev
 // and /proc. Its tools come from apt; if the cluster has no egress the sysfs
 // captures still work and the rest fail into errors.log.
 func (c *collector) startHostPod(node string) bool {
 	c.hostPod = hostPodName(node, c.suffix)
-	manifest := fmt.Sprintf(hostPodManifest, c.hostPod, node, c.cfg.hostPodImage)
+	if !c.startPod(c.hostPod, node, "host pod") {
+		return false
+	}
 	errs := c.errorsLog()
 	defer func() { _ = errs.Close() }()
-	if err := c.exec(strings.NewReader(manifest), io.Discard, errs, "kubectl", "-n", c.cfg.hostPodNS, "apply", "-f", "-"); err != nil {
-		c.logf("could not create the host pod on %s", node)
-		return false
-	}
-	if err := c.exec(nil, io.Discard, errs, "kubectl", "-n", c.cfg.hostPodNS, "wait", "--for=condition=Ready", "pod/"+c.hostPod, "--timeout=180s"); err != nil {
-		c.logf("host pod did not become ready on %s", node)
-		return false
-	}
 	install := `apt-get update -qq && apt-get install -y -qq pciutils numactl rdma-core ibverbs-utils infiniband-diags iproute2 ethtool >/dev/null`
 	if err := c.exec(nil, io.Discard, errs, c.host(sh(install)...)...); err != nil {
 		c.logf("tool install failed in the host pod; some captures will fail")
@@ -168,24 +209,39 @@ func (c *collector) startHostPod(node string) bool {
 	return true
 }
 
-// stopHostPod deletes the host pod. The deletion must still run after an
-// interrupt has cancelled ctx, so it keeps ctx's values but not its
+// startStandIn starts the pod the driver commands run in on a Mokka node.
+// Mokka runs no driver container: the mock driver reaches a container only
+// through the NRI plugin. So the stand-in is a second host pod with the mock
+// annotations, privileged and in the host PID namespace as the driver
+// container is. Nothing is installed in it, as nothing is added to a driver
+// container.
+func (c *collector) startStandIn(node string) bool {
+	c.standIn = standInName(node, c.suffix)
+	if !c.startPod(c.standIn, node, "driver stand-in") {
+		return false
+	}
+	c.driverPod, c.driverNS, c.driverCtr = c.standIn, c.cfg.hostPodNS, podContainer
+	return true
+}
+
+// stopPod deletes the pod *name and clears it. The deletion must still run
+// after an interrupt has cancelled ctx, so it keeps ctx's values but not its
 // cancellation, and has a timeout of its own.
-func (c *collector) stopHostPod(ctx context.Context) {
-	if c.hostPod == "" {
+func (c *collector) stopPod(ctx context.Context, name *string) {
+	if *name == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, c.kubectl, "-n", c.cfg.hostPodNS, "delete", "pod", c.hostPod, "--wait=false")
+	cmd := exec.CommandContext(ctx, c.kubectl, "-n", c.cfg.hostPodNS, "delete", "pod", *name, "--wait=false")
 	_ = cmd.Run()
-	c.hostPod = ""
+	*name = ""
 }
 
 func (c *collector) captureHost(node string) {
 	c.enter(node)
 	c.logf("== %s: host pod", node)
-	defer c.stopHostPod(c.ctx)
+	defer c.stopPod(c.ctx, &c.hostPod)
 	if !c.startHostPod(node) {
 		return
 	}
@@ -280,7 +336,7 @@ func (c *collector) captureNetworkSurfaces() {
 func (c *collector) captureNetwork(node string) {
 	c.enter(node)
 	c.logf("== %s: network surfaces (host pod)", node)
-	defer c.stopHostPod(c.ctx)
+	defer c.stopPod(c.ctx, &c.hostPod)
 	if !c.startHostPod(node) {
 		return
 	}

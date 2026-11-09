@@ -28,7 +28,7 @@ mokka-capture collect [flags] build-dump
 
 | Command | Runs | Takes |
 | --- | --- | --- |
-| `driver <node>...` | in the GPU Operator driver container | `nvidia-smi`, the NVML dump, `/proc/driver/nvidia` |
+| `driver <node>...` | in the GPU Operator driver container, or with `-mock` a stand-in pod | `nvidia-smi`, the NVML dump, `/proc/driver/nvidia` |
 | `host <node>...` | in a temporary privileged pod | PCI, NUMA, device files, NICs, CDI specs |
 | `network <node>...` | in the same pod | only the NIC, interface and RDMA surfaces, plus the cluster's network objects |
 | `cluster` | on your machine | node labels, ResourceSlices, `ClusterPolicy`, DCGM metrics |
@@ -55,9 +55,41 @@ the file given with `-dump-binary` into the driver container, runs
 `mokka-capture dump` there, and removes it. Without `-dump-binary` the dump is
 skipped.
 
+### A Mokka node
+
+`-mock` captures a Mokka node the same way, so the result can be compared with
+a real capture using [`diff smi`](#diff-smi) and [`diff nvml`](#diff-nvml):
+
+```bash
+mokka-capture collect -mock -dump-binary <linux binary> -out mock all <node>
+mokka-capture diff smi real/<node>/smi-q.xml mock/<node>/smi-q.xml
+```
+
+Two things differ from a real node, and `-mock` handles both:
+
+- **No driver container.** Mokka's GPU Operator mode runs no driver, so
+  `driver` finds no driver pod. With `-mock`, `collect` starts a stand-in pod,
+  `capture-driver-<node>-<pid>`, and runs the driver commands there. It has the
+  host pod's spec (privileged, host PID namespace), installs nothing, and is
+  deleted like the host pod.
+- **The mock is opt-in.** The mock NVML library, `nvidia-smi`,
+  `/proc/driver/nvidia`, the GPUs in PCI sysfs and the InfiniBand devices reach
+  a container only when Mokka's NRI plugin injects them, which it does for
+  containers that ask with its annotations. With `-mock`, the stand-in and the
+  host pod carry `nvml-mock.nvidia.com/devices`, `nvml-mock.nvidia.com/infiniband`
+  and `nvml-mock.nvidia.com/imex-channels` set to `"true"`. Without them, the
+  host pod sees the Kind node underneath, with no GPUs.
+
+Four files come out empty for reasons outside the mock. The mock's library and
+`nvidia-smi` live under `/opt/nvml-mock`, so `lib-listing.txt` and
+`bin-listing.txt` find nothing. The stand-in's image has no `nm` or `modinfo`, so
+`nvml-symbols.txt` and `modinfo-nvidia.txt` are empty too. Any other empty file
+is a gap in the mock.
+
 | Flag | Default | Description |
 | --- | --- | --- |
 | `-out` | `./capture` | Output directory |
+| `-mock` | off | The nodes are Mokka nodes: run the driver commands in a stand-in pod and opt both pods into the mock |
 | `-dump-binary` | none | Linux `mokka-capture` to run `dump` with in the driver container |
 | `-operator-namespace` | `gpu-operator` | GPU Operator namespace |
 | `-driver-container` | `nvidia-driver-ctr` | Driver container name |
@@ -410,8 +442,8 @@ the earlier ones (the file is then truncated JSON; the devices written are
 intact). A new field that names an identifier is covered; one that does not is
 not, so a reviewer still reads a dump before it is committed.
 
-To dump the mock, copy the same Linux binary into an nvml-mock pod, where the
-mock library is on the loader path, and run `mokka-capture dump` there.
+To dump the mock, run `collect -mock` with the same `-dump-binary` (see
+[A Mokka node](#a-mokka-node)).
 
 ## Exit codes
 
@@ -420,4 +452,4 @@ mock library is on the loader path, and run `mokka-capture dump` there.
 | `0` | The command completed. `collect` succeeds even when single commands on a node fail; those are in `errors.log` |
 | `1` | The cluster was unreachable, a file could not be read or written, the output directory is not empty, NVML failed to initialise, `scrub -check` found an identifier, or `profile` found GPUs that disagree on a key with no per-device form |
 | `2` | Bad usage |
-| `130` | `collect` was interrupted; the host pod is deleted first |
+| `130` | `collect` was interrupted; the pods it started are deleted first |

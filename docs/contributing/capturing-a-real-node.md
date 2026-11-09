@@ -237,9 +237,15 @@ Each comparison is a command that takes the real capture and the same surface
 taken from the mock. In the commands, `REAL` is the real node's directory (a raw
 capture, or a committed one) and `MOCK` is a directory holding the mock's files.
 
-Getting the mock's files is not automated here. Run the mock's `nvidia-smi` and
-the same Linux `mokka-capture dump` in an nvml-mock pod on a node of the profile under
-test, built for that node's architecture, and save the outputs under `MOCK`.
+Take the mock's files with the same command, pointed at a Mokka cluster running
+the profile under test. `-mock` runs the driver commands in a stand-in pod and
+opts the pods into the mock ([A Mokka node](../tools/mokka-capture.md#a-mokka-node)
+says why), and `-dump-binary` is built for that cluster's architecture:
+
+```bash
+bin/mokka-capture collect -mock -dump-binary <linux binary> -out mock all <node>
+MOCK=mock/<node>
+```
 
 1. **Symbols.** Which of the real library's functions does the bridge answer?
    `generate-bridge -symbols` reads the real library's exported symbols and says
@@ -249,11 +255,12 @@ test, built for that node's architecture, and save the outputs under `MOCK`.
    (`nm -D --defined-only libnvidia-ml.so.1 | awk '{print $3}' | sort`) as
    `-mock-symbols`; without them the report reads the bridge sources, which do not
    show the legacy unversioned names the C shim exports, and counts them as
-   missing:
+   missing. `collect -mock` leaves `$MOCK/nvml-symbols.txt` empty, so take them
+   from the library you built:
 
    ```bash
    go run ./cmd/generate-bridge -symbols "$REAL/nvml-symbols.txt" \
-     -mock-symbols "$MOCK/nvml-symbols.txt"
+     -mock-symbols mock-nvml-symbols.txt
    ```
 2. **Values.** Compare the NVML dumps, which gives return-code and board-value
    match rates and lists every difference:
