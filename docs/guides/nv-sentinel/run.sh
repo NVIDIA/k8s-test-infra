@@ -29,8 +29,9 @@
 # NVSentinel cordons/drains it and the sample GPU workload reschedules onto the
 # second, healthy worker.
 #
-# This is a green-path demo: every phase is expected to succeed. It is
-# re-runnable (reuses the cluster unless FORCE_RECREATE=true).
+# This is a green-path demo: every phase is expected to succeed, and the script
+# exits non-zero at the first one that does not. It is re-runnable (reuses the
+# cluster unless FORCE_RECREATE=true).
 set -euo pipefail
 
 # --- Configuration (override via env) ----------------------------------------
@@ -71,11 +72,29 @@ warn() { echo "WARN: $*" >&2; }
 fail() { echo "ERROR: $*" >&2; exit 1; }
 kubectl_ctx() { command kubectl --context "${KUBE_CONTEXT}" "$@"; }
 observe() { echo "--- \$ $* ---"; "$@" 2>&1 || warn "(non-fatal) command failed: $*"; }
+is_cordoned() {
+  [[ "$(kubectl_ctx get node "$1" -o jsonpath='{.spec.unschedulable}' 2>/dev/null || true)" == "true" ]]
+}
+# Each GPU worker's cordon state and the NVSentinel checks failing on it (its
+# Gpu* node conditions that are True), so a failed phase shows the cause.
+report_workers() {
+  local node
+  for node in "${WORKERS[@]}"; do
+    if is_cordoned "${node}"; then echo "--- ${node}: cordoned ---"; else echo "--- ${node}: schedulable ---"; fi
+    kubectl_ctx get node "${node}" \
+      -o jsonpath='{range .status.conditions[?(@.status=="True")]}{.type}{": "}{.message}{"\n"}{end}' 2>/dev/null \
+      | grep '^Gpu' || echo "(no failing NVSentinel checks)"
+  done
+}
 
 # --- Preflight ----------------------------------------------------------------
 for bin in docker kind kubectl helm; do
   command -v "${bin}" >/dev/null 2>&1 || fail "${bin} is required"
 done
+# The chart takes the image repository and tag separately.
+[[ "${IMAGE_NAME##*/}" == *:* ]] || fail "IMAGE_NAME must be repository:tag, got '${IMAGE_NAME}'"
+IMAGE_REPOSITORY="${IMAGE_NAME%:*}"
+IMAGE_TAG="${IMAGE_NAME##*:}"
 
 # --- Kind cluster -------------------------------------------------------------
 if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
@@ -153,8 +172,8 @@ info "Installing nvml-mock (profile=${GPU_PROFILE}) on the GPU workers"
 helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --kube-context "${KUBE_CONTEXT}" \
   --namespace "${NAMESPACE}" --create-namespace \
-  --set image.repository=nvml-mock \
-  --set image.tag=nvsentinel-demo \
+  --set "image.repository=${IMAGE_REPOSITORY}" \
+  --set "image.tag=${IMAGE_TAG}" \
   --set "gpu.profile=${GPU_PROFILE}" \
   --set gpu.dynamicMetrics.enabled=true \
   --set-string "nodeSelector.nvml-mock-gpu=true" \
@@ -198,10 +217,25 @@ kubectl_ctx -n cert-manager wait --for=condition=Available deploy --all --timeou
 # (Percona operator -> PerconaServerMongoDB CR -> cert-manager certs -> the
 # collection-setup Job), and the DB-consuming pods stay unready until it
 # finishes. --wait would just block Helm for the whole sequence and time out.
+#
+# Without --wait, Helm 4 also does not wait for the CRDs it installs from the
+# chart's crds/ directories to be served, and the install can fail with
+# 'no matches for kind "PerconaServerMongoDB"'. So apply the Percona CRDs first
+# and wait for them; Helm then finds them present. Server-side, because they
+# are too large for the annotation client-side apply writes.
+NVSENTINEL_CHART_DIR="$(mktemp -d)"
+trap 'rm -rf "${NVSENTINEL_CHART_DIR}"' EXIT
+helm pull "${NVSENTINEL_CHART}" --version "${NVSENTINEL_VERSION}" \
+  --untar --untardir "${NVSENTINEL_CHART_DIR}"
+PSMDB_CRDS="${NVSENTINEL_CHART_DIR}/nvsentinel/charts/mongodb-store/charts/psmdb-operator/crds"
+[[ -d "${PSMDB_CRDS}" ]] || fail "NVSentinel ${NVSENTINEL_VERSION} has no psmdb-operator CRDs where this script expects them"
+info "Applying the Percona CRDs from NVSentinel ${NVSENTINEL_VERSION}"
+kubectl_ctx apply --server-side --force-conflicts -f "${PSMDB_CRDS}"
+kubectl_ctx wait --for=condition=Established -f "${PSMDB_CRDS}" --timeout=120s
+
 info "Installing NVSentinel ${NVSENTINEL_VERSION} (Percona MongoDB store, DCGM health monitor)"
-helm upgrade --install nvsentinel "${NVSENTINEL_CHART}" \
+helm upgrade --install nvsentinel "${NVSENTINEL_CHART_DIR}/nvsentinel" \
   --kube-context "${KUBE_CONTEXT}" \
-  --version "${NVSENTINEL_VERSION}" \
   --namespace "${NVSENTINEL_NAMESPACE}" --create-namespace \
   -f "${REPO_ROOT}/${DEMO_DIR}/nvsentinel-values.yaml" \
   --timeout 5m
@@ -228,8 +262,11 @@ observe kubectl_ctx -n "${NVSENTINEL_NAMESPACE}" get pods -o wide
 # --- Sample GPU workload (something for the drainer to evict) -----------------
 info "Deploying sample GPU workload"
 kubectl_ctx apply -f "${REPO_ROOT}/${DEMO_DIR}/sample-workload.yaml"
-kubectl_ctx -n "${WORKLOAD_NAMESPACE}" rollout status deploy/gpu-sample-workload --timeout=180s || \
-  warn "sample workload not Ready yet"
+if ! kubectl_ctx -n "${WORKLOAD_NAMESPACE}" rollout status deploy/gpu-sample-workload --timeout=180s; then
+  observe kubectl_ctx -n "${WORKLOAD_NAMESPACE}" get pods -l app=gpu-sample-workload -o wide
+  report_workers
+  fail "the sample workload is not Ready, so the drain would have nothing to move"
+fi
 WORKLOAD_NODE=$(kubectl_ctx -n "${WORKLOAD_NAMESPACE}" get pod -l app=gpu-sample-workload \
   -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || true)
 info "Sample workload scheduled on: ${WORKLOAD_NODE:-<pending>}"
@@ -244,6 +281,15 @@ MOCK_POD=$(kubectl_ctx -n "${NAMESPACE}" get pod -l app.kubernetes.io/name=nvml-
   --field-selector "spec.nodeName=${TARGET_NODE}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 [[ -n "${MOCK_POD}" ]] || { TARGET_NODE="${WORKERS[0]}"; MOCK_POD=$(kubectl_ctx -n "${NAMESPACE}" get pod -l app.kubernetes.io/name=nvml-mock --field-selector "spec.nodeName=${TARGET_NODE}" -o jsonpath='{.items[0].metadata.name}'); }
 
+# Every GPU worker must be schedulable before the fault goes in. A worker that
+# NVSentinel has already cordoned failed some other check, and the cordon check
+# below would pass without the heat having caused it.
+for node in "${WORKERS[@]}"; do
+  is_cordoned "${node}" || continue
+  report_workers
+  fail "${node} was cordoned before any GPU was heated; its failing checks are listed above"
+done
+
 info "PHASE 1: heating GPU ${TARGET_GPU} to ${HOT_TEMP_C}C on node ${TARGET_NODE} (pod ${MOCK_POD})"
 kubectl_ctx -n "${NAMESPACE}" exec "${MOCK_POD}" -- \
   nvml-mock-ctl temp --gpu "${TARGET_GPU}" "${HOT_TEMP_C}"
@@ -251,19 +297,17 @@ kubectl_ctx -n "${NAMESPACE}" exec "${MOCK_POD}" -- \
 info "Waiting for NVSentinel to cordon ${TARGET_NODE} (detect -> quarantine)"
 cordoned=false
 for _ in $(seq 1 60); do
-  if [[ "$(kubectl_ctx get node "${TARGET_NODE}" -o jsonpath='{.spec.unschedulable}' 2>/dev/null || true)" == "true" ]]; then
+  if is_cordoned "${TARGET_NODE}"; then
     cordoned=true; break
   fi
   sleep 5
 done
-if [[ "${cordoned}" == "true" ]]; then
-  info "DETECTED + REMEDIATED: ${TARGET_NODE} is cordoned by NVSentinel"
-else
-  warn "node not cordoned within timeout; inspect fault-quarantine logs"
-fi
 echo "--- node status ---";           observe kubectl_ctx get nodes
 echo "--- thermal-margin condition ---";  observe bash -c "kubectl --context ${KUBE_CONTEXT} get node ${TARGET_NODE} -o json | jq -r '.status.conditions[] | select(.type|test(\"Gpu\")) | \"\(.type)=\(.status): \(.message)\"' | grep -iE 'ThermalMargin|slowdown|margin' | head"
 echo "--- fault-quarantine cordon ---"; observe bash -c "kubectl --context ${KUBE_CONTEXT} -n ${NVSENTINEL_NAMESPACE} logs -l app.kubernetes.io/instance=nvsentinel --tail=200 --prefix 2>/dev/null | grep -iE 'Cordoning node|Quarantined' | tail -5"
+[[ "${cordoned}" == "true" ]] || fail "${TARGET_NODE} was not cordoned within 5 minutes; inspect the fault-quarantine logs"
+info "DETECTED + REMEDIATED: ${TARGET_NODE} is cordoned by NVSentinel"
+
 info "Waiting for the drained workload to reschedule off ${TARGET_NODE}"
 rescheduled=false
 for _ in $(seq 1 48); do
@@ -275,8 +319,11 @@ for _ in $(seq 1 48); do
   fi
   sleep 5
 done
-[[ "${rescheduled}" == "true" ]] || warn "workload has not rescheduled yet; check node-drainer logs"
 observe kubectl_ctx -n "${WORKLOAD_NAMESPACE}" get pods -l app=gpu-sample-workload -o wide
+if [[ "${rescheduled}" != "true" ]]; then
+  report_workers
+  fail "the sample workload did not reschedule off ${TARGET_NODE} within 4 minutes; if the other worker is cordoned, its failing checks are listed above, otherwise check the node-drainer logs"
+fi
 
 # ==============================================================================
 # PHASE 2 — COOL the GPU and observe AUTO-RECOVERY (uncordon)
@@ -293,17 +340,17 @@ kubectl_ctx -n "${NAMESPACE}" exec "${MOCK_POD}" -- nvml-mock-ctl reset --gpu "$
 info "Waiting for NVSentinel to uncordon ${TARGET_NODE} (cooldown -> recovery)"
 recovered=false
 for _ in $(seq 1 60); do
-  if [[ "$(kubectl_ctx get node "${TARGET_NODE}" -o jsonpath='{.spec.unschedulable}' 2>/dev/null || true)" != "true" ]]; then
+  if ! is_cordoned "${TARGET_NODE}"; then
     recovered=true; break
   fi
   sleep 5
 done
-if [[ "${recovered}" == "true" ]]; then
-  info "RECOVERED: ${TARGET_NODE} is uncordoned (Ready) again"
-else
-  warn "node still cordoned; inspect fault-quarantine logs (checks may not have cleared)"
-fi
 observe kubectl_ctx get nodes
+if [[ "${recovered}" != "true" ]]; then
+  report_workers
+  fail "${TARGET_NODE} is still cordoned 5 minutes after cooling; the checks that have not cleared are listed above"
+fi
+info "RECOVERED: ${TARGET_NODE} is uncordoned (Ready) again"
 
 # --- Summary ------------------------------------------------------------------
 cat <<EOF

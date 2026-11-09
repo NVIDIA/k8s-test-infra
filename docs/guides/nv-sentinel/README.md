@@ -44,7 +44,8 @@ restarted).
 One control-plane + two workers:
 
 - **Workers** (`nvml-mock-gpu=true`): run the `nvml-mock` DaemonSet and all GPU
-  Operator operands (DCGM, device plugin, GFD). Each advertises 8 mock GPUs.
+  Operator operands (DCGM, device plugin, GFD). Each advertises the profile's
+  mock GPUs, 8 with the default `h100`.
 - **Control-plane**: runs the NVSentinel control-plane pipeline (MongoDB,
   platform-connector, fault-quarantine, node-drainer). Pinning it there means
   draining a *GPU worker* never evicts the pipeline doing the draining.
@@ -99,7 +100,9 @@ rebuild from scratch. Useful overrides: `GPU_PROFILE`, `HOT_TEMP_C`, `TARGET_GPU
    the standalone DCGM** DaemonSet + Service that NVSentinel polls.
 4. **cert-manager** — installed as a TLS dependency (Percona and NVSentinel both
    use it to issue MongoDB certificates).
-5. **NVSentinel** — installs the chart with [`nvsentinel-values.yaml`](nvsentinel-values.yaml),
+5. **NVSentinel** — applies the chart's Percona CRDs and waits until they are
+   served (Helm 4 does not wait for them on an install without `--wait`), then
+   installs the chart with [`nvsentinel-values.yaml`](nvsentinel-values.yaml),
    which brings up the MongoDB store via the Percona operator and wires the
    pipeline to the standalone DCGM. This enables the `metadata-collector` (for the
    slowdown offset) and turns the thermal-margin watch from dry-run into an active,
@@ -111,6 +114,11 @@ rebuild from scratch. Useful overrides: `GPU_PROFILE`, `HOT_TEMP_C`, `TARGET_GPU
    workload reschedules to the other worker.
 8. **Phase 2 — auto-recover** — clears the temperature override and waits for
    NVSentinel to uncordon the node. No DCGM restart is involved.
+
+The script exits non-zero at the first step that does not happen: the sample
+workload not starting, a worker cordoned before the heat, no cordon, no
+reschedule, or no uncordon. It then prints each worker's cordon state and the
+NVSentinel checks failing on it.
 
 ## The fault and the recovery
 
@@ -182,6 +190,13 @@ that file):
   test. Left active it stays a "failing check" forever and keeps the node quarantined
   even after the GPU cools, so recovery never completes. Suppressing it lets all
   checks clear on cooldown.
+- **`suppressedErrorCodes`** also includes `DCGM_FR_IMEX_UNHEALTHY`. On a board
+  whose NVLink domain spans nodes, such as `gb300`, Mokka stages the IMEX tools,
+  so DCGM's health check runs `nvidia-imex-ctl -q`. The demo runs no IMEX
+  daemon, so the query fails, DCGM reports `IMEX daemon status is -3 (not READY)`,
+  and NVSentinel cordons both workers before any GPU is heated. The default
+  `h100` has no `nvidia-imex-ctl`, which DCGM treats as healthy. A real
+  multi-node NVLink cluster runs the IMEX daemon and should keep this check.
 - **`fault-quarantine.circuitBreaker.enabled: false`**. The circuit breaker trips
   when ≥ 50% of GPU nodes are cordoned within a 5-minute window and then halts *all*
   event processing (including the uncordon on recovery). With only two GPU workers a
