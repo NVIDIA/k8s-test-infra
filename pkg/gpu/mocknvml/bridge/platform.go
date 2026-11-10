@@ -32,6 +32,7 @@ package main
 import "C"
 
 import (
+	"encoding/binary"
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -54,6 +55,9 @@ func nvmlDeviceGetPlatformInfo(device C.nvmlDevice_t, platformInfo *C.nvmlPlatfo
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
+	// nvidia-smi renders only the first eight bytes, little-endian, as the
+	// GPU Fabric GUID; nothing the mock models reads the rest, so it stays zero.
+	ibGUID := binary.LittleEndian.AppendUint64(nil, info.FabricGUID)
 
 	// The caller selects the struct version by writing into the `version`
 	// field before calling. v1 and v2 cover the same 44 bytes under different
@@ -72,7 +76,7 @@ func nvmlDeviceGetPlatformInfo(device C.nvmlDevice_t, platformInfo *C.nvmlPlatfo
 		v1info := (*C.nvmlPlatformInfo_v1_t)(unsafe.Pointer(platformInfo))
 		v1info.version = C.uint(v1Tag)
 		fillUchars(v1info.rackGuid[:], info.ChassisSerialNumber[:])
-		fillUchars(v1info.ibGuid[:], nil)
+		fillUchars(v1info.ibGuid[:], ibGUID)
 		v1info.chassisPhysicalSlotNumber = C.uchar(info.SlotNumber)
 		v1info.computeSlotIndex = C.uchar(info.TrayIndex)
 		v1info.nodeIndex = C.uchar(info.HostID)
@@ -82,7 +86,7 @@ func nvmlDeviceGetPlatformInfo(device C.nvmlDevice_t, platformInfo *C.nvmlPlatfo
 	case PlatformVersionV2:
 		platformInfo.version = C.uint(v2Tag)
 		fillUchars(platformInfo.chassisSerialNumber[:], info.ChassisSerialNumber[:])
-		fillUchars(platformInfo.ibGuid[:], nil)
+		fillUchars(platformInfo.ibGuid[:], ibGUID)
 		platformInfo.slotNumber = C.uchar(info.SlotNumber)
 		platformInfo.trayIndex = C.uchar(info.TrayIndex)
 		platformInfo.hostId = C.uchar(info.HostID)
@@ -115,8 +119,7 @@ func nvmlDeviceGetModuleId(device C.nvmlDevice_t, moduleId *C.uint) C.nvmlReturn
 
 // fillUchars writes src over the whole of the caller's buffer, zeroing whatever
 // src does not reach. Every byte is written on purpose: the struct arrives
-// uninitialised, so a partial write would render caller garbage — and for the
-// ibGuid, which the mock does not model, zero is the whole payload. copy() is
+// uninitialised, so a partial write would render caller garbage. copy() is
 // not usable here because cgo's C.uchar is a distinct type from byte.
 func fillUchars(dst []C.uchar, src []byte) {
 	for i := range dst {

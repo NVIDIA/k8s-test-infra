@@ -349,7 +349,12 @@ model as the profile's `nvlink.defaults.error_rate`), so consumers that sample
 over time see a *rising error rate* rather than a one-shot step. It surfaces on
 both the per-counter direct API (`nvmlDeviceGetNvLinkErrorCounter`) and the DL
 error field values (`NVML_FI_DEV_NVLINK_ERROR_DL_{REPLAY,RECOVERY,CRC}`, field
-ids 161–163, e.g. `dcgmi dmon -e 161,162,163`). Injection lands only on links the
+ids 161–163, e.g. `dcgmi dmon -e 161,162,163`), and in the NVLink5 error
+counters (`NVML_FI_DEV_NVLINK_COUNT_*`) that `nvidia-smi nvlink -e` reads. On a
+615 or newer driver only the NVLink5 counters carry it: the direct API and fields
+161–163 answer `NOT_SUPPORTED`, as on a real 615 tray (see
+[NVLink telemetry on a 615 driver](configuration.md#nvlink-telemetry-on-a-615-driver)).
+Injection lands only on links the
 device actually has **active** — a nonexistent link is never conjured into an
 errored one — and `--links` (comma-separated ids) narrows it further; omit it to
 target all active links (the "GPU lost its switch uplinks" fault).

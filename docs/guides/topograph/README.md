@@ -246,7 +246,7 @@ nodeObserver:
 EOF
 
 helm install topograph topograph \
-  --repo https://dsx-ai-factory.github.io/topograph --version 1.1.0 \
+  --repo https://helm.ngc.nvidia.com/nvidia/topograph --version 1.1.0 \
   --namespace topograph \
   -f topograph-values.yaml \
   --wait --timeout 300s

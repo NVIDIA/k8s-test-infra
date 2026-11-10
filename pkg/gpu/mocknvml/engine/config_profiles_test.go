@@ -201,7 +201,7 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 		architecture string
 		ccMajor      int
 		ccMinor      int
-		memGiB       uint64
+		memMiB       uint64
 		deviceCount  int
 		// bwScope is the NVML family the board answers bandwidth mode on:
 		// the node-wide pair on Hopper, the per-device trio on Blackwell,
@@ -209,13 +209,14 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 		// bandwidth mode is not supported" for the node-wide pair.
 		bwScope NVLinkBwModeScope
 	}{
-		{"A100", "a100.yaml", "ampere", 8, 0, 40, 8, noBwMode},
-		{"H100", "h100.yaml", "hopper", 9, 0, 80, 8, NVLinkBwModeScopeSystem},
-		{"B200", "b200.yaml", "blackwell", 10, 0, 180, 8, NVLinkBwModeScopeDevice},
-		{"GB200", "gb200.yaml", "blackwell", 10, 0, 186, 4, NVLinkBwModeScopeDevice},
-		{"GB300", "gb300.yaml", "blackwell", 10, 0, 278, 4, NVLinkBwModeScopeDevice},
-		{"L40S", "l40s.yaml", "ada_lovelace", 8, 9, 48, 8, noBwMode},
-		{"T4", "t4.yaml", "turing", 7, 5, 16, 4, noBwMode},
+		{"A100", "a100.yaml", "ampere", 8, 0, 40960, 8, noBwMode},
+		{"H100", "h100.yaml", "hopper", 9, 0, 81920, 8, NVLinkBwModeScopeSystem},
+		{"B200", "b200.yaml", "blackwell", 10, 0, 184320, 8, NVLinkBwModeScopeDevice},
+		{"GB200", "gb200.yaml", "blackwell", 10, 0, 190464, 4, NVLinkBwModeScopeDevice},
+		{"GB300", "gb300.yaml", "blackwell", 10, 0, 284672, 4, NVLinkBwModeScopeDevice},
+		{"L40S", "l40s.yaml", "ada_lovelace", 8, 9, 49152, 8, noBwMode},
+		{"T4", "t4.yaml", "turing", 7, 5, 16384, 4, noBwMode},
+		{"VRNVL72", "vrnvl72.yaml", "rubin", 10, 7, 286524, 4, NVLinkBwModeScopeDevice},
 	}
 
 	for _, p := range profiles {
@@ -233,8 +234,8 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 
 			mem := yamlCfg.DeviceDefaults.Memory
 			require.NotNil(t, mem, "%s memory config is nil", p.name)
-			expectedBytes := p.memGiB * 1024 * 1024 * 1024
-			require.Equal(t, expectedBytes, mem.TotalBytes, "%s memory (%d GiB)", p.name, p.memGiB)
+			expectedBytes := p.memMiB * 1024 * 1024
+			require.Equal(t, expectedBytes, mem.TotalBytes, "%s memory (%d MiB)", p.name, p.memMiB)
 
 			require.Len(t, yamlCfg.Devices, p.deviceCount, "%s device count", p.name)
 

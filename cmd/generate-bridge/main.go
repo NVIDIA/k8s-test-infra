@@ -33,6 +33,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -55,7 +56,16 @@ func main() {
 	output := flag.String("output", "pkg/gpu/mocknvml/bridge/stubs_generated.go", "Output file for generated stubs")
 	stats := flag.Bool("stats", false, "Print coverage statistics and exit")
 	validate := flag.Bool("validate", false, "Validate hand-written export parameter counts against nvml.h prototypes")
+	symbols := flag.String("symbols", "", "File listing the exported symbols of a real libnvidia-ml.so (`nm -D --defined-only` output or bare names); report how the bridge answers each and exit")
+	mockSymbols := flag.String("mock-symbols", "", "With -symbols: the same listing for the built mock library, so legacy names the C shim exports are counted")
 	flag.Parse()
+
+	if *symbols != "" {
+		if err := runSymbols(os.Stdout, *symbols, *mockSymbols, *bridge); err != nil {
+			log.Fatalf("%v", err)
+		}
+		return
+	}
 
 	if *stats {
 		allFunctions, err := parseNVMLFunctions(requirePath("input", *input))
@@ -458,4 +468,171 @@ func validateSignatures(bridgeDir string, prototypes map[string]FuncProto) ([]st
 	})
 
 	return mismatches, err
+}
+
+// runSymbols compares the symbols a real libnvidia-ml.so exports with the
+// bridge, so the gap to a real driver is measured against the driver, not only
+// against go-nvml's list.
+func runSymbols(w io.Writer, symbolsFile, mockFile, bridgeDir string) error {
+	realSyms, err := readSymbolFile(symbolsFile)
+	if err != nil {
+		return err
+	}
+	var built map[string]bool
+	if mockFile != "" {
+		names, err := readSymbolFile(mockFile)
+		if err != nil {
+			return err
+		}
+		built = make(map[string]bool, len(names))
+		for _, n := range names {
+			built[n] = true
+		}
+	}
+	handWritten, err := scanBridgeExports(bridgeDir)
+	if err != nil {
+		return err
+	}
+	stubs, err := scanStubExports(bridgeDir)
+	if err != nil {
+		return err
+	}
+	printSymbolReport(w, realSyms, handWritten, stubs, built)
+	return nil
+}
+
+func readSymbolFile(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return parseSymbolList(f)
+}
+
+// parseSymbolList reads `nm -D --defined-only` output ("addr T name") or one
+// name per line, and keeps the nvml* names. Version suffixes (nvmlInit@@v1) are
+// dropped.
+func parseSymbolList(r io.Reader) ([]string, error) {
+	seen := map[string]bool{}
+	var out []string
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) == 0 {
+			continue
+		}
+		name, _, _ := strings.Cut(fields[len(fields)-1], "@")
+		if !strings.HasPrefix(name, "nvml") || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out, sc.Err()
+}
+
+// scanStubExports returns the functions exported by the generated stubs file.
+func scanStubExports(bridgeDir string) (map[string]bool, error) {
+	exports := map[string]bool{}
+	content, err := os.ReadFile(filepath.Join(bridgeDir, "stubs_generated.go"))
+	if os.IsNotExist(err) {
+		return exports, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(string(content), "\n")
+	for i, line := range lines {
+		var next string
+		if i+1 < len(lines) {
+			next = strings.TrimSpace(lines[i+1])
+		}
+		if name := exportedFuncName(strings.TrimSpace(line), next); name != "" {
+			exports[name] = true
+		}
+	}
+	return exports, nil
+}
+
+// symbolClasses is how the bridge answers each symbol of the real library.
+type symbolClasses struct {
+	implemented, stubbed, aliased, absent, extra []string
+}
+
+// classifySymbols sorts the real library's symbols by how the bridge answers
+// them. The bridge sources do not show every export: the C shim provides the
+// legacy unversioned names (nvmlDeviceGetPciInfo and the like) as aliases. With
+// built, the symbols of the compiled mock library, those count as exported;
+// without it they show as missing.
+func classifySymbols(realSyms []string, handWritten, stubs, built map[string]bool) symbolClasses {
+	var c symbolClasses
+	realSet := make(map[string]bool, len(realSyms))
+	for _, name := range realSyms {
+		realSet[name] = true
+		switch {
+		case handWritten[name]:
+			c.implemented = append(c.implemented, name)
+		case stubs[name]:
+			c.stubbed = append(c.stubbed, name)
+		case built[name]:
+			c.aliased = append(c.aliased, name)
+		default:
+			c.absent = append(c.absent, name)
+		}
+	}
+	for _, set := range []map[string]bool{handWritten, stubs, built} {
+		for name := range set {
+			if !realSet[name] && !contains(c.extra, name) {
+				c.extra = append(c.extra, name)
+			}
+		}
+	}
+	sort.Strings(c.extra)
+	return c
+}
+
+func contains(list []string, s string) bool {
+	for _, e := range list {
+		if e == s {
+			return true
+		}
+	}
+	return false
+}
+
+func printSymbolReport(w io.Writer, realSyms []string, handWritten, stubs, built map[string]bool) {
+	c := classifySymbols(realSyms, handWritten, stubs, built)
+	total := len(realSyms)
+	pct := func(n int) float64 {
+		if total == 0 {
+			return 0
+		}
+		return float64(n) / float64(total) * 100
+	}
+	_, _ = fmt.Fprintf(w, "Symbols exported by the real library: %d\n", total)
+	_, _ = fmt.Fprintf(w, "  Implemented by the bridge:      %d (%.1f%%)\n", len(c.implemented), pct(len(c.implemented)))
+	_, _ = fmt.Fprintf(w, "  Generated stubs (NOT_SUPPORTED): %d (%.1f%%)\n", len(c.stubbed), pct(len(c.stubbed)))
+	if built != nil {
+		_, _ = fmt.Fprintf(w, "  Aliases exported by the C shim: %d (%.1f%%)\n", len(c.aliased), pct(len(c.aliased)))
+	}
+	_, _ = fmt.Fprintf(w, "  Not exported by the bridge:     %d (%.1f%%)\n", len(c.absent), pct(len(c.absent)))
+	_, _ = fmt.Fprintf(w, "  Exported by the bridge only:    %d\n", len(c.extra))
+	if built == nil && len(c.absent) > 0 {
+		_, _ = fmt.Fprintln(w, "  Note: the bridge sources were scanned. Legacy unversioned names exported by the C shim\n  count as missing here; pass -mock-symbols (nm -D of the built mock library) to count them.")
+	}
+	listSymbols(w, "Not exported by the bridge (a program linked against the library fails to load; go-nvml fails per call)", c.absent)
+	listSymbols(w, "Exported by the bridge but not by the real library", c.extra)
+	listSymbols(w, "Stubs: the real library answers these, the mock answers NOT_SUPPORTED", c.stubbed)
+}
+
+func listSymbols(w io.Writer, title string, names []string) {
+	if len(names) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "\n%s (%d):\n", title, len(names))
+	for _, n := range names {
+		_, _ = fmt.Fprintf(w, "  %s\n", n)
+	}
 }

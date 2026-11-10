@@ -24,7 +24,7 @@ set -euo pipefail
 : "${RUNNER_TEMP:?}"
 
 readonly KIND_VERSION=v0.31.0
-readonly HELM_VERSION=v4.3.0
+readonly HELM_VERSION=v4.3.1
 # Pinned so Tilt version drift doesn't silently change rollout semantics
 # between runs. Bump alongside local dev.
 readonly TILT_VERSION=0.37.5
@@ -36,13 +36,13 @@ case "$(uname -m)" in
   x86_64|amd64)
     readonly ARCH=amd64 TILT_ARCH=x86_64
     readonly KIND_SHA256=eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa
-    readonly HELM_SHA256=86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
+    readonly HELM_SHA256=0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b
     readonly TILT_SHA256=9efb56969c48ddea4adfb56a604b9ca5ed254924ddf140fc3e068a305cacf558
     ;;
   aarch64|arm64)
     readonly ARCH=arm64 TILT_ARCH=arm64
     readonly KIND_SHA256=8e1014e87c34901cc422a1445866835d1e666f2a61301c27e722bdeab5a1f7e4
-    readonly HELM_SHA256=31c5794dd55c66a51e6b7d2e2ac7a114ae8b1de41ff1d9ba51748ac973b06a08
+    readonly HELM_SHA256=8cf8f66ecbc252ac8f7f06cca68aba88508ddfde3a6a34feb1678ad1694b4f88
     readonly TILT_SHA256=1f9c62dcce0608aeb0c63533b14e260fc2e8c5797f81589b0914c398ba53d5b0
     ;;
   *) echo "ERROR: unsupported architecture '$(uname -m)'" >&2; exit 1 ;;

@@ -67,6 +67,13 @@ type ConfigurableDevice struct {
 	pciInfo    nvml.PciInfo
 	boardID    uint32
 
+	// absentNotSupported is the profile's absent_features: not_supported; see
+	// absent_features.go.
+	absentNotSupported bool
+
+	// driverVersion is the driver the mock reports; see nvlink_telemetry.go.
+	driverVersion string
+
 	// migState is the device's MIG partitioning. Non-nil on every physical
 	// GPU (it also records that a board is not MIG-capable); nil on MIG
 	// devices, which cannot themselves be partitioned.
@@ -897,6 +904,9 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 	case nvml.TEMPERATURE_THRESHOLD_GPU_MAX:
 		temp = uint32(c.Thermal.MaxOperating_C)
 	default:
+		if ret := d.unsupportedWhenAbsent("nvmlDeviceGetTemperatureThreshold", declaresThreshold(c.Thermal, thresholdType)); ret != nvml.SUCCESS {
+			return 0, ret
+		}
 		temp = uint32(c.Thermal.MaxOperating_C)
 	}
 	debugLog("[NVML] nvmlDeviceGetTemperatureThreshold(type=%d) -> %d\n", thresholdType, temp)
@@ -914,8 +924,9 @@ func (d *ConfigurableDevice) reportsTLimit() bool {
 
 // GetMarginTemperature returns the GPU's headroom to its thermal limit in
 // degrees C — the value nvidia-smi renders as "GPU T.Limit Temp" (via
-// nvmlDeviceGetMarginTemperature). It is the slowdown threshold (falling back
-// to shutdown, then max-operating) minus the current temperature. The margin is
+// nvmlDeviceGetMarginTemperature). It is thermal.tlimit.reference_c when the
+// profile states one, else the slowdown threshold (falling back to shutdown,
+// then max-operating), minus the current temperature. The margin is
 // SIGNED and goes negative once the current temperature passes the limit,
 // mirroring real T.Limit hardware; consumers such as NVSentinel's
 // GpuThermalMarginWatch key on that sign crossing (it FAILs when the margin
@@ -932,12 +943,9 @@ func (d *ConfigurableDevice) GetMarginTemperature() (nvml.MarginTemperature, nvm
 	if c.Thermal == nil {
 		return nvml.MarginTemperature{}, nvml.ERROR_NOT_SUPPORTED
 	}
-	limit := c.Thermal.SlowdownThreshold_C
-	if limit == 0 {
-		limit = c.Thermal.ShutdownThreshold_C
-	}
-	if limit == 0 {
-		limit = c.Thermal.MaxOperating_C
+	limit := tlimitReference(c.Thermal)
+	if t := c.Thermal.TLimit; t != nil && t.Reference_C != 0 {
+		limit = t.Reference_C
 	}
 	if limit == 0 {
 		return nvml.MarginTemperature{}, nvml.ERROR_NOT_SUPPORTED
@@ -1699,21 +1707,24 @@ func (d *ConfigurableDevice) GetFBCSessions() ([]nvml.FBCSessionInfo, nvml.Retur
 
 // GetGpuOperationMode returns GPU operation mode
 func (d *ConfigurableDevice) GetGpuOperationMode() (nvml.GpuOperationMode, nvml.GpuOperationMode, nvml.Return) {
+	if ret := d.unsupportedWhenAbsent("nvmlDeviceGetGpuOperationMode", d.cfg().GPUOperationMode != nil); ret != nvml.SUCCESS {
+		return 0, 0, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetGpuOperationMode -> ALL_ON\n")
 	return nvml.GOM_ALL_ON, nvml.GOM_ALL_ON, nvml.SUCCESS
 }
 
 // nvlinkLinkInRange reports whether a link index is within the valid
-// per-device NVLink range. Negative or out-of-range indices map to
-// ERROR_INVALID_ARGUMENT, matching real NVML.
-func nvlinkLinkInRange(link int) bool {
-	return link >= 0 && link < nvLinkMaxLinks
+// per-device NVLink range of the configured driver. Negative or out-of-range
+// indices map to ERROR_INVALID_ARGUMENT, matching real NVML.
+func (d *ConfigurableDevice) nvlinkLinkInRange(link int) bool {
+	return link >= 0 && link < d.fabric.LinkBound()
 }
 
 // GetNvLinkState returns NvLink state for a specific link, derived from
 // the node fabric's resolved per-device links.
 func (d *ConfigurableDevice) GetNvLinkState(link int) (nvml.EnableState, nvml.Return) {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return nvml.FEATURE_DISABLED, nvml.ERROR_INVALID_ARGUMENT
 	}
 	if d.fabric != nil {
@@ -1728,7 +1739,7 @@ func (d *ConfigurableDevice) GetNvLinkState(link int) (nvml.EnableState, nvml.Re
 
 // GetNvLinkVersion returns the NvLink version for a link from the fabric.
 func (d *ConfigurableDevice) GetNvLinkVersion(link int) (uint32, nvml.Return) {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return 0, nvml.ERROR_INVALID_ARGUMENT
 	}
 	version := uint32(0)
@@ -1745,7 +1756,7 @@ func (d *ConfigurableDevice) GetNvLinkVersion(link int) (uint32, nvml.Return) {
 
 // GetNvLinkCapability returns whether a capability bit is set for a link.
 func (d *ConfigurableDevice) GetNvLinkCapability(link int, capability nvml.NvLinkCapability) (uint32, nvml.Return) {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return 0, nvml.ERROR_INVALID_ARGUMENT
 	}
 	val := uint32(0)
@@ -1761,7 +1772,7 @@ func (d *ConfigurableDevice) GetNvLinkCapability(link int, capability nvml.NvLin
 // GetNvLinkRemoteDeviceType returns the kind of device on the far end of a
 // link (GPU, SWITCH for NVSwitch endpoints, or IBMNPU/UNKNOWN otherwise).
 func (d *ConfigurableDevice) GetNvLinkRemoteDeviceType(link int) (nvml.IntNvLinkDeviceType, nvml.Return) {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return nvml.NVLINK_DEVICE_TYPE_UNKNOWN, nvml.ERROR_INVALID_ARGUMENT
 	}
 	t := nvml.NVLINK_DEVICE_TYPE_UNKNOWN
@@ -1842,9 +1853,13 @@ func (d *ConfigurableDevice) GetP2PStatus(other nvml.Device, _ nvml.GpuP2PCapsIn
 
 // GetNvLinkErrorCounter returns the deterministic error counter for a
 // link. Healthy links accrue at rate 0 (always 0); a configured error
-// rate accrues monotonically against the shared epoch.
+// rate accrues monotonically against the shared epoch. A 615 or newer driver
+// answers NOT_SUPPORTED for every link, before checking the link.
 func (d *ConfigurableDevice) GetNvLinkErrorCounter(link int, counter nvml.NvLinkErrorCounter) (uint64, nvml.Return) {
-	if !nvlinkLinkInRange(link) {
+	if ret := d.legacyNVLinkTelemetry("nvmlDeviceGetNvLinkErrorCounter"); ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	if !d.nvlinkLinkInRange(link) {
 		return 0, nvml.ERROR_INVALID_ARGUMENT
 	}
 	val := uint64(0)
@@ -1887,9 +1902,13 @@ func (d *ConfigurableDevice) nvLinkInjectedErrorCount(link int) uint64 {
 
 // GetNvLinkUtilizationCounter returns the deterministic (rx, tx)
 // utilization counters for a link. The values grow monotonically with
-// wall-clock time and across separate processes (shared epoch).
+// wall-clock time and across separate processes (shared epoch). A 615 or newer
+// driver answers NOT_SUPPORTED for every link, before checking the link.
 func (d *ConfigurableDevice) GetNvLinkUtilizationCounter(link, counter int) (uint64, uint64, nvml.Return) {
-	if !nvlinkLinkInRange(link) {
+	if ret := d.legacyNVLinkTelemetry("nvmlDeviceGetNvLinkUtilizationCounter"); ret != nvml.SUCCESS {
+		return 0, 0, ret
+	}
+	if !d.nvlinkLinkInRange(link) {
 		return 0, 0, nvml.ERROR_INVALID_ARGUMENT
 	}
 	if d.fabric == nil {
@@ -1903,7 +1922,7 @@ func (d *ConfigurableDevice) GetNvLinkUtilizationCounter(link, counter int) (uin
 // FreezeNvLinkUtilizationCounter is a no-op success: the counters are a
 // pure function of time, so there is no mutable state to freeze.
 func (d *ConfigurableDevice) FreezeNvLinkUtilizationCounter(link, _ int, _ nvml.EnableState) nvml.Return {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
 	debugLog("[NVML] nvmlDeviceFreezeNvLinkUtilizationCounter(link=%d) -> no-op\n", link)
@@ -1912,7 +1931,7 @@ func (d *ConfigurableDevice) FreezeNvLinkUtilizationCounter(link, _ int, _ nvml.
 
 // ResetNvLinkUtilizationCounter is a no-op success (see Freeze).
 func (d *ConfigurableDevice) ResetNvLinkUtilizationCounter(link, _ int) nvml.Return {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
 	debugLog("[NVML] nvmlDeviceResetNvLinkUtilizationCounter(link=%d) -> no-op\n", link)
@@ -1921,7 +1940,7 @@ func (d *ConfigurableDevice) ResetNvLinkUtilizationCounter(link, _ int) nvml.Ret
 
 // ResetNvLinkErrorCounters is a no-op success.
 func (d *ConfigurableDevice) ResetNvLinkErrorCounters(link int) nvml.Return {
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
 	debugLog("[NVML] nvmlDeviceResetNvLinkErrorCounters(link=%d) -> no-op\n", link)
@@ -1932,7 +1951,7 @@ func (d *ConfigurableDevice) ResetNvLinkErrorCounters(link int) nvml.Return {
 // via NVLink, derived from the fabric's resolved per-device links.
 func (d *ConfigurableDevice) GetNvLinkRemotePciInfo(link int) (nvml.PciInfo, nvml.Return) {
 	pci := nvml.PciInfo{}
-	if !nvlinkLinkInRange(link) {
+	if !d.nvlinkLinkInRange(link) {
 		return pci, nvml.ERROR_INVALID_ARGUMENT
 	}
 	if d.fabric == nil {
@@ -2363,18 +2382,27 @@ func (d *ConfigurableDevice) sramLocationErrors(errorType nvml.MemoryErrorType, 
 
 // GetRetiredPages returns retired pages
 func (d *ConfigurableDevice) GetRetiredPages(_ nvml.PageRetirementCause) ([]uint64, nvml.Return) {
+	if ret := d.unsupportedWhenAbsent("nvmlDeviceGetRetiredPages", d.cfg().RetiredPages != nil); ret != nvml.SUCCESS {
+		return nil, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetRetiredPages -> []\n")
 	return []uint64{}, nvml.SUCCESS
 }
 
 // GetRetiredPages_v2 returns retired pages with timestamps
 func (d *ConfigurableDevice) GetRetiredPages_v2(_ nvml.PageRetirementCause) ([]uint64, []uint64, nvml.Return) {
+	if ret := d.unsupportedWhenAbsent("nvmlDeviceGetRetiredPages_v2", d.cfg().RetiredPages != nil); ret != nvml.SUCCESS {
+		return nil, nil, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetRetiredPages_v2 -> [], []\n")
 	return []uint64{}, []uint64{}, nvml.SUCCESS
 }
 
 // GetRetiredPagesPendingStatus returns whether there are pending retired pages
 func (d *ConfigurableDevice) GetRetiredPagesPendingStatus() (nvml.EnableState, nvml.Return) {
+	if ret := d.unsupportedWhenAbsent("nvmlDeviceGetRetiredPagesPendingStatus", d.cfg().RetiredPages != nil); ret != nvml.SUCCESS {
+		return nvml.FEATURE_DISABLED, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetRetiredPagesPendingStatus -> NOT_PENDING\n")
 	return nvml.FEATURE_DISABLED, nvml.SUCCESS // No pending pages
 }

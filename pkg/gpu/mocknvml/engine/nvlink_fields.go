@@ -138,6 +138,9 @@ func (d *ConfigurableDevice) GetNvLinkFieldValue(fieldID, scopeID uint32) (Field
 	if f == nil {
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
 	}
+	if isLegacyNVLinkField(fieldID) && d.nvlinkTelemetryIsFieldsOnly() {
+		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
+	}
 	link := int(scopeID)
 
 	if l, ok := speedFieldLink(fieldID); ok {
