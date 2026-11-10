@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 488" width="1000" height="488" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 520" width="1000" height="520" role="img" aria-labelledby="title desc">
   <title id="title">KWOK data plane</title>
-  <desc id="desc">One replica of the KWOK data plane, mokka-kwok-data-plane-2, watches the SGPURacks labeled with it and gets runtime views from the control plane. It renews its shard Lease every 10 seconds. It writes nvidia.com/gpu, GFD and NFD labels on the KWOK Nodes of its racks, one ResourceSlice per Node, the GPU allocation on Pods on those Nodes, and their NodeResourceTopology. Prometheus scrapes each replica's metrics, and the Run:ai cluster operator checks them through the mokka-kwok-dcgm-exporter Service on port 9400, which routes to one replica.</desc>
+  <desc id="desc">One replica of the KWOK data plane, mokka-kwok-data-plane-2, watches the SGPURacks labeled with it and gets their state from the control plane. It renews its shard Lease every 10 seconds. It writes the GPUs of the KWOK Nodes of its racks, as nvidia.com/gpu or, in DRA mode, as a ResourceSlice per Node, and their GFD and NFD labels; a second ResourceSlice per Node with its ComputeDomain channel; the GPU allocation on Pods on those Nodes; and their NodeResourceTopology. Prometheus scrapes each replica's metrics, and the Run:ai cluster operator checks them through the mokka-kwok-dcgm-exporter Service on port 9400, which routes to one replica.</desc>
   <style>
     .panel { fill: #ffffff; stroke: #d1d9e0; }
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
@@ -39,84 +39,89 @@
     <marker id="arrow-ext" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-ext" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="panel" x="0.5" y="0.5" width="999" height="487" rx="12"/>
+  <rect class="panel" x="0.5" y="0.5" width="999" height="519" rx="12"/>
 
   <!-- What the replica reads, and its Lease -->
   <rect class="box b-obj" x="24" y="40" width="210" height="80" rx="8"/>
   <text class="title" x="129" y="76" text-anchor="middle">SGPURacks</text>
   <text class="body" x="129" y="96" text-anchor="middle">labeled with this replica</text>
 
-  <rect class="box b-cp" x="24" y="152" width="210" height="80" rx="8"/>
-  <text class="title" x="129" y="188" text-anchor="middle">Control plane</text>
-  <text class="body" x="129" y="208" text-anchor="middle">Deployment, one leader</text>
+  <rect class="box b-cp" x="24" y="164" width="210" height="80" rx="8"/>
+  <text class="title" x="129" y="200" text-anchor="middle">Control plane</text>
+  <text class="body" x="129" y="220" text-anchor="middle">Deployment, one leader</text>
 
-  <rect class="box b-obj" x="24" y="264" width="210" height="80" rx="8"/>
-  <text class="title" x="129" y="300" text-anchor="middle">Shard Lease</text>
-  <text class="body" x="129" y="320" text-anchor="middle">named after this Pod</text>
+  <rect class="box b-obj" x="24" y="288" width="210" height="80" rx="8"/>
+  <text class="title" x="129" y="324" text-anchor="middle">Shard Lease</text>
+  <text class="body" x="129" y="344" text-anchor="middle">named after this Pod</text>
 
-  <path class="wire w-ext" d="M390,144 V80 H235" marker-end="url(#arrow-ext)"/>
+  <path class="wire w-ext" d="M390,156 V80 H235" marker-end="url(#arrow-ext)"/>
   <text class="label" x="300" y="72" text-anchor="middle">watches</text>
 
-  <path class="wire w-cp" d="M234,192 H329" marker-end="url(#arrow-cp)"/>
-  <text class="label" x="282" y="170" text-anchor="middle">serves</text>
-  <text class="label" x="282" y="184" text-anchor="middle">runtime views</text>
+  <path class="wire w-cp" d="M234,204 H329" marker-end="url(#arrow-cp)"/>
+  <text class="label" x="282" y="182" text-anchor="middle">serves</text>
+  <text class="label" x="282" y="196" text-anchor="middle">rack state</text>
 
-  <path class="wire w-dp" d="M360,240 V304 H235" marker-end="url(#arrow-dp)"/>
-  <text class="label" x="296" y="296" text-anchor="middle">renews every 10 s</text>
+  <path class="wire w-dp" d="M360,252 V328 H235" marker-end="url(#arrow-dp)"/>
+  <text class="label" x="296" y="320" text-anchor="middle">renews every 10 s</text>
 
   <!-- One replica -->
-  <rect class="box b-dp" x="330" y="144" width="240" height="96" rx="8"/>
-  <rect class="f-dp" x="330" y="144" width="240" height="96" rx="8"/>
-  <text class="title" x="450" y="180" text-anchor="middle">mokka-kwok-data-plane-2</text>
-  <text class="body" x="450" y="200" text-anchor="middle">one replica of the StatefulSet,</text>
-  <text class="body" x="450" y="218" text-anchor="middle">serving the racks labeled with it</text>
+  <rect class="box b-dp" x="330" y="156" width="240" height="96" rx="8"/>
+  <rect class="f-dp" x="330" y="156" width="240" height="96" rx="8"/>
+  <text class="title" x="450" y="192" text-anchor="middle">mokka-kwok-data-plane-2</text>
+  <text class="body" x="450" y="212" text-anchor="middle">one replica of the StatefulSet,</text>
+  <text class="body" x="450" y="230" text-anchor="middle">serving the racks labeled with it</text>
 
   <!-- What the replica writes -->
-  <path class="wire w-dp" d="M570,192 H620"/>
-  <path class="wire w-dp" d="M620,72 V312"/>
-  <circle class="h-dp" cx="620" cy="192" r="3"/>
-  <text class="label" x="595" y="184" text-anchor="middle">writes</text>
-  <path class="wire w-dp" d="M620,72 H659" marker-end="url(#arrow-dp)"/>
-  <path class="wire w-dp" d="M620,152 H659" marker-end="url(#arrow-dp)"/>
-  <path class="wire w-dp" d="M620,232 H659" marker-end="url(#arrow-dp)"/>
-  <path class="wire w-dp" d="M620,312 H659" marker-end="url(#arrow-dp)"/>
+  <path class="wire w-dp" d="M570,204 H620"/>
+  <path class="wire w-dp" d="M620,68 V340"/>
+  <circle class="h-dp" cx="620" cy="204" r="3"/>
+  <text class="label" x="595" y="196" text-anchor="middle">writes</text>
+  <path class="wire w-dp" d="M620,68 H659" marker-end="url(#arrow-dp)"/>
+  <path class="wire w-dp" d="M620,136 H659" marker-end="url(#arrow-dp)"/>
+  <path class="wire w-dp" d="M620,204 H659" marker-end="url(#arrow-dp)"/>
+  <path class="wire w-dp" d="M620,272 H659" marker-end="url(#arrow-dp)"/>
+  <path class="wire w-dp" d="M620,340 H659" marker-end="url(#arrow-dp)"/>
 
-  <rect class="box b-obj" x="660" y="40" width="316" height="64" rx="8"/>
-  <text class="title" x="818" y="67" text-anchor="middle">KWOK Nodes of its racks</text>
-  <text class="body" x="818" y="86" text-anchor="middle">nvidia.com/gpu, GFD and NFD labels</text>
+  <rect class="box b-obj" x="660" y="40" width="316" height="56" rx="8"/>
+  <text class="title" x="818" y="63" text-anchor="middle">KWOK Nodes of its racks</text>
+  <text class="body" x="818" y="82" text-anchor="middle">nvidia.com/gpu, GFD and NFD labels</text>
 
-  <rect class="box b-obj" x="660" y="120" width="316" height="64" rx="8"/>
-  <text class="title" x="818" y="147" text-anchor="middle">ResourceSlices</text>
-  <text class="body" x="818" y="166" text-anchor="middle">one per Node, owned by the Node</text>
+  <rect class="box b-obj" x="660" y="108" width="316" height="56" rx="8"/>
+  <text class="title" x="818" y="131" text-anchor="middle">GPU ResourceSlices</text>
+  <text class="body" x="818" y="150" text-anchor="middle">in DRA mode, instead of nvidia.com/gpu</text>
 
-  <rect class="box b-obj" x="660" y="200" width="316" height="64" rx="8"/>
-  <text class="title" x="818" y="227" text-anchor="middle">Pods on those Nodes</text>
-  <text class="body" x="818" y="246" text-anchor="middle">GPU allocation recorded on the Pod</text>
+  <rect class="box b-obj" x="660" y="176" width="316" height="56" rx="8"/>
+  <text class="title" x="818" y="199" text-anchor="middle">ComputeDomain channels</text>
+  <text class="body" x="818" y="218" text-anchor="middle">a second ResourceSlice per Node</text>
 
-  <rect class="box b-obj" x="660" y="280" width="316" height="64" rx="8"/>
-  <text class="title" x="818" y="307" text-anchor="middle">NodeResourceTopology</text>
-  <text class="body" x="818" y="326" text-anchor="middle">availability, kept current</text>
+  <rect class="box b-obj" x="660" y="244" width="316" height="56" rx="8"/>
+  <text class="title" x="818" y="267" text-anchor="middle">Pods on those Nodes</text>
+  <text class="body" x="818" y="286" text-anchor="middle">GPU allocation recorded on the Pod</text>
+
+  <rect class="box b-obj" x="660" y="312" width="316" height="56" rx="8"/>
+  <text class="title" x="818" y="335" text-anchor="middle">NodeResourceTopology</text>
+  <text class="body" x="818" y="354" text-anchor="middle">availability, kept current</text>
 
   <!-- Who reads the DCGM metrics -->
-  <rect class="box b-ext dashed" x="24" y="400" width="210" height="64" rx="8"/>
-  <text class="title" x="129" y="427" text-anchor="middle">Run:ai cluster operator</text>
-  <text class="body" x="129" y="446" text-anchor="middle">checks three DCGM fields</text>
+  <rect class="box b-ext dashed" x="24" y="432" width="210" height="64" rx="8"/>
+  <text class="title" x="129" y="459" text-anchor="middle">Run:ai cluster operator</text>
+  <text class="body" x="129" y="478" text-anchor="middle">checks three DCGM fields</text>
 
-  <rect class="box b-obj" x="330" y="400" width="240" height="64" rx="8"/>
-  <text class="title" x="450" y="427" text-anchor="middle">mokka-kwok-dcgm-exporter</text>
-  <text class="body" x="450" y="446" text-anchor="middle">Service, port 9400</text>
+  <rect class="box b-obj" x="330" y="432" width="240" height="64" rx="8"/>
+  <text class="title" x="450" y="459" text-anchor="middle">mokka-kwok-dcgm-exporter</text>
+  <text class="body" x="450" y="478" text-anchor="middle">Service, port 9400</text>
 
-  <rect class="box b-ext dashed" x="660" y="400" width="240" height="64" rx="8"/>
-  <text class="title" x="780" y="427" text-anchor="middle">Prometheus</text>
-  <text class="body" x="780" y="446" text-anchor="middle">optional ServiceMonitor</text>
+  <rect class="box b-ext dashed" x="660" y="432" width="240" height="64" rx="8"/>
+  <text class="title" x="780" y="459" text-anchor="middle">Prometheus</text>
+  <text class="body" x="780" y="478" text-anchor="middle">optional ServiceMonitor</text>
 
-  <path class="wire w-ext" d="M234,432 H329" marker-end="url(#arrow-ext)"/>
-  <text class="label" x="282" y="424" text-anchor="middle">/metrics</text>
+  <path class="wire w-ext" d="M234,464 H329" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="282" y="456" text-anchor="middle">/metrics</text>
 
-  <path class="wire w-ext" d="M450,400 V241" marker-end="url(#arrow-ext)"/>
-  <text class="label" x="442" y="322" text-anchor="end">routes to</text>
-  <text class="label" x="442" y="337" text-anchor="end">one replica</text>
+  <path class="wire w-ext" d="M450,432 V253" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="442" y="344" text-anchor="end">routes to</text>
+  <text class="label" x="442" y="359" text-anchor="end">one replica</text>
 
-  <path class="wire w-ext" d="M780,400 V376 H540 V241" marker-end="url(#arrow-ext)"/>
-  <text class="label" x="660" y="368" text-anchor="middle">scrapes each replica</text>
+  <path class="wire w-ext" d="M780,432 V408 H540 V253" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="660" y="400" text-anchor="middle">scrapes each replica</text>
 </svg>
