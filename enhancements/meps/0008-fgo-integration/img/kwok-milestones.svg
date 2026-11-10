@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 532" width="1000" height="532" role="img" aria-labelledby="title desc">
   <title id="title">KWOK integration milestones</title>
-  <desc id="desc">Four milestones. M1, GPUs on KWOK Nodes, needs MEP0001's runtime view computation and rack delivery generation, and leads to M2, FGO parity for Run:ai, which needs MEP0010's NUMA layout and enables MEP0009's workload metrics on KWOK Nodes. M2 leads to M3, scale out. M4, the optional KWOK provisioner, needs only M1 and can run alongside M2 and M3.</desc>
+  <desc id="desc">Four milestones. M1, GPUs on KWOK Nodes, needs MEP0001's compiled rack state and delivery generation, and leads to M2, FGO parity for Run:ai, which needs MEP0010's NUMA layout and enables MEP0009's workload metrics on KWOK Nodes. M2 leads to M3, scale out. M4, the optional KWOK provisioner, needs only M1 and can run alongside M2 and M3.</desc>
   <style>
     .panel { fill: #ffffff; stroke: #d1d9e0; }
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
@@ -38,7 +38,7 @@
   <!-- Prerequisites from other MEPs -->
   <rect class="ext" x="24" y="20" width="300" height="44" rx="8"/>
   <text class="item strong" x="40" y="38">MEP0001</text>
-  <text class="body" x="40" y="55">runtime views, rack delivery generation</text>
+  <text class="body" x="40" y="55">compiled rack state, delivery generation</text>
   <path class="wire" d="M174,64 V95" marker-end="url(#arrow)"/>
 
   <rect class="ext" x="350" y="20" width="300" height="44" rx="8"/>
@@ -50,7 +50,7 @@
   <rect class="ms" x="24" y="96" width="300" height="208" rx="8"/>
   <text class="title" x="40" y="122">M1 · GPUs on KWOK Nodes</text>
   <circle class="cp" cx="46" cy="144" r="4"/><text class="item" x="58" y="148">node.type and KWOK placement</text>
-  <circle class="cp" cx="46" cy="163" r="4"/><text class="item" x="58" y="167">batched runtime views for racks</text>
+  <circle class="cp" cx="46" cy="163" r="4"/><text class="item" x="58" y="167">batched rack state</text>
   <circle class="cp" cx="46" cy="182" r="4"/><text class="item" x="58" y="186">rack shard labels from Leases</text>
   <circle class="dp" cx="46" cy="201" r="4"/><text class="item" x="58" y="205">nvidia.com/gpu, GFD and NFD labels</text>
   <circle class="dp" cx="46" cy="220" r="4"/><text class="item" x="58" y="224">GPU allocation on Pods</text>
@@ -62,11 +62,12 @@
   <!-- M2 -->
   <rect class="ms" x="350" y="96" width="300" height="208" rx="8"/>
   <text class="title" x="366" y="122">M2 · FGO parity for Run:ai</text>
-  <circle class="dp" cx="372" cy="144" r="4"/><text class="item" x="384" y="148">ResourceSlices and DRA claims</text>
-  <circle class="dp" cx="372" cy="163" r="4"/><text class="item" x="384" y="167">NodeResourceTopology</text>
-  <circle class="dp" cx="372" cy="182" r="4"/><text class="item" x="384" y="186">DCGM metrics and exporter Service</text>
-  <circle class="doc" cx="372" cy="201" r="4"/><text class="item" x="384" y="205">ServiceMonitor</text>
-  <circle class="doc" cx="372" cy="220" r="4"/><text class="item" x="384" y="224">FGO migration guide</text>
+  <circle class="dp" cx="372" cy="144" r="4"/><text class="item" x="384" y="148">DRA mode with ResourceSlices</text>
+  <circle class="dp" cx="372" cy="163" r="4"/><text class="item" x="384" y="167">ComputeDomains</text>
+  <circle class="dp" cx="372" cy="182" r="4"/><text class="item" x="384" y="186">NodeResourceTopology</text>
+  <circle class="dp" cx="372" cy="201" r="4"/><text class="item" x="384" y="205">DCGM metrics and exporter Service</text>
+  <circle class="doc" cx="372" cy="220" r="4"/><text class="item" x="384" y="224">ServiceMonitor</text>
+  <circle class="doc" cx="372" cy="239" r="4"/><text class="item" x="384" y="243">FGO migration guide</text>
   <line class="rule" x1="366" y1="256" x2="634" y2="256"/>
   <text class="done" x="366" y="274"><tspan class="strong">Done when</tspan> Run:ai's harness runs</text>
   <text class="done" x="366" y="291">on Mokka instead of FGO</text>

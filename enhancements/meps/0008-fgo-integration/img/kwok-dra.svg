@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 668" width="1000" height="668" role="img" aria-labelledby="title desc">
+  <title id="title">DRA on KWOK Nodes</title>
+  <desc id="desc">The same Kubernetes API objects are written for a GPU Node and for a KWOK Node, by different components. On a GPU Node, NVIDIA's GPU kubelet plugin publishes the GPU ResourceSlice, NVIDIA's compute-domain kubelet plugin publishes the ComputeDomain ResourceSlice and labels the Node when it prepares a channel claim, the IMEX daemon reports its Node with a Pod label and a ComputeDomainClique entry, and the kubelet reports Pod status. On a KWOK Node, the Mokka KWOK data plane writes the first four, and KWOK fakes the Pod status. kube-scheduler, NVIDIA's ComputeDomain controller, and the DeviceClasses and CRDs from NVIDIA's DRA driver chart read these objects the same way for both kinds of Node. IMEX itself, devices in containers, and the workload's wait for its daemon are not simulated on KWOK Nodes.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .head { font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; fill: #59636e; }
+    .title { font-size: 14px; font-weight: 600; }
+    .body { font-size: 12.5px; fill: #59636e; }
+    .label { font-size: 12px; fill: #59636e; }
+    .box { fill: #ffffff; stroke-width: 1.5; }
+    .dashed { stroke-dasharray: 5 4; }
+    .wire { fill: none; stroke-width: 1.5; }
+    .sep { stroke: #d1d9e0; stroke-width: 1; stroke-dasharray: 2 3; }
+    .b-dp, .w-dp { stroke: #1a7f37; }
+    .b-obj { stroke: #59636e; }
+    .b-ext, .w-ext { stroke: #59636e; }
+    .h-dp { fill: #1a7f37; }
+    .h-ext { fill: #59636e; }
+    .f-dp { fill: #1a7f37; fill-opacity: 0.1; }
+    .f-obj { fill: #f6f8fa; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .head, .body, .label { fill: #9198a1; }
+      .box { fill: #0d1117; }
+      .sep { stroke: #3d444d; }
+      .b-dp, .w-dp { stroke: #3fb950; }
+      .b-obj { stroke: #9198a1; }
+      .b-ext, .w-ext { stroke: #9198a1; }
+      .h-dp { fill: #3fb950; }
+      .h-ext { fill: #9198a1; }
+      .f-dp { fill: #3fb950; fill-opacity: 0.16; }
+      .f-obj { fill: #151b23; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow-dp" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-dp" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-ext" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-ext" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="667" rx="12"/>
+
+  <!-- Column headings -->
+  <text class="head" x="154" y="40" text-anchor="middle">ON A GPU NODE</text>
+  <text class="head" x="500" y="40" text-anchor="middle">IN THE KUBERNETES API</text>
+  <text class="head" x="846" y="40" text-anchor="middle">ON A KWOK NODE</text>
+
+  <!-- GPU Node: NVIDIA's node-side components and the kubelet -->
+  <rect class="box b-ext" x="24" y="120" width="260" height="56" rx="8"/>
+  <text class="title" x="154" y="144" text-anchor="middle">NVIDIA GPU kubelet plugin</text>
+  <text class="body" x="154" y="163" text-anchor="middle">publishes the Node's GPUs</text>
+
+  <rect class="box b-ext" x="24" y="192" width="260" height="128" rx="8"/>
+  <text class="title" x="154" y="214" text-anchor="middle">NVIDIA compute-domain plugin</text>
+  <text class="body" x="154" y="236" text-anchor="middle">publishes channel and daemon</text>
+  <line class="sep" x1="40" y1="256" x2="268" y2="256"/>
+  <text class="body" x="154" y="296" text-anchor="middle">labels the Node on prepare</text>
+
+  <rect class="box b-ext" x="24" y="336" width="260" height="56" rx="8"/>
+  <text class="title" x="154" y="360" text-anchor="middle">NVIDIA IMEX daemon</text>
+  <text class="body" x="154" y="379" text-anchor="middle">reports its own Node</text>
+
+  <rect class="box b-ext" x="24" y="408" width="260" height="56" rx="8"/>
+  <text class="title" x="154" y="432" text-anchor="middle">kubelet</text>
+  <text class="body" x="154" y="451" text-anchor="middle">reports the Pods' status</text>
+
+  <!-- The objects both kinds of Node produce -->
+  <rect class="box b-obj f-obj" x="370" y="120" width="260" height="56" rx="8"/>
+  <text class="title" x="500" y="144" text-anchor="middle">GPU ResourceSlice</text>
+  <text class="body" x="500" y="163" text-anchor="middle">gpu-&lt;minor&gt; devices, in DRA mode</text>
+
+  <rect class="box b-obj f-obj" x="370" y="192" width="260" height="56" rx="8"/>
+  <text class="title" x="500" y="216" text-anchor="middle">ComputeDomain ResourceSlice</text>
+  <text class="body" x="500" y="235" text-anchor="middle">channel-0 and a daemon device</text>
+
+  <rect class="box b-obj f-obj" x="370" y="264" width="260" height="56" rx="8"/>
+  <text class="title" x="500" y="288" text-anchor="middle">Node label, on prepare</text>
+  <text class="body" x="500" y="307" text-anchor="middle">resource.nvidia.com/computeDomain</text>
+
+  <rect class="box b-obj f-obj" x="370" y="336" width="260" height="56" rx="8"/>
+  <text class="title" x="500" y="360" text-anchor="middle">Daemon report</text>
+  <text class="body" x="500" y="379" text-anchor="middle">Pod clique label, ComputeDomainClique</text>
+
+  <rect class="box b-obj f-obj" x="370" y="408" width="260" height="56" rx="8"/>
+  <text class="title" x="500" y="432" text-anchor="middle">Pod status</text>
+  <text class="body" x="500" y="451" text-anchor="middle">Running and Ready</text>
+
+  <!-- KWOK Node: the data plane and KWOK -->
+  <rect class="box b-dp f-dp" x="716" y="60" width="260" height="332" rx="8"/>
+  <text class="title" x="846" y="86" text-anchor="middle">Mokka KWOK data plane</text>
+  <text class="body" x="846" y="104" text-anchor="middle">in place of NVIDIA's node-side parts</text>
+  <line class="sep" x1="732" y1="116" x2="960" y2="116"/>
+  <text class="body" x="846" y="152" text-anchor="middle">publishes the GPUs, in DRA mode</text>
+  <line class="sep" x1="732" y1="184" x2="960" y2="184"/>
+  <text class="body" x="846" y="224" text-anchor="middle">publishes channel and daemon</text>
+  <line class="sep" x1="732" y1="256" x2="960" y2="256"/>
+  <text class="body" x="846" y="296" text-anchor="middle">labels the Node once the Pod is bound</text>
+  <line class="sep" x1="732" y1="328" x2="960" y2="328"/>
+  <text class="body" x="846" y="368" text-anchor="middle">reports the daemon KWOK runs</text>
+
+  <rect class="box b-ext dashed" x="716" y="408" width="260" height="56" rx="8"/>
+  <text class="title" x="846" y="432" text-anchor="middle">KWOK</text>
+  <text class="body" x="846" y="451" text-anchor="middle">fakes Pod status, no kubelet</text>
+
+  <!-- Writes, from both sides -->
+  <text class="label" x="327" y="140" text-anchor="middle">writes</text>
+  <path class="wire w-ext" d="M284,148 H369" marker-end="url(#arrow-ext)"/>
+  <path class="wire w-ext" d="M284,220 H369" marker-end="url(#arrow-ext)"/>
+  <path class="wire w-ext" d="M284,292 H369" marker-end="url(#arrow-ext)"/>
+  <path class="wire w-ext" d="M284,364 H369" marker-end="url(#arrow-ext)"/>
+  <path class="wire w-ext" d="M284,436 H369" marker-end="url(#arrow-ext)"/>
+
+  <text class="label" x="673" y="140" text-anchor="middle">writes</text>
+  <path class="wire w-dp" d="M716,148 H631" marker-end="url(#arrow-dp)"/>
+  <path class="wire w-dp" d="M716,220 H631" marker-end="url(#arrow-dp)"/>
+  <path class="wire w-dp" d="M716,292 H631" marker-end="url(#arrow-dp)"/>
+  <path class="wire w-dp" d="M716,364 H631" marker-end="url(#arrow-dp)"/>
+  <path class="wire w-ext dashed" d="M716,436 H631" marker-end="url(#arrow-ext)"/>
+
+  <!-- Cluster-wide components, unchanged -->
+  <path class="wire w-ext" d="M500,464 V513" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="512" y="494">read and act on all of them, the same way for both</text>
+
+  <rect class="box b-ext f-obj" x="24" y="514" width="952" height="100" rx="8"/>
+  <text class="head" x="40" y="538">UNCHANGED FOR BOTH KINDS OF NODE</text>
+  <line class="sep" x1="338" y1="550" x2="338" y2="604"/>
+  <line class="sep" x1="662" y1="550" x2="662" y2="604"/>
+  <text class="title" x="181" y="568" text-anchor="middle">kube-scheduler</text>
+  <text class="body" x="181" y="587" text-anchor="middle">allocates claims from the slices</text>
+  <text class="title" x="500" y="568" text-anchor="middle">NVIDIA ComputeDomain controller</text>
+  <text class="body" x="500" y="587" text-anchor="middle">claim templates and IMEX DaemonSets,</text>
+  <text class="body" x="500" y="603" text-anchor="middle">domain status from the daemon reports</text>
+  <text class="title" x="819" y="568" text-anchor="middle">NVIDIA DRA driver chart</text>
+  <text class="body" x="819" y="587" text-anchor="middle">DeviceClasses, ComputeDomain CRDs</text>
+
+  <text class="label" x="500" y="644" text-anchor="middle">Not simulated on KWOK Nodes: IMEX itself, devices in containers, and the workload's wait for its daemon.</text>
+</svg>
