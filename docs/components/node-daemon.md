@@ -133,35 +133,18 @@ profile edit does not need a pod restart.
 
 ## NUMA simulation
 
-The optional NUMA simulator renders the layout the NUMA topology enricher
-resolved. It exposes the same zone placement to kubelet, the device plugin, and
-NFD through `/sys/devices/system/node` and `/sys/bus/node/devices`. The privileged pod uses
-bidirectional host volumes to apply and remove mounts from its own mount
-namespace. Each mount is made read-only in a private staging area before it is
-attached, so the node receives a read-only view. Mounts stay on the selected
-node even when Kind nodes share a VM.
+The optional NUMA simulator exposes the GPU profile's zones to kubelet and
+NodeResourceTopology (NRT) reporters. It uses the same resolved layout as PCI
+and NVML, so consumers agree on resource placement.
 
-With kubelet management enabled, the pod bind-mounts a modified configuration
-over `/var/lib/kubelet/config.yaml` and restarts kubelet. The original file on
-disk remains unchanged. Recovery copies, manager checkpoints, and applied or
-pending markers live under `/run/mokka/numa/`; they survive pod replacement but
-not a node reboot. Repeated setup preserves existing allocations.
+Optional kubelet management enables NUMA-aware admission and CPU and memory
+allocation. NRI maps simulated memory bindings onto the real node. This tests
+allocation decisions, not physical memory locality.
 
-Explicit disable removes owned mounts, restores saved checkpoints, and checks
-that kubelet is active and answers a PodResources `List` request before deleting
-recovery files. The chart retains host access
-for this restore step even when NUMA and container runtime setup are disabled.
-Failed restoration keeps the backup and pending marker for a retry.
+The [kubelet helper](mokka-kubelet-helper.md) lets kubelet start after a node
+reboot, before the DaemonSet reapplies simulation.
 
-If applying or restoring fails, the simulator requeues a reconcile, because the
-agent otherwise runs `Apply` again only when the state changes. The delay starts
-at 5 seconds, doubles up to 5 minutes, and resets after a success.
-
-The pod installs the persistent [kubelet helper](mokka-kubelet-helper.md) and its
-systemd dependency to prepare kubelet after node reboot. The helper performs
-boot cleanup only; simulation setup and restoration remain in the pod.
-
-For configuration, requirements, and removal, see
+For configuration, requirements, restart behavior, and removal, see
 [NUMA filesystem simulation](../helm-chart.md#numa-filesystem-simulation).
 
 ## Health
