@@ -21,10 +21,13 @@ func TestRunRetriesWhileTheRuntimeIsDown(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.SocketPath = filepath.Join(t.TempDir(), "nri.sock")
 	plugin := NewPlugin(cfg)
+	// Take start before the deadline is fixed: a start taken after it sits
+	// later than the deadline's own origin, so the elapsed time can fall just
+	// short of the timeout even when Run waits for the context.
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*reregisterInterval)
 	defer cancel()
 
-	start := time.Now()
 	require.NoError(t, plugin.Run(ctx))
 
 	require.GreaterOrEqual(t, time.Since(start), 3*reregisterInterval, "Run returned before it was stopped")
