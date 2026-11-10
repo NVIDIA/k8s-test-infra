@@ -1,0 +1,116 @@
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00 promiscuity 0  allmulti 0 minmtu 0 maxmtu 0 addrgenmode eui64 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+2: enx020000000001: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:01 brd ff:ff:ff:ff:ff:ff promiscuity 0  allmulti 0 minmtu 68 maxmtu 9194 addrgenmode eui64 numtxqueues 1 numrxqueues 1 gso_max_size 16354 gso_max_segs 65535 tso_max_size 16354 tso_max_segs 65535 gro_max_size 65536 parentbus usb parentdev 2-3:1.0 
+3: enP1p3s0np0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:02 brd ff:ff:ff:ff:ff:ff promiscuity 0  allmulti 0 minmtu 68 maxmtu 9978 addrgenmode eui64 numtxqueues 512 numrxqueues 63 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 portname p0 parentbus pci parentdev 0001:03:00.0 
+    altname enx020000000002
+4: enP3p1s0np0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:03 brd ff:ff:ff:ff:ff:ff promiscuity 0  allmulti 0 minmtu 68 maxmtu 9978 addrgenmode eui64 numtxqueues 512 numrxqueues 63 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 portname p0 parentbus pci parentdev 0003:01:00.0 
+    altname enx020000000003
+5: enP4p3s0np0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:04 brd ff:ff:ff:ff:ff:ff promiscuity 0  allmulti 0 minmtu 68 maxmtu 9978 addrgenmode eui64 numtxqueues 512 numrxqueues 63 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 portname p0 parentbus pci parentdev 0004:03:00.0 
+    altname enx020000000004
+6: enP5p65s0f0np0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:05 brd ff:ff:ff:ff:ff:ff promiscuity 0  allmulti 0 minmtu 68 maxmtu 9978 addrgenmode eui64 numtxqueues 512 numrxqueues 63 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 portname p0 parentbus pci parentdev 0005:41:00.0 
+    altname enx020000000005
+7: enP5p65s0f1np1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:06 brd ff:ff:ff:ff:ff:ff promiscuity 0  allmulti 0 minmtu 68 maxmtu 9978 addrgenmode eui64 numtxqueues 512 numrxqueues 63 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 portname p1 parentbus pci parentdev 0005:41:00.1 
+    altname enx020000000006
+8: enP6p1s0np0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:07 brd ff:ff:ff:ff:ff:ff promiscuity 0  allmulti 0 minmtu 68 maxmtu 9978 addrgenmode eui64 numtxqueues 512 numrxqueues 63 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 portname p0 parentbus pci parentdev 0006:01:00.0 
+    altname enx020000000007
+9: enP9p3s0np0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:08 brd ff:ff:ff:ff:ff:ff promiscuity 0  allmulti 0 minmtu 68 maxmtu 9978 addrgenmode eui64 numtxqueues 512 numrxqueues 63 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 portname p0 parentbus pci parentdev 0009:03:00.0 
+    altname enx020000000008
+10: enP11p1s0np0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:09 brd ff:ff:ff:ff:ff:ff promiscuity 0  allmulti 0 minmtu 68 maxmtu 9978 addrgenmode eui64 numtxqueues 512 numrxqueues 63 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 portname p0 parentbus pci parentdev 000b:01:00.0 
+    altname enx020000000009
+11: enP12p3s0np0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:0a brd ff:ff:ff:ff:ff:ff promiscuity 0  allmulti 0 minmtu 68 maxmtu 9978 addrgenmode eui64 numtxqueues 512 numrxqueues 63 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 portname p0 parentbus pci parentdev 000c:03:00.0 
+    altname enx02000000000a
+12: enP13p65s0f0np0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9000 qdisc mq master ovs-system state UP mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:0b brd ff:ff:ff:ff:ff:ff promiscuity 1  allmulti 0 minmtu 68 maxmtu 9978 
+    openvswitch_slave addrgenmode none numtxqueues 512 numrxqueues 63 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 portname p0 parentbus pci parentdev 000d:41:00.0 
+    altname enx02000000000b
+13: enP13p65s0f1np1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:0c brd ff:ff:ff:ff:ff:ff promiscuity 0  allmulti 0 minmtu 68 maxmtu 9978 addrgenmode eui64 numtxqueues 512 numrxqueues 63 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 portname p1 parentbus pci parentdev 000d:41:00.1 
+    altname enx02000000000c
+14: enP14p1s0np0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:0d brd ff:ff:ff:ff:ff:ff promiscuity 0  allmulti 0 minmtu 68 maxmtu 9978 addrgenmode eui64 numtxqueues 512 numrxqueues 63 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 portname p0 parentbus pci parentdev 000e:01:00.0 
+    altname enx02000000000d
+15: usb0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UNKNOWN mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:0e brd ff:ff:ff:ff:ff:ff promiscuity 0  allmulti 0 minmtu 0 maxmtu 65535 addrgenmode eui64 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 65536 tso_max_segs 65535 gro_max_size 65536 parentbus usb parentdev 1-1.1:1.1 
+    altname enP2p225s0u1u1i1
+16: ovs-system: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:0f brd ff:ff:ff:ff:ff:ff promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    openvswitch addrgenmode eui64 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 65536 tso_max_segs 65535 gro_max_size 65536 
+18: ovn-k8s-mp0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1440 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:10 brd ff:ff:ff:ff:ff:ff promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    openvswitch addrgenmode eui64 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 65536 tso_max_segs 65535 gro_max_size 65536 
+19: br-int: <BROADCAST,MULTICAST> mtu 1440 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:11 brd ff:ff:ff:ff:ff:ff promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    openvswitch addrgenmode eui64 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 65536 tso_max_segs 65535 gro_max_size 65536 
+20: brP13p65s0f0np0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9000 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:0b brd ff:ff:ff:ff:ff:ff promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    openvswitch addrgenmode eui64 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 65536 tso_max_segs 65535 gro_max_size 65536 
+21: genev_sys_6081: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65000 qdisc noqueue master ovs-system state UNKNOWN mode DEFAULT group default qlen 1000
+    link/ether 02:00:00:00:00:12 brd ff:ff:ff:ff:ff:ff promiscuity 1  allmulti 0 minmtu 68 maxmtu 65465 
+    geneve external id 0 ttl auto dstport 6081 udp6zerocsumrx 
+    openvswitch_slave addrgenmode eui64 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 65536 tso_max_segs 65535 gro_max_size 65536 
+23: 23818ede83da199@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1440 qdisc noqueue master ovs-system state UP mode DEFAULT group default 
+    link/ether 02:00:00:00:00:13 brd ff:ff:ff:ff:ff:ff link-netnsid 1 promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    veth 
+    openvswitch_slave addrgenmode eui64 numtxqueues 352 numrxqueues 352 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+24: 46fbd07e96022d5@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1440 qdisc noqueue master ovs-system state UP mode DEFAULT group default 
+    link/ether 02:00:00:00:00:14 brd ff:ff:ff:ff:ff:ff link-netnsid 2 promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    veth 
+    openvswitch_slave addrgenmode eui64 numtxqueues 352 numrxqueues 352 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+25: 0929d182752a5d5@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1440 qdisc noqueue master ovs-system state UP mode DEFAULT group default 
+    link/ether 02:00:00:00:00:15 brd ff:ff:ff:ff:ff:ff link-netnsid 3 promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    veth 
+    openvswitch_slave addrgenmode eui64 numtxqueues 352 numrxqueues 352 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+36: 0f7a9df30e4fce3@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1440 qdisc noqueue master ovs-system state UP mode DEFAULT group default 
+    link/ether 02:00:00:00:00:16 brd ff:ff:ff:ff:ff:ff link-netnsid 0 promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    veth 
+    openvswitch_slave addrgenmode eui64 numtxqueues 352 numrxqueues 352 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+37: 8f23217f073bee5@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1440 qdisc noqueue master ovs-system state UP mode DEFAULT group default 
+    link/ether 02:00:00:00:00:17 brd ff:ff:ff:ff:ff:ff link-netnsid 4 promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    veth 
+    openvswitch_slave addrgenmode eui64 numtxqueues 352 numrxqueues 352 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+38: f2b1c3e93f85415@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1440 qdisc noqueue master ovs-system state UP mode DEFAULT group default 
+    link/ether 02:00:00:00:00:18 brd ff:ff:ff:ff:ff:ff link-netnsid 5 promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    veth 
+    openvswitch_slave addrgenmode eui64 numtxqueues 352 numrxqueues 352 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+39: 610e148ecaee83d@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1440 qdisc noqueue master ovs-system state UP mode DEFAULT group default 
+    link/ether 02:00:00:00:00:19 brd ff:ff:ff:ff:ff:ff link-netnsid 6 promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    veth 
+    openvswitch_slave addrgenmode eui64 numtxqueues 352 numrxqueues 352 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+40: 96433189e0e76f4@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1440 qdisc noqueue master ovs-system state UP mode DEFAULT group default 
+    link/ether 02:00:00:00:00:1a brd ff:ff:ff:ff:ff:ff link-netnsid 7 promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    veth 
+    openvswitch_slave addrgenmode eui64 numtxqueues 352 numrxqueues 352 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+41: bdfbd72f53c87ff@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1440 qdisc noqueue master ovs-system state UP mode DEFAULT group default 
+    link/ether 02:00:00:00:00:1b brd ff:ff:ff:ff:ff:ff link-netnsid 8 promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    veth 
+    openvswitch_slave addrgenmode eui64 numtxqueues 352 numrxqueues 352 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+42: 5bc04f55c15a6e2@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1440 qdisc noqueue master ovs-system state UP mode DEFAULT group default 
+    link/ether 02:00:00:00:00:1c brd ff:ff:ff:ff:ff:ff link-netnsid 9 promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    veth 
+    openvswitch_slave addrgenmode eui64 numtxqueues 352 numrxqueues 352 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+43: 8d7c99c41597158@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1440 qdisc noqueue master ovs-system state UP mode DEFAULT group default 
+    link/ether 02:00:00:00:00:1d brd ff:ff:ff:ff:ff:ff link-netnsid 10 promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    veth 
+    openvswitch_slave addrgenmode eui64 numtxqueues 352 numrxqueues 352 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+46: 4cba1c10bd5a15a@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1440 qdisc noqueue master ovs-system state UP mode DEFAULT group default 
+    link/ether 02:00:00:00:00:1e brd ff:ff:ff:ff:ff:ff link-netnsid 11 promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    veth 
+    openvswitch_slave addrgenmode eui64 numtxqueues 352 numrxqueues 352 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+48: 3751f741bd97ead@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1440 qdisc noqueue master ovs-system state UP mode DEFAULT group default 
+    link/ether 02:00:00:00:00:1f brd ff:ff:ff:ff:ff:ff link-netnsid 12 promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    veth 
+    openvswitch_slave addrgenmode eui64 numtxqueues 352 numrxqueues 352 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 
+55: a3f937a5ea7fb9e@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1440 qdisc noqueue master ovs-system state UP mode DEFAULT group default 
+    link/ether 02:00:00:00:00:20 brd ff:ff:ff:ff:ff:ff link-netnsid 13 promiscuity 1  allmulti 0 minmtu 68 maxmtu 65535 
+    veth 
+    openvswitch_slave addrgenmode eui64 numtxqueues 352 numrxqueues 352 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 

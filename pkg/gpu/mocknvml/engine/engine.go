@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -29,11 +30,25 @@ import (
 // It does NOT implement nvml.Interface - it delegates to MockServer
 // which wraps dgxa100.Server (the actual nvml.Interface implementation).
 type Engine struct {
-	server    *MockServer
-	config    *Config
-	handles   *HandleTable
-	initCount int
-	mu        sync.RWMutex
+	server *MockServer
+	config *Config
+	// handles maps device handles; gpuInstances and computeInstances map the
+	// MIG instance handles NVML hands callers separately from device handles.
+	handles          *HandleTable
+	gpuInstances     *GpuInstanceTable
+	computeInstances *ComputeInstanceTable
+	initCount        int
+	mu               sync.RWMutex
+
+	// systemEvents fans GPU driver bind/unbind transitions out to the
+	// nvmlSystemEventSet_t handles clients have registered. It holds its own
+	// lock and is never nil, so the system event exports work before Init()
+	// the way nvmlSystemGetDriverVersion does.
+	systemEvents *systemEventBroker
+
+	// cper accumulates the Common Platform Error Records synthesised from
+	// injected RAS state. Like systemEvents it is independent of init state.
+	cper *cperLog
 }
 
 var (
@@ -58,8 +73,12 @@ func NewEngine(config *Config) *Engine {
 	}
 
 	e := &Engine{
-		config:  config,
-		handles: NewHandleTable(),
+		config:           config,
+		handles:          NewHandleTable(),
+		gpuInstances:     NewGpuInstanceTable(),
+		computeInstances: NewComputeInstanceTable(),
+		systemEvents:     newSystemEventBroker(),
+		cper:             newCPERLog(),
 	}
 
 	return e
@@ -95,13 +114,8 @@ func (e *Engine) Init() nvml.Return {
 		debugLog("[ENGINE] Re-initializing, reusing existing device state\n")
 	}
 
-	// Detect which GPU device nodes exist. In containers where CDI injects
-	// only the allocated GPUs (e.g. /dev/nvidia0 but not /dev/nvidia1-7),
-	// filter the visible device set to match. This mimics real NVML behavior
-	// where cgroup device permissions limit GPU visibility per container.
-	server.setVisibleDevices(detectVisibleDevices(e.config))
-
 	e.server = server
+	e.refreshEnumeration(false)
 	e.initCount = 1
 
 	visibleCount := e.config.NumDevices
@@ -134,6 +148,15 @@ func (e *Engine) createServer() (*MockServer, error) {
 	// Apply system-level configuration
 	e.applySystemConfig(server)
 
+	// Both device-construction paths above land here, so the hook is wired
+	// once: a repartition destroys MIG devices and instances whose handles this
+	// engine owns.
+	for _, dev := range server.configurableDevices {
+		if dev != nil {
+			dev.onRepartition = e.retireRepartitioned
+		}
+	}
+
 	return server, nil
 }
 
@@ -148,8 +171,10 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *mockserver.Serv
 	for _, w := range fabric.Validate() {
 		warnLog("[ENGINE] NVLink topology: %s\n", w)
 	}
+	// Read once, so an unknown value is warned about once, not per GPU.
+	absentNotSupported := absentFeaturesNotSupported(e.config)
 
-	for i := 0; i < e.config.NumDevices && i < MaxDevices; i++ {
+	for i := range min(e.config.NumDevices, MaxDevices) {
 		// Get merged device config (defaults + overrides)
 		deviceCfg := e.config.GetDeviceConfig(i)
 
@@ -175,6 +200,8 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *mockserver.Serv
 			minorNumber,
 			fabric,
 		)
+		server.configurableDevices[i].absentNotSupported = absentNotSupported
+		server.configurableDevices[i].driverVersion = configuredDriver(e.config)
 
 		debugLog("[ENGINE] Created device %d: uuid=%s pci=%s\n", i, uuid, pciBusID)
 	}
@@ -222,7 +249,7 @@ func BaseDevicePCIBusID(index int) string {
 func (e *Engine) createDefaultDevices(server *MockServer, base *mockserver.Server) {
 	debugLog("[ENGINE] Creating devices with default config\n")
 
-	for i := 0; i < e.config.NumDevices && i < MaxDevices; i++ {
+	for i := range min(e.config.NumDevices, MaxDevices) {
 		// Get base device from dgxa100
 		baseDevice, ok := base.Devices[i].(*mockserver.Device)
 		if !ok {
@@ -311,8 +338,13 @@ func (e *Engine) Shutdown() nvml.Return {
 	}
 
 	// Handles become invalid (and their addresses are never reused, see
-	// HandleTable.Clear), but the device state is kept for a later Init.
+	// handleStore.Clear), but the device state is kept for a later Init. The
+	// MIG partitioning is part of that state: a caller that partitions a GPU,
+	// shuts NVML down and initialises again finds its instances still there,
+	// as it would on hardware.
 	e.handles.Clear()
+	e.gpuInstances.Clear()
+	e.computeInstances.Clear()
 
 	debugLog("[ENGINE] Shutdown complete\n")
 	return nvml.SUCCESS
@@ -361,6 +393,68 @@ func (e *Engine) DeviceGetHandleByUUID(uuid string) (unsafe.Pointer, nvml.Return
 	}
 
 	device, ret := e.server.DeviceGetHandleByUUID(uuid)
+	if ret != nvml.SUCCESS {
+		// MIG devices are not in the server's device list — they exist only in
+		// the engine's MIG state — so a miss there is not yet a miss. Resolving
+		// them here is what a modern driver does, and the device plugin's health
+		// monitor depends on it: it places a partition by looking its UUID up
+		// and only falls back to parsing the legacy MIG-GPU-<parent>/<gi>/<ci>
+		// spelling if the lookup fails.
+		if mig := e.migDeviceByUUID(uuid); mig != nil {
+			return registerHandle(e.handles, nvml.Device(mig))
+		}
+		return nil, ret
+	}
+
+	handle := e.handles.Register(device)
+	return handle, nvml.SUCCESS
+}
+
+// DeviceGetHandleByUUIDBinary returns a handle for the GPU or MIG device whose
+// UUID is the 16 bytes of a binary nvmlUUID_t. Those bytes drop the GPU-/MIG-
+// prefix, so unlike the ASCII lookup they can name either kind of device.
+//
+// A MIG UUID is derived from its parent's (migDeviceUUID), so a partition can
+// share all 16 bytes with the GPU it is carved from. Such bytes name two
+// devices, and answering with either would hand some caller the wrong one, so
+// the lookup is refused; the ASCII form still tells them apart by prefix.
+func (e *Engine) DeviceGetHandleByUUIDBinary(raw [16]byte) (unsafe.Pointer, nvml.Return) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.initCount == 0 {
+		return nil, nvml.ERROR_UNINITIALIZED
+	}
+
+	device, ret := e.server.deviceGetHandleByUUIDBinary(raw)
+	if mig := e.migDeviceMatching(func(uuid string) bool { return uuidMatchesBinary(uuid, raw) }); mig != nil {
+		if ret == nvml.SUCCESS {
+			warnLog("[NVML] nvmlDeviceGetHandleByUUIDV(binary %x) -> INVALID_ARGUMENT: names both a GPU and its MIG device %s\n",
+				raw, mig.mig.uuid)
+			return nil, nvml.ERROR_INVALID_ARGUMENT
+		}
+		return registerHandle(e.handles, nvml.Device(mig))
+	}
+	if ret != nvml.SUCCESS {
+		return nil, ret
+	}
+
+	handle := e.handles.Register(device)
+	return handle, nvml.SUCCESS
+}
+
+// DeviceGetHandleBySerial returns a handle for the device with the given board
+// serial. MIG devices are not searched: they report their parent's serial, so
+// a serial can never name one unambiguously.
+func (e *Engine) DeviceGetHandleBySerial(serial string) (unsafe.Pointer, nvml.Return) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.initCount == 0 {
+		return nil, nvml.ERROR_UNINITIALIZED
+	}
+
+	device, ret := e.server.DeviceGetHandleBySerial(serial)
 	if ret != nvml.SUCCESS {
 		return nil, ret
 	}
@@ -469,7 +563,7 @@ func (e *Engine) TopologyNearestGpus(handle unsafe.Pointer, level nvml.GpuTopolo
 	}
 
 	var out []unsafe.Pointer
-	for j := 0; j < cd.fabric.NumDevices(); j++ {
+	for j := range cd.fabric.NumDevices() {
 		if j == cd.index || !e.server.isDeviceVisible(j) {
 			continue
 		}
@@ -504,7 +598,7 @@ func (e *Engine) TopologyGpuSet(cpuNumber int) ([]unsafe.Pointer, nvml.Return) {
 	}
 
 	var out []unsafe.Pointer
-	for j := 0; j < len(e.server.configurableDevices); j++ {
+	for j := range len(e.server.configurableDevices) {
 		dev := e.server.configurableDevices[j]
 		if dev == nil || dev.fabric == nil || !e.server.isDeviceVisible(j) {
 			continue
@@ -655,6 +749,20 @@ func (e *Engine) AnyDeviceLost() bool {
 	return false
 }
 
+// refreshEnumeration recomputes which GPUs this process enumerates. The
+// caller holds e.mu for writing. Init passes keepVisible false, enumerating
+// afresh; a renumbering inside a running process passes true, so the GPUs it
+// already sees stay visible even if they have since started draining.
+//
+// It starts from the GPU device nodes that exist: in containers where CDI
+// injects only the allocated GPUs (e.g. /dev/nvidia0 but not /dev/nvidia1-7)
+// that set is narrower than the node's, which is how cgroup device
+// permissions limit GPU visibility on real NVML. The driver's own view then
+// narrows it further — see MockServer.enumerable.
+func (e *Engine) refreshEnumeration(keepVisible bool) {
+	e.server.setVisibleDevices(e.server.enumerable(detectVisibleDevices(e.config), keepVisible))
+}
+
 // SetVisibleDevicesForTesting sets the visible device mapping on an initialized
 // engine's server. Pass nil to disable filtering. Only use in tests.
 func (e *Engine) SetVisibleDevicesForTesting(visible []int) {
@@ -687,8 +795,12 @@ func ResetForTesting() {
 //
 // Returns nil if ALL device nodes exist (no filtering needed) or if none
 // exist (host context where /dev/nvidia* may not be present but NVML should
-// still work).
+// still work). MOCK_NVML_VISIBLE_DEVICES=none hides every device instead, for a
+// container that loads the mock without being given GPUs.
 func detectVisibleDevices(config *Config) []int {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("MOCK_NVML_VISIBLE_DEVICES")), "none") {
+		return []int{}
+	}
 	return detectVisibleDevicesAt("/dev/nvidia%d", config)
 }
 
@@ -697,7 +809,7 @@ func detectVisibleDevices(config *Config) []int {
 // exercise the same configuration-to-visibility mapping without writing /dev.
 func detectVisibleDevicesAt(pathFmt string, config *Config) []int {
 	minorNumbers := make([]int, 0, config.NumDevices)
-	for i := 0; i < config.NumDevices && i < MaxDevices; i++ {
+	for i := range min(config.NumDevices, MaxDevices) {
 		minorNumbers = append(minorNumbers, config.GetDeviceMinorNumber(i))
 	}
 

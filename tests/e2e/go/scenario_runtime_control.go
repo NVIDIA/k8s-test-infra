@@ -18,6 +18,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions/nvidiasmi"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
 
 // These scenarios exercise every command documented in docs/nvml-mock-ctl.md
@@ -88,6 +89,14 @@ func nvmlMockCtlTry(ctx SpecContext, h *harness.Harness, args ...string) (string
 func resetRuntimeOverrides(ctx SpecContext, h *harness.Harness) {
 	GinkgoHelper()
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
+}
+
+// resetRuntimeOverridesOnNode is resetRuntimeOverrides for a scenario that
+// pins the node it asserts on. Overrides are staged per node, so an unpinned
+// reset can clear a different node's file and leave the asserted one live.
+func resetRuntimeOverridesOnNode(ctx SpecContext, h *harness.Harness, node string) {
+	GinkgoHelper()
+	nvmlMockCtlOnNode(ctx, h, node, "reset", "--gpu", "all")
 }
 
 // smiGPU returns one GPU's readings from a fresh `nvidia-smi -q -x` document.
@@ -347,8 +356,10 @@ func assertRuntimeSetTemperature(ctx SpecContext, h *harness.Harness, consumer k
 // the raw `set` path against dynamic_metrics.temperature), this validates that
 // the convenience wrapper writes both the static and zero-variation dynamic
 // blocks so the reading is deterministic under the e2e chart's dynamic-metrics
-// simulator, without the caller spelling out the dynamic keys.
-func assertRuntimeTempCommand(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+// simulator, without the caller spelling out the dynamic keys. On a board with
+// the T.Limit view, the pinned temperature also fixes the margin, so it checks
+// that too: the T.Limit reference minus the pinned temperature.
+func assertRuntimeTempCommand(ctx SpecContext, h *harness.Harness, consumer kube.PodRef, p profile.Profile) {
 	GinkgoHelper()
 	resetRuntimeOverrides(ctx, h)
 
@@ -368,6 +379,14 @@ func assertRuntimeTempCommand(ctx SpecContext, h *harness.Harness, consumer kube
 		return smiGPUTempC(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(overrideC), "GPU %d temperature should reflect the temp command", target)
+
+	if ref, ok := p.TLimitReferenceC(); ok {
+		By(fmt.Sprintf("the T.Limit margin on GPU %d reads %dC - %dC", target, ref, overrideC))
+		margin, ok := smiGPU(ctx, h, consumer, target).TLimitC()
+		Expect(ok).To(BeTrue(), "nvidia-smi -q -x should report a numeric T.Limit temperature for GPU %d", target)
+		Expect(margin).To(Equal(ref-overrideC),
+			"GPU %d T.Limit margin should be the reference minus the pinned temperature", target)
+	}
 
 	if count > 1 {
 		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
@@ -946,7 +965,7 @@ func nvlinkErrorSum(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx in
 	res, err := h.Kube.Exec(ctx, pod, "nvidia-smi", "nvlink", "-e", "-i", strconv.Itoa(idx))
 	Expect(err).NotTo(HaveOccurred(), "nvidia-smi nvlink -e -i %d: %s", idx, res.Combined())
 	sum, surfaced := 0, false
-	for _, line := range strings.Split(res.Stdout, "\n") {
+	for line := range strings.SplitSeq(res.Stdout, "\n") {
 		// e.g. "\t Link 0: Replay Errors: 12"
 		if !strings.Contains(line, "Errors:") {
 			continue

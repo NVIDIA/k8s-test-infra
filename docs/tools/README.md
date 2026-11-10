@@ -8,14 +8,15 @@ Three of the four below are workloads the chart runs for you; only
 |------|---------|
 | [`node-agent`](node-agent.md) | Compiles a mock NVML profile into on-host state and keeps it reconciled. The process the nvml-mock DaemonSet runs. |
 | [`nri-plugin`](nri-plugin.md) | containerd NRI plugin that injects the mock driver overlay, LD_PRELOAD shims and device nodes into containers at creation time. |
-| [`control-plane`](control-plane.md) | Runs the [Mokka controller](../mokka-controller.md) and serves liveness and controller-readiness probes. |
+| [`control-plane`](control-plane.md) | Runs the [Mokka control plane](../control-plane.md) and serves liveness and controller-readiness probes. |
 | [`nvml-mock-ctl`](../nvml-mock-ctl.md) | Mutate the simulated GPU state of a running node without a restart. |
 
-Two more are documented under [Contributing](../contributing/index.md):
+Three more are documented under [Contributing](../contributing/index.md):
 [`check-fabric`](check-fabric.md), which prints the NVLink fabric identity
-(cluster UUID, clique ID, state) of every visible GPU, and
+(cluster UUID, clique ID, state) of every visible GPU,
 [`generate-bridge`](generate-bridge.md), which generates the mock NVML bridge
-stubs.
+stubs, and [`mokka-capture`](mokka-capture.md), which captures a real GPU node
+and scrubs the capture for the repository.
 
 ## Building
 
@@ -25,4 +26,4 @@ the Go shims under `shims/`.
 The nvml-mock image installs four of these under `/usr/local/bin`: `node-agent`,
 `nri-plugin`, `nvml-mock-ctl` and `check-fabric`. `control-plane` has an image
 of its own, built from `deployments/control-plane/Dockerfile`, and
-`generate-bridge` is a build-time tool that ships in neither.
+`generate-bridge` and `mokka-capture` are developer tools that ship in neither.

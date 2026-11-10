@@ -32,13 +32,11 @@ func devWithBDF(index int, bdf string) DeviceOverride {
 
 func switchLinks(n int, bdf string) []NVLinkLinkConfig {
 	links := make([]NVLinkLinkConfig, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		links[i] = NVLinkLinkConfig{Link: i, State: "active", RemoteDeviceType: "switch", RemotePCIBusID: bdf}
 	}
 	return links
 }
-
-func intptr(i int) *int { return &i }
 
 // TestNodeFabric_SwitchTraversalNV18 builds a GB200-style 2-GPU slice where
 // every GPU has 18 links to a shared NVSwitch and asserts the derived NV#
@@ -106,10 +104,10 @@ func TestNodeFabric_SwitchLinkAutoExpansion(t *testing.T) {
 	}
 	f := BuildNodeFabric(&Config{NumDevices: 4, YAMLConfig: yc})
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		got := f.NumLinks(i)
 		require.Equal(t, 18, got, "device %d auto-expanded links: got %d, want 18", i, got)
-		for j := 0; j < 4; j++ {
+		for j := range 4 {
 			want := 18
 			if i == j {
 				want = 0
@@ -167,9 +165,9 @@ func TestNodeFabric_DirectGPULinks(t *testing.T) {
 			Version: 4,
 			DeviceLinks: []DeviceLinksConfig{
 				{Index: 0, Links: []NVLinkLinkConfig{
-					{Link: 0, State: "active", RemoteIndex: intptr(1)},
-					{Link: 1, State: "active", RemoteIndex: intptr(1)},
-					{Link: 2, State: "active", RemoteIndex: intptr(2)},
+					{Link: 0, State: "active", RemoteIndex: new(1)},
+					{Link: 1, State: "active", RemoteIndex: new(1)},
+					{Link: 2, State: "active", RemoteIndex: new(2)},
 				}},
 			},
 		},
@@ -332,12 +330,14 @@ func TestNodeFabric_BuiltinProfiles(t *testing.T) {
 		profile    string
 		wantNV     int // expected NVLinkCount between GPU 0 and GPU 1
 		wantSwitch bool
+		wantScope  NVLinkBwModeScope
 	}{
-		{"gb200", 18, true}, // NVLink5, 4 NVSwitches -> NV18 all-to-all
-		{"gb300", 18, true},
-		{"h100", 18, true}, // HGX H100, 4 NVSwitches -> NV18
-		{"a100", 12, true}, // DGX A100, 6 NVSwitches -> NV12
-		{"b200", 0, false}, // standalone: negative control, no NVLink fabric
+		{"gb200", 18, true, NVLinkBwModeScopeDevice}, // NVLink5, 4 NVSwitches -> NV18 all-to-all
+		{"gb300", 18, true, NVLinkBwModeScopeDevice},
+		{"vrnvl72", 36, true, NVLinkBwModeScopeDevice}, // NVLink6, 4 NVSwitches -> NV36
+		{"h100", 18, true, NVLinkBwModeScopeSystem},    // HGX H100, 4 NVSwitches -> NV18
+		{"a100", 12, true, noBwMode},                   // DGX A100, 6 NVSwitches -> NV12
+		{"b200", 0, false, NVLinkBwModeScopeDevice},    // standalone: negative control, no NVLink fabric
 	}
 	for _, c := range cases {
 		t.Run(c.profile, func(t *testing.T) {
@@ -354,14 +354,15 @@ func TestNodeFabric_BuiltinProfiles(t *testing.T) {
 			require.Empty(t, w, "%s: unresolved NVLink endpoints: %v", c.profile, w)
 			got := len(f.Switches()) > 0
 			require.Equal(t, c.wantSwitch, got, "%s: hasSwitches = %v, want %v", c.profile, got, c.wantSwitch)
+			require.Equal(t, c.wantScope, f.NvlinkBwModeScope(), "%s: nvlink.bw_mode.scope", c.profile)
 			// Assert the FULL NV# matrix, not just the (0,1) cell: every
 			// off-diagonal pair must equal wantNV and every diagonal must be
 			// 0. This is the driver-independent acceptance guard for the
 			// `nvidia-smi topo -m` NV# matrix (the e2e is the integration
 			// reveal; this is the deterministic oracle). A partially
 			// populated matrix or a wrong count (e.g. NV1) fails here.
-			for i := 0; i < n; i++ {
-				for j := 0; j < n; j++ {
+			for i := range n {
+				for j := range n {
 					want := c.wantNV
 					if i == j {
 						want = 0
@@ -372,6 +373,35 @@ func TestNodeFabric_BuiltinProfiles(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The link bound is the configured driver's, whichever way the driver is
+// configured, and a board on an older driver cannot declare more links than
+// that driver addresses.
+func TestNodeFabric_LinkBoundFollowsTheDriver(t *testing.T) {
+	t.Parallel()
+	yc, err := LoadYAMLConfig(filepath.Join("..", "configs", "mock-nvml-config-gb300.yaml"))
+	require.NoError(t, err)
+	n := len(yc.Devices)
+
+	require.Equal(t, 18, BuildNodeFabric(&Config{NumDevices: n, YAMLConfig: yc}).LinkBound(), "the profile's 580 driver")
+	require.Equal(t, 36, BuildNodeFabric(&Config{NumDevices: n, DriverVersion: "615.71.09", YAMLConfig: yc}).LinkBound(),
+		"a resolved 615 driver, as the chart's driverVersion sets it")
+	require.Equal(t, 18, (*NodeFabric)(nil).LinkBound(), "a board with no fabric")
+
+	wide := *yc
+	nv := *yc.NVLink
+	nv.LinksPerGPU = 36
+	wide.NVLink = &nv
+	f := BuildNodeFabric(&Config{NumDevices: n, YAMLConfig: &wide})
+	require.Equal(t, 18, f.NVLinkCount(0, 1), "a 580 driver addresses 18 of the 36 declared links")
+	f = BuildNodeFabric(&Config{NumDevices: n, DriverVersion: "615.71.09", YAMLConfig: &wide})
+	require.Equal(t, 36, f.NVLinkCount(0, 1))
+
+	vr, err := LoadYAMLConfig(filepath.Join("..", "configs", "mock-nvml-config-vrnvl72.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, 36, BuildNodeFabric(&Config{NumDevices: len(vr.Devices), YAMLConfig: vr}).LinkBound(),
+		"a profile on a 615 driver")
 }
 
 // TestNodeFabric_ConcurrentReads hammers the read-only fabric accessors
@@ -403,18 +433,16 @@ func TestNodeFabric_ConcurrentReads(_ *testing.T) {
 	f := BuildNodeFabric(&Config{NumDevices: 2, YAMLConfig: yc})
 
 	var wg sync.WaitGroup
-	for g := 0; g < 16; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 500; i++ {
+	for range 16 {
+		wg.Go(func() {
+			for i := range 500 {
 				_ = f.NVLinkCount(0, 1)
 				_ = f.TopoLevel(0, 1)
 				_, _ = f.Link(0, i%18)
 				_ = f.CPUAffinityMask(0, 4)
 				_, _ = f.NvLinkCounters(0, 0, f.now())
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

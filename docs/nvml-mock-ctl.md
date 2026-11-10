@@ -41,6 +41,23 @@ mode/counters, temperature, power, utilization, clocks, fan, performance state,
 device memory (`memory.total_bytes` / `free_bytes` / `used_bytes` /
 `reserved_bytes` / `memory_bus_width`), and the like. These change within one TTL.
 
+MIG partitioning is hot-reloadable for the **NVML view**, through `nvidia-smi`
+rather than through this CLI: `nvidia-smi -mig` and
+`nvidia-smi mig -cgi/-cci/-dgi/-dci` work against the mock as they do against a
+driver, and the library records each mutation so it outlives the process that
+made it. What they change is what `nvidia-smi`, DCGM and GFD report, and what
+the device plugin *discovers* — see the
+[MIG partitioning guide](guides/mig/README.md).
+
+The driver capability surface is not hot-reloadable — `/dev/nvidia-caps` and
+`/proc/driver/nvidia-caps/mig-minors` are staged once at pod start, so
+allocating what a runtime repartition produces still needs a Helm change
+(`gpu.mig.enabled` with `gpu.mig.gpuInstances`). Nor is a repartition fully
+reversible: clearing the override, `nvml-mock-ctl reset` included, restores the
+layout NVML reports but not the instance IDs it reports them under, so the
+staged capability surface and the CDI entries no longer match and only
+restarting the `nvml-mock` pod returns the node to an allocatable state.
+
 Memory values are reported **verbatim** from the effective config — setting
 `memory.used_bytes` alone does not recompute `memory.free_bytes`. Set both in one
 command to keep the reported triple coherent:
@@ -332,7 +349,12 @@ model as the profile's `nvlink.defaults.error_rate`), so consumers that sample
 over time see a *rising error rate* rather than a one-shot step. It surfaces on
 both the per-counter direct API (`nvmlDeviceGetNvLinkErrorCounter`) and the DL
 error field values (`NVML_FI_DEV_NVLINK_ERROR_DL_{REPLAY,RECOVERY,CRC}`, field
-ids 161–163, e.g. `dcgmi dmon -e 161,162,163`). Injection lands only on links the
+ids 161–163, e.g. `dcgmi dmon -e 161,162,163`), and in the NVLink5 error
+counters (`NVML_FI_DEV_NVLINK_COUNT_*`) that `nvidia-smi nvlink -e` reads. On a
+615 or newer driver only the NVLink5 counters carry it: the direct API and fields
+161–163 answer `NOT_SUPPORTED`, as on a real 615 tray (see
+[NVLink telemetry on a 615 driver](configuration.md#nvlink-telemetry-on-a-615-driver)).
+Injection lands only on links the
 device actually has **active** — a nonexistent link is never conjured into an
 errored one — and `--links` (comma-separated ids) narrows it further; omit it to
 target all active links (the "GPU lost its switch uplinks" fault).
@@ -419,6 +441,42 @@ state hardware can be in. See
 [fabric health configuration](configuration.md#fabric-health) for the static
 equivalent.
 
+### MIG partitioning — use `nvidia-smi`
+
+Repartitioning is not one of this CLI's commands, and deliberately so: it would
+be a second, non-standard spelling of an interface `nvidia-smi` already covers,
+and a second writer of the same state. Use `nvidia-smi`, which works against
+the mock the way it works against a driver:
+
+```bash
+# turn MIG on, then carve GPU 0 into seven 1g.5gb partitions
+nvidia-smi -i 0 -mig 1
+nvidia-smi mig -i 0 -cgi 1g.5gb,1g.5gb,1g.5gb,1g.5gb,1g.5gb,1g.5gb,1g.5gb -C
+
+# tear one partition down, or all of them
+nvidia-smi mig -i 0 -dci -ci 0 -gi 3
+nvidia-smi mig -i 0 -dgi -gi 3
+```
+
+The full workflow — installing a node already partitioned, what the device
+plugin then advertises, and repartitioning at runtime — is the
+[MIG partitioning guide](guides/mig/README.md).
+
+What concerns this CLI is that each mutation is recorded in the same override
+document it writes, so a partition outlives the `nvidia-smi` that made it.
+`nvml-mock-ctl status` shows the recorded layout and `nvml-mock-ctl reset`
+clears it. A mutation that cannot be recorded fails with
+`NVML_ERROR_NO_PERMISSION` rather than succeeding in one process only, which is
+what the driver reports when the same call is made without the permissions it
+needs.
+
+**This changes the NVML view only.** `/dev/nvidia-caps` and the `mig-minors`
+table stay as the node agent staged them at pod start, so a partition that a
+repartition created is never *allocatable* — see the v1 scope note above.
+Clearing the override, `nvml-mock-ctl reset` included, returns NVML to the
+installed layout under the instance IDs it reported before, which is the
+layout those staged files were written for.
+
 ### `set` — set arbitrary fields
 
 `set` takes one or more `key.path=value` pairs. The path is the YAML/JSON path
@@ -498,6 +556,10 @@ at a time:
   (no write, no lock), so a reset on a healthy GPU never depends on the overrides
   being writable.
 
+Unlike the CLI, it also applies an ECC mode that `nvidia-smi -e` left pending, as
+a reset does on hardware: the GPU comes back reporting that mode as both current
+and pending. `nvml-mock-ctl reset` drops it with every other override.
+
 The reset works from an injected consumer container as well as from the nvml-mock
 pod, which is what lets a remediation controller run it where the workload sees
 the GPU. Clearing a bucket rewrites `overrides.yaml` under an flock, so the config
@@ -511,7 +573,7 @@ healthy ones reported success through the no-write path above.
 | Action | Effect on runtime overrides | Result |
 | ------ | --------------------------- | ------ |
 | `nvml-mock-ctl reset [--gpu <t>]` | clears the targeted bucket(s) from `overrides.yaml` | device(s) revert to pristine profile within one TTL |
-| `nvidia-smi --gpu-reset [-i <idx>]` | clears the same per-device bucket(s) — see [via nvidia-smi](#reset-via-nvidia-smi) | device(s) revert to pristine profile within one TTL |
+| `nvidia-smi --gpu-reset [-i <idx>]` | clears the same per-device bucket(s) and applies a pending ECC mode — see [via nvidia-smi](#reset-via-nvidia-smi) | device(s) revert to pristine profile within one TTL |
 | `nvml-mock-ctl fail --gpu <t> --mode healthy` | removes just the `failure` block for the target | that device recovers within one TTL; other overrides stay |
 | `nvml-mock-ctl fabric-health --gpu <t> healthy` | clears just the fabric health conditions for the target | that device's fabric reports healthy within one TTL; other overrides stay |
 | DaemonSet pod restart | the node daemon deletes `overrides.yaml` at startup | **all** overrides wiped; back to pristine profile |

@@ -1,0 +1,4 @@
+product_name=VR NVL72
+sys_vendor=NVIDIA
+board_name=P3809-BMC
+bios_version=NV_SBIOS: 06.07.01.05, OEM_SBIOS: 06.07.01.05

@@ -47,7 +47,7 @@ match exactly, and each is fatal on its own:
 | Namespace | FGO's own release namespace | `NotFound` — the loader has no cross-namespace fallback |
 
 Because the names carry no release prefix, two Mokka releases in one namespace
-collide on these seven ConfigMaps. Enable the integration on one release per
+collide on these eight ConfigMaps. Enable the integration on one release per
 namespace.
 
 !!! warning "Set FGO's `builtinProfiles.enabled=false` first"
@@ -87,6 +87,7 @@ kubectl --context kind-nvml-mock-fgo-demo create namespace gpu-operator
 
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --kube-context kind-nvml-mock-fgo-demo \
+  --namespace mokka --create-namespace \
   --set integrations.fakeGpuOperator.enabled=true \
   --set integrations.fakeGpuOperator.targetNamespace=gpu-operator \
   --set gpu.profile=h100 \
@@ -124,7 +125,7 @@ EOF
 
 `backend: mock` hands the pool to Mokka; `backend: fake` keeps it on FGO's own
 shim. `builtinProfiles.enabled=false` is what lets this install succeed at all
-now that Mokka owns those seven ConfigMap names — see
+now that Mokka owns those eight ConfigMap names — see
 [the discovery contract](#the-discovery-contract).
 
 ## Step 4 — Verify
@@ -133,16 +134,16 @@ now that Mokka owns those seven ConfigMap names — see
 CTX=kind-nvml-mock-fgo-demo
 
 # Mokka runs only on the integration worker.
-kubectl --context $CTX get pods -l app.kubernetes.io/name=nvml-mock -o wide
+kubectl --context $CTX -n mokka get pods -l app.kubernetes.io/name=nvml-mock -o wide
 
 # The profile ConfigMaps exist, in the namespace FGO reads.
 kubectl --context $CTX -n gpu-operator get cm -l fake-gpu-operator/gpu-profile=true
 
 # A real nvidia-smi, on a node with no GPU.
-kubectl --context $CTX exec ds/nvml-mock -- nvidia-smi
+kubectl --context $CTX -n mokka exec ds/nvml-mock -- nvidia-smi
 
-# FGO runs on the scale workers.
-kubectl --context $CTX get pods -l app=fake-gpu-operator -o wide
+# FGO's component-specific pods run in its release namespace.
+kubectl --context "$CTX" -n gpu-operator get pods -o wide
 ```
 
 You should end up with:

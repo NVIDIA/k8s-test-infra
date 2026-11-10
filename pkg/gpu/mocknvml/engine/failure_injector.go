@@ -209,27 +209,46 @@ func (f *failureInjector) IsLost() bool {
 // healthy until enough guarded getter calls have counted down, so `after_calls`
 // timing is unchanged.
 func (f *failureInjector) LostByConfig() bool {
-	if f == nil {
-		return false
-	}
 	switch f.Mode() {
 	case FailureModeLost, FailureModeFallenOffBus:
+		return f.trippedByConfig()
 	default:
+		return false
+	}
+}
+
+// FaultByConfig is LostByConfig generalised to every failure mode. The CPER
+// log is a query-only surface: a client that reads the RAS journal and calls
+// no guarded getter must still see a record for a bare
+// `failure: { mode: ecc_uncorrectable }`, which ErrorReturn deliberately keeps
+// out of the lost-device paths.
+func (f *failureInjector) FaultByConfig() bool {
+	if f.Mode() == FailureModeHealthy {
+		return false
+	}
+	return f.trippedByConfig()
+}
+
+// trippedByConfig reports whether the failure is active as of now WITHOUT
+// advancing the call counter or rolling probability, so a read-only consumer
+// never perturbs `after_calls` timing.
+func (f *failureInjector) trippedByConfig() bool {
+	if f == nil {
 		return false
 	}
 	if f.Triggered() {
 		return true
 	}
-	// Never roll the dice from the wait path.
+	// Never roll the dice from a read-only path.
 	if f.cfg == nil || f.cfg.Probability > 0 {
 		return false
 	}
 	// AfterCalls <= 0 means "trip on the first guarded call" (Tick rule 2),
-	// i.e. the device is already effectively lost, so the wait reports it now.
-	// An AfterCalls == N > 0 device only trips once N guarded calls have
+	// i.e. the device is already effectively failed, so the read reports it
+	// now. An AfterCalls == N > 0 device only trips once N guarded calls have
 	// counted down, and Tick sets tripped() on the call that reaches N — so a
-	// not-yet-tripped device with AfterCalls > 0 is never lost on the wait
-	// path (it was caught by the Triggered() check above once it trips).
+	// not-yet-tripped device with AfterCalls > 0 is never reported here (it is
+	// caught by the Triggered() check above once it trips).
 	return f.cfg.AfterCalls <= 0
 }
 
@@ -248,7 +267,15 @@ func (f *failureInjector) Xid() uint64 {
 	if !f.Triggered() {
 		return 0
 	}
-	if f.cfg == nil || f.cfg.Xid == nil {
+	return f.ConfiguredXid()
+}
+
+// ConfiguredXid is Xid without the Triggered() gate: it reports the Xid the
+// config declares whether or not a guarded call has tripped the device yet.
+// The CPER log needs it because it synthesises records from FaultByConfig,
+// which by design runs ahead of the first guarded call.
+func (f *failureInjector) ConfiguredXid() uint64 {
+	if f == nil || f.cfg == nil || f.cfg.Xid == nil {
 		return 0
 	}
 	return f.cfg.Xid.Code

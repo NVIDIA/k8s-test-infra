@@ -17,6 +17,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
+	mockserver "github.com/NVIDIA/go-nvml/pkg/nvml/mock/server"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,13 +28,14 @@ import (
 // cannot report one, so it must leave the whole block absent — a new profile
 // has to choose a side here rather than defaulting into the untested one.
 var gracePlatformProfiles = map[string]bool{
-	"gb200.yaml": true,
-	"gb300.yaml": true,
-	"a100.yaml":  false,
-	"b200.yaml":  false,
-	"h100.yaml":  false,
-	"l40s.yaml":  false,
-	"t4.yaml":    false,
+	"gb200.yaml":   true,
+	"gb300.yaml":   true,
+	"vrnvl72.yaml": true,
+	"a100.yaml":    false,
+	"b200.yaml":    false,
+	"h100.yaml":    false,
+	"l40s.yaml":    false,
+	"t4.yaml":      false,
 }
 
 // TestProfilePlatformIdentity pins the layout the NVL72 profiles ship: the
@@ -88,6 +92,42 @@ func TestProfilePlatformIdentity(t *testing.T) {
 				require.Equal(t, defaults.PeerType, platform.PeerType, "device %d peer type", i)
 			}
 			require.Len(t, seen, len(yamlCfg.Devices), "distinct module ids")
+		})
+	}
+}
+
+// fabricGUIDIsPDIProfiles are the profiles whose GPUs report their PDI as the
+// GPU fabric GUID, as the GB200 and GB300 captures do. A B200 or Vera Rubin
+// capture reports a different value in each, so a profile modelling one must
+// not join this list.
+var fabricGUIDIsPDIProfiles = []string{"gb200.yaml", "gb300.yaml"}
+
+// vmctl and NVLink fabric managers key a GPU on its fabric GUID, so on these
+// profiles every GPU must report its own PDI there and no two may agree.
+func TestProfileFabricGUIDIsPDI(t *testing.T) {
+	t.Parallel()
+	for _, file := range fabricGUIDIsPDIProfiles {
+		t.Run(file, func(t *testing.T) {
+			t.Parallel()
+			yamlCfg, err := LoadYAMLConfig(filepath.Join(testdataDir(), file))
+			require.NoError(t, err, "loading profile")
+			cfg := &Config{YAMLConfig: yamlCfg, NumDevices: len(yamlCfg.Devices)}
+			base := dgxa100.New()
+
+			seen := map[uint64]int{}
+			for i, override := range yamlCfg.Devices {
+				bd, _ := base.Devices[i].(*mockserver.Device)
+				dev := NewConfigurableDevice(i, bd, cfg.GetDeviceConfig(i), override.UUID, "", i, nil)
+				pdi, ret := dev.GetPdi()
+				require.Equal(t, nvml.SUCCESS, ret, "device %d PDI", i)
+				info, ret := dev.GetMockPlatformInfo()
+				require.Equal(t, nvml.SUCCESS, ret, "device %d platform info", i)
+				require.Equal(t, pdi.Value, info.FabricGUID, "device %d fabric GUID", i)
+				if prev, dup := seen[info.FabricGUID]; dup {
+					t.Fatalf("devices %d and %d share fabric GUID %#016x", prev, i, info.FabricGUID)
+				}
+				seen[info.FabricGUID] = i
+			}
 		})
 	}
 }

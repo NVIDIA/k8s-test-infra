@@ -1,5 +1,7 @@
 "use strict";
 
+const { validAuthorContext } = require("../pull-request-author.js");
+
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const GITHUB_LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const PERMISSION_LEVELS = new Map([
@@ -10,9 +12,8 @@ const PERMISSION_LEVELS = new Map([
   ["maintain", 4],
   ["admin", 5],
 ]);
-const NO_ARGUMENT_COMMANDS = new Set(["lgtm", "approve", "hold", "unhold", "retest"]);
-const TARGET_COMMANDS = new Set(["backport", "cherry-pick"]);
-const COMMAND_KEYS = ["name", "targetBranch", "line", "raw"];
+const COMMANDS = new Set(["lgtm", "approve", "hold", "unhold", "retest"]);
+const COMMAND_KEYS = ["name", "line", "raw"];
 
 function isPlainRecord(value) {
   return value !== null
@@ -69,18 +70,13 @@ function normalizeCommand(value) {
     return null;
   }
   if (
-    !Number.isSafeInteger(value.line)
+    !COMMANDS.has(value.name)
+    || !Number.isSafeInteger(value.line)
     || value.line <= 0
     || typeof value.raw !== "string"
     || value.raw.length === 0
   ) return null;
-  if (NO_ARGUMENT_COMMANDS.has(value.name) && value.targetBranch === null) return value;
-  if (
-    TARGET_COMMANDS.has(value.name)
-    && typeof value.targetBranch === "string"
-    && value.targetBranch !== ""
-  ) return value;
-  return null;
+  return value;
 }
 
 function denied(reason) {
@@ -105,7 +101,7 @@ function authorizeCommand(commandValue, context) {
   if (actor.status === "unavailable") return denied("actor-unavailable");
   if (actor.status !== "human") return denied("actor-not-human");
 
-  const author = normalizeLogin(context.author);
+  const author = validAuthorContext(context.author) ? context.author.toLowerCase() : null;
   const reviewers = normalizeLoginSet(context.reviewers);
   const approvers = normalizeLoginSet(context.approvers);
   const owners = normalizeLoginSet(context.owners);

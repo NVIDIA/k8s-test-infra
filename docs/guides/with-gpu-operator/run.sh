@@ -52,6 +52,9 @@ RELEASE_NAME="nvml-mock-operator"
 OPERATOR_RELEASE="gpu-operator"
 : "${OPERATOR_NAMESPACE:=gpu-operator}"
 OPERATOR_VALUES="${DEMO_DIR}/gpu-operator-values.yaml"
+# v26.7.1 gates its operands on an `nvidia` line in /proc/modules, which the
+# mock cannot serve to them, so the operands never start on that release.
+: "${GPU_OPERATOR_VERSION:=v26.3.3}"
 # Pods carry app.kubernetes.io/name=<CHART name> and
 # app.kubernetes.io/instance=<RELEASE name> (nvml-mock.selectorLabels). The
 # name label is the same string for every release of this chart, so selecting
@@ -96,14 +99,12 @@ fi
 ###############################################################################
 # Step 1 -- Resolve the target cluster
 #
-# This demo never creates a cluster, not even on the BUILD_LOCAL path, and
-# that is deliberate. The Operator's toolkit-validation and the device plugin
-# both go through CDI, so the node needs containerd in CDI mode with the
-# nvidia runtime handler registered. A stock `kind create cluster` node has
-# neither. `make cluster-create` builds and uses the node image that does
-# (deployments/kind-nvidia-cdi), and the README says so; silently creating a
-# stock cluster here would just fail later, in the validator, with an error
-# that does not name the cause.
+# This demo never creates a cluster, not even on the BUILD_LOCAL path: it
+# installs into the current context. The Operator's toolkit-validation and the
+# device plugin both go through CDI, so the node needs containerd in CDI mode
+# with the nvidia runtime handler registered. The Mokka node daemon sets
+# that up on any containerd 1.7+ node, a stock `kind create cluster` or
+# `make cluster-create` one included.
 ###############################################################################
 if [[ "${BUILD_LOCAL}" == "true" ]]; then
   # Check before doing anything: a missing docker or kind would otherwise
@@ -196,13 +197,14 @@ info "Adding the NVIDIA Helm repository"
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia --force-update
 helm repo update nvidia
 
-info "Installing ${OPERATOR_RELEASE} into namespace ${OPERATOR_NAMESPACE}"
+info "Installing ${OPERATOR_RELEASE} ${GPU_OPERATOR_VERSION} into namespace ${OPERATOR_NAMESPACE}"
 sub "values: ${OPERATOR_VALUES}"
 sub "The operator pulls several images of its own on a cold cluster, so this"
 sub "waits up to $(demo::install_timeout) as well. Raise it with HELM_TIMEOUT=30m."
 helm upgrade --install "${OPERATOR_RELEASE}" nvidia/gpu-operator \
   --kube-context "${KUBE_CONTEXT}" \
   --namespace "${OPERATOR_NAMESPACE}" --create-namespace \
+  --version "${GPU_OPERATOR_VERSION}" \
   -f "${OPERATOR_VALUES}" \
   --wait --timeout "$(demo::install_timeout)"
 

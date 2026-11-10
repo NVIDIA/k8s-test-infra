@@ -12,7 +12,7 @@ import (
 
 func TestDiscoverPeerIPs_FiltersSelf(t *testing.T) {
 	// Unit test uses empty host; integration uses real DNS in cluster.
-	got := discoverPeerIPs(context.Background(), "", "10.0.0.1")
+	got := discoverPeerIPs(t.Context(), "", "10.0.0.1")
 	require.Empty(t, got)
 }
 

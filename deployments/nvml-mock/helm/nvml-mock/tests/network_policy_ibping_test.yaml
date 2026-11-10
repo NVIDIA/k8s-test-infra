@@ -33,14 +33,14 @@ tests:
       - equal:
           path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/component"]
           value: daemon
-      # namespaceSelector + podSelector in one peer (AND) admits nvml-mock
-      # pods in any namespace, so a cross-namespace fleet isn't dropped on
-      # enforcing CNIs.
-      - exists:
+      # A bare podSelector admits peers from the release's own namespace only:
+      # OVN-Kubernetes then reconciles the policy's address set on that
+      # namespace's Pod events alone, not on every Pod event in the cluster.
+      - notExists:
           path: spec.ingress[0].from[0].namespaceSelector
       - equal:
           path: spec.ingress[0].ports[0].port
-          value: ibping
+          value: 18515
       - equal:
           path: spec.ingress[0].ports[0].protocol
           value: TCP
@@ -48,6 +48,28 @@ tests:
       # own policy, and nothing in this pod ever bound 50000/50005.
       - notExists:
           path: spec.ingress[0].ports[1]
+
+  - it: should use a numeric port with the Kubernetes 1.29 native-sidecar layout
+    capabilities:
+      majorVersion: 1
+      minorVersion: 29
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 18515
+
+  - it: should follow a custom numeric relay port
+    set:
+      infiniband:
+        ping:
+          port: 19000
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 19000
 
   - it: should not render when disabled
     set:
@@ -66,3 +88,59 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  # Only the mock-ib daemon listens on the relay port, and it runs at the
+  # full tier alone; below it the policy would guard a closed port.
+  - it: should not render at the sysfs tier
+    set:
+      infiniband:
+        mockTier: sysfs
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render at the off tier
+    set:
+      infiniband:
+        mockTier: "off"
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render at an explicit full tier
+    set:
+      infiniband:
+        mockTier: full
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should admit peers from the listed namespaces
+    set:
+      infiniband:
+        ping:
+          networkPolicy:
+            peerNamespaces: [mokka-a, mokka-b]
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchExpressions[0]
+          value:
+            key: kubernetes.io/metadata.name
+            operator: In
+            values: [NAMESPACE, mokka-a, mokka-b]
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: daemon
+
+  - it: should not list its own namespace twice
+    release:
+      namespace: mokka-a
+    set:
+      infiniband:
+        ping:
+          networkPolicy:
+            peerNamespaces: [mokka-a, mokka-b]
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchExpressions[0].values
+          value: [mokka-a, mokka-b]

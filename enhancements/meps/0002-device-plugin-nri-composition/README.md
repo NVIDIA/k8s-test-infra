@@ -269,7 +269,7 @@ GPU. Today this test cannot be written; both pods see both GPUs.
 
 | Risk | Mitigation |
 | --- | --- |
-| **`gpu-validator-mock` regresses.** [`validator-mock.yaml`](../../../tests/e2e/go/assets/validator-mock.yaml) requests `nvidia.com/gpu: "1"` and runs the real `cuda-vectorAdd` sample. Today it sees all GPUs. With device specs on, it will be allocated one GPU and the visible-index mapping will remap index 0 onto the allocated device. | This must be **run**, not reasoned about, before the change merges. If `cuda-vectorAdd` fails when allocated a non-zero device, that is a genuine bug in the visible-index mapping and it belongs to this MEP's implementation, not to a follow-up. |
+| **`gpu-validator-mock` regresses.** `validator-mock.yaml` requests `nvidia.com/gpu: "1"` and runs the real `cuda-vectorAdd` sample. Today it sees all GPUs. With device specs on, it will be allocated one GPU and the visible-index mapping will remap index 0 onto the allocated device. | This must be **run**, not reasoned about, before the change merges. If `cuda-vectorAdd` fails when allocated a non-zero device, that is a genuine bug in the visible-index mapping and it belongs to this MEP's implementation, not to a follow-up. |
 | Other scenarios that deploy the device plugin (`standalone`, `multi-node`, `gpu-operator`) change behaviour. | The only other GPU-requesting workloads are `gpu-scheduling-test` (busybox, echoes its hostname) and the nv-sentinel sample (`pause` image). Neither observes GPUs. Re-run the full matrix regardless. |
 | The device plugin's default strategy changes in a future release and the flag becomes wrong. | The e2e scenario asserts the *outcome* (one GPU visible), not the flag. A strategy change that preserves the outcome passes; one that breaks it fails loudly. |
 | Suppression hides a real staging failure: a container gets no device nodes because the device plugin failed, and the NRI plugin stays quiet. | Suppression triggers only when GPU device nodes are **present**. An empty device list is not a trigger, so the annotation path still injects. |
@@ -501,6 +501,12 @@ CDI-capable node image on the NRI legs, and today `e2e-nri` runs on the stock
 repository does carry are used by one other job and by nothing, respectively. It
 also inverts the dependency: #440 would wait on #436 rather than gate it. The
 constraints above keep the door open.
+
+> **Amended by [MEP-0006](../0006-automatic-cdi-setup/README.md).** The node
+> daemon now installs the NVIDIA container runtime on every node and makes it
+> containerd's default `nvidia` handler, as the custom Kind node image did, and
+> that image is gone: every CI job, the NRI legs included, runs on stock
+> `kindest/node`.
 
 **5. Build a mock device plugin.** Write our own plugin that advertises capacity
 and cooperates with the NRI plugin by construction.

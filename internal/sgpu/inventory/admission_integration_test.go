@@ -30,7 +30,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/utils/ptr"
 
-	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	mokkaclient "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
 )
@@ -321,7 +321,7 @@ func admissionReconcile(ctx context.Context, t *testing.T, mokka *mokkaclient.Cl
 
 func admissionCommand(t *testing.T, stdin []byte, name string, args ...string) []byte {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = bytes.NewReader(stdin)

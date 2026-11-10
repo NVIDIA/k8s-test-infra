@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"go.uber.org/zap"
 
@@ -19,7 +20,9 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/cpulocality"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/cpulist"
 	"github.com/NVIDIA/k8s-test-infra/internal/kmod"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
@@ -167,6 +170,12 @@ func stageCUDAShim(ctx context.Context, h *host.Host, state *agent.State) error 
 // exec nvidia-smi to confirm driver presence. The ELF uses the NVML shim via
 // RPATH; the shell fallback covers environments where the ELF is unavailable.
 func stageNvidiaSMI(ctx context.Context, h *host.Host, state *agent.State) error {
+	return stageNvidiaSMIFrom(ctx, h, state, defaultNvidiaSMIImage)
+}
+
+// stageNvidiaSMIFrom stages the nvidia-smi img bundles for the profile's driver
+// and points the node agent's own nvidia-smi at it.
+func stageNvidiaSMIFrom(ctx context.Context, h *host.Host, state *agent.State, img nvidiaSMIImage) error {
 	binDir := h.RootPath("driver/usr/bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return err
@@ -179,19 +188,32 @@ func stageNvidiaSMI(ctx context.Context, h *host.Host, state *agent.State) error
 	if err := fsutil.Write(filepath.Join(binDir, "nvidia-smi.sh"), []byte(fallback), 0o755); err != nil {
 		return err
 	}
-	elfPath := filepath.Join(binDir, "nvidia-smi")
-	if _, err := os.Stat("/usr/local/bin/nvidia-smi"); err == nil {
-		zap.L().Debug("staging nvidia-smi from the real ELF binary")
-		return fsutil.Copy("/usr/local/bin/nvidia-smi", elfPath, 0o755)
+	elfPath := filepath.Join(binDir, nvidiaSMIName)
+	src, version, err := img.pick(dv)
+	if err != nil {
+		// The shipped image always bundles one, so this is a broken image:
+		// the stub prints a banner and nothing else nvidia-smi does.
+		zap.L().Warn("no nvidia-smi binary in the image; staging the shell stub", zap.Error(err))
+		return fsutil.Symlink("nvidia-smi.sh", elfPath)
 	}
-	zap.L().Debug("no nvidia-smi ELF binary in image; staging the shell fallback")
-	return fsutil.Symlink("nvidia-smi.sh", elfPath)
+	if err := fsutil.Copy(src, elfPath, 0o755); err != nil {
+		return err
+	}
+	zap.L().Info("staged nvidia-smi", zap.String("version", version), zap.String("driver", dv))
+
+	// Fail open: consumers already get the staged binary, and the pod keeps
+	// the image's own nvidia-smi if its PATH entry cannot be repointed.
+	if err := repoint(elfPath, img.podPath); err != nil {
+		zap.L().Warn("node agent's own nvidia-smi still runs the image default, not the staged one",
+			zap.String("path", img.podPath), zap.Error(err))
+	}
+	return nil
 }
 
 // writeProcFS provides the procfs entries that libnvidia-ml and
 // nvidia-container-toolkit read to discover driver version without dlopen.
 func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
-	procDir := h.RootPath("driver/proc/driver/nvidia")
+	procDir := h.RootPath(procDriverRelPath)
 	if err := os.MkdirAll(procDir, 0o755); err != nil {
 		return err
 	}
@@ -206,15 +228,63 @@ func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
 	if err := fsutil.Write(filepath.Join(procDir, "version"), []byte(version), 0o644); err != nil {
 		return err
 	}
-	const params = "EnableMSI: 1\n" +
-		"NVreg_RegistryDwords:\n" +
-		"NVreg_DeviceFileGID: 0\n" +
-		"NVreg_DeviceFileMode: 438\n" +
-		"NVreg_DeviceFileUID: 0\n" +
-		"NVreg_ModifyDeviceFiles: 1\n" +
-		"NVreg_PreserveVideoMemoryAllocations: 0\n" +
-		"NVreg_EnableResizableBar: 0\n"
-	return fsutil.Write(filepath.Join(procDir, "params"), []byte(params), 0o644)
+	// The driver prints its registry table as "<Key>: <value>" on the bare key
+	// name, in table order, then each string key with its value quoted.
+	// NVreg_ is only the module-parameter spelling (modprobe nvidia NVreg_...).
+	const params = "ModifyDeviceFiles: 1\n" +
+		"DeviceFileUID: 0\n" +
+		"DeviceFileGID: 0\n" +
+		"DeviceFileMode: 438\n" +
+		"EnableMSI: 1\n" +
+		"PreserveVideoMemoryAllocations: 0\n" +
+		"EnableResizableBar: 0\n" +
+		"RegistryDwords: \"\"\n"
+	if err := fsutil.Write(filepath.Join(procDir, "params"), []byte(params), 0o644); err != nil {
+		return err
+	}
+	if err := writeGPUInformation(filepath.Join(procDir, "gpus"), state.Devices); err != nil {
+		return err
+	}
+	// libmockfs serves /proc/driver/nvidia from here, beside /proc/modules; the
+	// driver tree keeps the canonical copy for /run/nvidia/driver consumers.
+	return fsutil.Symlink(filepath.Join("..", "..", procDriverRelPath), h.RootPath(procDriverLinkRelPath))
+}
+
+const (
+	procDriverRelPath     = "driver/proc/driver/nvidia"
+	procDriverLinkRelPath = "proc/driver/nvidia"
+)
+
+// writeGPUInformation writes the per-GPU directories the driver keeps under
+// /proc/driver/nvidia/gpus, named by lowercase BDF, and prunes those of GPUs
+// that are gone. Slurm's gres AutoDetect=nvidia enumerates GPUs from them.
+// Only the lines backed by the device spec are written: a consumer that needs
+// the IRQ or VBIOS gets nothing rather than a value no profile declares.
+func writeGPUInformation(dir string, devices []agent.DeviceSpec) error {
+	keep := make(map[string]bool, len(devices))
+	for _, d := range devices {
+		bdf := strings.ToLower(d.PCIBusID)
+		if !agent.ValidBDF(bdf) {
+			continue
+		}
+		keep[bdf] = true
+
+		info := fmt.Sprintf("Model: \t\t %s\n"+
+			"GPU UUID: \t %s\n"+
+			"Bus Type: \t PCIe\n"+
+			"Bus Location: \t %s\n"+
+			"Device Minor: \t %d\n"+
+			"GPU Excluded:\t No\n",
+			d.Name, d.UUID, bdf, d.MinorNumber)
+		if err := os.MkdirAll(filepath.Join(dir, bdf), 0o755); err != nil {
+			return err
+		}
+		if err := fsutil.Write(filepath.Join(dir, bdf, "information"), []byte(info), 0o444); err != nil {
+			return err
+		}
+	}
+
+	return fsutil.PruneDir(dir, func(name string) bool { return keep[name] })
 }
 
 const kernelSysModuleDir = "module"
@@ -278,18 +348,22 @@ const machineTypeRel = "driver/config/machine-type"
 // without DMI (Docker Desktop) the path does not exist at all (#681). A file of
 // our own sidesteps both.
 //
-// The value is the GPU's product name for want of a platform field in the
-// profiles, so gpu.machine reads NVIDIA-GB300-NVL rather than the
-// NVIDIA-GB300-NVL72 a real tray reports.
+// The value is the profile's system.product_name, the DMI product name a real
+// node reports. A profile without one falls back to the GPU's product name, so
+// gpu.machine reads NVIDIA-GB300-NVL rather than the NVIDIA-GB300-NVL72 a real
+// tray reports.
 func writeMachineType(ctx context.Context, h *host.Host, state *agent.State) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if len(state.Devices) == 0 || state.Devices[0].Name == "" {
+	name := state.NodeShape.ProductName
+	if name == "" && len(state.Devices) > 0 {
+		name = state.Devices[0].Name
+	}
+	if name == "" {
 		return nil
 	}
-	return fsutil.Write(h.RootPath(machineTypeRel),
-		[]byte(state.Devices[0].Name+"\n"), 0o644)
+	return fsutil.Write(h.RootPath(machineTypeRel), []byte(name+"\n"), 0o644)
 }
 
 // writeEngineConfig writes the GPU profile so the mock NVML shim knows how many
@@ -309,6 +383,7 @@ func writeEngineConfig(ctx context.Context, h *host.Host, state *agent.State) er
 	}
 	// TODO: replace with Runtime.System.NumDevices once the Profile/Runtime split lands.
 	cfg.System.NumDevices = len(state.Devices)
+	limitCPUAffinity(cfg.PCIeTopology, cpulocality.Online(h))
 	configBytes, err := yaml.Marshal(&cfg)
 	if err != nil {
 		return fmt.Errorf("marshal engine config: %w", err)
@@ -323,6 +398,47 @@ func writeEngineConfig(ctx context.Context, h *host.Host, state *agent.State) er
 		if err := fsutil.Write(p, configBytes, 0o644); err != nil {
 			return err
 		}
+		if err := writeMIGProfiles(p, state.MIGProfilesRaw); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// limitCPUAffinity pins each root complex's CPU affinity to the set the PCI
+// stager serves as local_cpulist, so NVML and the driver files agree on which
+// CPUs are local to a GPU. Roots with no CPUs on this host are left for the
+// engine to synthesize, as they would be with no host limit at all.
+func limitCPUAffinity(topo *engine.PCIeTopologyConfig, online []int) {
+	if topo == nil || online == nil {
+		return
+	}
+	for i, rc := range topo.RootComplexes {
+		cpus := cpulocality.Local(agent.RootComplex{
+			ID:          rc.ID,
+			NUMANode:    rc.NUMANode,
+			CPUAffinity: rc.CPUAffinity,
+		}, topo.CoresPerNUMA, online)
+		if len(cpus) > 0 {
+			topo.RootComplexes[i].CPUAffinity = cpulist.Format(cpus)
+		}
+	}
+}
+
+// writeMIGProfiles stages the board's partition table beside a config just
+// written, or withdraws a previously staged one where the board has none.
+//
+// The table is a document of its own, and a consumer process — the device
+// plugin above all — is handed the config with no environment that could name
+// the table anywhere else, so the sibling beside the config is the only way it
+// resolves. Withdrawal is the same fact in reverse: a node reconfigured onto a
+// board without partitions must not keep the previous board's table, which the
+// sibling rule would otherwise still resolve.
+func writeMIGProfiles(configPath string, table []byte) error {
+	path := engine.MIGProfilesSiblingPath(configPath)
+
+	if len(table) == 0 {
+		return fsutil.Remove(path)
+	}
+	return fsutil.Write(path, table, 0o644)
 }

@@ -95,39 +95,83 @@ tests:
           path: spec.template.spec.containers[0].env[0].valueFrom.fieldRef.fieldPath
           value: metadata.namespace
 
-  - it: should reject an enabled control plane without an immutable image digest
+  - it: should default the control-plane image tag to the chart appVersion
     set:
       controlPlane:
         enabled: true
     template: templates/controlplane/deployment.yaml
     asserts:
-      - failedTemplate:
-          errorMessage: controlPlane.image.digest is required when controlPlane.enabled is true
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/nvidia/mokka-control-plane:0.0.0-dev
 
-  - it: should render Tilt's local mutable image tag
+  - it: should render an explicit control-plane image tag
     set:
       controlPlane:
         enabled: true
         image:
           repository: registry.example.com/mokka-control-plane
           tag: tilt-build-123
-          allowMutableTag: true
     template: templates/controlplane/deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
           value: registry.example.com/mokka-control-plane:tilt-build-123
 
-  - it: should reject local mutable image mode without a tag
+  - it: should pull the control-plane image from global.imageRegistry
+    set:
+      global:
+        imageRegistry: mirror.example.com
+      controlPlane:
+        enabled: true
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mirror.example.com/nvidia/mokka-control-plane:0.0.0-dev
+
+  - it: should use the chart image pull secrets
+    set:
+      global:
+        imagePullSecrets:
+          - mirror-creds
+      imagePullSecrets:
+        - ghcr-creds
+      controlPlane:
+        enabled: true
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: mirror-creds
+            - name: ghcr-creds
+
+  - it: should render an explicit control-plane image pull policy
     set:
       controlPlane:
         enabled: true
         image:
-          allowMutableTag: true
+          tag: latest
+          pullPolicy: Never
     template: templates/controlplane/deployment.yaml
     asserts:
-      - failedTemplate:
-          errorMessage: controlPlane.image.tag is required when controlPlane.image.allowMutableTag is true
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: Never
+
+  - it: should prefer the control-plane image digest over a tag
+    set:
+      controlPlane:
+        enabled: true
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          tag: tilt-build-123
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/nvidia/mokka-control-plane@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
   - it: should reject a malformed controller image digest via the values schema
     set:
@@ -316,6 +360,85 @@ tests:
 
   # Every active/passive replica must converge Ready; the elected replica
   # additionally waits for controller cache synchronization.
+  # ── Pod scheduling and metadata ─────────────────────────────────────
+  - it: should leave priority, affinity and pod annotations unset by default
+    set:
+      controlPlane:
+        enabled: true
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.priorityClassName
+      - notExists:
+          path: spec.template.spec.affinity
+      - notExists:
+          path: spec.template.metadata.annotations
+
+  - it: should apply priorityClassName, affinity and pod metadata
+    set:
+      controlPlane:
+        enabled: true
+        priorityClassName: system-cluster-critical
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/component: control-plane
+        podAnnotations:
+          prometheus.io/scrape: "true"
+        podLabels:
+          team: gpu-infra
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: system-cluster-critical
+      - equal:
+          path: spec.template.spec.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].podAffinityTerm.topologyKey
+          value: kubernetes.io/hostname
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/scrape"]
+          value: "true"
+      - equal:
+          path: spec.template.metadata.labels.team
+          value: gpu-infra
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: control-plane
+
+  - it: should leave topologySpreadConstraints unset by default
+    set:
+      controlPlane:
+        enabled: true
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.topologySpreadConstraints
+
+  - it: should apply topologySpreadConstraints
+    set:
+      controlPlane:
+        enabled: true
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: nvml-mock-control-plane
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].topologyKey
+          value: topology.kubernetes.io/zone
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].whenUnsatisfiable
+          value: ScheduleAnyway
+
   - it: should honour ready active-passive replicas, a custom image, and logging knobs
     set:
       controlPlane:
@@ -435,3 +558,17 @@ tests:
           format: text
     asserts:
       - failedTemplate: {}
+
+  - it: should pass feature gates to the control plane
+    set:
+      controlPlane:
+        enabled: true
+        image:
+          digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      featureGates:
+        AllAlpha: true
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --feature-gates=AllAlpha=true

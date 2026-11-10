@@ -1,0 +1,30 @@
+filename:       /lib/modules/7.0.0-2022-nvidia-bos-64k/updates/dkms/nvidia.ko.zst
+import_ns:      CXL
+import_ns:      DMA_BUF
+alias:          char-major-195-*
+description:    NVIDIA core GPU kernel module
+version:        615.71.09
+supported:      external
+license:        Dual MIT/GPL
+firmware:       nvidia/615.71.09/ucodes_tu10x.bin
+firmware:       nvidia/615.71.09/ucodes_ga10x.bin
+firmware:       nvidia/615.71.09/gsp_tu10x.bin
+firmware:       nvidia/615.71.09/gsp_ga10x.bin
+softdep:        pre: ecdh_generic,ecdsa_generic
+srcversion:     040E903CBCB6AA48C223679
+alias:          pci:v000010DEd*sv*sd*bc06sc80i00*
+alias:          pci:v000010DEd*sv*sd*bc03sc02i00*
+alias:          pci:v000010DEd*sv*sd*bc03sc00i00*
+alias:          of:N*T*Cnvidia,tegra264-displayC*
+alias:          of:N*T*Cnvidia,tegra264-display
+alias:          of:N*T*Cnvidia,tegra234-displayC*
+alias:          of:N*T*Cnvidia,tegra234-display
+depends:        
+name:           nvidia
+vermagic:       7.0.0-2022-nvidia-bos-64k SMP preempt mod_unload modversions aarch64
+parm:           NvSwitchRegDwords:NvSwitch regkey (charp)
+parm:           NvSwitchBlacklist:NvSwitchBlacklist=uuid[,uuid...] (charp)
+parm:           NVreg_ResmanDebugLevel:int
+parm:           NVreg_RmLogonRC:int
+parm:           NVreg_ModifyDeviceFiles:int
+parm:           NVreg_DeviceFileUID:int

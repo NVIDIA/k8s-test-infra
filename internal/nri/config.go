@@ -18,10 +18,12 @@ const (
 // Config is what the plugin needs to register with the runtime, plus the
 // injection decision it applies to every container it is asked about.
 type Config struct {
-	SocketPath  string
-	PluginName  string
-	PluginIndex string
-	Inject      inject.Config
+	SocketPath      string
+	PluginName      string
+	PluginIndex     string
+	AgentStagedURL  string
+	StagingLockPath string
+	Inject          inject.Config
 }
 
 // DefaultConfig returns the registration identity used when no flag overrides

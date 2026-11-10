@@ -66,6 +66,10 @@ Profiles are YAML. The deployed ones live in
 `pkg/gpu/mocknvml/configs/` holds standalone equivalents for running the library
 outside Kubernetes.
 
+Start from a capture of the real board where you can:
+[Capturing a real node](capturing-a-real-node.md) lists what to record and how
+to compare a profile with it.
+
 Add the file, then deploy it with `tilt up -- --gpu-profile <name>` and check
 `nvidia-smi` reports what you intended. [Configuration](../configuration.md)
 documents every field.
@@ -98,5 +102,6 @@ MOCK_NVML_DEBUG=1 nvidia-smi     # trace every NVML call the mock answers
 | Running the gates | [Testing](testing.md) |
 | Reading NVLink fabric state off a node | [check-fabric](../tools/check-fabric.md) |
 | Regenerating the NVML bridge stubs | [generate-bridge](../tools/generate-bridge.md) |
+| Putting a behavior behind a feature gate | [Gating New Behavior](feature-gates.md) |
 | Proposing a design | [Enhancement Proposals](enhancements.md) |
 | Submitting the change | [Pull Requests](pull-requests.md) |

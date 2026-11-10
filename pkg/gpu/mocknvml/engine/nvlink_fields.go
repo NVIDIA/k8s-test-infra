@@ -99,12 +99,17 @@ const (
 	//   `nvlink -gLowPwrInfo` -> units of 50 us, range 1..1023,
 	//   per link: High Speed State + threshold 50000 us (= 1000 * 50 us).
 	// NVML_NVLINK_LOW_POWER_THRESHOLD_UNIT_50US = 0x1.
-	lowPowerThresholdUnit50us   = 1
-	lowPowerThresholdMin        = 1
-	lowPowerThresholdMax        = 1023
-	lowPowerThresholdDefault    = 1000
-	nvlinkPowerStateHighSpeed   = 0
-	nvlinkPowerThresholdEnabled = 1
+	lowPowerThresholdUnit50us = 1
+	lowPowerThresholdMin      = 1
+	lowPowerThresholdMax      = 1023
+	lowPowerThresholdDefault  = 1000
+	// nvlinkLowPowerThresholdReset is NVML_NVLINK_LOW_POWER_THRESHOLD_RESET
+	// (also spelled _DEFAULT upstream). `nvidia-smi nvlink -sLowPwrThres
+	// default` sends it, so the setter must treat it as "clear the
+	// override" rather than rejecting it as out of range.
+	nvlinkLowPowerThresholdReset = 0xFFFFFFFF
+	nvlinkPowerStateHighSpeed    = 0
+	nvlinkPowerThresholdEnabled  = 1
 )
 
 // speedFieldLink maps a per-link SPEED_MBPS_Lx field id to its link index, or
@@ -131,6 +136,9 @@ func speedFieldLink(fieldID uint32) (int, bool) {
 func (d *ConfigurableDevice) GetNvLinkFieldValue(fieldID, scopeID uint32) (FieldValueType, uint64, nvml.Return) {
 	f := d.fabric
 	if f == nil {
+		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
+	}
+	if isLegacyNVLinkField(fieldID) && d.nvlinkTelemetryIsFieldsOnly() {
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
 	}
 	link := int(scopeID)
@@ -213,6 +221,12 @@ func (d *ConfigurableDevice) GetNvLinkFieldValue(fieldID, scopeID uint32) (Field
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
 	case fiNvlinkGetPowerThreshold:
 		if l, ok := f.Link(d.index, link); ok && l.Active {
+			// An accepted SetNvLinkDeviceLowPowerThreshold wins over the
+			// built-in default; this read-back is what keeps that setter
+			// from being a hollow success.
+			if v := d.cfg().NVLinkLowPowerThreshold; v != nil {
+				return FieldValueUint, uint64(*v), nvml.SUCCESS
+			}
 			return FieldValueUint, lowPowerThresholdDefault, nvml.SUCCESS
 		}
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED

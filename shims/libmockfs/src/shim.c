@@ -44,6 +44,9 @@ static const char *const k_prefixes[] = {
     "/sys/bus/pci",
     "/sys/module",
     "/proc/modules",
+    /* The boundary check leaves /proc/driver/nvidia-caps and the other
+     * nvidia-* entries alone: those name kernel interfaces, not GPUs. */
+    "/proc/driver/nvidia",
     NULL,
 };
 

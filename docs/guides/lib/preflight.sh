@@ -17,7 +17,7 @@
 #      against a cluster that is not a throwaway one, the other demo's
 #      release already present anywhere on the cluster, or helm unable to
 #      list releases to rule that out
-#   5  configuration this chart cannot express (a digest-pinned image)
+#   5  configuration this demo cannot express (a digest-pinned image)
 #
 # Written for bash 3.2 (stock macOS): no mapfile, no associative arrays,
 # no ${var,,}.
@@ -241,7 +241,7 @@ demo::announce_pull() {
 #
 # The selector pinning keeps each demo's KUBECTL calls on its own pods, but it
 # cannot keep them off each other's HOST state, and nothing in the chart can.
-# Both DaemonSets mount the same non-release-scoped hostPaths
+# Both releases' DaemonSets mount the same non-release-scoped hostPaths
 # (/var/lib/nvml-mock, /var/run/cdi, /run/nvidia, and the NFD features dir),
 # so co-locating them leaves one demo's config in those paths and the other's
 # overwritten. Measured on a live cluster: after a co-located run, the single
@@ -357,17 +357,16 @@ demo::image_ref() {
 #     (that colon is a port, not a tag: it precedes the last slash)
 #   repo@sha256:<hex>       -> rejected, see below
 #
-# The chart renders the image as "{{ .Values.image.repository }}:{{
-# .Values.image.tag }}" (templates/daemonset.yaml, nri-daemonset.yaml) and has
-# no image.digest value, so a digest ref cannot be expressed through it at
-# all: splitting on its colon would yield the repo "...@sha256" and the tag
-# "<hex>", rendering an invalid reference that fails at pull time with a
-# confusing error. Reject it here with an actionable message instead.
+# Demos hand the chart only image.repository and image.tag, so a digest ref
+# cannot be expressed through them: splitting on its colon would yield the
+# repo "...@sha256" and the tag "<hex>", rendering an invalid reference that
+# fails at pull time with a confusing error. Reject it here with an actionable
+# message instead.
 demo::image_parts() {
     local ref="$1" repo tag tail
     case "${ref}" in
         *@sha256:*)
-            demo::die "image reference '${ref}' pins a digest, which this chart cannot express: it builds the image as repository:tag and has no image.digest value. Use a tag, or install the chart directly with a digest-aware values file."
+            demo::die "image reference '${ref}' pins a digest, which this demo cannot express: it passes the image to the chart as image.repository and image.tag. Use a tag, or install the chart directly with image.digest set."
             exit "${DEMO_EXIT_BAD_CONFIG}"
             ;;
     esac

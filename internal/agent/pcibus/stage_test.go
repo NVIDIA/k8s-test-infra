@@ -19,10 +19,10 @@ import (
 
 func TestBuildTopology_NilWhenNoDevices(t *testing.T) {
 	// No root complexes AND no BDFs: nothing to hang off a fallback root.
-	require.Nil(t, buildTopology(&agent.State{}))
+	require.Nil(t, buildTopology(&agent.State{}, nil))
 	require.Nil(t, buildTopology(&agent.State{
 		Devices: []agent.DeviceSpec{{Index: 0, PCIBusID: ""}},
-	}))
+	}, nil))
 }
 
 func TestBuildTopology_FlatDefaultWhenNoRootComplexes(t *testing.T) {
@@ -36,7 +36,7 @@ func TestBuildTopology_FlatDefaultWhenNoRootComplexes(t *testing.T) {
 		},
 	}
 
-	topo := buildTopology(state)
+	topo := buildTopology(state, nil)
 	require.NotNil(t, topo)
 	require.Len(t, topo.RootComplexes, 1)
 
@@ -63,7 +63,7 @@ func TestBuildTopology_SingleRC(t *testing.T) {
 		},
 	}
 
-	topo := buildTopology(state)
+	topo := buildTopology(state, nil)
 	require.NotNil(t, topo)
 	require.Len(t, topo.RootComplexes, 1)
 
@@ -90,11 +90,94 @@ func TestBuildTopology_MultipleRCs(t *testing.T) {
 		},
 	}
 
-	topo := buildTopology(state)
+	topo := buildTopology(state, nil)
 	require.NotNil(t, topo)
 	require.Len(t, topo.RootComplexes, 2)
 	require.Equal(t, "pci0000:00", topo.RootComplexes[0].ID)
 	require.Equal(t, "pci0001:00", topo.RootComplexes[1].ID)
+}
+
+// local_cpulist must agree with the affinity NVML reports for the same GPU, so
+// the CPU set follows the engine's rule: an explicit cpu_affinity, else the
+// root's NUMA node times cores_per_numa, else nothing.
+func TestBuildTopology_CPUListMatchesNVMLAffinity(t *testing.T) {
+	t.Parallel()
+
+	state := &agent.State{
+		NodeShape: agent.NodeShape{Topology: agent.PCIeTopology{
+			CoresPerNUMA: 36,
+			RootComplexes: []agent.RootComplex{
+				{ID: "pci0000:00", NUMANode: 0, CPUAffinity: "0-17,72-89", DeviceBDFs: []string{"0000:03:00.0"}},
+				{ID: "pci0000:40", NUMANode: 1, DeviceBDFs: []string{"0000:43:00.0"}},
+			},
+		}},
+		Devices: []agent.DeviceSpec{
+			{Index: 0, PCIBusID: "0000:03:00.0"},
+			{Index: 1, PCIBusID: "0000:43:00.0"},
+			// No root claims it, so it gets one of its own with no NUMA node.
+			{Index: 2, PCIBusID: "0000:83:00.0"},
+		},
+	}
+
+	topo := buildTopology(state, nil)
+	require.NotNil(t, topo)
+	require.Len(t, topo.RootComplexes, 3)
+	require.Equal(t, "0-17,72-89", topo.RootComplexes[0].CPUList)
+	require.Equal(t, "36-71", topo.RootComplexes[1].CPUList)
+	require.Empty(t, topo.RootComplexes[2].CPUList)
+
+	state.NodeShape.Topology.CoresPerNUMA = 0
+	require.Equal(t, "64-127", buildTopology(state, nil).RootComplexes[1].CPUList,
+		"an unset cores_per_numa falls back to the engine default")
+}
+
+// A profile models the CPUs of the machine it describes, not of the host the
+// mock runs on. A kernel never lists a CPU the machine lacks, and Slurm will
+// not allocate a GPU whose local CPUs are all absent, so the list keeps only
+// the host's CPUs, and falls back to all of them when none of its own exist.
+func TestBuildTopology_CPUListKeepsOnlyTheHostsCPUs(t *testing.T) {
+	t.Parallel()
+
+	state := &agent.State{
+		NodeShape: agent.NodeShape{Topology: agent.PCIeTopology{
+			RootComplexes: []agent.RootComplex{
+				{ID: "pci0000:00", NUMANode: 0, DeviceBDFs: []string{"0000:0a:00.0"}},
+				{ID: "pci0000:40", NUMANode: 1, DeviceBDFs: []string{"0000:4a:00.0"}},
+			},
+		}},
+		Devices: []agent.DeviceSpec{
+			{Index: 0, PCIBusID: "0000:0a:00.0"},
+			{Index: 1, PCIBusID: "0000:4a:00.0"},
+		},
+	}
+
+	small := buildTopology(state, seq(0, 13))
+	require.Equal(t, "0-13", small.RootComplexes[0].CPUList)
+	require.Equal(t, "0-13", small.RootComplexes[1].CPUList, "no NUMA 1 CPU exists, so every CPU is local")
+
+	large := buildTopology(state, seq(0, 99))
+	require.Equal(t, "0-63", large.RootComplexes[0].CPUList)
+	require.Equal(t, "64-99", large.RootComplexes[1].CPUList)
+
+	unknown := buildTopology(state, nil)
+	require.Equal(t, "64-127", unknown.RootComplexes[1].CPUList, "unknown host CPUs leave the profile's set alone")
+}
+
+func seq(lo, hi int) []int {
+	out := make([]int, 0, hi-lo+1)
+	for c := lo; c <= hi; c++ {
+		out = append(out, c)
+	}
+	return out
+}
+
+// Without a declared topology NVML reports no affinity, so neither does sysfs.
+func TestBuildTopology_NoCPUListWithoutDeclaredTopology(t *testing.T) {
+	t.Parallel()
+
+	topo := buildTopology(&agent.State{Devices: []agent.DeviceSpec{{Index: 0, PCIBusID: "0000:1a:00.0"}}}, seq(0, 13))
+	require.NotNil(t, topo)
+	require.Empty(t, topo.RootComplexes[0].CPUList)
 }
 
 // A layout no device backs renders nothing, so nothing is served either. The
@@ -104,7 +187,7 @@ func TestBuildTopology_NilWhenNoDeviceBacksTheLayout(t *testing.T) {
 		RootComplexes: []agent.RootComplex{{ID: "pci0000:00", DeviceBDFs: []string{"0000:07:00.0"}}},
 	}}}
 
-	require.Nil(t, buildTopology(state))
+	require.Nil(t, buildTopology(state, nil))
 	require.False(t, state.HasPCITopology())
 }
 
@@ -137,7 +220,9 @@ func TestBuildIdentities_LowercasesKey(t *testing.T) {
 	entry, ok := ids["0000:0b:00.0"]
 	require.True(t, ok, "key must be lowercase")
 	// BusID in value is kept as-is; DeviceID is copied verbatim.
-	require.Equal(t, pcisysfs.PCI{BusID: "0000:0B:00.0", DeviceID: 0x232010de}, entry)
+	require.Equal(t,
+		pcisysfs.PCI{BusID: "0000:0B:00.0", DeviceID: 0x232010de, Class: pcisysfs.PCIClass3DController},
+		entry)
 }
 
 func TestBuildIdentities_MultipleDevices(t *testing.T) {
@@ -156,15 +241,35 @@ func TestBuildIdentities_MultipleDevices(t *testing.T) {
 func TestBuildIdentities_CarriesFullIdentity(t *testing.T) {
 	state := &agent.State{
 		Devices: []agent.DeviceSpec{
-			{Index: 0, PCIBusID: "0000:07:00.0", PCIDeviceID: 0x233010DE, PCISubsystemID: 0x165810DE},
+			{Index: 0, PCIBusID: "0000:07:00.0", PCIDeviceID: 0x233010DE, PCISubsystemID: 0x16C110DE},
 		},
 	}
 
 	// Every identity word the renderer unpacks must survive the mapping; a
 	// dropped one renders as a plausible default rather than an error.
 	require.Equal(t,
-		pcisysfs.PCI{BusID: "0000:07:00.0", DeviceID: 0x233010DE, SubsystemID: 0x165810DE},
+		pcisysfs.PCI{
+			BusID: "0000:07:00.0", DeviceID: 0x233010DE, SubsystemID: 0x16C110DE,
+			Class: pcisysfs.PCIClass3DController,
+		},
 		buildIdentities(state)["0000:07:00.0"])
+}
+
+// An NVSwitch is the one entry in the tree that is not a GPU, and the class is
+// the only attribute that says so. Rendered as a 3D controller it would be an
+// eight-GPU node advertising twelve to anything reading the bus.
+func TestBuildIdentities_SwitchIsABridge(t *testing.T) {
+	state := &agent.State{
+		Devices:  []agent.DeviceSpec{{Index: 0, PCIBusID: "0000:1A:00.0", PCIDeviceID: 0x233010de}},
+		Switches: []agent.SwitchSpec{{PCIBusID: "0000:05:00.0", PCIDeviceID: 0x22a310de}},
+	}
+
+	ids := buildIdentities(state)
+	require.Len(t, ids, 2)
+	require.Equal(t,
+		pcisysfs.PCI{BusID: "0000:05:00.0", DeviceID: 0x22a310de, Class: pcisysfs.PCIClassBridge},
+		ids["0000:05:00.0"])
+	require.Equal(t, uint32(pcisysfs.PCIClass3DController), ids["0000:1a:00.0"].Class)
 }
 
 // ─── stageSysfs ──────────────────────────────────────────────────────────────
@@ -197,7 +302,7 @@ func TestStageSysfs_RendersSubsystemAttrs(t *testing.T) {
 		{"vendor", "0x10de\n"},
 		{"device", "0x2330\n"},
 		{"subsystem_vendor", "0x10de\n"},
-		{"subsystem_device", "0x1658\n"},
+		{"subsystem_device", "0x16c1\n"},
 	} {
 		data, err := os.ReadFile(filepath.Join(devDir, tc.file))
 		require.NoError(t, err, "reading %s", tc.file)
@@ -225,7 +330,7 @@ func TestStageSysfs_RendersFlatDefault(t *testing.T) {
 	h := testHost(t)
 	state := &agent.State{
 		Devices: []agent.DeviceSpec{
-			{Index: 0, PCIBusID: "0000:1A:00.0", PCIDeviceID: 0x233010DE, PCISubsystemID: 0x165810DE},
+			{Index: 0, PCIBusID: "0000:1A:00.0", PCIDeviceID: 0x233010DE, PCISubsystemID: 0x16C110DE},
 		},
 	}
 
@@ -379,4 +484,14 @@ func TestStagePCIShim_StagesEverySoname(t *testing.T) {
 		require.NoError(t, err, "%s must be staged", name)
 		require.Equal(t, name, string(data))
 	}
+}
+
+func TestBuildIdentities_ForwardsVGPUGuest(t *testing.T) {
+	t.Parallel()
+	ids := buildIdentities(&agent.State{Devices: []agent.DeviceSpec{
+		{PCIBusID: "0000:07:00.0", VGPUGuest: &agent.VGPUGuestSpec{HostDriverVersion: "550.163.01", HostDriverBranch: "r550_00"}},
+		{PCIBusID: "0000:0F:00.0"},
+	}})
+	require.Equal(t, &pcisysfs.VGPUHostDriver{Version: "550.163.01", Branch: "r550_00"}, ids["0000:07:00.0"].VGPUHostDriver)
+	require.Nil(t, ids["0000:0f:00.0"].VGPUHostDriver)
 }

@@ -51,7 +51,7 @@ func resolveTarget(g *fabric.Graph, mad []byte, lid uint16, localCA string) (fab
 	if !ok {
 		return fabric.Port{}, false
 	}
-	for i := 0; i < hopCnt; i++ {
+	for i := range hopCnt {
 		// path[0] is reserved; per-hop outbound port is path[i+1].
 		outPort := drPathByte(mad, i+1)
 		current, ok = g.PeerAtOutbound(current, outPort, i)

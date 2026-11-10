@@ -11,17 +11,6 @@ spec:
     - name: gpu-test
       image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
       command: ["sh", "-c", "nvidia-smi && sleep infinity"]
-      env:
-        - name: LD_LIBRARY_PATH
-          value: /run/nvidia/driver/usr/lib64
       resources:
         limits:
           nvidia.com/gpu: "1"
-      volumeMounts:
-        - name: driver-install-dir
-          mountPath: /run/nvidia/driver
-          mountPropagation: HostToContainer
-  volumes:
-    - name: driver-install-dir
-      hostPath:
-        path: /run/nvidia/driver

@@ -30,10 +30,6 @@ docs_dir: docs
 exclude_docs: |
   plans/
   superpowers/
-  # CUDA mocking is not usable yet: 14 of its 15 exports are runtime API and
-  # real workloads never enter the mock. The page stays in the repo for
-  # contributors. Delete this line to republish once the driver surface lands.
-  cuda-mock.md
 
 theme:
   name: material
@@ -120,12 +116,17 @@ nav:
           - Installation: helm-chart.md
       - Architecture:
           - Overview: architecture.md
-          - Mokka Control Plane: mokka-controller.md
+          - Mokka Control Plane: control-plane.md
           - Node Daemon: components/node-daemon.md
           - Libraries and Shims: components/libraries-and-shims.md
           - NRI Plugin: components/nri-plugin.md
       - Reference:
           - Configuration: configuration.md
+          - Feature Gates: feature-gates.md
+          - MIG: mig.md
+          - vGPU: vgpu.md
+          - Helm Chart Values: helm-chart-values.md
+          - Control Plane API: crd-reference.md
           # The pages stay under docs/tools/ because hack/check-docs-tools-sync.sh
           # scans that directory to hold them in step with cmd/. The nav label is
           # what places them, not the path.
@@ -134,20 +135,28 @@ nav:
               - control-plane: tools/control-plane.md
               - node-agent: tools/node-agent.md
               - nri-plugin: tools/nri-plugin.md
+          - Support Policy: support-policy.md
       - Troubleshooting: troubleshooting.md
       - FAQ: faq.md
   - Guides:
       - Overview: guides/README.md
       - Scenarios:
+          - DSX Air: guides/dsx-air.md
           - NVIDIA Device Plugin: guides/device-plugin.md
+          - Node Feature Discovery: guides/nfd.md
           - Amazon EKS: guides/install/aws/eks/README.md
           - NVIDIA DRA Driver: guides/dra.md
           - NVIDIA GPU Operator: guides/gpu-operator.md
+          - NVIDIA Dynamo: guides/dynamo/README.md
+          - Slinky (Slurm): guides/slinky/README.md
           - Compute Domain: guides/compute-domain/README.md
           - NVSentinel: guides/nv-sentinel/README.md
           - Run.ai Fake GPU Operator: guides/runai-fgo/README.md
-          - Node-Wide Injection: guides/node-wide-injection/README.md
+          - Topograph: guides/topograph/README.md
       - Tasks:
+          - Set Up NRI Injection: guides/nri-injection.md
+          - MIG Partitioning: guides/mig/README.md
+          - vGPU Host and Guest: guides/vgpu/README.md
           - Failure Injection: guides/failure-injection/README.md
           - Use in CI/CD: guides/ci-cd.md
           - Runtime Control: nvml-mock-ctl.md
@@ -155,6 +164,10 @@ nav:
       - Overview: contributing/index.md
       - Local Development: contributing/local-development.md
       - Testing: contributing/testing.md
+      - Gating New Behavior: contributing/feature-gates.md
+      - Capturing a Real Node:
+          - Guide: contributing/capturing-a-real-node.md
+          - mokka-capture: tools/mokka-capture.md
       - Tools:
           - check-fabric: tools/check-fabric.md
           - generate-bridge: tools/generate-bridge.md

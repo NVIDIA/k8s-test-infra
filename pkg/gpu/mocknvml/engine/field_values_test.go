@@ -138,7 +138,6 @@ func TestGetMarginTemperature_PreAdaNotSupported(t *testing.T) {
 	// at all, so it takes the same answer: no T.Limit margin, absolute
 	// thresholds still available.
 	for _, arch := range []string{"turing", "ampere", "bogus_arch"} {
-		arch := arch
 		t.Run(arch, func(t *testing.T) {
 			dev := newTestDeviceWithConfig(t, &DeviceConfig{
 				Architecture: arch,
@@ -205,6 +204,78 @@ func TestGetFieldValue_TlimitThresholds(t *testing.T) {
 	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
 }
 
+func TestTlimitDeclared(t *testing.T) {
+	// A profile captured from hardware states the T.Limit view, which the
+	// driver reports apart from the absolute thresholds: on the captured tray
+	// the absolute max operating limit (90) sits above slowdown (88), while
+	// the T.Limit one sits below it. The declared distances and reference win;
+	// the absolute thresholds stay as declared.
+	intp := func(v int) *int { return &v }
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Architecture: "rubin",
+		Thermal: &ThermalConfig{
+			TemperatureGPU_C:    32,
+			ShutdownThreshold_C: 93,
+			SlowdownThreshold_C: 88,
+			MaxOperating_C:      90,
+			TLimit: &TLimitConfig{
+				Reference_C:    86,
+				Shutdown_C:     intp(-5),
+				Slowdown_C:     intp(-2),
+				MaxOperating_C: intp(0),
+			},
+		},
+	})
+	for _, tc := range []struct {
+		name    string
+		fieldID uint32
+		offset  int32
+	}{
+		{"SHUTDOWN_TLIMIT", fiTempShutdownTlimit, -5},
+		{"SLOWDOWN_TLIMIT", fiTempSlowdownTlimit, -2},
+		{"GPU_MAX_TLIMIT", fiTempGpuMaxTlimit, 0},
+	} {
+		vt, val, ret := dev.GetFieldValue(tc.fieldID, 0)
+		require.Equal(t, nvml.SUCCESS, ret, tc.name)
+		require.Equal(t, FieldValueInt, vt, tc.name)
+		require.Equal(t, tc.offset, int32(uint32(val)), tc.name)
+	}
+	_, _, ret := dev.GetFieldValue(fiTempMemMaxTlimit, 0)
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+
+	margin, ret := dev.GetMarginTemperature()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, int32(54), margin.MarginTemperature, "reference (86) - current (32)")
+
+	for threshold, want := range map[nvml.TemperatureThresholds]uint32{
+		nvml.TEMPERATURE_THRESHOLD_SHUTDOWN: 93,
+		nvml.TEMPERATURE_THRESHOLD_SLOWDOWN: 88,
+		nvml.TEMPERATURE_THRESHOLD_GPU_MAX:  90,
+	} {
+		got, ret := dev.GetTemperatureThreshold(threshold)
+		require.Equal(t, nvml.SUCCESS, ret)
+		require.Equal(t, want, got, "absolute threshold %d", threshold)
+	}
+
+	// A distance the block leaves out is derived as without it.
+	partial := newTestDeviceWithConfig(t, &DeviceConfig{
+		Architecture: "rubin",
+		Thermal: &ThermalConfig{
+			TemperatureGPU_C:    32,
+			ShutdownThreshold_C: 93,
+			SlowdownThreshold_C: 88,
+			MaxOperating_C:      90,
+			TLimit:              &TLimitConfig{Slowdown_C: intp(-2)},
+		},
+	})
+	_, val, ret := partial.GetFieldValue(fiTempShutdownTlimit, 0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, int32(-5), int32(uint32(val)), "88 - 93")
+	margin, ret = partial.GetMarginTemperature()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, int32(56), margin.MarginTemperature, "no reference: slowdown (88) - 32")
+}
+
 func TestGetFieldValue_TlimitThresholds_PreAdaNotSupported(t *testing.T) {
 	// Real Ampere/Turing hardware never reports the T.Limit field IDs;
 	// nvidia-smi falls back to nvmlDeviceGetTemperatureThreshold absolute
@@ -214,7 +285,6 @@ func TestGetFieldValue_TlimitThresholds_PreAdaNotSupported(t *testing.T) {
 	// An unrecognized spelling resolves to UNKNOWN, which identifies no
 	// generation and so must clear the gate the same way.
 	for _, arch := range []string{"turing", "ampere", "bogus_arch"} {
-		arch := arch
 		t.Run(arch, func(t *testing.T) {
 			dev := newTestDeviceWithConfig(t, &DeviceConfig{
 				Architecture: arch,

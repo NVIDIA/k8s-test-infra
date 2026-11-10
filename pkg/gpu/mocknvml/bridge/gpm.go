@@ -113,6 +113,21 @@ func nvmlGpmSampleGet(device C.nvmlDevice_t, gpmSample C.nvmlGpmSample_t) C.nvml
 	return toReturn(dev.GpmSnapshotInto(uint64(C.gpmSampleToKey(gpmSample))))
 }
 
+//export nvmlGpmMigSampleGet
+func nvmlGpmMigSampleGet(device C.nvmlDevice_t, gpuInstanceId C.uint, gpmSample C.nvmlGpmSample_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlGpmMigSampleGet"); !ok {
+		return ret
+	}
+	if C.gpmSampleIsNull(gpmSample) != 0 {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	return toReturn(dev.GpmMigSnapshotInto(int(gpuInstanceId), uint64(C.gpmSampleToKey(gpmSample))))
+}
+
 //export nvmlGpmMetricsGet
 //nolint:cyclop // existing complexity; refactor deferred
 func nvmlGpmMetricsGet(metricsGet *C.nvmlGpmMetricsGet_t) C.nvmlReturn_t {
@@ -131,7 +146,7 @@ func nvmlGpmMetricsGet(metricsGet *C.nvmlGpmMetricsGet_t) C.nvmlReturn_t {
 	}
 
 	ids := make([]uint32, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ids[i] = uint32(C.gpmMetricId(metricsGet, C.uint(i)))
 	}
 	key1 := uint64(C.gpmSampleToKey(metricsGet.sample1))
@@ -141,7 +156,7 @@ func nvmlGpmMetricsGet(metricsGet *C.nvmlGpmMetricsGet_t) C.nvmlReturn_t {
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		C.gpmSetMetric(metricsGet, C.uint(i), toReturn(rets[i]), C.double(values[i]))
 	}
 	debugLog("[NVML] nvmlGpmMetricsGet(numMetrics=%d) -> filled\n", n)

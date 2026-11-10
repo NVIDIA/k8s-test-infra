@@ -18,18 +18,18 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
-
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/nfd"
 	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 )
 
 const (
 	name           = "pcibus"
-	nfdFeatureFile = "kubernetes/node-feature-discovery/features.d/nvml-mock.features"
-	nfdContent     = "pci-10de.present=true\n"
+	nfdFeatureFile = nfd.FeaturesDir + "/nvml-mock.features"
 )
+
+var nfdFeatures = nfd.Features{"pci-10de.present": "true"}
 
 var (
 	_ agent.Simulator = (*Simulator)(nil)
@@ -99,7 +99,7 @@ func (s *Simulator) Discard(_ context.Context) error {
 func (s *Simulator) Apply(_ context.Context, _ *agent.State) error {
 	s.ready.Store(false)
 
-	if err := fsutil.Write(s.host.EtcPath(nfdFeatureFile), []byte(nfdContent), 0o644); err != nil {
+	if err := nfd.Write(s.host.EtcPath(nfdFeatureFile), nfdFeatures); err != nil {
 		return err
 	}
 
@@ -113,5 +113,5 @@ func (s *Simulator) Revoke(_ context.Context) error {
 	zap.L().Info("revoking simulator", zap.String("simulator", name))
 	s.ready.Store(false)
 
-	return fsutil.Remove(s.host.EtcPath(nfdFeatureFile))
+	return nfd.Delete(s.host.EtcPath(nfdFeatureFile))
 }

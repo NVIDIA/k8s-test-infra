@@ -1,0 +1,156 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+name: helm-publish
+
+# No paths filter here: GitHub applies paths filters to tag pushes too, and a
+# tag push has no changed-files diff, so a paths filter silently suppresses
+# every tag-triggered run. A stable vMAJOR.MINOR.PATCH tag publishes the
+# charts under the tag's version, whatever Chart.yaml says, and any other v*
+# tag fails; main publishes only a -dev Chart.yaml version, because every
+# merge republishes it and would overwrite a release.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+concurrency:
+  group: helm-publish-${{ github.ref }}
+  # Publish pushes and cosign-signs a chart in two non-atomic steps, and
+  # cancellation between them would leave an unsigned chart in GHCR.
+  cancel-in-progress: false
+
+# Every job elevates only the permissions it needs.
+permissions: {}
+
+jobs:
+  checks:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/helm.yaml
+
+  publish:
+    # A matrix cannot express a per-leg `needs`, so a broken mokka-crds chart
+    # also holds back the nvml-mock publish. That is the price of one job
+    # definition instead of two copy-pasted ones, and both charts are cut from
+    # the same commit anyway.
+    needs: checks
+
+    # This job is privileged. Only a push to main or a v* tag in this
+    # repository triggers the workflow, and a fork can do neither.
+    runs-on: ubuntu-latest
+
+    strategy:
+      # Never cancel a sibling leg. Each leg pushes and then cosign-signs in
+      # two non-atomic steps, and fail-fast cancellation of a leg sitting
+      # between those two steps would leave an unsigned chart in GHCR, which is
+      # the same hazard the workflow-level `cancel-in-progress` guards against.
+      fail-fast: false
+      matrix:
+        include:
+          - chart: nvml-mock
+            dir: deployments/nvml-mock/helm
+          - chart: mokka-crds
+            dir: deployments/mokka-crds/helm
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # needed for keyless cosign signing
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: v4.3.1
+
+      - name: Resolve publish version
+        id: chart
+        env:
+          PUBLISH_REF: ${{ github.ref }}
+        run: |
+          chart_version=$(helm show chart ${{ matrix.dir }}/${{ matrix.chart }} | grep '^version:' | awk '{print $2}')
+          version=$(./hack/chart-publish-version.sh "${PUBLISH_REF}" "${chart_version}")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" |
+            helm registry login ghcr.io \
+              -u ${{ github.actor }} \
+              --password-stdin
+
+      # On a tag the chart and its default image tag take the tag's version, so
+      # the package and the push path below both carry it.
+      - name: Package chart
+        env:
+          PUBLISH_REF: ${{ github.ref }}
+          VERSION: ${{ steps.chart.outputs.version }}
+        run: |
+          if [[ "${PUBLISH_REF}" == refs/tags/* ]]; then
+            helm package \
+              ${{ matrix.dir }}/${{ matrix.chart }} \
+              --version "${VERSION}" \
+              --app-version "${VERSION}" \
+              --destination .cr-release-packages
+          else
+            helm package \
+              ${{ matrix.dir }}/${{ matrix.chart }} \
+              --destination .cr-release-packages
+          fi
+
+      # GHCR intermittently 404s the tag operation right after a fresh
+      # manifest upload ("failed to perform Tag ...: not found"), leaving an
+      # untagged package version behind; a short retry finds the
+      # already-uploaded manifest and tags it.
+      - name: Push chart to OCI registry
+        id: push
+        run: |
+          set -o pipefail
+
+          for attempt in 1 2 3; do
+            if helm push \
+              .cr-release-packages/${{ matrix.chart }}-${{ steps.chart.outputs.version }}.tgz \
+              oci://ghcr.io/nvidia/k8s-test-infra/chart \
+              2>&1 | tee push.log; then
+              break
+            fi
+
+            if [ "${attempt}" -eq 3 ]; then
+              echo "helm push failed after ${attempt} attempts" >&2
+              exit 1
+            fi
+
+            echo "helm push attempt ${attempt} failed; retrying in 10s" >&2
+            sleep 10
+          done
+
+          digest=$(awk '/^Digest:/ {print $2}' push.log)
+
+          if [ -z "${digest}" ]; then
+            echo "could not extract chart digest from helm push output" >&2
+            exit 1
+          fi
+
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      # cosign reads registry credentials from the Docker config, which
+      # `helm registry login` does not write; without this login the
+      # signature blob upload is rejected with UNAUTHORIZED.
+      - name: Log in to GHCR for cosign
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sign OCI artifact
+        run: |
+          cosign sign --yes \
+            ghcr.io/nvidia/k8s-test-infra/chart/${{ matrix.chart }}@${{ steps.push.outputs.digest }}

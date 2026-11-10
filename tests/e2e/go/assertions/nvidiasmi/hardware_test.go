@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/gpuarch"
 )
 
 func hardwareCaptures(t *testing.T) []string {
@@ -64,6 +66,13 @@ func TestHardwareCapturesDecode(t *testing.T) {
 				require.NotEmpty(t, gpu.UUID(), "%s: uuid", label)
 				require.NotEmpty(t, gpu.PerformanceState(), "%s: performance_state", label)
 
+				// Every board emits <mig_devices>, MIG-capable or not, so a
+				// rename of the block or of its children shows up here as an
+				// error rather than as a board reporting no partitions.
+				partitions, err := gpu.MIGPartitions()
+				require.NoError(t, err, "%s: mig_devices", label)
+				require.Empty(t, partitions, "%s: the captures are of unpartitioned boards", label)
+
 				for _, r := range comparedReadings(element) {
 					require.True(t, r.raw.present(),
 						"%s: %s is absent; the driver may have renamed it", label, r.element)
@@ -90,6 +99,9 @@ func comparedReadings(g gpuElement) []namedReading {
 		{"fan_speed", g.FanSpeed},
 		{"performance_state", g.PerformanceState},
 		{"accounting_mode_buffer_size", g.AccountingModeBufferSize},
+
+		{"mig_mode/current_mig", g.MIGMode.Current},
+		{"mig_mode/pending_mig", g.MIGMode.Pending},
 
 		{"platformInfo/slot_number", g.PlatformInfo.SlotNumber},
 		{"platformInfo/tray_index", g.PlatformInfo.TrayIndex},
@@ -265,6 +277,22 @@ func TestHardwareCapturesAreScrubbed(t *testing.T) {
 						id.element)
 				}
 			}
+		})
+	}
+}
+
+// ArchitectureName must print every generation the way a real nvidia-smi does,
+// so the architecture check passes on each real node's own output.
+func TestHardwareCapturesArchitectureName(t *testing.T) {
+	for _, file := range hardwareCaptures(t) {
+		t.Run(filepath.Base(file), func(t *testing.T) {
+			raw, err := os.ReadFile(file)
+			require.NoError(t, err)
+			m := regexp.MustCompile(`<product_architecture>([^<]*)</product_architecture>`).FindStringSubmatch(string(raw))
+			require.NotNil(t, m)
+			arch, ok := gpuarch.Parse(strings.ReplaceAll(m[1], " ", "_"))
+			require.True(t, ok, "unknown architecture %q", m[1])
+			require.Empty(t, ArchitectureProblems(string(raw), arch))
 		})
 	}
 }

@@ -4,7 +4,8 @@
 package engine
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
@@ -232,7 +233,7 @@ func supportedWorkloadProfiles(cfg *WorkloadPowerProfilesConfig) []WorkloadPower
 			out = append(out, p)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	slices.SortFunc(out, func(a, b WorkloadPowerProfileConfig) int { return cmp.Compare(a.ID, b.ID) })
 	return out
 }
 
@@ -251,7 +252,7 @@ func requestedWorkloadProfiles(cfg *WorkloadPowerProfilesConfig, supported []Wor
 			out = append(out, id)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	slices.Sort(out)
 	return out
 }
 
@@ -270,11 +271,11 @@ func enforcedWorkloadProfiles(supported []WorkloadPowerProfileConfig, requested 
 	for _, id := range requested {
 		candidates = append(candidates, byID[id])
 	}
-	sort.Slice(candidates, func(i, j int) bool {
-		if candidates[i].Priority != candidates[j].Priority {
-			return candidates[i].Priority < candidates[j].Priority
-		}
-		return candidates[i].ID < candidates[j].ID
+	slices.SortFunc(candidates, func(a, b WorkloadPowerProfileConfig) int {
+		return cmp.Or(
+			cmp.Compare(a.Priority, b.Priority),
+			cmp.Compare(a.ID, b.ID),
+		)
 	})
 
 	admitted := make([]uint32, 0, len(candidates))
@@ -283,7 +284,7 @@ func enforcedWorkloadProfiles(supported []WorkloadPowerProfileConfig, requested 
 			admitted = append(admitted, p.ID)
 		}
 	}
-	sort.Slice(admitted, func(i, j int) bool { return admitted[i] < admitted[j] })
+	slices.Sort(admitted)
 	return admitted
 }
 

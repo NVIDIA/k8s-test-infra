@@ -4,17 +4,16 @@ Install Mokka on CPU-only Amazon Elastic Kubernetes Service (EKS) workers,
 advertise simulated GPUs, and run an unmodified `nvidia-smi` from a neutral
 workload image.
 
-This guide starts from an existing compatible EKS cluster. If you do not have
-one, the optional Terraform path creates a disposable reference cluster with
-the required worker runtime configuration. It creates billable AWS resources,
-so destroy that stack when you finish.
+This guide starts from an existing EKS cluster. If you do not have one, the
+optional Terraform path creates a disposable reference cluster. It creates
+billable AWS resources, so destroy that stack when you finish.
 
 ## Validation scope
 
 The procedure validates:
 
-- NVIDIA Container Toolkit operation on managed CPU nodes without physical
-  GPUs;
+- Mokka's container runtime setup on standard managed CPU nodes, which carry no
+  NVIDIA software and no physical GPUs;
 - the integration between the NVIDIA device plugin, NVIDIA runtime, Container
   Device Interface (CDI), and Mokka;
 - Mokka placement on a dedicated managed node group; and
@@ -28,11 +27,11 @@ to verify DaemonSet placement:
 | Region | `us-west-2` | Example default; override it in `terraform.tfvars` |
 | Kubernetes | EKS `1.35` | Matches the current Mokka Kind test target |
 | Workers | 2 × on-demand `t3.large` | CPU-only, enough memory for system and Mokka pods |
-| Worker image | EKS-optimized accelerated AL2023 x86_64, `1.35.7-20260911` | Includes the NVIDIA runtime and CDI hook binaries while still running on CPU-only instances |
+| Worker image | EKS-optimized standard AL2023 x86_64, `1.35.7-20260911` | Plain containerd under systemd and no NVIDIA software, so Mokka sets up the NVIDIA runtime itself |
 | Worker placement | Private subnets in two availability zones, one shared NAT gateway | Runs one Mokka pod per worker without public worker IPs while keeping the reference cluster's NAT cost down |
-| Mokka | chart and image `0.4.0-rc1`, `gb300` profile | Pins the newest compatible published chart and image pair |
+| Mokka | latest release; last validated with `0.5.0`, `gb300` profile | The install below takes the latest published chart, whose default image tag is the chart's appVersion |
 | Device plugin | `nvcr.io/nvidia/k8s-device-plugin:v0.18.2` | Advertises `nvidia.com/gpu` through Mokka's NVML implementation |
-| Container toolkit | `1.20.0-1`, bundled with the worker image | Supplies the NVIDIA runtime and CDI hook binaries on CPU nodes |
+| Container toolkit | `1.19.1`, shipped in the Mokka `0.5.0` image | Mokka installs the NVIDIA runtime and CDI hook on each worker and registers the runtime with containerd |
 
 These versions record a reproducible Mokka validation target; they are not an
 AWS support statement. When updating Kubernetes or the AL2023 release, repeat
@@ -56,12 +55,17 @@ For every path, install these tools locally:
 - `curl` and `jq`
 
 You also need an EKS cluster with at least one dedicated Linux x86_64 CPU
-worker. Mokka requires privileged pods and `hostPath` volumes. The worker image
-must use containerd with Container Device Interface (CDI) enabled, and must
-contain NVIDIA Container Toolkit with `nvidia-container-runtime` configured as
-the default runtime in CDI mode. A physical GPU is not required. The optional
-reference-cluster path uses AWS's accelerated AL2023 image for the runtime
-components, even though the selected EC2 instance type is CPU-only.
+worker whose image runs containerd under systemd, as the standard AL2023 image
+does. Mokka requires privileged pods and `hostPath` volumes. It installs the
+NVIDIA container runtime on each worker and makes it containerd's default
+runtime handler, `nvidia`, in Container Device Interface (CDI) mode, so the
+worker needs neither a physical GPU nor NVIDIA software.
+[Container runtime setup](../../../../components/node-daemon.md#container-runtime-setup)
+lists what that changes on the node.
+
+A worker image that already installs NVIDIA Container Toolkit, such as the
+accelerated AL2023 image, is left as it is. Its runtime must then already be in
+CDI mode, because the default `auto` mode tries to initialize a physical GPU.
 
 Set variables for your cluster. The AWS variables are needed only when creating
 the optional reference cluster:
@@ -106,17 +110,14 @@ kubectl --context "${MOKKA_CONTEXT}" label node \
   <worker-name> mokka.nvidia.com/type=sgpu
 ```
 
-Confirm with the cluster administrator that the labelled nodes meet the
-runtime requirements above. Worker runtime configuration happens before
-kubelet starts; if the nodes are not prepared, create a replacement managed
-node group rather than modifying live shared nodes. Continue at
-[Step 4](#4-install-mokka).
+Mokka restarts containerd on each labelled node when it sets up the runtime and
+again when its pod stops, which is one more reason to keep the label off shared
+nodes. Continue at [Step 4](#4-install-mokka).
 
 ### Create the reference cluster
 
-Continue with Step 3. The supplied Terraform creates and labels two prepared
-workers. It is an optional reproducibility aid, not a requirement for
-installing Mokka.
+Continue with Step 3. The supplied Terraform creates and labels two workers. It
+is an optional reproducibility aid, not a requirement for installing Mokka.
 
 ## 3. Create the optional reference cluster
 
@@ -146,11 +147,9 @@ for file in versions.tf variables.tf main.tf outputs.tf \
 done
 ```
 
-The workers, not the control plane, are in your VPC. The accelerated AL2023
-image already includes NVIDIA Container Toolkit and registers the NVIDIA
-runtime. After `nodeadm` writes containerd's base configuration, cloud-init
-changes the runtime from hardware-probing `auto` mode to CDI mode and restarts
-containerd. See [`terraform/main.tf`](terraform/main.tf) for the reference
+The workers, not the control plane, are in your VPC. They run the standard
+AL2023 image with no bootstrap changes; Mokka prepares their containerd in
+Step 4. See [`terraform/main.tf`](terraform/main.tf) for the reference
 configuration.
 
 ### Authenticate and constrain access
@@ -219,21 +218,14 @@ kubectl --context "${MOKKA_CONTEXT}" get nodes -o wide
 kubectl --context "${MOKKA_CONTEXT}" get pods -n kube-system
 ```
 
-Expect two Ready accelerated AL2023 nodes in different availability zones,
-with no external IP address. CoreDNS, `aws-node`, and `kube-proxy` should be
-Running.
-
-AWS's accelerated image supplies NVIDIA Container Toolkit and makes
-`nvidia-container-runtime` the containerd default. The bootstrap only forces
-CDI mode because the image's `auto` mode tries to initialize a physical GPU
-before Mokka's CDI specification can be used.
+Expect two Ready AL2023 nodes in different availability zones, with no external
+IP address. CoreDNS, `aws-node`, and `kube-proxy` should be Running.
 
 ## 4. Install Mokka
 
 ```bash
 helm upgrade --install nvml-mock \
   oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --version 0.4.0-rc1 \
   --kube-context "${MOKKA_CONTEXT}" \
   --namespace mokka \
   --create-namespace \
@@ -249,6 +241,13 @@ kubectl --context "${MOKKA_CONTEXT}" \
 There should be one Ready Mokka pod per worker. The command reports four
 `NVIDIA GB300 NVL` devices. It proves that Mokka staged its mock driver tree,
 configuration, device nodes, and CDI specification on a node.
+
+A Mokka pod becomes Ready only once containerd on its worker serves the
+`nvidia` runtime handler as its default, and getting there restarts containerd
+on the worker once. `mokka-values.yaml` sets containerd's config dir, where
+Mokka's config file goes, to `/etc/containerd/config.d`. The `config.toml` that
+`nodeadm` rewrites at every boot already imports that directory, so the setup
+does not depend on an `imports` entry the next boot would remove.
 
 ## 5. Advertise the simulated GPUs
 
@@ -293,6 +292,7 @@ flowchart LR
     Scheduler[Kubernetes scheduler selects a node]
     Kubelet[Kubelet selects an advertised GPU UUID]
     Plugin[NVIDIA device plugin returns NVIDIA_VISIBLE_DEVICES=UUID]
+    Handler[containerd starts the container<br/>through its default handler, nvidia]
     Runtime[NVIDIA runtime resolves nvidia.com/gpu=UUID]
     Spec[Mokka-generated /run/cdi/nvidia.yaml]
     OCI[Runtime applies the spec's container edits]
@@ -301,7 +301,8 @@ flowchart LR
     Pod --> Scheduler
     Scheduler --> Kubelet
     Kubelet -->|Allocate UUID| Plugin
-    Plugin --> Runtime
+    Plugin --> Handler
+    Handler --> Runtime
     Runtime --> Spec
     Spec --> OCI
     OCI --> App
@@ -311,9 +312,10 @@ The default device-plugin discovery and environment-allocation strategies are
 intentional. The plugin discovers the simulated devices through Mokka's driver
 root and advertises their UUIDs to the kubelet. When a pod requests
 `nvidia.com/gpu`, the kubelet selects an advertised UUID and the plugin returns
-it through `NVIDIA_VISIBLE_DEVICES`. The NVIDIA runtime, configured in explicit
-CDI mode, resolves that UUID against the `nvidia.com/gpu` specification
-generated by Mokka and applies its container edits. This guide validates the
+it through `NVIDIA_VISIBLE_DEVICES`. containerd starts the container under its
+default handler, the NVIDIA runtime Mokka installed in CDI mode, which resolves
+that UUID against the `nvidia.com/gpu` specification generated by Mokka and
+applies its container edits. This guide validates the
 device plugin's default `envvar` allocation strategy. CDI-native device-plugin
 strategies use a different, device-plugin-owned specification and are outside
 the scope of this guide.
@@ -321,7 +323,7 @@ the scope of this guide.
 ## 6. Test from a neutral workload
 
 The verification image is plain Ubuntu. It contains neither `nvidia-smi` nor
-Mokka, so a successful run proves that the node runtime injected both:
+Mokka, so a successful run proves that the NVIDIA runtime injected both:
 
 ```bash
 kubectl --context "${MOKKA_CONTEXT}" delete pod mokka-verify \
@@ -340,8 +342,8 @@ GPU 0: NVIDIA GB300 NVL (UUID: GPU-b300b300-...)
 ```
 
 This validates three separate outcomes: Kubernetes scheduled a GPU request,
-the runtime injected the mock driver into an ordinary image, and the selected
-GB300 configuration reached the consumer.
+the NVIDIA runtime injected the mock driver into an ordinary image, and the
+selected GB300 configuration reached the consumer.
 
 ## Troubleshooting
 
@@ -372,9 +374,10 @@ the NVML/CUDA management surface, not a complete physical GPU driver.
 
 ### The workload says `nvidia-smi: not found`
 
-The worker is using plain `runc`, or the NVIDIA runtime setup did not complete.
-Recreate the managed node group from this Terraform template instead of
-modifying a live shared node.
+containerd on that worker did not run the pod under the NVIDIA runtime: the
+setup failed, and the worker's Mokka pod is not Ready.
+[Troubleshooting](../../../../troubleshooting.md#pods-get-no-mock-driver-or-the-node-pod-is-not-ready)
+shows where the Mokka pod logs why.
 
 ## Clean up
 
@@ -387,6 +390,9 @@ helm --kube-context "${MOKKA_CONTEXT}" uninstall nvidia-device-plugin \
   --namespace nvidia-device-plugin
 helm --kube-context "${MOKKA_CONTEXT}" uninstall nvml-mock --namespace mokka
 ```
+
+Uninstalling Mokka removes the `nvidia` handler from containerd on each worker,
+which returns to its own default handler, and restarts containerd there.
 
 If you created the optional reference cluster, destroy all of its AWS resources
 when you finish:

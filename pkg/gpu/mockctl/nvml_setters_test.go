@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
 func overridePath(t *testing.T) string {
@@ -43,10 +45,123 @@ func TestSetPowerLimit_SurvivesReload(t *testing.T) {
 	require.EqualValues(t, 400_000, power["enforced_limit_mw"])
 }
 
+func TestSetPersistenceMode_SurvivesReload(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetPersistenceMode(path, 1, false))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "disabled", doc.Devices["1"]["persistence_mode"])
+}
+
+// TestDrainSetters_ResolveThroughTheEngine checks the fields land where the
+// engine reads them, by merging the document the way the running mock does.
+func TestDrainSetters_ResolveThroughTheEngine(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetDrainState(path, 1, true))
+	require.NoError(t, SetRemoved(path, 2, true))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	overrides := &engine.ConfigOverrideDoc{All: doc.All, Devices: doc.Devices}
+	for index, want := range map[int]engine.DeviceConfig{
+		1: {Draining: true},
+		2: {Removed: true},
+	} {
+		merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, overrides.DeviceConfigOverride(index))
+		require.NoError(t, err)
+		require.Equal(t, want, *merged, "device %d", index)
+	}
+}
+
 func TestSetPowerLimit_FailsWithoutADocumentPath(t *testing.T) {
 	t.Parallel()
 	require.Error(t, SetPowerLimit("", 0, 400_000),
 		"a setter that cannot persist must report failure rather than silently succeed")
+}
+
+func TestSetNvlinkBwMode_SurvivesReload(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetNvlinkBwMode(path, 1, 3, false))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, doc.Devices["1"]["nvlink_bw_mode"])
+	require.NotContains(t, doc.All, "nvlink_bw_mode",
+		"a per-device set must not land in the bucket the node-wide getter reads")
+}
+
+// TestSetNvlinkBwMode_NodeWideTargetsAllBucket pins where the node-wide NVML
+// pair records its value. It has to be the `all:` bucket: the getter takes no
+// device, and every device must move with it.
+func TestSetNvlinkBwMode_NodeWideTargetsAllBucket(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetNvlinkBwMode(path, 0, 2, true))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, doc.All["nvlink_bw_mode"])
+	require.Empty(t, doc.Devices, "a node-wide set belongs to no single device")
+}
+
+// TestSetNvlinkBwMode_NodeWideClearsPerDeviceModes pins that a node-wide set
+// moves a device that a per-device set had already moved. The per-device field
+// outranks `all:` in the merge, so leaving it in place would have the older
+// per-device value keep masking the newer node-wide one — on real hardware the
+// node-wide call moves the whole node.
+func TestSetNvlinkBwMode_NodeWideClearsPerDeviceModes(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetNvlinkBwMode(path, 0, 3, false))
+	threshold := uint32(500)
+	require.NoError(t, SetNvlinkLowPowerThreshold(path, 0, &threshold))
+
+	require.NoError(t, SetNvlinkBwMode(path, 0, 1, true))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, doc.All["nvlink_bw_mode"], "node-wide mode")
+	require.NotContains(t, doc.Devices["0"], "nvlink_bw_mode",
+		"a stale per-device mode would outrank the node-wide one")
+	require.EqualValues(t, 500, doc.Devices["0"]["nvlink_low_power_threshold"],
+		"clearing the mode must not disturb unrelated per-device state")
+}
+
+// TestSetNvlinkLowPowerThreshold_ClearsOnReset pins that the reset sentinel
+// removes the field rather than recording a zero, so the device falls back to
+// the driver default instead of to a threshold nobody asked for.
+func TestSetNvlinkLowPowerThreshold_ClearsOnReset(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	threshold := uint32(500)
+	require.NoError(t, SetNvlinkLowPowerThreshold(path, 0, &threshold))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 500, doc.Devices["0"]["nvlink_low_power_threshold"])
+
+	require.NoError(t, SetNvlinkLowPowerThreshold(path, 0, nil))
+
+	doc, err = Load(path)
+	require.NoError(t, err)
+	require.NotContains(t, doc.Devices["0"], "nvlink_low_power_threshold",
+		"a reset must remove the recorded threshold")
+}
+
+func TestNvlinkSetters_FailWithoutADocumentPath(t *testing.T) {
+	t.Parallel()
+	require.Error(t, SetNvlinkBwMode("", 0, 3, false), "bandwidth mode")
+	require.Error(t, SetNvlinkLowPowerThreshold("", 0, nil), "low-power threshold")
 }
 
 // TestUpdateWorkloadProfiles_ReportsNoBaseUntilSomethingIsWritten lets the
@@ -127,14 +242,12 @@ func TestUpdateWorkloadProfiles_ConcurrentWritersDoNotLoseUpdates(t *testing.T) 
 
 	var wg sync.WaitGroup
 	for i, id := range ids {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errs[i] = UpdateWorkloadProfiles(path, 0,
 				func(base []uint32, _ bool) ([]uint32, error) {
 					return append(append([]uint32{}, base...), id), nil
 				})
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -153,6 +266,227 @@ func TestUpdateWorkloadProfiles_ConcurrentWritersDoNotLoseUpdates(t *testing.T) 
 
 // TestSetters_DoNotDisturbOtherDevices keeps a per-device write from behaving
 // like the node-wide one; nvidia-smi caps one GPU at a time.
+// TestClockSetters_ShareTheClocksBlock pins that the clock writes merge into
+// one clocks block: `nvidia-smi -ac` followed by `-lgc` must leave both
+// recorded, and resetting the lock must not drop the applications clocks.
+func TestClockSetters_ShareTheClocksBlock(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetApplicationsClocks(path, 0, 1593, 1410))
+	require.NoError(t, SetLockedClocks(path, 0, engine.ClockDomainGraphics, &engine.ClockRangeConfig{MinMHz: 1500, MaxMHz: 1600}))
+	require.NoError(t, SetClockOffset(path, 0, engine.ClockDomainMemory, -100))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	clocks := doc.Devices["0"]["clocks"].(map[string]any)
+	require.EqualValues(t, 1593, clocks["memory_app"])
+	require.EqualValues(t, 1410, clocks["graphics_app"])
+	locked := clocks["locked_graphics"].(map[string]any)
+	require.EqualValues(t, 1500, locked["min_mhz"])
+	require.EqualValues(t, 1600, locked["max_mhz"])
+	offset := clocks["offsets"].(map[string]any)["memory"].(map[string]any)
+	require.EqualValues(t, -100, offset["offset_mhz"])
+
+	require.NoError(t, SetLockedClocks(path, 0, engine.ClockDomainGraphics, nil))
+
+	doc, err = Load(path)
+	require.NoError(t, err)
+	clocks = doc.Devices["0"]["clocks"].(map[string]any)
+	require.EqualValues(t, 1410, clocks["graphics_app"], "unlocking must not touch the applications clocks")
+}
+
+// TestSetLockedClocks_ResetMasksAnInheritedLock resolves the document the way
+// the running mock does. A lock the profile or the `all:` bucket declares must
+// not survive `nvidia-smi -rgc` on the GPU it was reset on, and must stay on
+// the GPUs it was not.
+func TestSetLockedClocks_ResetMasksAnInheritedLock(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+	lock := engine.ClockRangeConfig{MinMHz: 1500, MaxMHz: 1500}
+	require.NoError(t, mutateDevice(path, func(d *Doc) error {
+		d.SetFields(Target{All: true}, LockedClocksPatch(engine.ClockDomainGraphics, &lock))
+		return nil
+	}))
+
+	require.NoError(t, SetLockedClocks(path, 0, engine.ClockDomainGraphics, nil))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	overrides := &engine.ConfigOverrideDoc{All: doc.All, Devices: doc.Devices}
+	profileLock := lock
+	profile := &engine.DeviceConfig{Clocks: &engine.ClocksConfig{GraphicsMax: 1980, LockedGraphics: &profileLock}}
+	resolve := func(index int) *engine.ClocksConfig {
+		merged, err := engine.MergeDeviceConfig(profile, overrides.DeviceConfigOverride(index))
+		require.NoError(t, err)
+		return merged.Clocks
+	}
+	require.Nil(t, resolve(0).LockedGraphics, "the reset GPU reads unlocked")
+	require.Equal(t, &lock, resolve(1).LockedGraphics, "the other GPUs keep the inherited lock")
+}
+
+// TestPowerPolicySetters_ShareThePowerBlock resolves the document the way the
+// running mock does. A power cap, the PowerMizer mode and every smoothing write
+// land in one power block, and tuning one preset parameter keeps the rest of
+// the preset and the other presets the profile declares.
+func TestPowerPolicySetters_ShareThePowerBlock(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	require.NoError(t, SetPowerLimit(path, 0, 400_000))
+	require.NoError(t, SetPowerMizerMode(path, 0, "prefer_maximum_performance"))
+	require.NoError(t, SetPowerSmoothingState(path, 0, true))
+	require.NoError(t, SetPowerSmoothingActiveProfile(path, 0, 2))
+	require.NoError(t, SetPowerSmoothingProfileParam(path, 0, 1, engine.PowerSmoothingParamRampUpRate, 30000))
+	require.NoError(t, SetPowerSmoothingProfileParam(path, 0, 1, engine.PowerSmoothingParamRampDownHysteresis, 250))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	overrides := &engine.ConfigOverrideDoc{All: doc.All, Devices: doc.Devices}
+	profile := &engine.DeviceConfig{Power: &engine.PowerConfig{
+		Smoothing: &engine.PowerSmoothingConfig{Profiles: map[uint32]engine.PowerSmoothingProfileConfig{
+			1: {PercentTMPFloor: 40},
+			3: {RampDownRateMWPerS: 5000},
+		}},
+	}}
+	merged, err := engine.MergeDeviceConfig(profile, overrides.DeviceConfigOverride(0))
+	require.NoError(t, err)
+	require.Equal(t, &engine.PowerConfig{
+		EnforcedLimitMW: 400_000,
+		PowerMizerMode:  "prefer_maximum_performance",
+		Smoothing: &engine.PowerSmoothingConfig{
+			State:         "enabled",
+			ActiveProfile: 2,
+			Profiles: map[uint32]engine.PowerSmoothingProfileConfig{
+				1: {PercentTMPFloor: 40, RampUpRateMWPerS: 30000, RampDownHysteresisMS: 250},
+				3: {RampDownRateMWPerS: 5000},
+			},
+		},
+	}, merged.Power)
+}
+
+func TestPowerPolicySetters_FailWithoutADocumentPath(t *testing.T) {
+	t.Parallel()
+	require.Error(t, SetPowerMizerMode("", 0, "auto"))
+	require.Error(t, SetPowerSmoothingState("", 0, true))
+	require.Error(t, SetPowerSmoothingActiveProfile("", 0, 1))
+	require.Error(t, SetPowerSmoothingProfileParam("", 0, 1, engine.PowerSmoothingParamPercentTMPFloor, 50))
+}
+
+func TestClockSetters_FailWithoutADocumentPath(t *testing.T) {
+	t.Parallel()
+	require.Error(t, SetApplicationsClocks("", 0, 1593, 1410))
+	require.Error(t, SetLockedClocks("", 0, engine.ClockDomainGraphics, nil))
+	require.Error(t, SetClockOffset("", 0, engine.ClockDomainGraphics, 0))
+}
+
+// TestAccountingSetters_ResolveThroughTheEngine checks the accounting writes
+// against a profile that already declares terminated records, by merging the
+// document the way the running mock does. The records come from the profile,
+// so a clear has to record an empty list that outranks them, and enabling the
+// mode afterwards must not bring them back.
+func TestAccountingSetters_ResolveThroughTheEngine(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+	profile := &engine.DeviceConfig{Accounting: &engine.AccountingConfig{
+		Mode:       "disabled",
+		BufferSize: 4000,
+		Terminated: []engine.AccountedProcessConfig{{PID: 300, TimeMS: 1000}},
+	}}
+
+	require.NoError(t, ClearAccountingPids(path, 0))
+	require.NoError(t, SetAccountingMode(path, 0, true))
+	require.NoError(t, SetAccountingMode(path, 1, true))
+	require.NoError(t, SetAccountingMode(path, 2, false))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	overrides := &engine.ConfigOverrideDoc{All: doc.All, Devices: doc.Devices}
+	resolve := func(index int) *engine.AccountingConfig {
+		merged, err := engine.MergeDeviceConfig(profile, overrides.DeviceConfigOverride(index))
+		require.NoError(t, err)
+		return merged.Accounting
+	}
+
+	cleared := resolve(0)
+	require.Equal(t, "enabled", cleared.Mode, "the mode write kept the earlier clear")
+	require.Empty(t, cleared.Terminated, "the clear outranks the profile's records")
+	require.Equal(t, 4000, cleared.BufferSize, "neither write touches the buffer size")
+
+	enabled := resolve(1)
+	require.Equal(t, "enabled", enabled.Mode)
+	require.Len(t, enabled.Terminated, 1, "enabling accounting keeps what the driver holds")
+
+	disabled := resolve(2)
+	require.Equal(t, "disabled", disabled.Mode)
+	require.Empty(t, disabled.Terminated, "disabling accounting clears its records")
+}
+
+func TestAccountingSetters_FailWithoutADocumentPath(t *testing.T) {
+	t.Parallel()
+	require.Error(t, SetAccountingMode("", 0, true))
+	require.Error(t, ClearAccountingPids("", 0))
+}
+
+// TestEccSetters_ResolveThroughTheEngine merges the ECC writes over a profile
+// that already carries counters, the way the running mock does. A clear has to
+// outrank the profile's counts, which only a written zero does.
+func TestEccSetters_ResolveThroughTheEngine(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+	counts := func(n uint64) *engine.ECCErrorCountsConfig {
+		return &engine.ECCErrorCountsConfig{
+			DoubleBit: &engine.ECCMemoryErrorsConfig{DeviceMemory: n, Total: n},
+		}
+	}
+	profile := &engine.DeviceConfig{ECC: &engine.ECCConfig{
+		ModeCurrent: "enabled",
+		ModePending: "enabled",
+		Errors:      &engine.ECCErrorsConfig{Volatile: counts(2), Aggregate: counts(9)},
+		SRAM: &engine.ECCSramConfig{
+			Aggregate:         &engine.ECCSramCountsConfig{UncorrectableParity: 4},
+			ThresholdExceeded: true,
+		},
+		DRAMEncryption: &engine.ECCDRAMEncryptionConfig{ModeCurrent: "disabled", ModePending: "disabled"},
+	}}
+
+	require.NoError(t, SetEccModePending(path, 0, false))
+	require.NoError(t, ClearEccErrorCounts(path, 0, engine.EccScopeVolatile))
+	require.NoError(t, ClearEccErrorCounts(path, 1, engine.EccScopeAggregate))
+	require.NoError(t, SetDramEncryptionPending(path, 0, true))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	overrides := &engine.ConfigOverrideDoc{All: doc.All, Devices: doc.Devices}
+	resolve := func(index int) *engine.ECCConfig {
+		merged, err := engine.MergeDeviceConfig(profile, overrides.DeviceConfigOverride(index))
+		require.NoError(t, err)
+		return merged.ECC
+	}
+
+	volatileCleared := resolve(0)
+	require.Equal(t, "enabled", volatileCleared.ModeCurrent, "a pending write leaves the current mode alone")
+	require.Equal(t, "disabled", volatileCleared.ModePending)
+	require.Zero(t, volatileCleared.Errors.Volatile.DoubleBit.Total)
+	require.EqualValues(t, 9, volatileCleared.Errors.Aggregate.DoubleBit.Total)
+	require.True(t, volatileCleared.SRAM.ThresholdExceeded, "only the aggregate clear drops the threshold")
+	require.Equal(t, "disabled", volatileCleared.DRAMEncryption.ModeCurrent)
+	require.Equal(t, "enabled", volatileCleared.DRAMEncryption.ModePending)
+
+	aggregateCleared := resolve(1)
+	require.Zero(t, aggregateCleared.Errors.Aggregate.DoubleBit.Total)
+	require.EqualValues(t, 2, aggregateCleared.Errors.Volatile.DoubleBit.Total)
+	require.Zero(t, aggregateCleared.SRAM.Aggregate.UncorrectableParity)
+	require.False(t, aggregateCleared.SRAM.ThresholdExceeded)
+}
+
+func TestEccSetters_FailWithoutADocumentPath(t *testing.T) {
+	t.Parallel()
+	require.Error(t, SetEccModePending("", 0, true))
+	require.Error(t, ClearEccErrorCounts("", 0, engine.EccScopeVolatile))
+	require.Error(t, SetDramEncryptionPending("", 0, true))
+}
+
 func TestSetters_DoNotDisturbOtherDevices(t *testing.T) {
 	t.Parallel()
 	path := overridePath(t)

@@ -154,6 +154,42 @@ func TestPCITopology_DropsABDFThatWouldEscapeTheTree(t *testing.T) {
 	}
 }
 
+// An HGX baseboard's NVSwitches are on the node's PCIe bus, so the profile can
+// place them in a declared root and they inherit its NUMA node like any device.
+func TestPCITopology_PlacesSwitchesInTheDeclaredRoot(t *testing.T) {
+	state := twoRootState()
+	state.NodeShape.Topology.RootComplexes[0].DeviceBDFs = append(
+		state.NodeShape.Topology.RootComplexes[0].DeviceBDFs, "0000:05:00.0")
+	state.Switches = []SwitchSpec{{PCIBusID: "0000:05:00.0", PCIDeviceID: 0x22a310de}}
+
+	rcs := state.PCITopology()
+
+	require.Equal(t, []string{"0000:0a:00.0", "0000:0b:00.0", "0000:05:00.0"},
+		bdfsOf(rcs)["pci0000:00"])
+	require.Len(t, rcs, 2, "no root invented for a switch the profile placed")
+}
+
+// A switch the layout omits is still rendered, under the root its own address
+// implies — the same treatment an unplaced GPU gets.
+func TestPCITopology_RendersASwitchNoRootClaims(t *testing.T) {
+	state := twoRootState()
+	state.Switches = []SwitchSpec{{PCIBusID: "0000:CF:00.0", PCIDeviceID: 0x22a310de}}
+
+	require.Equal(t, []string{"0000:cf:00.0"}, bdfsOf(state.PCITopology())["pci0000:cf"])
+}
+
+// Switches without GPUs is not a node any consumer reads this tree for, and
+// GPU_COUNT truncating to nothing must clear the tree rather than leave four
+// bridges behind.
+func TestPCITopology_NilWhenOnlySwitchesRemain(t *testing.T) {
+	state := twoRootState()
+	state.Devices = nil
+	state.Switches = []SwitchSpec{{PCIBusID: "0000:05:00.0", PCIDeviceID: 0x22a310de}}
+
+	require.Nil(t, state.PCITopology())
+	require.False(t, state.HasPCITopology())
+}
+
 func TestPCITopology_NilWithoutADeviceBDF(t *testing.T) {
 	require.Nil(t, (&State{}).PCITopology())
 	require.Nil(t, (&State{Devices: []DeviceSpec{{Index: 0}}}).PCITopology())

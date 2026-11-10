@@ -1,0 +1,48 @@
+== /proc/driver/nvidia/gpus/0002:81:00.0/information
+Model: 		 Unknown
+IRQ:   		 2825
+GPU UUID: 	 GPU-00000000-0000-0000-0000-000000000000
+Video BIOS: 	 99.00.16.55.13
+Bus Type: 	 PCIe
+DMA Size: 	 52 bits
+DMA Mask: 	 0xfffffffffffff
+Bus Location: 	 0002:81:00.0
+Device Minor: 	 0
+GPU Firmware: 	 615.71.09
+GPU Excluded:	 No
+== /proc/driver/nvidia/gpus/0002:c1:00.0/information
+Model: 		 Unknown
+IRQ:   		 2826
+GPU UUID: 	 GPU-00000001-0000-0000-0000-000000000001
+Video BIOS: 	 99.00.16.55.13
+Bus Type: 	 PCIe
+DMA Size: 	 52 bits
+DMA Mask: 	 0xfffffffffffff
+Bus Location: 	 0002:c1:00.0
+Device Minor: 	 1
+GPU Firmware: 	 615.71.09
+GPU Excluded:	 No
+== /proc/driver/nvidia/gpus/000a:81:00.0/information
+Model: 		 Unknown
+IRQ:   		 2828
+GPU UUID: 	 GPU-00000002-0000-0000-0000-000000000002
+Video BIOS: 	 99.00.16.55.13
+Bus Type: 	 PCIe
+DMA Size: 	 52 bits
+DMA Mask: 	 0xfffffffffffff
+Bus Location: 	 000a:81:00.0
+Device Minor: 	 2
+GPU Firmware: 	 615.71.09
+GPU Excluded:	 No
+== /proc/driver/nvidia/gpus/000a:e1:00.0/information
+Model: 		 Unknown
+IRQ:   		 2827
+GPU UUID: 	 GPU-00000003-0000-0000-0000-000000000003
+Video BIOS: 	 99.00.16.55.13
+Bus Type: 	 PCIe
+DMA Size: 	 52 bits
+DMA Mask: 	 0xfffffffffffff
+Bus Location: 	 000a:e1:00.0
+Device Minor: 	 3
+GPU Firmware: 	 615.71.09
+GPU Excluded:	 No

@@ -40,7 +40,9 @@ import (
 // or hung channel that made an operator reach for it in the first place — and on
 // the mock that state is exactly what `nvml-mock-ctl` injected. So this performs
 // the same mutation `nvml-mock-ctl reset --gpu <n>` performs, through the same
-// function, rather than a second implementation of it.
+// function, rather than a second implementation of it. The one addition is an
+// ECC mode `nvidia-smi -e` left pending, which a real reset applies rather than
+// clears.
 //
 // Scope follows nvidia-smi rather than being decided here. It calls this once per
 // GPU being reset, so `-i 1` clears one device and a bare `--gpu-reset` walks

@@ -12,8 +12,7 @@ not exist. Five minutes, no NVIDIA hardware.
 ## Install
 
 ```bash
-kind create cluster --name mokka \
-    --image ghcr.io/nvidia/mokka-kind-node:latest
+kind create cluster --name mokka
 
 helm install nvml-mock \
     oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
@@ -21,15 +20,15 @@ helm install nvml-mock \
     --create-namespace
 ```
 
-Already have a cluster? Skip the `kind` line for the basic Mokka DaemonSet.
-Managed clusters need additional runtime preparation before ordinary workloads
-can request and consume simulated GPUs; see the [Amazon EKS
-guide](guides/install/aws/eks/README.md) for a validated setup.
+Already have a cluster? Skip the `kind` line. The chart prepares each node's
+containerd itself, so any cluster whose nodes run containerd 1.7 or later under
+systemd works; see the [Amazon EKS guide](guides/install/aws/eks/README.md) for
+a managed one.
 
-`latest` follows Mokka's main branch and is the simplest way to try it. For
-repeatable CI, select a published release tag or digest from the
-[`mokka-kind-node` package](https://github.com/NVIDIA/k8s-test-infra/pkgs/container/mokka-kind-node)
-instead.
+On the default `gb300` profile each node also downloads NVIDIA's IMEX archive
+from `developer.download.nvidia.com`, for DRA ComputeDomains. A node that cannot
+reach it keeps working without IMEX; add
+`--set featureGates.IMEXDownload=false` to skip the download.
 
 ## Verify
 
@@ -58,9 +57,9 @@ helm upgrade nvml-mock \
     --set gpu.profile=a100
 ```
 
-Seven profiles ship with the chart: `a100`, `b200`, `gb200`, `gb300`, `h100`,
-`l40s` and `t4`. [Configuration](configuration.md) covers what each one defines
-and how to change individual values.
+Eight profiles ship with the chart: `a100`, `b200`, `gb200`, `gb300`, `h100`,
+`l40s`, `t4` and `vrnvl72`. [Configuration](configuration.md) covers what each one
+defines and how to change individual values.
 
 ## Clean up
 
@@ -78,14 +77,13 @@ real software at it.
 |---|---|
 | Schedule GPU workloads with the device plugin, DRA or the GPU Operator | [Installation](helm-chart.md) |
 | Break a GPU and watch consumers react | [Failure injection](guides/failure-injection/README.md) |
-| Give a pod GPUs without changing its spec | [Node-wide injection](guides/node-wide-injection/README.md) |
+| Check that GPU workloads get the mock driver | [Set up NRI injection](guides/nri-injection.md) |
 | Change temperature, power or health on a running node | [Runtime control](nvml-mock-ctl.md) |
 | Understand what is actually happening | [Architecture](architecture.md) |
 
-The published KIND node image includes the NVIDIA container runtime and enables
-the Container Device Interface (CDI) in containerd. This is the runtime setup
-used by the [device plugin](guides/device-plugin.md),
-[DRA](guides/dra.md), and [GPU Operator](guides/gpu-operator.md) paths. On a
-managed cluster, runtime support is provider- and node-image-specific; the
-[Amazon EKS guide](guides/install/aws/eks/README.md) shows the required worker
-bootstrap.
+The node daemon installs the NVIDIA container runtime on each node and makes it
+containerd's default handler, `nvidia`, with the Container Device Interface
+(CDI) on. That is the runtime setup the
+[device plugin](guides/device-plugin.md), [DRA](guides/dra.md) and
+[GPU Operator](guides/gpu-operator.md) paths use; see
+[Container runtime setup](components/node-daemon.md#container-runtime-setup).

@@ -69,7 +69,7 @@ func TestServerShutdownOnContextCancel(t *testing.T) {
 
 	server := controlplane.NewServer(cfg, logger)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- server.RunListener(ctx, listener) }()
 

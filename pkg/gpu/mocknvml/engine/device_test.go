@@ -131,6 +131,29 @@ func TestConfigurableDevice_GetPciInfo_BusIDDomainWidths(t *testing.T) {
 		"busIdLegacy must use the 4-digit domain form")
 }
 
+// go-nvml regenerations flip nvmlPciInfo_t.busId between [32]int8 and
+// [32]uint8, so the copy must work against either element type.
+func TestWriteBusID_BothSignedness(t *testing.T) {
+	t.Parallel()
+	const busID = "00000000:3B:00.0"
+
+	signed := [32]int8{}
+	for i := range signed {
+		signed[i] = 'x'
+	}
+	writeBusID(signed[:], busID)
+	require.Equal(t, busID, busIDString(signed[:]))
+	require.Zero(t, signed[len(busID)], "short bus ID must be NUL-terminated")
+
+	unsigned := [32]uint8{}
+	for i := range unsigned {
+		unsigned[i] = 'x'
+	}
+	writeBusID(unsigned[:], busID)
+	require.Equal(t, busID, busIDString(unsigned[:]))
+	require.Zero(t, unsigned[len(busID)], "short bus ID must be NUL-terminated")
+}
+
 // =============================================================================
 // Topology Tests (from T4/Batch 1)
 // =============================================================================
@@ -630,6 +653,7 @@ func TestConfigurableDevice_GetPersistenceMode_Configured(t *testing.T) {
 }
 
 func TestConfigurableDevice_SetPersistenceMode(t *testing.T) {
+	persistSetterWrites(t)
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
 		Name: "NVIDIA A100-SXM4-80GB",
 	})
@@ -655,6 +679,34 @@ func TestConfigurableDevice_SetPersistenceMode(t *testing.T) {
 	mode, ret = dev.GetPersistenceMode()
 	require.Equal(t, nvml.SUCCESS, ret, "GetPersistenceMode failed")
 	require.Equal(t, nvml.FEATURE_DISABLED, mode, "Expected DISABLED after unset")
+}
+
+// TestSetPersistenceMode_VisibleToAnotherProcess covers `nvidia-smi -pm 0`
+// followed by a separate `nvidia-smi drain`: the second process must see the
+// first one's write, or every drain on a profile that enables persistence
+// fails with IN_USE.
+func TestSetPersistenceMode_VisibleToAnotherProcess(t *testing.T) {
+	persistSetterWrites(t)
+	cfg := &DeviceConfig{PersistenceMode: "enabled"}
+
+	writer := newTestDeviceWithConfig(t, cfg)
+	require.Equal(t, nvml.SUCCESS, writer.SetPersistenceMode(nvml.FEATURE_DISABLED))
+
+	reader := newTestDeviceWithConfig(t, cfg)
+	mode, ret := reader.GetPersistenceMode()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, nvml.FEATURE_DISABLED, mode)
+}
+
+func TestSetPersistenceMode_RejectsUnknownState(t *testing.T) {
+	persistSetterWrites(t)
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{PersistenceMode: "enabled"})
+
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, dev.SetPersistenceMode(nvml.EnableState(2)))
+
+	mode, ret := dev.GetPersistenceMode()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, nvml.FEATURE_ENABLED, mode, "a rejected mode must not be applied")
 }
 
 // =============================================================================
@@ -745,15 +797,31 @@ func TestConfigurableDevice_GetDisplayActive_Enabled(t *testing.T) {
 // MIG Tests (Batch 3)
 // =============================================================================
 
-func TestConfigurableDevice_GetMaxMigDeviceCount_Default(t *testing.T) {
+func TestConfigurableDevice_GetMaxMigDeviceCount_MIGDisabled(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
 		Name: "NVIDIA A100-SXM4-80GB",
+		MIG: &MIGConfig{
+			ModeCurrent:       "disabled",
+			MaxGPUInstances:   7,
+			SupportedProfiles: a100SupportedProfiles(),
+		},
 	})
 
 	count, ret := dev.GetMaxMigDeviceCount()
 	require.Equal(t, nvml.SUCCESS, ret, "GetMaxMigDeviceCount failed")
-	// Default: MIG disabled, count = 0
-	require.Zero(t, count, "Expected 0 (MIG disabled)")
+	// Real NVML reports the board's MIG ceiling as a static capability, so a
+	// MIG-capable A100 answers 7 whether or not MIG is currently on.
+	require.Equal(t, 7, count, "Expected the A100 board ceiling")
+}
+
+func TestConfigurableDevice_GetMaxMigDeviceCount_NonMigBoard(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "Tesla T4",
+	})
+
+	count, ret := dev.GetMaxMigDeviceCount()
+	require.Equal(t, nvml.SUCCESS, ret, "GetMaxMigDeviceCount failed")
+	require.Zero(t, count, "a board that cannot be partitioned has no MIG devices")
 }
 
 func TestConfigurableDevice_GetMaxMigDeviceCount_Configured(t *testing.T) {
@@ -774,8 +842,10 @@ func TestConfigurableDevice_GetMigMode_WithConfig(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
 		Name: "NVIDIA A100-SXM4-80GB",
 		MIG: &MIGConfig{
-			ModeCurrent: "enabled",
-			ModePending: "disabled",
+			ModeCurrent:       "enabled",
+			ModePending:       "disabled",
+			MaxGPUInstances:   7,
+			SupportedProfiles: a100SupportedProfiles(),
 		},
 	})
 
@@ -1197,12 +1267,18 @@ func TestConfigurableDevice_GetClock_RejectsEnumSentinels(t *testing.T) {
 // 1 direct GPU link to device 1, plus a single-NUMA pcie_topology block.
 func newFabricEngine(t *testing.T) *Engine {
 	t.Helper()
+	return newFabricEngineOnDriver(t, "560.0")
+}
+
+// newFabricEngineOnDriver is newFabricEngine reporting driver.
+func newFabricEngineOnDriver(t *testing.T, driver string) *Engine {
+	t.Helper()
 	cfg := &Config{
 		NumDevices:    2,
-		DriverVersion: "560.0",
+		DriverVersion: driver,
 		YAMLConfig: &YAMLConfig{
 			Version: "1.0",
-			System:  SystemConfig{DriverVersion: "560.0", NVMLVersion: "12.560.0", NumDevices: 2},
+			System:  SystemConfig{DriverVersion: driver, NumDevices: 2},
 			DeviceDefaults: DeviceConfig{
 				Name: "NVIDIA A100-SXM4-80GB",
 			},
@@ -1243,6 +1319,35 @@ func fabricDevice(t *testing.T, e *Engine, index int) *ConfigurableDevice {
 	cd, ok := e.LookupDevice(handle).(*ConfigurableDevice)
 	require.True(t, ok, "device %d is not a ConfigurableDevice", index)
 	return cd
+}
+
+// An index past the board's links is an invalid argument only where the
+// driver's NVML cannot address it. From 615 NVML addresses 36 links on every
+// board, and a 615 nvidia-smi walks all of them: answering an index the board
+// lacks as an invalid argument is what made its topology matrix fail.
+func TestConfigurableDevice_NvLinkIndexRangeFollowsTheDriver(t *testing.T) {
+	for _, tc := range []struct {
+		driver string
+		bound  int
+	}{
+		{"560.0", 18},
+		{"580.65.06", 18},
+		{"614.99", 18},
+		{"615.71.09", 36},
+		{"620.10", 36},
+	} {
+		t.Run(tc.driver, func(t *testing.T) {
+			d0 := fabricDevice(t, newFabricEngineOnDriver(t, tc.driver), 0)
+
+			st, ret := d0.GetNvLinkState(tc.bound - 1)
+			require.Equal(t, nvml.SUCCESS, ret, "last index the driver addresses")
+			require.Equal(t, nvml.FEATURE_DISABLED, st, "the board has no link there")
+			_, ret = d0.GetNvLinkState(tc.bound)
+			require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret, "first index past the driver's bound")
+			_, ret = d0.GetNvLinkRemoteDeviceType(tc.bound)
+			require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret)
+		})
+	}
 }
 
 func TestConfigurableDevice_NvLinkGetters_PerDevice(t *testing.T) {
@@ -1330,19 +1435,6 @@ func TestConfigurableDevice_NvLinkUtilizationCounter_Grows(t *testing.T) {
 	// Freeze/Reset are no-op successes.
 	require.Equal(t, nvml.SUCCESS, d0.FreezeNvLinkUtilizationCounter(0, 0, nvml.FEATURE_ENABLED), "Freeze")
 	require.Equal(t, nvml.SUCCESS, d0.ResetNvLinkUtilizationCounter(0, 0), "Reset")
-}
-
-// busIDString decodes the NVML PciInfo.BusId char array (go-nvml v0.13.1-0
-// types it as [32]int8) into a Go string, stopping at the NUL terminator.
-func busIDString(b []int8) string {
-	out := make([]byte, 0, len(b))
-	for _, c := range b {
-		if c == 0 {
-			break
-		}
-		out = append(out, byte(c))
-	}
-	return string(out)
 }
 
 func containsPrefix(s, prefix string) bool {
