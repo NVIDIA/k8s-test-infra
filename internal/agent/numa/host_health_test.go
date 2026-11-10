@@ -58,12 +58,11 @@ func TestKubeletHealthAcceptsEmptyResourceList(t *testing.T) {
 	t.Parallel()
 	h := healthTestHost(t)
 	serveHealthKubelet(t, h, nil)
-	s := newHostSetup(h)
-	s.run = func(_ context.Context, name string, args ...string) error {
+	s := newHostSetup(h, hostOperations{run: func(_ context.Context, name string, args ...string) error {
 		require.Equal(t, "systemctl", name)
 		require.Equal(t, []string{"is-active", "--quiet", "kubelet"}, args)
 		return nil
-	}
+	}})
 	require.NoError(t, s.waitForKubelet(t.Context()))
 }
 
@@ -72,8 +71,7 @@ func TestKubeletHealthRequiresSuccessfulRPC(t *testing.T) {
 	h := healthTestHost(t)
 	serveHealthKubelet(t, h, status.Error(codes.Unavailable, "resource API unavailable"))
 	require.ErrorContains(t, kubeletHealth(t.Context(), h.HostPath(allocwatch.DefaultSocketPath)), "resource API unavailable")
-	s := newHostSetup(h)
-	s.run = func(context.Context, string, ...string) error { return nil }
+	s := newHostSetup(h, hostOperations{run: func(context.Context, string, ...string) error { return nil }})
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 	require.ErrorIs(t, s.waitForKubelet(ctx), context.DeadlineExceeded)

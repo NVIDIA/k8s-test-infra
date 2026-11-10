@@ -33,11 +33,6 @@ const (
 	applyRetryLimit = 5 * time.Minute
 )
 
-// HostRunner applies or restores NUMA setup through propagated host volumes.
-type HostRunner interface {
-	Run(context.Context, HostAction) error
-}
-
 // Options controls the node filesystem and kubelet configuration.
 type Options struct {
 	Enabled              bool
@@ -47,8 +42,6 @@ type Options struct {
 	MemoryManagerPolicy  string
 	SystemReservedMemory string
 	SystemReservedCPU    string
-	// Runner defaults to the privileged pod runner.
-	Runner HostRunner
 }
 
 // Simulator reapplies the node NUMA view after boot and restores it on disable.
@@ -57,7 +50,7 @@ type Simulator struct {
 	opts         Options
 	ready        atomic.Bool
 	desired      string
-	runner       HostRunner
+	setup        *hostSetup
 	helperSource string
 
 	// Only Apply uses the retry fields, and the agent never runs two Apply
@@ -70,18 +63,19 @@ type Simulator struct {
 
 // New constructs a simulator without changing the node.
 func New(h *host.Host, opts Options) (*Simulator, error) {
+	return newSimulator(h, opts, hostOperations{})
+}
+
+func newSimulator(h *host.Host, opts Options, ops hostOperations) (*Simulator, error) {
 	opts = opts.withDefaults()
 	if err := opts.validate(); err != nil {
 		return nil, err
-	}
-	if opts.Runner == nil {
-		opts.Runner = NewPodRunner(h)
 	}
 	sim := &Simulator{
 		host:         h,
 		opts:         opts,
 		helperSource: helperSource,
-		runner:       opts.Runner,
+		setup:        newHostSetup(h, ops),
 		requeue:      make(chan struct{}, 1),
 		retryFirst:   applyRetryFirst,
 	}
@@ -191,21 +185,21 @@ func (s *Simulator) apply(ctx context.Context) error {
 			return nil
 		}
 	}
-	action := ActionApply
-	if !s.opts.Enabled {
-		action = ActionRestore
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+	action := "apply"
+	if s.opts.Enabled {
+		err = s.setup.apply(ctx)
+	} else {
+		action = "restore"
+		err = s.setup.restore(ctx)
 	}
-	err = s.runHost(ctx, action)
 	if err != nil {
 		return fmt.Errorf("%s node NUMA filesystem: %w", action, err)
 	}
 	s.ready.Store(true)
-	zap.L().Info("node NUMA simulation reconciled", zap.String("simulator", name), zap.String("action", string(action)), zap.String("policy", s.opts.Policy))
+	zap.L().Info("node NUMA simulation reconciled", zap.String("simulator", name), zap.String("action", action), zap.String("policy", s.opts.Policy))
 	return nil
-}
-
-func (s *Simulator) runHost(ctx context.Context, action HostAction) error {
-	return s.runner.Run(ctx, action)
 }
 
 func (s *Simulator) stageHelper() error {

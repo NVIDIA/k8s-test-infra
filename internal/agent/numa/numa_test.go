@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,30 +122,20 @@ func TestResolveRejectsSparseOrUnknownNUMAIDs(t *testing.T) {
 func TestPersistentSetupIsNotRestartedOrRemovedOnPodTeardown(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
-	calls := 0
-	runner := hostRunnerFunc(func(context.Context, HostAction) error {
-		calls++
-		desired, err := os.ReadFile(h.RootPath("numa/desired"))
-		require.NoError(t, err)
-		return fsutil.Write(h.RunPath(appliedRel), desired, 0600)
-	})
-	sim, err := newTestSimulator(h, Options{Enabled: true, Runner: runner})
+	ops, calls := fakeHostOperations()
+	sim, err := newTestSimulator(h, Options{Enabled: true}, ops)
 	require.NoError(t, err)
 	require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
 	require.NoError(t, sim.Apply(t.Context(), nil))
 	require.NoError(t, sim.Apply(t.Context(), nil))
-	require.Equal(t, 2, calls)
+	require.Equal(t, 1, strings.Count(strings.Join(*calls, "\n"), "systemctl stop kubelet"))
 	require.NoError(t, sim.Revoke(t.Context()))
 	require.NoError(t, sim.Discard(t.Context()))
 	require.FileExists(t, h.RunPath(appliedRel))
 	changed, err := newTestSimulator(h, Options{Enabled: true, Policy: "restricted"})
 	require.NoError(t, err)
 	require.ErrorContains(t, changed.Stage(t.Context(), testEnrichedState(t, changed.host)), "disable NUMA simulation")
-	restore := hostRunnerFunc(func(_ context.Context, action HostAction) error {
-		require.Equal(t, ActionRestore, action)
-		return os.Remove(h.RunPath(appliedRel))
-	})
-	disabled, err := newTestSimulator(h, Options{Runner: restore})
+	disabled, err := newTestSimulator(h, Options{}, ops)
 	require.NoError(t, err)
 	require.NoError(t, disabled.Stage(t.Context(), nil))
 	require.NoError(t, disabled.Apply(t.Context(), nil))
@@ -287,8 +278,12 @@ func TestFractionalSystemCPUReservation(t *testing.T) {
 	require.ErrorContains(t, err, "mutually exclusive")
 }
 
-func newTestSimulator(h *host.Host, opts Options) (*Simulator, error) {
-	sim, err := New(h, opts)
+func newTestSimulator(h *host.Host, opts Options, operations ...hostOperations) (*Simulator, error) {
+	ops, _ := fakeHostOperations()
+	if len(operations) > 0 {
+		ops = operations[0]
+	}
+	sim, err := newSimulator(h, opts, ops)
 	if err != nil {
 		return nil, err
 	}
@@ -320,8 +315,7 @@ func TestLowercaseMemoryPolicyUsesKubeletSpellingInAppliedConfiguration(t *testi
 	t.Parallel()
 	h := testHost(t)
 	require.NoError(t, os.WriteFile(h.HostPath("/var/lib/kubelet/config.yaml"), []byte("evictionHard:\n  memory.available: 1Mi\n"), 0600))
-	runner := hostRunnerFunc(func(context.Context, HostAction) error { return nil })
-	sim, err := newTestSimulator(h, Options{Runner: runner, Enabled: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedMemory: "2Mi"})
+	sim, err := newTestSimulator(h, Options{Enabled: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedMemory: "2Mi"})
 	require.NoError(t, err)
 	require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
 	// User settings are lowercase; the stored policy uses kubelet spelling.
@@ -382,57 +376,6 @@ func TestKubeletConfigRejectsInvalidManagedFields(t *testing.T) {
 	require.ErrorContains(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)), "decode kubelet config")
 }
 
-type hostRunnerFunc func(context.Context, HostAction) error
-
-func (f hostRunnerFunc) Run(ctx context.Context, action HostAction) error {
-	return f(ctx, action)
-}
-
-func TestConstructorHostRunnerReceivesActionsAndErrors(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name          string
-		enabled, fail bool
-		action        HostAction
-	}{
-		{name: "apply", enabled: true, action: ActionApply},
-		{name: "restore", action: ActionRestore},
-		{name: "runner failure", enabled: true, fail: true, action: ActionApply},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			h := testHost(t)
-			require.NoError(t, os.MkdirAll(h.RootPath("numa"), 0755))
-			if !tc.enabled {
-				require.NoError(t, fsutil.Write(h.RunPath(appliedRel), []byte("active\n"), 0600))
-			}
-			calls := 0
-			failure := errors.New("test host runner failed")
-			runner := hostRunnerFunc(func(ctx context.Context, action HostAction) error {
-				require.Equal(t, t.Context(), ctx)
-				require.Equal(t, tc.action, action)
-				calls++
-				if tc.fail {
-					return failure
-				}
-				return nil
-			})
-			sim, err := newTestSimulator(h, Options{Enabled: tc.enabled, Runner: runner})
-			require.NoError(t, err)
-			require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
-			err = sim.Apply(t.Context(), nil)
-			if tc.fail {
-				require.ErrorIs(t, err, failure)
-				require.False(t, sim.Ready())
-			} else {
-				require.NoError(t, err)
-				require.True(t, sim.Ready())
-			}
-			require.Equal(t, 1, calls)
-		})
-	}
-}
-
 func TestDefaultSystemMemoryReservation(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
@@ -464,16 +407,13 @@ func TestDisableRecoversPendingSetupAndBootRegistration(t *testing.T) {
 				require.NoError(t, kubelet.ArmBootReset(h, kubelet.BootResetPlan{NUMA: true}))
 				require.NoError(t, os.RemoveAll(h.Run))
 			}
-			called := false
-			runner := hostRunnerFunc(func(_ context.Context, action HostAction) error {
-				require.Equal(t, ActionRestore, action)
-				called = true
-				return nil
-			})
-			sim, err := newTestSimulator(h, Options{Runner: runner})
+			ops, calls := fakeHostOperations()
+			sim, err := newTestSimulator(h, Options{}, ops)
 			require.NoError(t, err)
 			require.NoError(t, sim.Apply(t.Context(), nil))
-			require.True(t, called)
+			require.Contains(t, *calls, "systemctl start kubelet")
+			require.NoFileExists(t, h.RunPath(pendingRel))
+			require.NoFileExists(t, h.RootPath("kubelet/boot-reset.json"))
 		})
 	}
 }
@@ -484,13 +424,16 @@ func TestFailedApplyRequeuesUntilItSucceeds(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
 	fail := true
-	runner := hostRunnerFunc(func(context.Context, HostAction) error {
+	ops, _ := fakeHostOperations()
+	run := ops.run
+	failure := errors.New("test host command failed")
+	ops.run = func(ctx context.Context, name string, args ...string) error {
 		if fail {
-			return errors.New("test host runner failed")
+			return failure
 		}
-		return nil
-	})
-	sim, err := newTestSimulator(h, Options{Enabled: true, Runner: runner})
+		return run(ctx, name, args...)
+	}
+	sim, err := newTestSimulator(h, Options{Enabled: true}, ops)
 	require.NoError(t, err)
 	sim.retryFirst = time.Millisecond
 	state := testEnrichedState(t, h)
@@ -504,9 +447,11 @@ func TestFailedApplyRequeuesUntilItSucceeds(t *testing.T) {
 		}
 	}
 
-	require.Error(t, sim.Apply(t.Context(), state))
+	require.ErrorIs(t, sim.Apply(t.Context(), state), failure)
+	require.False(t, sim.Ready())
 	require.True(t, requeued())
-	require.Error(t, sim.Apply(t.Context(), state))
+	require.ErrorIs(t, sim.Apply(t.Context(), state), failure)
+	require.False(t, sim.Ready())
 	require.Equal(t, 4*time.Millisecond, sim.retryDelay, "the delay doubles")
 	require.True(t, requeued())
 
@@ -538,4 +483,60 @@ func TestNUMAEnabledAlwaysStagesKubeletConfiguration(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(data), "topologyManagerPolicy: single-numa-node")
 	require.Contains(t, string(data), "topologyManagerScope: container")
+}
+
+func TestSimulatorUsesHostOperationsWithDeadline(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	ops, calls := fakeHostOperations()
+	run := ops.run
+	ops.run = func(ctx context.Context, name string, args ...string) error {
+		deadline, ok := ctx.Deadline()
+		require.True(t, ok)
+		require.Positive(t, time.Until(deadline))
+		require.LessOrEqual(t, time.Until(deadline), 120*time.Second)
+		return run(ctx, name, args...)
+	}
+	sim, err := newTestSimulator(h, Options{Enabled: true}, ops)
+	require.NoError(t, err)
+	require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, h)))
+	require.NoError(t, sim.Apply(t.Context(), nil))
+	require.True(t, sim.Ready())
+	require.Contains(t, *calls, "systemctl start kubelet")
+	require.Contains(t, *calls, "healthcheck")
+	disabled, err := newTestSimulator(h, Options{}, ops)
+	require.NoError(t, err)
+	require.NoError(t, disabled.Apply(t.Context(), nil))
+	require.True(t, disabled.Ready())
+	require.NoFileExists(t, h.RunPath(appliedRel))
+	require.Contains(t, *calls, "umount "+h.HostPath(kubeletConfig))
+}
+
+func TestDisabledSimulatorLeavesUnmanagedNodeUntouched(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	ops, calls := fakeHostOperations()
+	sim, err := newTestSimulator(h, Options{}, ops)
+	require.NoError(t, err)
+	require.Empty(t, *calls, "construction must not change the node")
+	require.NoError(t, sim.Stage(t.Context(), nil))
+	require.NoError(t, sim.Apply(t.Context(), nil))
+	require.True(t, sim.Ready())
+	require.Empty(t, *calls, "disabled simulation must not change an unmanaged node")
+}
+
+func TestSimulatorRestoreFailureKeepsRecoveryState(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	require.NoError(t, fsutil.Write(h.RunPath(pendingRel), []byte("partial"), 0600))
+	ops, _ := fakeHostOperations()
+	failure := errors.New("cannot stop kubelet")
+	ops.run = func(context.Context, string, ...string) error { return failure }
+	sim, err := newTestSimulator(h, Options{}, ops)
+	require.NoError(t, err)
+	require.NoError(t, sim.Stage(t.Context(), nil))
+	require.ErrorIs(t, sim.Apply(t.Context(), nil), failure)
+	t.Cleanup(func() { sim.retryTimer.Stop() })
+	require.False(t, sim.Ready())
+	requireFileContent(t, h.RunPath(pendingRel), "partial")
 }

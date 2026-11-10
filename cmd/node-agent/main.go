@@ -284,7 +284,6 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	)
 
 	numaSimulator, err := numa.New(h, numa.Options{
-		Runner:               numa.NewPodRunner(h),
 		Enabled:              cmd.Bool("numa-simulation"),
 		Policy:               cmd.String("numa-topology-manager-policy"),
 		CPUManagerPolicy:     cmd.String("numa-cpu-manager-policy"),

@@ -23,31 +23,45 @@ import (
 var checkpointFiles = []string{"cpu_manager_state", "memory_manager_state"}
 
 type hostSetup struct {
-	host        *host.Host
+	host *host.Host
+	hostOperations
+}
+
+// hostOperations isolates privileged operations from the setup lifecycle.
+type hostOperations struct {
 	run         func(context.Context, string, ...string) error
 	mounted     func(string) (bool, error)
 	mountedFrom func(string, string) (bool, error)
 	waitHealthy func(context.Context) error
 }
 
-func newHostSetup(h *host.Host) *hostSetup {
-	s := &hostSetup{host: h, mounted: fsutil.IsMounted, mountedFrom: fsutil.IsBindMounted}
-	s.run = func(ctx context.Context, name string, args ...string) error {
-		chroot := cri.Chroot{Root: h.Prefix}
-		if name == "systemctl" {
-			return cri.Systemctl(ctx, chroot, args...)
-		}
-		cmd := exec.CommandContext(ctx, name, args...)
-		// Mount paths are in the pod view; only systemctl needs the host root.
-		cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("%s %v: %w: %s", name, args, err, output)
-		}
-		return nil
+func newHostSetup(h *host.Host, ops hostOperations) *hostSetup {
+	s := &hostSetup{host: h, hostOperations: ops}
+	if s.mounted == nil {
+		s.mounted = fsutil.IsMounted
 	}
-
-	s.waitHealthy = s.waitForKubelet
+	if s.mountedFrom == nil {
+		s.mountedFrom = fsutil.IsBindMounted
+	}
+	if s.run == nil {
+		s.run = func(ctx context.Context, name string, args ...string) error {
+			chroot := cri.Chroot{Root: h.Prefix}
+			if name == "systemctl" {
+				return cri.Systemctl(ctx, chroot, args...)
+			}
+			cmd := exec.CommandContext(ctx, name, args...)
+			// Mount paths are in the pod view; only systemctl needs the host root.
+			cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("%s %v: %w: %s", name, args, err, output)
+			}
+			return nil
+		}
+	}
+	if s.waitHealthy == nil {
+		s.waitHealthy = s.waitForKubelet
+	}
 	return s
 }
 

@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func hostFixture(t *testing.T) (*hostSetup, *[]string) {
+func hostFixture(t *testing.T, configure ...func(*hostOperations)) (*hostSetup, *[]string) {
 	t.Helper()
 	h := host.New(t.TempDir())
 	for path, data := range map[string]string{
@@ -30,27 +30,35 @@ func hostFixture(t *testing.T) (*hostSetup, *[]string) {
 		require.NoError(t, fsutil.Write(path, []byte(data), 0600))
 	}
 	require.NoError(t, os.MkdirAll(h.RootPath("numa/sysbusnode"), 0700))
-	s := newHostSetup(h)
+	ops, calls := fakeHostOperations()
+	for _, change := range configure {
+		change(&ops)
+	}
+	return newHostSetup(h, ops), calls
+}
+
+func fakeHostOperations() (hostOperations, *[]string) {
 	calls := []string{}
 	mounts := map[string]string{}
-	s.run = func(_ context.Context, name string, args ...string) error {
-		calls = append(calls, name+" "+strings.Join(args, " "))
-		if name == "mount" && args[0] == "--bind" {
-			mounts[args[2]] = args[1]
-		}
-		if name == "mount" && args[0] == "--move" {
-			mounts[args[2]] = mounts[args[1]]
-			delete(mounts, args[1])
-		}
-		if name == "umount" {
-			delete(mounts, args[0])
-		}
-		return nil
-	}
-	s.mounted = func(path string) (bool, error) { _, ok := mounts[path]; return ok, nil }
-	s.mountedFrom = func(source, target string) (bool, error) { return mounts[target] == source, nil }
-	s.waitHealthy = func(context.Context) error { calls = append(calls, "healthcheck"); return nil }
-	return s, &calls
+	return hostOperations{
+		run: func(_ context.Context, name string, args ...string) error {
+			calls = append(calls, name+" "+strings.Join(args, " "))
+			if name == "mount" && args[0] == "--bind" {
+				mounts[args[2]] = args[1]
+			}
+			if name == "mount" && args[0] == "--move" {
+				mounts[args[2]] = mounts[args[1]]
+				delete(mounts, args[1])
+			}
+			if name == "umount" {
+				delete(mounts, args[0])
+			}
+			return nil
+		},
+		mounted:     func(path string) (bool, error) { _, ok := mounts[path]; return ok, nil },
+		mountedFrom: func(source, target string) (bool, error) { return mounts[target] == source, nil },
+		waitHealthy: func(context.Context) error { calls = append(calls, "healthcheck"); return nil },
+	}, &calls
 }
 
 func TestHostApplyMountsConfigWithoutChangingOriginalAndRestores(t *testing.T) {
@@ -112,9 +120,26 @@ func TestHostRestoreRetainsBackupsOnFailure(t *testing.T) {
 	for _, step := range []string{"systemctl stop kubelet", "copy-cpu", "copy-memory", "umount", "systemctl daemon-reload", "systemctl start kubelet", "healthcheck"} {
 		t.Run(step, func(t *testing.T) {
 			t.Parallel()
-			s, _ := hostFixture(t)
+			restoring := false
+			s, _ := hostFixture(t, func(ops *hostOperations) {
+				run := ops.run
+				ops.run = func(ctx context.Context, name string, args ...string) error {
+					if restoring && (name+" "+strings.Join(args, " ") == step || (step == "umount" && name == "umount")) {
+						return errors.New("injected command failure")
+					}
+					return run(ctx, name, args...)
+				}
+				healthy := ops.waitHealthy
+				ops.waitHealthy = func(ctx context.Context) error {
+					if restoring && step == "healthcheck" {
+						return errors.New("injected health failure")
+					}
+					return healthy(ctx)
+				}
+			})
 			h := s.host
 			require.NoError(t, s.apply(t.Context()))
+			restoring = true
 			require.NoError(t, fsutil.Write(h.RunPath("mokka/numa/original/memory_manager_state"), []byte("original memory"), 0600))
 			switch step {
 			case "copy-cpu", "copy-memory":
@@ -122,16 +147,6 @@ func TestHostRestoreRetainsBackupsOnFailure(t *testing.T) {
 				path := h.HostPath("/var/lib/kubelet/" + file)
 				require.NoError(t, fsutil.Remove(path))
 				require.NoError(t, os.Mkdir(path, 0700))
-			case "healthcheck":
-				s.waitHealthy = func(context.Context) error { return errors.New("injected health failure") }
-			default:
-				original := s.run
-				s.run = func(ctx context.Context, name string, args ...string) error {
-					if name+" "+strings.Join(args, " ") == step || (step == "umount" && name == "umount") {
-						return errors.New("injected command failure")
-					}
-					return original(ctx, name, args...)
-				}
 			}
 			require.Error(t, s.restore(t.Context()))
 			requireFileContent(t, h.RunPath("mokka/numa/original/cpu_manager_state"), "original cpu")
@@ -147,21 +162,22 @@ func TestHostApplyFailureRollsBack(t *testing.T) {
 	for _, failRestore := range []bool{false, true} {
 		t.Run(map[bool]string{false: "restored", true: "rollback also fails"}[failRestore], func(t *testing.T) {
 			t.Parallel()
-			s, _ := hostFixture(t)
-			original := s.run
 			starts := 0
-			s.run = func(ctx context.Context, name string, args ...string) error {
-				if name == "systemctl" && args[0] == "start" {
-					starts++
-					if starts == 1 {
-						return errors.New("injected apply failure")
+			s, _ := hostFixture(t, func(ops *hostOperations) {
+				original := ops.run
+				ops.run = func(ctx context.Context, name string, args ...string) error {
+					if name == "systemctl" && args[0] == "start" {
+						starts++
+						if starts == 1 {
+							return errors.New("injected apply failure")
+						}
+						if failRestore {
+							return errors.New("injected rollback failure")
+						}
 					}
-					if failRestore {
-						return errors.New("injected rollback failure")
-					}
+					return original(ctx, name, args...)
 				}
-				return original(ctx, name, args...)
-			}
+			})
 			err := s.apply(t.Context())
 			require.ErrorContains(t, err, "injected apply failure")
 			requireFileContent(t, s.host.HostPath(kubeletConfig), "original config")
@@ -182,23 +198,24 @@ func TestHostMountFailureDoesNotPublishAndPreservesSource(t *testing.T) {
 	for _, failCleanup := range []bool{false, true} {
 		t.Run(map[bool]string{false: "cleanup succeeds", true: "cleanup fails"}[failCleanup], func(t *testing.T) {
 			t.Parallel()
-			s, _ := hostFixture(t)
+			var stage string
+			s, _ := hostFixture(t, func(ops *hostOperations) {
+				original := ops.run
+				ops.run = func(ctx context.Context, name string, args ...string) error {
+					if name == "mount" && args[0] == "--bind" {
+						stage = args[2]
+					}
+					if name == "mount" && args[0] == "-o" {
+						return errors.New("read-only remount failed")
+					}
+					if failCleanup && name == "umount" {
+						return errors.New("staging unmount failed")
+					}
+					return original(ctx, name, args...)
+				}
+			})
 			source := s.host.RootPath("numa/sysnode")
 			target := s.host.SysPath("devices/system/node")
-			original := s.run
-			var stage string
-			s.run = func(ctx context.Context, name string, args ...string) error {
-				if name == "mount" && args[0] == "--bind" && args[1] == source {
-					stage = args[2]
-				}
-				if name == "mount" && args[0] == "-o" {
-					return errors.New("read-only remount failed")
-				}
-				if failCleanup && name == "umount" {
-					return errors.New("staging unmount failed")
-				}
-				return original(ctx, name, args...)
-			}
 			err := s.mountReadOnly(t.Context(), source, target)
 			require.ErrorContains(t, err, "read-only remount failed")
 			mounted, mountErr := s.mounted(target)
@@ -219,17 +236,13 @@ func TestHostMountFailureDoesNotPublishAndPreservesSource(t *testing.T) {
 
 func TestHostRefusesForeignMount(t *testing.T) {
 	t.Parallel()
-	s, calls := hostFixture(t)
-	s.mounted = func(string) (bool, error) { return true, nil }
+	s, calls := hostFixture(t, func(ops *hostOperations) {
+		ops.mounted = func(string) (bool, error) { return true, nil }
+	})
 	require.ErrorContains(t, s.mountTree(t.Context()), "unmanaged NUMA mount")
 	require.ErrorContains(t, s.mountConfig(t.Context()), "unmanaged NUMA mount")
 	require.ErrorContains(t, s.unmountOwned(t.Context(), s.host.RootPath("numa/sysnode"), s.host.SysPath("devices/system/node")), "unmanaged NUMA mount")
 	require.Empty(t, *calls)
-}
-
-func TestPodRunnerRejectsUnknownAction(t *testing.T) {
-	t.Parallel()
-	require.ErrorContains(t, NewPodRunner(host.New(t.TempDir())).Run(t.Context(), "invalid"), "unknown NUMA host action")
 }
 
 func requireFileContent(t *testing.T, path, value string) {
@@ -241,8 +254,9 @@ func requireFileContent(t *testing.T, path, value string) {
 
 func TestWaitForKubeletHonorsCancellation(t *testing.T) {
 	t.Parallel()
-	s, _ := hostFixture(t)
-	s.run = func(context.Context, string, ...string) error { return errors.New("inactive") }
+	s, _ := hostFixture(t, func(ops *hostOperations) {
+		ops.run = func(context.Context, string, ...string) error { return errors.New("inactive") }
+	})
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	require.ErrorIs(t, s.waitForKubelet(ctx), context.Canceled)
@@ -273,16 +287,17 @@ func TestHostRequiresBothTopologyMounts(t *testing.T) {
 
 func TestFailedSetupBeforeBackupRestartsKubelet(t *testing.T) {
 	t.Parallel()
-	s, calls := hostFixture(t)
-	original := s.run
 	failed := false
-	s.run = func(ctx context.Context, name string, args ...string) error {
-		if !failed && name == "systemctl" && args[0] == "stop" && args[1] == "kubelet" {
-			failed = true
-			return errors.New("setup interrupted before backup")
+	s, calls := hostFixture(t, func(ops *hostOperations) {
+		original := ops.run
+		ops.run = func(ctx context.Context, name string, args ...string) error {
+			if !failed && name == "systemctl" && args[0] == "stop" && args[1] == "kubelet" {
+				failed = true
+				return errors.New("setup interrupted before backup")
+			}
+			return original(ctx, name, args...)
 		}
-		return original(ctx, name, args...)
-	}
+	})
 	require.ErrorContains(t, s.apply(t.Context()), "setup interrupted before backup")
 	require.Contains(t, *calls, "systemctl start kubelet")
 	require.Contains(t, *calls, "healthcheck")
