@@ -1,15 +1,5 @@
-// Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 
 package engine
 
@@ -84,6 +74,8 @@ func fabricCliques(cfg *FabricConfig, arch gpuarch.Arch) []FabricClique {
 		return cmp.Or(cmp.Compare(a.Type, b.Type), cmp.Compare(a.ID, b.ID))
 	})
 	cliques = slices.Compact(cliques)
+	// Validation keeps a profile within the limit; only a runtime override,
+	// which is not validated, can still exceed what the struct holds.
 	return cliques[:min(len(cliques), nvml.GPU_FABRIC_CLIQUE_MAX)]
 }
 
@@ -104,10 +96,7 @@ func validateFabricCliqueList(fabric *FabricConfig) error {
 	if fabric == nil {
 		return nil
 	}
-	// One slot of the struct always holds the unicast-pointer clique.
-	if limit := nvml.GPU_FABRIC_CLIQUE_MAX - 1; len(fabric.Cliques) > limit {
-		return fmt.Errorf("fabric.cliques lists %d entries, at most %d fit", len(fabric.Cliques), limit)
-	}
+	listed := map[uint8]struct{}{}
 	for i, c := range fabric.Cliques {
 		t, ok := parseFabricCliqueType(c.Type)
 		if !ok {
@@ -116,6 +105,14 @@ func validateFabricCliqueList(fabric *FabricConfig) error {
 		if t == nvml.GPU_FABRIC_CLIQUE_TYPE_UNICAST_POINTER {
 			return fmt.Errorf("fabric.cliques[%d].type %q: set the unicast-pointer clique with fabric.clique_id", i, c.Type)
 		}
+		listed[t] = struct{}{}
+	}
+	// Every type the list leaves out still reports its default clique, the
+	// unicast-pointer one included. Counting them for the newest architecture
+	// keeps a list that fits from losing entries on any board.
+	if total := len(fabric.Cliques) + len(fabricCliqueTypes) - len(listed); total > nvml.GPU_FABRIC_CLIQUE_MAX {
+		return fmt.Errorf("fabric.cliques lists %d entries: with the default clique of every other type that is %d, more than the %d a GPU reports",
+			len(fabric.Cliques), total, nvml.GPU_FABRIC_CLIQUE_MAX)
 	}
 	return nil
 }
