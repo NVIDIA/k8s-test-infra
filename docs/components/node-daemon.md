@@ -26,6 +26,7 @@ outlive a reconcile.
 | Simulator | Stages                                                                                                                                                   |
 |---|----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `gpudriver` | Character devices, the mock NVML library, [`nvidia-smi`](#which-nvidia-smi-a-node-runs), procfs entries, the engine config, and a bind mount of the driver tree at `/run/nvidia/driver`, the path GPU Operator expects |
+| `numa` | A [NUMA filesystem tree](#numa-simulation) for kubelet and topology reporters, plus optional kubelet configuration |
 | `pcibus` | A fake `/sys/bus/pci/devices` tree, the `libmockfs.so` shim, and the NFD feature file that lets Node Feature Discovery label the node                  |
 | `cri` | Two CDI specs that containerd uses to inject mock GPUs into workload containers, and the [container runtime setup](#container-runtime-setup) that registers the `nvidia` handler. While IMEX is staged, the GPU spec also mounts `nvidia-imex` and `nvidia-imex-ctl`, as the NVIDIA Container Toolkit does on a real GB200 or GB300 node, with `nvidia-imex.real` beside Mokka's `nvidia-imex` shim |
 | `imex` | On multi-node NVLink profiles: IMEX channel character devices, a `/proc/devices` overlay, and the capability file the DRA compute-domain plugin reads, plus `nvidia-imex` and `nvidia-imex-ctl` from a pinned archive: delivered by the chart's `imex.binaries.image`, or downloaded from NVIDIA into a node cache while the `IMEXDownload` [feature gate](../feature-gates.md) is on. A node without the archive stays ready and stages no IMEX, as a real node without the IMEX package |
@@ -78,7 +79,7 @@ implements its staging, publication, and daemon interfaces.
 |---|---|---|
 | `Enricher` | the NUMA topology enricher, registered only with NUMA simulation enabled | `Enrich` reads the node, never changes it, and writes only the state fields it owns |
 | `Simulator` | all simulators | `Stage` writes artifacts that are not yet externally visible. Idempotent, re-runs on every state change |
-| `Applier` | `gpudriver`, `pcibus`, `cri` | `Apply` publishes artifacts that something *outside* the node acts on — containerd, NFD, the GPU Operator validator |
+| `Applier` | `numa`, `gpudriver`, `pcibus`, `cri` | `Apply` publishes artifacts that something *outside* the node acts on — containerd, NFD, the GPU Operator validator |
 | `Daemon` | `fabricmanager`, `ib`, `kernellog` | `Run` supervises a long-lived process; `Reload` delivers later state to it without a restart |
 
 Each state update runs through enrichment and three waves:
