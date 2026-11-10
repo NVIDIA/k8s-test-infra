@@ -95,10 +95,10 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, Conti
 			})
 
 			It("labels gpu.machine from the served machine-type file", Label("device-plugin"), func(ctx SpecContext) {
-				// The same string as gpu.product, for want of a platform field
-				// in the profiles: both are the GPU's product name.
+				// The profile's system product name, or the GPU's product name
+				// where the profile names no system.
 				assertions.WaitGFDLabels(ctx, h.Kube, node,
-					map[string]string{assertions.GFDLabelMachine: p.GFDProductName()},
+					map[string]string{assertions.GFDLabelMachine: p.GFDMachine()},
 					config.ReadyTimeout(), config.PollInterval())
 			})
 
@@ -150,7 +150,7 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, Conti
 })
 
 // gpmProfiles are the Hopper+ profiles that serve DCGM_FI_PROF_* GPM metrics.
-var gpmProfiles = map[string]bool{"h100": true, "b200": true, "gb200": true, "gb300": true}
+var gpmProfiles = map[string]bool{"h100": true, "b200": true, "gb200": true, "gb300": true, "vrnvl72": true}
 
 // xidTestCode is the Xid injected and asserted on (79 = GPU fallen off the bus).
 const xidTestCode = 79

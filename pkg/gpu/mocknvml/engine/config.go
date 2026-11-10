@@ -1157,6 +1157,11 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.AddressingMode != "" {
 		base.AddressingMode = override.AddressingMode
 	}
+	// A bool override can only turn EGM on: false is indistinguishable from
+	// an omitted key, so a device inherits the default unless it sets true.
+	if override.EGM {
+		base.EGM = true
+	}
 	if override.PCI != nil {
 		if base.PCI == nil {
 			base.PCI = &PCIConfig{}

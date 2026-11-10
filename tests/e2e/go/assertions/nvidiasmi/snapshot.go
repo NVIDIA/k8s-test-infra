@@ -208,6 +208,10 @@ func (s Snapshot) MaxUncorrectedECCAggregate() (int, bool) {
 // TemperatureC is <gpu_temp>, i.e. temperature.gpu.
 func (g GPU) TemperatureC() (int, bool) { return g.element.Temperature.GPUTemp.intValue() }
 
+// TLimitC is <gpu_temp_tlimit>, the T.Limit margin: degrees left before the GPU
+// reaches its T.Limit reference.
+func (g GPU) TLimitC() (int, bool) { return g.element.Temperature.TLimit.intValue() }
+
 // UtilizationGPUPercent is <gpu_util>, i.e. utilization.gpu.
 func (g GPU) UtilizationGPUPercent() (int, bool) { return g.element.Utilization.GPU.intValue() }
 
