@@ -101,6 +101,7 @@ jobs:
         uses: ./.github/actions/setup-dgxc-goproxy
         with:
           mode: routed
+          repo-key: dgxc-go-virtual-curated
 
       - name: Build nvml-mock image to a tarball
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
@@ -116,7 +117,7 @@ jobs:
           # Artifactory cannot serve falls through instead of failing every PR.
           build-args: |
             GOLANG_VERSION=${{ env.GO_VERSION }}
-            GOPROXY=https://edge.urm.nvidia.com/artifactory/api/go/dgxc-go-virtual,direct
+            GOPROXY=https://edge.urm.nvidia.com/artifactory/api/go/dgxc-go-virtual-curated,direct
           secret-files: |
             goauth=${{ runner.temp }}/dgxc-goauth
           cache-from: type=gha,scope=nvml-mock
@@ -179,6 +180,7 @@ jobs:
         uses: ./.github/actions/setup-dgxc-goproxy
         with:
           mode: routed
+          repo-key: dgxc-go-virtual-curated
 
       # Only the runners' architecture: the ComputeDomain job builds the
       # binaries image for amd64.
@@ -257,6 +259,7 @@ jobs:
         uses: ./.github/actions/setup-dgxc-goproxy
         with:
           mode: routed
+          repo-key: dgxc-go-virtual-curated
 
       - name: Assert the proxy is actually in front
         run: ./hack/check-goproxy.sh
@@ -328,6 +331,7 @@ jobs:
         uses: ./.github/actions/setup-dgxc-goproxy
         with:
           mode: routed
+          repo-key: dgxc-go-virtual-curated
 
       - name: Assert the proxy is actually in front
         run: ./hack/check-goproxy.sh
@@ -412,6 +416,7 @@ jobs:
         uses: ./.github/actions/setup-dgxc-goproxy
         with:
           mode: routed
+          repo-key: dgxc-go-virtual-curated
 
       - name: Assert the proxy is actually in front
         run: ./hack/check-goproxy.sh
@@ -505,6 +510,7 @@ jobs:
         uses: ./.github/actions/setup-dgxc-goproxy
         with:
           mode: routed
+          repo-key: dgxc-go-virtual-curated
 
       - name: Assert the proxy is actually in front
         run: ./hack/check-goproxy.sh
@@ -572,6 +578,7 @@ jobs:
         uses: ./.github/actions/setup-dgxc-goproxy
         with:
           mode: routed
+          repo-key: dgxc-go-virtual-curated
 
       - name: Assert the proxy is actually in front
         run: ./hack/check-goproxy.sh
@@ -643,6 +650,7 @@ jobs:
         uses: ./.github/actions/setup-dgxc-goproxy
         with:
           mode: routed
+          repo-key: dgxc-go-virtual-curated
 
       - name: Assert the proxy is actually in front
         run: ./hack/check-goproxy.sh
@@ -720,6 +728,7 @@ jobs:
         uses: ./.github/actions/setup-dgxc-goproxy
         with:
           mode: routed
+          repo-key: dgxc-go-virtual-curated
 
       - name: Assert the proxy is actually in front
         run: ./hack/check-goproxy.sh
@@ -799,6 +808,7 @@ jobs:
         uses: ./.github/actions/setup-dgxc-goproxy
         with:
           mode: routed
+          repo-key: dgxc-go-virtual-curated
 
       - name: Assert the proxy is actually in front
         run: ./hack/check-goproxy.sh
@@ -872,6 +882,7 @@ jobs:
         uses: ./.github/actions/setup-dgxc-goproxy
         with:
           mode: routed
+          repo-key: dgxc-go-virtual-curated
 
       - name: Assert the proxy is actually in front
         run: ./hack/check-goproxy.sh
