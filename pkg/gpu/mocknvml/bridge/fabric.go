@@ -15,6 +15,7 @@
 // This file contains hand-written implementations for:
 //   - nvmlDeviceGetGpuFabricInfo (v1 struct, no version field)
 //   - nvmlDeviceGetGpuFabricInfoV (versioned, dispatches on version field)
+//   - nvmlDeviceGetGpuFabricInfo_v4 (per-type cliques, no version field)
 //
 // These power ComputeDomain simulation on KIND clusters: the real
 // dra-driver-nvidia-gpu controller and daemon read these APIs to learn
@@ -126,4 +127,42 @@ func nvmlDeviceGetGpuFabricInfoV(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpu
 	default:
 		return C.NVML_ERROR_ARGUMENT_VERSION_MISMATCH
 	}
+}
+
+// nvmlDeviceGetGpuFabricInfo_v4 serves the same fabric as the two entry points
+// above, with the single clique id replaced by one clique per fabric operation
+// type.
+//
+//export nvmlDeviceGetGpuFabricInfo_v4
+func nvmlDeviceGetGpuFabricInfo_v4(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpuFabricInfo_v4_t) C.nvmlReturn_t {
+	if gpuFabricInfo == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := unsafe.Pointer(device.handle)
+	dev, ok := engine.GetEngine().LookupDevice(handle).(*engine.ConfigurableDevice)
+	if !ok {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	info, ret := dev.GetMockFabricInfoV4()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+
+	// Clear the struct first, so the entries past numCliques read as zero
+	// whatever the caller's buffer held.
+	*gpuFabricInfo = C.nvmlGpuFabricInfo_v4_t{}
+	for i := range len(info.ClusterUUID) {
+		gpuFabricInfo.clusterUuid[i] = C.uchar(info.ClusterUUID[i])
+	}
+	gpuFabricInfo.status = C.nvmlReturn_t(info.Status)
+	cliques := info.Cliques[:min(len(info.Cliques), len(gpuFabricInfo.cliques))]
+	for i, clique := range cliques {
+		gpuFabricInfo.cliques[i]._type = C.uchar(clique.Type)
+		gpuFabricInfo.cliques[i].id = C.uint(clique.ID)
+	}
+	gpuFabricInfo.numCliques = C.uint(len(cliques))
+	gpuFabricInfo.state = C.nvmlGpuFabricState_t(info.State)
+	gpuFabricInfo.healthMask = C.uint(info.HealthMask)
+	gpuFabricInfo.healthSummary = C.uchar(info.HealthSummary)
+	return C.NVML_SUCCESS
 }
