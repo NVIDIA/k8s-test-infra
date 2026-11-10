@@ -57,6 +57,7 @@ func bridgeTests(deviceCount int) []testResult {
 	results = append(results, testInitShutdownCycles()...)
 	results = append(results, testInternalExportTable()...)
 	results = append(results, testFabricHealth(deviceCount)...)
+	results = append(results, testFabricCliques(deviceCount)...)
 	results = append(results, testThrottleCounters(deviceCount)...)
 	results = append(results, testConfComputeMemory(deviceCount)...)
 	results = append(results, testPowerLimitSetters(deviceCount)...)
@@ -1019,6 +1020,85 @@ func testFabricHealth(deviceCount int) []testResult {
 			results = append(results, testResult{name + "/conditions", false, fmt.Sprintf("route recovery = %d, want False (%d)", routeRecovery, nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_RECOVERY_FALSE)})
 		default:
 			results = append(results, testResult{name + "/conditions", true, ""})
+		}
+	}
+
+	return results
+}
+
+// --- Fabric clique tests ---
+
+// testFabricCliques drives nvmlDeviceGetGpuFabricInfo_v4 through the built
+// library. The struct carries no version tag, so the bridge writes all 548
+// bytes of it into whatever the caller passed: this is where a layout that
+// drifted from go-nvml's would show, as cliques read from the wrong offset.
+//
+// The fixture is an Ampere board, which reports a unicast-pointer clique only,
+// so device 0 pins the derived list and device 1, whose fabric block lists
+// cliques out of order, pins that the profile's entries arrive sorted. Either
+// way a consumer moving off v3 must find the same fabric in both structs.
+func testFabricCliques(deviceCount int) []testResult {
+	var results []testResult
+
+	cases := []struct {
+		index int
+		label string
+		want  []nvml.GpuFabricClique_v1
+	}{
+		{0, "derived", []nvml.GpuFabricClique_v1{
+			{Type: nvml.GPU_FABRIC_CLIQUE_TYPE_UNICAST_POINTER, Id: 3},
+		}},
+		{1, "profile", []nvml.GpuFabricClique_v1{
+			{Type: nvml.GPU_FABRIC_CLIQUE_TYPE_UNICAST_POINTER, Id: 3},
+			{Type: nvml.GPU_FABRIC_CLIQUE_TYPE_MULTICAST_POINTER, Id: 5},
+			{Type: nvml.GPU_FABRIC_CLIQUE_TYPE_UNICAST_LOGICAL_ENDPOINT, Id: 2},
+			{Type: nvml.GPU_FABRIC_CLIQUE_TYPE_UNICAST_LOGICAL_ENDPOINT, Id: 9},
+		}},
+	}
+
+	for _, tc := range cases {
+		if tc.index >= deviceCount {
+			continue
+		}
+		name := "fabric_v4/" + tc.label
+		device, ret := nvml.DeviceGetHandleByIndex(tc.index)
+		if ret != nvml.SUCCESS {
+			results = append(results, testResult{name, false, fmt.Sprintf("GetHandleByIndex(%d) failed: %v", tc.index, nvml.ErrorString(ret))})
+			continue
+		}
+		v3, ret := device.GetGpuFabricInfoV().V3()
+		if ret != nvml.SUCCESS {
+			results = append(results, testResult{name, false, fmt.Sprintf("V3 failed: %v", nvml.ErrorString(ret))})
+			continue
+		}
+
+		v4, ret := device.GetGpuFabricInfo_v4()
+		if ret != nvml.SUCCESS {
+			results = append(results, testResult{name, false, fmt.Sprintf("GetGpuFabricInfo_v4 failed: %v", nvml.ErrorString(ret))})
+			continue
+		}
+		count := int(v4.NumCliques)
+		var unused [nvml.GPU_FABRIC_CLIQUE_MAX]nvml.GpuFabricClique_v1
+		switch {
+		case count != len(tc.want) || !slices.Equal(v4.Cliques[:count], tc.want):
+			results = append(results, testResult{name + "/cliques", false, fmt.Sprintf("cliques = %v, want %v", v4.Cliques[:min(count, len(v4.Cliques))], tc.want)})
+		case !slices.Equal(v4.Cliques[count:], unused[count:]):
+			results = append(results, testResult{name + "/cliques", false, "entries past numCliques are not zero"})
+		default:
+			results = append(results, testResult{name + "/cliques", true, fmt.Sprintf("%v", v4.Cliques[:count])})
+		}
+
+		switch {
+		case v4.Cliques[0].Id != v3.CliqueId:
+			results = append(results, testResult{name + "/matches_v3", false, fmt.Sprintf("first unicast-pointer clique = %d, v3 cliqueId = %d", v4.Cliques[0].Id, v3.CliqueId)})
+		case v4.ClusterUuid != v3.ClusterUuid:
+			results = append(results, testResult{name + "/matches_v3", false, fmt.Sprintf("clusterUuid = %x, v3 = %x", v4.ClusterUuid, v3.ClusterUuid)})
+		case v4.Status != v3.Status || v4.State != v3.State:
+			results = append(results, testResult{name + "/matches_v3", false, fmt.Sprintf("status/state = %d/%d, v3 = %d/%d", v4.Status, v4.State, v3.Status, v3.State)})
+		case v4.HealthMask != v3.HealthMask || v4.HealthSummary != v3.HealthSummary:
+			results = append(results, testResult{name + "/matches_v3", false, fmt.Sprintf("health = 0x%x/%d, v3 = 0x%x/%d", v4.HealthMask, v4.HealthSummary, v3.HealthMask, v3.HealthSummary)})
+		default:
+			results = append(results, testResult{name + "/matches_v3", true, ""})
 		}
 	}
 

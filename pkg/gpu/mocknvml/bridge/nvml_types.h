@@ -631,9 +631,10 @@ typedef struct nvmlGpuDynamicPstatesInfo_st
 } nvmlGpuDynamicPstatesInfo_t;
 
 /* GPU Fabric information — full definitions needed by the bridge so
- * nvmlDeviceGetGpuFabricInfo / nvmlDeviceGetGpuFabricInfoV can populate
- * the caller's struct. Layout matches the upstream NVML public header
- * (versions v1 / v2 / v3); see go-nvml's pkg/nvml/nvml.h. */
+ * nvmlDeviceGetGpuFabricInfo / nvmlDeviceGetGpuFabricInfoV /
+ * nvmlDeviceGetGpuFabricInfo_v4 can populate the caller's struct. Layout
+ * matches the upstream NVML public header (versions v1 to v4); see go-nvml's
+ * pkg/nvml/nvml.h. */
 #define NVML_GPU_FABRIC_UUID_LEN 16
 
 #define NVML_GPU_FABRIC_STATE_NOT_SUPPORTED 0
@@ -670,6 +671,26 @@ typedef struct nvmlGpuFabricInfo_v3_st {
 } nvmlGpuFabricInfo_v3_t;
 
 typedef nvmlGpuFabricInfo_v3_t nvmlGpuFabricInfoV_t;
+
+/* v4 replaces cliqueId with one clique per fabric operation type. It also
+ * drops the version field: the entry point carries the version in its name,
+ * so the bridge has no tag to dispatch on and writes the whole struct. */
+#define NVML_GPU_FABRIC_CLIQUE_MAX 64
+
+typedef struct nvmlGpuFabricClique_v1_st {
+    unsigned char type;
+    unsigned int  id;
+} nvmlGpuFabricClique_v1_t;
+
+typedef struct nvmlGpuFabricInfo_v4_st {
+    unsigned char            clusterUuid[NVML_GPU_FABRIC_UUID_LEN];
+    nvmlReturn_t             status;
+    nvmlGpuFabricClique_v1_t cliques[NVML_GPU_FABRIC_CLIQUE_MAX];
+    unsigned int             numCliques;
+    nvmlGpuFabricState_t     state;
+    unsigned int             healthMask;
+    unsigned char            healthSummary;
+} nvmlGpuFabricInfo_v4_t;
 /* --- MIG GPU instances ---
  * Full definitions needed by bridge so mig.go can fill the caller's buffers.
  * Note v3 drops isP2pSupported and appends capabilities, so it is not a
@@ -1489,7 +1510,6 @@ typedef struct nvmlEventSetGetContextInfo_v1_st                         nvmlEven
 typedef struct nvmlEventSetGetGpuOperationalEventContextLegacyXid_v1_st nvmlEventSetGetGpuOperationalEventContextLegacyXid_v1_t;
 typedef struct nvmlEventSetWait_v3_st                                   nvmlEventSetWait_v3_t;
 typedef struct nvmlGetMemoryLimits_v1_st                                nvmlGetMemoryLimits_v1_t;
-typedef struct nvmlGpuFabricInfo_v4_st                                  nvmlGpuFabricInfo_v4_t;
 typedef struct nvmlGpuOperationalEventConfig_v1_st                      nvmlGpuOperationalEventConfig_v1_t;
 typedef struct nvmlNvlinkSetBwModeAsync_v1_st                           nvmlNvlinkSetBwModeAsync_v1_t;
 typedef struct nvmlNvlinkTelemetrySamples_v1_st                         nvmlNvlinkTelemetrySamples_v1_t;

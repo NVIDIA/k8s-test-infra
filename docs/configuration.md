@@ -1261,6 +1261,48 @@ Fabric health can also be degraded and restored at runtime with
 [`nvml-mock-ctl fabric-health`](nvml-mock-ctl.md#fabric-health--degrade-nvlink-fabric-health),
 without restarting the consumer.
 
+## Fabric Cliques
+
+`nvmlDeviceGetGpuFabricInfo_v4` replaces the single clique ID of the earlier
+fabric structs with a list of cliques, one per fabric operation type. The mock
+builds the list from the profile's `architecture`, and every clique in it
+carries `clique_id`. A consumer therefore reads the same clique from the v4
+struct as from `nvmlDeviceGetGpuFabricInfoV`.
+
+| Clique type | Reported on | `cliques:` type |
+| ----------- | ----------- | --------------- |
+| Unicast Pointer | every GPU with a `fabric:` block | none: always `clique_id` |
+| Multicast Pointer | Hopper and newer | `multicast_pointer` |
+| Unicast Logical Endpoint | Blackwell and newer | `unicast_logical_endpoint` |
+| Multicast Logical Endpoint | Blackwell and newer | `multicast_logical_endpoint` |
+
+List a type under `cliques` when its ID differs from `clique_id`. A Vera Rubin
+NVL72 tray reports its logical-endpoint cliques under another ID than its
+pointer cliques, and the `vrnvl72` profile reproduces that:
+
+```yaml
+device_defaults:
+  fabric:
+    clique_id: 65534
+    cliques:
+      - type: unicast_logical_endpoint
+        id: 32766
+      - type: multicast_logical_endpoint
+        id: 32766
+```
+
+The entries of a type replace its default. A type can be listed several times,
+and on an architecture that does not report it by default. The list holds up to
+63 entries, and the library reports them sorted by type and then by ID, as NVML
+does. A profile that lists `unicast_pointer` is rejected, because that clique is
+the one `clique_id` sets for every struct version.
+
+When the chart's `topology` values place the node in a clique, every type
+reports that clique and `cliques` is ignored.
+
+`nvidia-smi -q` from a 615 driver renders the list under `Fabric` → `Cliques`;
+the 580 binary does not know the block.
+
 ## Available GPU Profiles
 
 Standalone configuration files are provided for each supported GPU model:

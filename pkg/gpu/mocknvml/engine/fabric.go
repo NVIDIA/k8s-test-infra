@@ -18,6 +18,8 @@ import (
 	"strings"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/gpuarch"
 )
 
 // FabricState* values mirror NVML_GPU_FABRIC_STATE_* from the public NVML
@@ -32,11 +34,11 @@ const (
 )
 
 // FabricInfo is the engine-internal shape of a GPU's fabric attributes
-// (the union of v1, v2, v3 NVML structs). The CGo bridge converts this
+// (the union of v1, v2, v3, v4 NVML structs). The CGo bridge converts this
 // to the appropriate C struct version selected by the caller.
 //
 // No PartitionID: nvml_types.h does not carry a partition_id field on
-// any of v1/v2/v3, so plumbing one through the engine would only be
+// any of v1 to v4, so plumbing one through the engine would only be
 // dead weight. Reintroduce when there is a real NVML struct version
 // that exposes it.
 type FabricInfo struct {
@@ -46,6 +48,9 @@ type FabricInfo struct {
 	State         uint8
 	HealthMask    uint32
 	HealthSummary uint8
+	// Cliques is the v4 clique list. Only GetMockFabricInfoV4 fills it: no
+	// earlier struct version can carry it.
+	Cliques []FabricClique
 }
 
 // GetMockFabricInfo returns the v1 fabric information for this device.
@@ -86,6 +91,27 @@ func (d *ConfigurableDevice) GetMockFabricInfoV() (FabricInfo, nvml.Return) {
 	info := buildFabricInfo(cfg.Fabric)
 	debugLog("[NVML] nvmlDeviceGetGpuFabricInfoV -> clique=%d state=%d healthMask=0x%x healthSummary=%d\n",
 		info.CliqueID, info.State, info.HealthMask, info.HealthSummary)
+	return info, nvml.SUCCESS
+}
+
+// GetMockFabricInfoV4 returns the fabric information of
+// nvmlDeviceGetGpuFabricInfo_v4: what GetMockFabricInfoV returns, plus the
+// per-type clique list that replaces the single clique id in that struct.
+//
+// Named like its siblings, to avoid shadowing the embedded dgxa100.Device's
+// interface method `GetGpuFabricInfo_v4() (nvml.GpuFabricInfo_v4, nvml.Return)`.
+func (d *ConfigurableDevice) GetMockFabricInfoV4() (FabricInfo, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return FabricInfo{}, ret
+	}
+	cfg := d.cfg()
+	if cfg.Fabric == nil {
+		return FabricInfo{}, nvml.ERROR_NOT_SUPPORTED
+	}
+	info := buildFabricInfo(cfg.Fabric)
+	info.Cliques = fabricCliques(cfg.Fabric, gpuarch.Arch(d.Config.Architecture))
+	debugLog("[NVML] nvmlDeviceGetGpuFabricInfo_v4 -> cliques=%v state=%d healthMask=0x%x healthSummary=%d\n",
+		info.Cliques, info.State, info.HealthMask, info.HealthSummary)
 	return info, nvml.SUCCESS
 }
 

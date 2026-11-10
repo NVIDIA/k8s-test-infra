@@ -385,12 +385,21 @@ devices:
         hw_power_brake_slowdown_us: 55555
     # One faulted condition, so the harness can tell a per-device health mask
     # apart from a constant: only this row flips, and the summary follows.
+    # The cliques are listed out of order: testFabricCliques expects
+    # nvmlDeviceGetGpuFabricInfo_v4 to sort them by type, then id.
     fabric:
       cluster_uuid: "00000000-0000-0000-0000-0000000000ab"
       clique_id: 3
       state: "completed"
       health:
         route_unhealthy: true
+      cliques:
+        - type: unicast_logical_endpoint
+          id: 9
+        - type: multicast_pointer
+          id: 5
+        - type: unicast_logical_endpoint
+          id: 2
 
   - index: 2
     uuid: "GPU-12345678-1234-1234-1234-123456780002"

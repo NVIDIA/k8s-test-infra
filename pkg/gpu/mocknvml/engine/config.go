@@ -337,26 +337,20 @@ func validateYAMLConfig(config *YAMLConfig) error {
 		seen[dev.Index] = true
 	}
 
-	if err := ValidateMinorNumbers(config); err != nil {
-		return err
+	for _, validate := range []func(*YAMLConfig) error{
+		ValidateMinorNumbers,
+		ValidateUniqueBDFs,
+		validateDeviceUUIDs,
+		validateDeviceIdentifiers,
+		validateMIGConfigs,
+		validateFabricCliques,
+		validateVGPUConfig,
+	} {
+		if err := validate(config); err != nil {
+			return err
+		}
 	}
-
-	if err := ValidateUniqueBDFs(config); err != nil {
-		return err
-	}
-
-	if err := validateDeviceUUIDs(config); err != nil {
-		return err
-	}
-
-	if err := validateDeviceIdentifiers(config); err != nil {
-		return err
-	}
-
-	if err := validateMIGConfigs(config); err != nil {
-		return err
-	}
-	return validateVGPUConfig(config)
+	return nil
 }
 
 // validateMIGConfigs checks the board-wide MIG block and every per-device one.
@@ -1378,9 +1372,14 @@ func applyTopologyOverlay(yamlConfig *YAMLConfig, configPath string) {
 // non-nil — see applyTopologyOverlay). Per-device overrides that carry
 // their own Fabric block get the same treatment so the entire node
 // reports a consistent fabric identity.
+//
+// The profile's per-type cliques are dropped: the topology places the node in
+// one clique, and ids describing a node outside any topology would otherwise
+// put nodes of different cliques into the same logical-endpoint clique.
 func overrideFabric(yamlConfig *YAMLConfig, clusterUUID string, cliqueID uint32) {
 	yamlConfig.DeviceDefaults.Fabric.ClusterUUID = clusterUUID
 	yamlConfig.DeviceDefaults.Fabric.CliqueID = cliqueID
+	yamlConfig.DeviceDefaults.Fabric.Cliques = nil
 	if yamlConfig.DeviceDefaults.Fabric.State == "" {
 		yamlConfig.DeviceDefaults.Fabric.State = "completed"
 	}
@@ -1393,6 +1392,7 @@ func overrideFabric(yamlConfig *YAMLConfig, clusterUUID string, cliqueID uint32)
 		}
 		yamlConfig.Devices[i].Fabric.ClusterUUID = clusterUUID
 		yamlConfig.Devices[i].Fabric.CliqueID = cliqueID
+		yamlConfig.Devices[i].Fabric.Cliques = nil
 		if yamlConfig.Devices[i].Fabric.State == "" {
 			yamlConfig.Devices[i].Fabric.State = "completed"
 		}

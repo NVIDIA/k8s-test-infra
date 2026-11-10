@@ -15,10 +15,11 @@ The driver (chart `0.5.0`) runs its upstream images unmodified. Mokka gives
 each node what a real GB200 node has:
 
 - **NVLink fabric identity.** The mock NVML library answers
-  `nvmlDeviceGetGpuFabricInfo` and `nvmlDeviceGetGpuFabricInfoV` with the
-  cluster UUID, clique ID and registration state that a cluster-level topology,
-  set in the chart's `topology` values, assigns to the node. The driver's
-  kubelet plugin reads each node's clique from there.
+  `nvmlDeviceGetGpuFabricInfo`, `nvmlDeviceGetGpuFabricInfoV` and
+  `nvmlDeviceGetGpuFabricInfo_v4` with the cluster UUID, clique ID and
+  registration state that a cluster-level topology, set in the chart's
+  `topology` values, assigns to the node. The driver's kubelet plugin reads
+  each node's clique from there.
 - **The IMEX kernel surface.** A substitute `/proc/devices` with the
   `nvidia-caps-imex-channels` major, the `fabric-imex-mgmt` capability file, and
   the `channel0` device node, as a real driver loaded with
