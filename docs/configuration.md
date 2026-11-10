@@ -1292,10 +1292,13 @@ device_defaults:
 ```
 
 The entries of a type replace its default. A type can be listed several times,
-and on an architecture that does not report it by default. The list holds up to
-63 entries, and the library reports them sorted by type and then by ID, as NVML
-does. A profile that lists `unicast_pointer` is rejected, because that clique is
-the one `clique_id` sets for every struct version.
+and on an architecture that does not report it by default. The library reports
+the cliques sorted by type and then by ID, as NVML does.
+
+A GPU reports at most 64 cliques. That count includes the unicast-pointer clique
+and the default of every type `cliques` leaves out, and a profile that exceeds
+it is rejected. So is a profile that lists `unicast_pointer`, because that
+clique is the one `clique_id` sets for every struct version.
 
 When the chart's `topology` values place the node in a clique, every type
 reports that clique and `cliques` is ignored.
