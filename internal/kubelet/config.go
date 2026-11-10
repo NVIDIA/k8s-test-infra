@@ -1,7 +1,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-package numa
+package kubelet
 
 import (
 	"encoding/json"
@@ -11,47 +11,50 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// kubeletSettings models only the settings the NUMA simulator reads or writes.
-// The original document stays in kubeletDocument, including unknown nested keys.
-type kubeletSettings struct {
+// Settings models the supported kubelet configuration fields. Document keeps
+// all other fields, including unknown nested keys, unchanged.
+type Settings struct {
 	TopologyManagerPolicy        string              `json:"topologyManagerPolicy,omitempty"`
 	TopologyManagerScope         string              `json:"topologyManagerScope,omitempty"`
 	CPUManagerPolicy             string              `json:"cpuManagerPolicy,omitempty"`
 	MemoryManagerPolicy          string              `json:"memoryManagerPolicy,omitempty"`
 	ReservedSystemCPUs           string              `json:"reservedSystemCPUs,omitempty"`
-	SystemReserved               kubeletReservation  `json:"systemReserved,omitzero"`
-	KubeReserved                 kubeletReservation  `json:"kubeReserved,omitzero"`
+	SystemReserved               Reservation         `json:"systemReserved,omitzero"`
+	KubeReserved                 Reservation         `json:"kubeReserved,omitzero"`
 	EvictionHard                 map[string]string   `json:"evictionHard,omitempty"`
 	MergeDefaultEvictionSettings bool                `json:"mergeDefaultEvictionSettings,omitempty"`
-	ReservedMemory               []memoryReservation `json:"reservedMemory,omitempty"`
+	ReservedMemory               []MemoryReservation `json:"reservedMemory,omitempty"`
 }
 
-type kubeletReservation struct {
+// Reservation describes CPU and memory reserved for system or Kubernetes processes.
+type Reservation struct {
 	CPU    string `json:"cpu,omitempty"`
 	Memory string `json:"memory,omitempty"`
 }
 
-type memoryReservation struct {
+// MemoryReservation describes resources reserved on one NUMA node.
+type MemoryReservation struct {
 	NUMANode int               `json:"numaNode"`
 	Limits   map[string]string `json:"limits"`
 }
 
-// kubeletDocument contains the unstructured input. A patch between the typed
+// Document contains the unstructured input. A patch between the typed
 // snapshots changes only owned fields, preserving other root and nested fields.
-type kubeletDocument struct {
-	Settings kubeletSettings
+type Document struct {
+	Settings Settings
 	original []byte
 	initial  []byte
 }
 
-func decodeKubeletConfig(data []byte) (*kubeletDocument, error) {
+// DecodeConfig reads kubelet YAML while retaining fields outside Settings.
+func DecodeConfig(data []byte) (*Document, error) {
 	original, err := yaml.YAMLToJSON(data)
 	if err != nil {
 		return nil, err
 	}
-	// Keep the full document to preserve fields outside kubeletSettings when
+	// Keep the full document to preserve fields outside Settings when
 	// patching owned fields. The recovery backup is stored separately.
-	doc := &kubeletDocument{original: original}
+	doc := &Document{original: original}
 	if err := json.Unmarshal(original, &doc.Settings); err != nil {
 		return nil, err
 	}
@@ -62,7 +65,8 @@ func decodeKubeletConfig(data []byte) (*kubeletDocument, error) {
 	return doc, nil
 }
 
-func (d *kubeletDocument) Bytes() ([]byte, error) {
+// Bytes applies changed settings to the original document and returns YAML.
+func (d *Document) Bytes() ([]byte, error) {
 	updated, err := json.Marshal(d.Settings)
 	if err != nil {
 		return nil, err

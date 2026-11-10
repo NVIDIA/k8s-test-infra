@@ -252,7 +252,7 @@ func TestMemoryEvictionPercentMatchesKubeletRounding(t *testing.T) {
 	} {
 		t.Run(tc.threshold, func(t *testing.T) {
 			t.Parallel()
-			got, err := memoryEviction(&kubeletSettings{EvictionHard: map[string]string{"memory.available": tc.threshold}}, capacity)
+			got, err := memoryEviction(&kubelet.Settings{EvictionHard: map[string]string{"memory.available": tc.threshold}}, capacity)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got)
 		})
@@ -446,7 +446,7 @@ func TestDefaultSystemMemoryReservation(t *testing.T) {
 	require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
 	data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
 	require.NoError(t, err)
-	var config kubeletSettings
+	var config kubelet.Settings
 	require.NoError(t, yaml.Unmarshal(data, &config))
 	require.Equal(t, "256Mi", config.SystemReserved.Memory)
 	require.Len(t, config.ReservedMemory, 2)
