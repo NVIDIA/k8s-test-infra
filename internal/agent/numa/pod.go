@@ -19,7 +19,7 @@ func NewPodRunner(h *host.Host) *PodRunner { return &PodRunner{host: h} }
 
 // Run publishes mounts through the pod's bidirectional host volumes. The node
 // service is only a boot reset; it never performs simulation setup or restore.
-func (r *PodRunner) Run(ctx context.Context, action HostAction, managed bool) error {
+func (r *PodRunner) Run(ctx context.Context, action HostAction) error {
 	if action != ActionApply && action != ActionRestore {
 		return fmt.Errorf("unknown NUMA host action %q", action)
 	}
@@ -28,9 +28,9 @@ func (r *PodRunner) Run(ctx context.Context, action HostAction, managed bool) er
 	setup := newHostSetup(r.host)
 	switch action {
 	case ActionApply:
-		return setup.apply(ctx, managed)
+		return setup.apply(ctx)
 	case ActionRestore:
-		return setup.restore(ctx, managed)
+		return setup.restore(ctx)
 	default:
 		return fmt.Errorf("unknown NUMA host action %q", action)
 	}

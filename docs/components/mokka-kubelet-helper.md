@@ -2,7 +2,7 @@
 
 Prepares Mokka-owned kubelet state before the node starts kubelet. The node
 agent installs this helper and its systemd service when
-[`nodeAgent.numa.configureKubelet`](../helm-chart.md#numa-filesystem-simulation)
+[`nodeAgent.numa.enabled`](../helm-chart.md#numa-filesystem-simulation)
 is enabled. Systemd runs it on node boot; normal NUMA setup and restoration run
 in the privileged DaemonSet pod.
 

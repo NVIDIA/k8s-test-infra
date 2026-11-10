@@ -57,14 +57,14 @@ func TestHostApplyMountsConfigWithoutChangingOriginalAndRestores(t *testing.T) {
 	t.Parallel()
 	s, calls := hostFixture(t)
 	h := s.host
-	require.NoError(t, s.apply(t.Context(), true))
+	require.NoError(t, s.apply(t.Context()))
 	requireFileContent(t, h.RunPath("mokka/numa/original/kubelet-config.yaml"), "original config")
 	requireFileContent(t, h.RunPath("mokka/numa/original/cpu_manager_state"), "original cpu")
 	require.FileExists(t, h.RunPath("mokka/numa/original/memory_manager_state.absent"))
 	requireFileContent(t, h.HostPath(kubeletConfig), "original config")
 	require.NoFileExists(t, h.HostPath("/var/lib/kubelet/cpu_manager_state"))
 	requireFileContent(t, h.RunPath(appliedRel), "layout\n")
-	mounted, err := s.currentMounts(true)
+	mounted, err := s.currentMounts()
 	require.NoError(t, err)
 	require.True(t, mounted)
 	// Read-only remounts do not propagate: each mount must be read-only
@@ -86,10 +86,10 @@ func TestHostApplyMountsConfigWithoutChangingOriginalAndRestores(t *testing.T) {
 	require.NotContains(t, string(service), " apply")
 	require.NoError(t, fsutil.Write(h.HostPath("/var/lib/kubelet/memory_manager_state"), []byte("simulated memory"), 0600))
 	*calls = nil
-	require.NoError(t, s.apply(t.Context(), true))
+	require.NoError(t, s.apply(t.Context()))
 	require.Empty(t, *calls, "an ordinary reconcile must not restart kubelet or delete checkpoints")
 	require.FileExists(t, h.HostPath("/var/lib/kubelet/memory_manager_state"))
-	require.NoError(t, s.restore(t.Context(), false))
+	require.NoError(t, s.restore(t.Context()))
 	requireFileContent(t, h.HostPath(kubeletConfig), "original config")
 	requireFileContent(t, h.HostPath("/var/lib/kubelet/cpu_manager_state"), "original cpu")
 	require.NoFileExists(t, h.HostPath("/var/lib/kubelet/memory_manager_state"))
@@ -98,7 +98,7 @@ func TestHostApplyMountsConfigWithoutChangingOriginalAndRestores(t *testing.T) {
 	require.NoFileExists(t, h.RootPath("kubelet/boot-reset.json"))
 	require.NoFileExists(t, h.EtcPath("systemd/system/kubelet.service.d/30-mokka-reset.conf"))
 	require.NoFileExists(t, h.EtcPath("systemd/system/mokka-kubelet-reset.service"))
-	mounted, err = s.currentMounts(false)
+	mounted, err = s.currentMounts()
 	require.NoError(t, err)
 	require.False(t, mounted)
 	require.Contains(t, *calls, "umount "+h.HostPath(kubeletConfig))
@@ -114,7 +114,7 @@ func TestHostRestoreRetainsBackupsOnFailure(t *testing.T) {
 			t.Parallel()
 			s, _ := hostFixture(t)
 			h := s.host
-			require.NoError(t, s.apply(t.Context(), true))
+			require.NoError(t, s.apply(t.Context()))
 			require.NoError(t, fsutil.Write(h.RunPath("mokka/numa/original/memory_manager_state"), []byte("original memory"), 0600))
 			switch step {
 			case "copy-cpu", "copy-memory":
@@ -133,7 +133,7 @@ func TestHostRestoreRetainsBackupsOnFailure(t *testing.T) {
 					return original(ctx, name, args...)
 				}
 			}
-			require.Error(t, s.restore(t.Context(), false))
+			require.Error(t, s.restore(t.Context()))
 			requireFileContent(t, h.RunPath("mokka/numa/original/cpu_manager_state"), "original cpu")
 			requireFileContent(t, h.RunPath("mokka/numa/original/memory_manager_state"), "original memory")
 			requireFileContent(t, h.RunPath(appliedRel), "layout\n")
@@ -162,7 +162,7 @@ func TestHostApplyFailureRollsBack(t *testing.T) {
 				}
 				return original(ctx, name, args...)
 			}
-			err := s.apply(t.Context(), true)
+			err := s.apply(t.Context())
 			require.ErrorContains(t, err, "injected apply failure")
 			requireFileContent(t, s.host.HostPath(kubeletConfig), "original config")
 			require.NoFileExists(t, s.host.RunPath(appliedRel))
@@ -174,24 +174,6 @@ func TestHostApplyFailureRollsBack(t *testing.T) {
 				require.NoDirExists(t, s.host.RunPath("mokka/numa/original"))
 			}
 		})
-	}
-}
-
-func TestHostMountOnlyUsesNoSystemdSetupAndDoesNotStopKubelet(t *testing.T) {
-	t.Parallel()
-	s, calls := hostFixture(t)
-	require.NoError(t, s.apply(t.Context(), false))
-	mounted, err := s.currentMounts(false)
-	require.NoError(t, err)
-	require.True(t, mounted)
-	require.NoFileExists(t, s.host.EtcPath("systemd/system/mokka-kubelet-reset.service"))
-	require.NoError(t, s.restore(t.Context(), false))
-	mounted, err = s.currentMounts(false)
-	require.NoError(t, err)
-	require.False(t, mounted)
-	requireFileContent(t, s.host.HostPath(kubeletConfig), "original config")
-	for _, call := range *calls {
-		require.NotContains(t, call, "systemctl")
 	}
 }
 
@@ -247,7 +229,7 @@ func TestHostRefusesForeignMount(t *testing.T) {
 
 func TestPodRunnerRejectsUnknownAction(t *testing.T) {
 	t.Parallel()
-	require.ErrorContains(t, NewPodRunner(host.New(t.TempDir())).Run(t.Context(), "invalid", false), "unknown NUMA host action")
+	require.ErrorContains(t, NewPodRunner(host.New(t.TempDir())).Run(t.Context(), "invalid"), "unknown NUMA host action")
 }
 
 func requireFileContent(t *testing.T, path, value string) {
@@ -269,10 +251,10 @@ func TestWaitForKubeletHonorsCancellation(t *testing.T) {
 func TestPendingSetupRestartsKubeletBeforeReportingReady(t *testing.T) {
 	t.Parallel()
 	s, calls := hostFixture(t)
-	require.NoError(t, s.apply(t.Context(), true))
+	require.NoError(t, s.apply(t.Context()))
 	require.NoError(t, os.Rename(s.host.RunPath(appliedRel), s.host.RunPath(pendingRel)))
 	*calls = nil
-	require.NoError(t, s.apply(t.Context(), true))
+	require.NoError(t, s.apply(t.Context()))
 	require.Contains(t, *calls, "systemctl start kubelet")
 	require.Contains(t, *calls, "healthcheck")
 	require.NoFileExists(t, s.host.RunPath(pendingRel))
@@ -282,9 +264,29 @@ func TestPendingSetupRestartsKubeletBeforeReportingReady(t *testing.T) {
 func TestHostRequiresBothTopologyMounts(t *testing.T) {
 	t.Parallel()
 	s, _ := hostFixture(t)
-	require.NoError(t, s.apply(t.Context(), false))
+	require.NoError(t, s.apply(t.Context()))
 	require.NoError(t, s.run(t.Context(), "umount", s.host.SysPath("bus/node/devices")))
-	complete, err := s.currentMounts(false)
+	complete, err := s.currentMounts()
 	require.NoError(t, err)
 	require.False(t, complete, "the bus view must not be missing from an applied topology")
+}
+
+func TestFailedSetupBeforeBackupRestartsKubelet(t *testing.T) {
+	t.Parallel()
+	s, calls := hostFixture(t)
+	original := s.run
+	failed := false
+	s.run = func(ctx context.Context, name string, args ...string) error {
+		if !failed && name == "systemctl" && args[0] == "stop" && args[1] == "kubelet" {
+			failed = true
+			return errors.New("setup interrupted before backup")
+		}
+		return original(ctx, name, args...)
+	}
+	require.ErrorContains(t, s.apply(t.Context()), "setup interrupted before backup")
+	require.Contains(t, *calls, "systemctl start kubelet")
+	require.Contains(t, *calls, "healthcheck")
+	requireFileContent(t, s.host.HostPath("/var/lib/kubelet/cpu_manager_state"), "original cpu")
+	require.NoFileExists(t, s.host.RunPath(pendingRel))
+	require.NoDirExists(t, s.host.RunPath("mokka/numa/original"))
 }

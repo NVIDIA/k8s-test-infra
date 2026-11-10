@@ -35,13 +35,12 @@ const (
 
 // HostRunner applies or restores NUMA setup through propagated host volumes.
 type HostRunner interface {
-	Run(context.Context, HostAction, bool) error
+	Run(context.Context, HostAction) error
 }
 
-// Options controls the node filesystem and optional kubelet configuration.
+// Options controls the node filesystem and kubelet configuration.
 type Options struct {
 	Enabled              bool
-	ConfigureKubelet     bool
 	Policy               string
 	CPUManagerPolicy     string
 	ReservedCPUs         string
@@ -206,7 +205,7 @@ func (s *Simulator) apply(ctx context.Context) error {
 }
 
 func (s *Simulator) runHost(ctx context.Context, action HostAction) error {
-	return s.runner.Run(ctx, action, s.opts.ConfigureKubelet)
+	return s.runner.Run(ctx, action)
 }
 
 func (s *Simulator) stageHelper() error {
@@ -259,9 +258,6 @@ func (opts Options) validateManagers() error {
 	if !opts.Enabled {
 		return nil
 	}
-	if !opts.ConfigureKubelet && (opts.CPUManagerPolicy == "static" || opts.MemoryManagerPolicy == "static") {
-		return errors.New("static resource managers require configureKubelet")
-	}
 	if opts.MemoryManagerPolicy == "static" && opts.CPUManagerPolicy != "static" {
 		return errors.New("static Memory Manager requires static CPU Manager")
 	}
@@ -269,7 +265,8 @@ func (opts Options) validateManagers() error {
 }
 
 func (s *Simulator) configurationKey(topology []byte) string {
-	key := fmt.Sprintf("%x:%t:%s:%s:%s:%s:%s", sha256.Sum256(topology), s.opts.ConfigureKubelet, s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs, kubeletMemoryPolicy(s.opts.MemoryManagerPolicy), s.opts.SystemReservedMemory)
+	// Retain the managed-layout key so existing complete setups keep allocations.
+	key := fmt.Sprintf("%x:true:%s:%s:%s:%s:%s", sha256.Sum256(topology), s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs, kubeletMemoryPolicy(s.opts.MemoryManagerPolicy), s.opts.SystemReservedMemory)
 	if s.opts.SystemReservedCPU != "" {
 		key += ":system-cpu=" + s.opts.SystemReservedCPU
 	}

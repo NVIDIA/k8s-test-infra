@@ -26,7 +26,7 @@ outlive a reconcile.
 | Simulator | Stages                                                                                                                                                   |
 |---|----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `gpudriver` | Character devices, the mock NVML library, [`nvidia-smi`](#which-nvidia-smi-a-node-runs), procfs entries, the engine config, and a bind mount of the driver tree at `/run/nvidia/driver`, the path GPU Operator expects |
-| `numa` | A [NUMA filesystem tree](#numa-simulation) for kubelet and topology reporters, plus optional kubelet configuration |
+| `numa` | A [NUMA filesystem tree](#numa-simulation) for kubelet and topology reporters, plus kubelet configuration |
 | `pcibus` | A fake `/sys/bus/pci/devices` tree, the `libmockfs.so` shim, and the NFD feature file that lets Node Feature Discovery label the node                  |
 | `cri` | Two CDI specs that containerd uses to inject mock GPUs into workload containers, and the [container runtime setup](#container-runtime-setup) that registers the `nvidia` handler. While IMEX is staged, the GPU spec also mounts `nvidia-imex` and `nvidia-imex-ctl`, as the NVIDIA Container Toolkit does on a real GB200 or GB300 node, with `nvidia-imex.real` beside Mokka's `nvidia-imex` shim |
 | `imex` | On multi-node NVLink profiles: IMEX channel character devices, a `/proc/devices` overlay, and the capability file the DRA compute-domain plugin reads, plus `nvidia-imex` and `nvidia-imex-ctl` from a pinned archive: delivered by the chart's `imex.binaries.image`, or downloaded from NVIDIA into a node cache while the `IMEXDownload` [feature gate](../feature-gates.md) is on. A node without the archive stays ready and stages no IMEX, as a real node without the IMEX package |
@@ -138,9 +138,10 @@ The optional NUMA simulator exposes the GPU profile's zones to kubelet and
 NodeResourceTopology (NRT) reporters. It uses the same resolved layout as PCI
 and NVML, so consumers agree on resource placement.
 
-Optional kubelet management enables NUMA-aware admission and CPU and memory
-allocation. NRI maps simulated memory bindings onto the real node. This tests
-allocation decisions, not physical memory locality.
+Enabling NUMA simulation configures kubelet for NUMA-aware admission and the
+selected CPU and memory allocation policies. NRI maps simulated memory
+bindings onto the real node. This tests allocation decisions, not physical
+memory locality.
 
 The [kubelet helper](mokka-kubelet-helper.md) lets kubelet start after a node
 reboot, before the DaemonSet reapplies simulation.

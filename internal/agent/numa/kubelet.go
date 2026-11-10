@@ -20,9 +20,6 @@ import (
 )
 
 func (s *Simulator) stageKubeletConfig(numaTopology *agent.NUMATopology) error {
-	if !s.opts.ConfigureKubelet {
-		return nil
-	}
 	original, err := os.ReadFile(s.host.RunPath("mokka/numa/original/kubelet-config.yaml"))
 	if os.IsNotExist(err) {
 		original, err = os.ReadFile(s.host.HostPath("/var/lib/kubelet/config.yaml"))

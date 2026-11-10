@@ -1330,7 +1330,6 @@ nri:
 nodeAgent:
   numa:
     enabled: true
-    configureKubelet: true
     topologyManagerPolicy: single-numa-node
     cpuManagerPolicy: static
     memoryManagerPolicy: static
@@ -1338,11 +1337,9 @@ nodeAgent:
 ```
 
 Use fresh or drained Linux test nodes with privileged node-agent access.
-`configureKubelet: true` requires systemd and restarts kubelet to apply the
-policies. With `configureKubelet: false`, Mokka mounts only the topology view;
-the administrator manages kubelet configuration and restarts. CPU and memory
-managers are disabled by default; their policy values are lowercase `none` or
-`static`.
+Enabling NUMA simulation configures kubelet and restarts it to apply the
+selected policies. This requires systemd. CPU and memory managers are disabled
+by default; their policy values are lowercase `none` or `static`.
 
 Zones come from `pcie_topology.root_complexes` in the GPU profile. IDs must start
 at zero, be contiguous, and number at most eight. Mokka divides real CPUs and

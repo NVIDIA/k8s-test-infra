@@ -33,7 +33,7 @@ func TestPrivilegedPodLifecycle(t *testing.T) {
 		if _, err := os.Stat(baseline); os.IsNotExist(err) {
 			require.NoError(t, fsutil.Write(baseline, original, 0600))
 		}
-		sim, err := New(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedCPU: "100m"})
+		sim, err := New(h, Options{Enabled: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedCPU: "100m"})
 		require.NoError(t, err)
 		sim.helperSource = "/tmp/mokka-kubelet-helper"
 		require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, h)))

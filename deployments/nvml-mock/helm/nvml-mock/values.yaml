@@ -253,13 +253,11 @@ nodeAgent:
       # -- Readiness probe endpoint port name or number.
       port: health
 
-  # NUMA filesystem simulation with optional kubelet CPU allocation. The GPU profile supplies the zones.
+  # NUMA filesystem simulation and kubelet setup. The GPU profile supplies the zones.
   numa:
-    # -- Publish the simulated NUMA tree on the node. Requires Linux.
+    # -- Publish NUMA topology, configure policies, and restart kubelet. Requires Linux and systemd.
     enabled: false
-    # -- Bind-mount kubelet configuration, apply policies, and restart kubelet. Requires systemd for boot reset.
-    configureKubelet: false
-    # -- Policy to configure when configureKubelet is true.
+    # -- Kubelet Topology Manager policy to configure when NUMA simulation is enabled.
     topologyManagerPolicy: single-numa-node
     # -- CPU allocation policy (none or static). Static allocation uses real online CPU IDs.
     cpuManagerPolicy: none
