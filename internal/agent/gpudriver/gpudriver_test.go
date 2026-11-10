@@ -323,6 +323,21 @@ func TestWriteMachineType_ServesTheProductName(t *testing.T) {
 		"trailing newline mirrors how the kernel renders product_name")
 }
 
+// A profile that names its system serves that name, as the real node's DMI
+// product name does, rather than the GPU's.
+func TestWriteMachineType_PrefersTheSystemProductName(t *testing.T) {
+	h := testHost(t)
+	state := testState(t)
+	state.Devices[0].Name = "NVIDIA Graphics Device"
+	state.NodeShape.ProductName = "VR NVL72"
+
+	require.NoError(t, writeMachineType(t.Context(), h, state))
+
+	data, err := os.ReadFile(filepath.Join(h.Root, machineTypeRel))
+	require.NoError(t, err)
+	require.Equal(t, "VR NVL72\n", string(data))
+}
+
 // A missing file leaves GFD on its own default, which is the better failure:
 // an empty one would label the node with the empty string.
 func TestWriteMachineType_NoFileWithoutAProductName(t *testing.T) {

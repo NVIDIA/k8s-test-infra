@@ -334,9 +334,10 @@ func TestNodeFabric_BuiltinProfiles(t *testing.T) {
 	}{
 		{"gb200", 18, true, NVLinkBwModeScopeDevice}, // NVLink5, 4 NVSwitches -> NV18 all-to-all
 		{"gb300", 18, true, NVLinkBwModeScopeDevice},
-		{"h100", 18, true, NVLinkBwModeScopeSystem}, // HGX H100, 4 NVSwitches -> NV18
-		{"a100", 12, true, noBwMode},                // DGX A100, 6 NVSwitches -> NV12
-		{"b200", 0, false, NVLinkBwModeScopeDevice}, // standalone: negative control, no NVLink fabric
+		{"vrnvl72", 36, true, NVLinkBwModeScopeDevice}, // NVLink6, 4 NVSwitches -> NV36
+		{"h100", 18, true, NVLinkBwModeScopeSystem},    // HGX H100, 4 NVSwitches -> NV18
+		{"a100", 12, true, noBwMode},                   // DGX A100, 6 NVSwitches -> NV12
+		{"b200", 0, false, NVLinkBwModeScopeDevice},    // standalone: negative control, no NVLink fabric
 	}
 	for _, c := range cases {
 		t.Run(c.profile, func(t *testing.T) {
@@ -396,6 +397,11 @@ func TestNodeFabric_LinkBoundFollowsTheDriver(t *testing.T) {
 	require.Equal(t, 18, f.NVLinkCount(0, 1), "a 580 driver addresses 18 of the 36 declared links")
 	f = BuildNodeFabric(&Config{NumDevices: n, DriverVersion: "615.71.09", YAMLConfig: &wide})
 	require.Equal(t, 36, f.NVLinkCount(0, 1))
+
+	vr, err := LoadYAMLConfig(filepath.Join("..", "configs", "mock-nvml-config-vrnvl72.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, 36, BuildNodeFabric(&Config{NumDevices: len(vr.Devices), YAMLConfig: vr}).LinkBound(),
+		"a profile on a 615 driver")
 }
 
 // TestNodeFabric_ConcurrentReads hammers the read-only fabric accessors

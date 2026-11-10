@@ -283,9 +283,11 @@ type SoftwareVersions struct {
 
 // NodeShape describes the simulated node's topology.
 type NodeShape struct {
-	NumGPUs  int
-	Topology PCIeTopology
-	Network  NetworkShape
+	// ProductName is the profile's system.product_name, empty when unset.
+	ProductName string
+	NumGPUs     int
+	Topology    PCIeTopology
+	Network     NetworkShape
 	// NUMA is set by the NUMA enricher, never by a source. It is nil when
 	// NUMA simulation is disabled or the layout could not be resolved.
 	NUMA *NUMATopology

@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  profiles: `system.product_name` sets the machine type GPU Feature Discovery labels as `nvidia.com/gpu.machine`; profiles without it keep the GPU name.
+time: 2026-11-05T01:00:09Z
