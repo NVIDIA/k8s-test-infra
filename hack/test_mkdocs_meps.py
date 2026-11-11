@@ -105,6 +105,42 @@ nav:
         build(self.config)
         self.assertIn('href="../0002-other/"', self.html())
 
+    def test_docs_links_to_proposals(self):
+        self.write("enhancements/meps/0001-first/image.svg", "proposal image")
+        self.write("docs/guide.md", "# Guide\n\n"
+                   "[First](../enhancements/meps/0001-first/README.md#first)\n\n"
+                   "[Directory](../enhancements/meps/0001-first/)\n\n"
+                   "![Image](../enhancements/meps/0001-first/image.svg)\n")
+        before = self.sources()
+        build(self.config)
+        html = self.html("guide/index.html")
+        self.assertIn('href="../meps/0001-first/#first"', html)
+        self.assertIn('href="../meps/0001-first/"', html)
+        self.assertIn('src="../meps/0001-first/image.svg"', html)
+        self.assertEqual(before, self.sources())
+
+    def test_docs_links_to_proposals_from_copied_tree(self):
+        self.write("docs/contributing/enhancements.md", "# Proposals\n\n"
+                   "[First](../../enhancements/meps/0001-first/README.md#first)\n")
+        with tempfile.TemporaryDirectory() as temporary:
+            copied_docs = Path(temporary) / "docs"
+            shutil.copytree(self.root / "docs", copied_docs)
+            self.config.docs_dir = str(copied_docs)
+            build(self.config)
+        self.assertIn('href="../../meps/0001-first/#first"',
+                      self.html("contributing/enhancements/index.html"))
+
+    def test_broken_non_proposal_docs_links_still_fail(self):
+        self.write("docs/guide.md", "# Guide\n\n[Missing](missing.md)\n")
+        with self.assertRaises(Abort):
+            build(self.config)
+
+    def test_broken_proposal_docs_links_fail(self):
+        self.write("docs/guide.md", "# Guide\n\n"
+                   "[Missing](../enhancements/meps/0001-first/missing.md)\n")
+        with self.assertRaises(Abort):
+            build(self.config)
+
     def test_outside_images_fail_explicitly(self):
         self.write("internal/image.svg", "outside image")
         self.proposal("![bad](../../../internal/image.svg)")

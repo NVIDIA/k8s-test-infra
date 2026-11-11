@@ -150,7 +150,7 @@ one:
 An allocation always wins over the `devices` annotation: the container keeps
 exactly the GPUs it was allocated, and `nvidia-smi` reports that subset, not
 the whole node. This is the rule from
-[MEP-0002](../meps/0002-device-plugin-nri-composition/README.md):
+[MEP-0002](../../enhancements/meps/0002-device-plugin-nri-composition/README.md):
 whatever the scheduler allocated is never widened.
 
 !!! warning "The device plugin must leave evidence of the allocation"

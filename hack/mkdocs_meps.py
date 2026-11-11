@@ -35,6 +35,7 @@ class ProposalExtension(Extension):
         self.config = config
         self.root = Path(__file__).resolve().parent.parent
         self.page = None
+        self.proposal_page = False
 
     def extendMarkdown(self, md):
         # Inline/reference links have been parsed, but MkDocs has not yet
@@ -43,9 +44,18 @@ class ProposalExtension(Extension):
 
     def rewrite(self, url, *, image=False):
         parsed = urlsplit(url)
-        if parsed.scheme or parsed.netloc or not parsed.path or parsed.path.startswith("/"):
+        if (parsed.scheme or parsed.netloc or not parsed.path or parsed.path.startswith("/")
+                or self.page.file.abs_src_path is None):
             return url
-        target = (Path(self.page.file.abs_src_path).parent / unquote(parsed.path)).resolve()
+        # Docs may be staged outside the repository by docs-check-exclusion.
+        # Their links still refer to the original repository layout.
+        page_path = (Path(self.page.file.abs_src_path) if self.proposal_page
+                     else self.root / "docs" / self.page.file.src_uri)
+        target = (page_path.parent / unquote(parsed.path)).resolve()
+        # Only proposal links need remapping on ordinary documentation pages.
+        # Leave all other links to MkDocs' normal strict validation.
+        if not self.proposal_page and not target.is_relative_to(self.root / "enhancements/meps"):
+            return url
         if not target.is_relative_to(self.root):
             raise PluginError(f"MEP link escapes the repository: {url}")
         for source, prefix in [(self.root / "enhancements/meps", "meps"),
@@ -118,10 +128,12 @@ def on_files(files, config):
 
 
 def on_page_markdown(markdown, page, config, files):
+    proposal_page = page.file.src_uri.startswith("meps/")
     for extension in config.markdown_extensions:
         if isinstance(extension, ProposalExtension):
-            extension.page = page if page.file.src_uri.startswith("meps/") else None
-    if page.file.src_uri.startswith("meps/"):
+            extension.page = page
+            extension.proposal_page = proposal_page
+    if proposal_page:
         source = "enhancements/" + page.file.src_uri
         page.edit_url = f"{config.repo_url.rstrip('/')}/edit/main/{quote(source, safe='/')}"
     return markdown
