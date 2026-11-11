@@ -117,6 +117,11 @@ func TestFunctionAvailable(t *testing.T) {
 		{"cc memsize available on 525", "525.0", "nvmlDeviceGetConfComputeMemSizeInfo", true},
 		{"cc protected usage not available on 470", "470.0", "nvmlDeviceGetConfComputeProtectedMemoryUsage", false},
 		{"cc protected usage available on 580", "580.173.02", "nvmlDeviceGetConfComputeProtectedMemoryUsage", true},
+
+		// The v4 fabric struct is newer than every 580 driver, so a consumer
+		// on one must fall back to nvmlDeviceGetGpuFabricInfoV.
+		{"fabric info v4 not available on 580", "580.65.06", "nvmlDeviceGetGpuFabricInfo_v4", false},
+		{"fabric info v4 available on 615", "615.71.09", "nvmlDeviceGetGpuFabricInfo_v4", true},
 	}
 
 	for _, tt := range tests {
