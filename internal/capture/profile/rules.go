@@ -85,6 +85,7 @@ func (g *generator) deviceDefaultRules(s *section) {
 	// "auto" ties the state to the mock fabric manager's readiness, which a
 	// cluster deployment wants; -base supplies it, the capture says completed.
 	fabric.preferBase("state", getter("GetGpuFabricInfo", "State").as(named(fabricStates)))
+	g.fabricCliquesRule(fabric)
 
 	platform := s.sub("platform")
 	platform.placeholder("chassis_serial_number", getter("GetPlatformInfo", "ChassisSerialNumber").as(cText))

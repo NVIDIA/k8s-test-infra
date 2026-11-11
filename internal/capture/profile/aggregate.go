@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,7 +29,14 @@ var (
 		nvml.GPU_FABRIC_STATE_NOT_SUPPORTED: "not_supported", nvml.GPU_FABRIC_STATE_NOT_STARTED: "not_started",
 		nvml.GPU_FABRIC_STATE_IN_PROGRESS: "in_progress", nvml.GPU_FABRIC_STATE_COMPLETED: "completed",
 	}
-	peerTypes       = map[int64]string{0: "direct_connected", peerTypeSwitchConnected: "switch_connected"}
+	peerTypes = map[int64]string{0: "direct_connected", peerTypeSwitchConnected: "switch_connected"}
+	// fabricCliqueTypes are the clique types a profile can list. The
+	// unicast-pointer clique has no entry: it is fabric.clique_id.
+	fabricCliqueTypes = map[int64]string{
+		nvml.GPU_FABRIC_CLIQUE_TYPE_MULTICAST_POINTER:          "multicast_pointer",
+		nvml.GPU_FABRIC_CLIQUE_TYPE_UNICAST_LOGICAL_ENDPOINT:   "unicast_logical_endpoint",
+		nvml.GPU_FABRIC_CLIQUE_TYPE_MULTICAST_LOGICAL_ENDPOINT: "multicast_logical_endpoint",
+	}
 	powerMizerModes = map[int64]string{
 		nvml.POWER_MIZER_MODE_ADAPTIVE: "adaptive", nvml.POWER_MIZER_MODE_PREFER_MAXIMUM_PERFORMANCE: "prefer_maximum_performance",
 		nvml.POWER_MIZER_MODE_AUTO: "auto", nvml.POWER_MIZER_MODE_PREFER_CONSISTENT_PERFORMANCE: "prefer_consistent_performance",
@@ -390,6 +398,100 @@ func (g *generator) nvlinkBwMode(s *section) {
 	if best, _ := recorded(g.c, 0, "GetNvlinkBwMode", []any{"BIsBest"}); show(best) == "0" {
 		bw.prop("mode", getter("GetNvlinkBwMode", "BwMode"))
 	}
+}
+
+// fabricCliquesRule lists the cliques of the types whose id is not clique_id.
+// The engine gives every type it reports clique_id, so the others need no key.
+func (g *generator) fabricCliquesRule(s *section) {
+	lists := make([]string, g.c.gpuCount())
+	var first *sequence
+	for i := range lists {
+		seq, why := fabricCliques(g.c, i)
+		if why != "" {
+			s.m.note("cliques: left out, GetGpuFabricInfo_v4 = " + why)
+			return
+		}
+		lists[i] = flowNode(seq)
+		if first == nil {
+			first = seq
+		}
+	}
+	if !allEqual(lists) {
+		s.m.note("cliques: left out, the GPUs report different cliques")
+		return
+	}
+	if len(first.items) > 0 {
+		s.value("cliques", first, "GetGpuFabricInfo_v4.Cliques[:NumCliques], the types whose id is not clique_id", ruleSame)
+	}
+}
+
+// fabricClique is one entry of a GetGpuFabricInfo_v4 answer.
+type fabricClique struct{ typ, id int64 }
+
+// fabricCliques keeps, of the cliques a GPU reports, the types that have a
+// clique other than the unicast-pointer one, which is what clique_id holds.
+// Such a type is kept whole: the profile's list replaces the engine's default
+// for it.
+func fabricCliques(c *capture, gpu int) (*sequence, string) {
+	cliques, why := recordedFabricCliques(c, gpu)
+	if why != "" {
+		return nil, why
+	}
+	pointer := slices.IndexFunc(cliques, func(q fabricClique) bool {
+		return q.typ == nvml.GPU_FABRIC_CLIQUE_TYPE_UNICAST_POINTER
+	})
+	if pointer < 0 {
+		return nil, "no unicast-pointer clique"
+	}
+	differs := map[int64]bool{}
+	for _, q := range cliques {
+		if q.id != cliques[pointer].id {
+			differs[q.typ] = true
+		}
+	}
+	seq := &sequence{}
+	for _, q := range cliques {
+		if !differs[q.typ] {
+			continue
+		}
+		name, ok := fabricCliqueTypes[q.typ]
+		if !ok {
+			return nil, fmt.Sprintf("a clique of type %d, which a profile cannot set", q.typ)
+		}
+		m := &mapping{}
+		m.set("type", quote(name), "")
+		m.set("id", integer(q.id), "")
+		seq.items = append(seq.items, m)
+	}
+	return seq, ""
+}
+
+// recordedFabricCliques reads the first NumCliques entries of a GPU's
+// GetGpuFabricInfo_v4 answer.
+func recordedFabricCliques(c *capture, gpu int) ([]fabricClique, string) {
+	v, why := recorded(c, gpu, "GetGpuFabricInfo_v4", nil)
+	if why != "" {
+		return nil, why
+	}
+	total, _ := at(v, "NumCliques")
+	list, _ := at(v, "Cliques")
+	n, okN := asInt(total)
+	l, okL := list.([]any)
+	if !okN || !okL || int(n) > len(l) {
+		return nil, "unreadable answer"
+	}
+	cliques := make([]fabricClique, n)
+	for i, entry := range l[:n] {
+		typ, _ := at(entry, "Type")
+		id, _ := at(entry, "Id")
+		t, okT := asInt(typ)
+		d, okD := asInt(id)
+		if !okT || !okD {
+			return nil, "unreadable answer"
+		}
+		cliques[i] = fabricClique{t, d}
+	}
+	return cliques, ""
 }
 
 // supportedBwModes reads the first TotalBwModes entries of a GPU's
