@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  mokka-capture: `profile` writes the `fabric.cliques` a capture reports through `nvmlDeviceGetGpuFabricInfo_v4`, and `diff smi` no longer compares clique IDs, which the fabric manager assigns; see [mokka-capture](docs/tools/mokka-capture.md#diff-smi).
+time: 2026-11-11T06:09:46Z

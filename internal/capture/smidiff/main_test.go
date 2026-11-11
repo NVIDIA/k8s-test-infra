@@ -85,6 +85,11 @@ func TestDefaultIgnoreSkipsReadingsAndKeepsBoardValues(t *testing.T) {
 		"bar1_memory_usage[0]/used[0]":                                 true,
 		"fb_memory_usage[0]/reserved[0]":                               false,
 		"pci[0]/pci_gpu_link_info[0]/link_widths[0]/max_link_width[0]": false,
+		// The fabric manager hands out clique ids, so they differ between
+		// racks; which clique types a board reports does not.
+		"fabric[0]/cliqueId[0]":                               true,
+		"fabric[0]/cliques[0]/clique_entry[2]/clique_id[0]":   true,
+		"fabric[0]/cliques[0]/clique_entry[2]/clique_type[0]": false,
 	} {
 		require.Equal(t, skipped, re.MatchString(gpu+path), path)
 	}

@@ -53,9 +53,10 @@ var loadOrIdentity = []string{
 	// Readings that move with time: when the document was taken, how long the
 	// GPU has run, and its last black-box flush.
 	"timestamp", "time_run", "inforom_bbx_flush",
-	// Identifiers of the unit and of where the host placed it.
-	"uuid", "serial", "pdi", "gpu_fabric_guid", "clusterUuid", "minor_number",
-	"pci_bus", "pci_device", "pci_domain", "bus_id",
+	// Identifiers of the unit and of where the host placed it. The clique
+	// ids are the fabric manager's, like the cluster UUID.
+	"uuid", "serial", "pdi", "gpu_fabric_guid", "clusterUuid", "cliqueId", "clique_id",
+	"minor_number", "pci_bus", "pci_device", "pci_domain", "bus_id",
 }
 
 // defaultIgnore matches a path in which any segment is one of those elements.

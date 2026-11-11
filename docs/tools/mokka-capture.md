@@ -321,7 +321,7 @@ the captured node cannot be expected to reproduce it:
 | --- | --- |
 | Readings that move with load | `gpu_temp`, `gpu_temp_tlimit`, `memory_temp`, `utilization`, power draw (`power_draw`, `average_power_draw`, `instant_power_draw`), `power_state`, `performance_state`, the clocks in use (`clocks`, `dla_cur_engine_clock`), `graphics_volt`, `fan_speed`, memory `used` and `free`, clock event reasons and their counters, PCIe `tx_util` and `rx_util`, processes |
 | Readings that move with time | `timestamp`, `time_run`, `inforom_bbx_flush` |
-| Identifiers | `uuid`, `serial`, `pdi`, `gpu_fabric_guid`, `clusterUuid`, `minor_number`, the PCI bus location |
+| Identifiers | `uuid`, `serial`, `pdi`, `gpu_fabric_guid`, `clusterUuid`, the clique IDs (`cliqueId`, `clique_id`), `minor_number`, the PCI bus location |
 
 Everything else is compared, including the temperature thresholds and T.Limit
 offsets, `max_clocks` and the supported clocks. An element name is matched
