@@ -1269,6 +1269,12 @@ builds the list from the profile's `architecture`, and every clique in it
 carries `clique_id`. A consumer therefore reads the same clique from the v4
 struct as from `nvmlDeviceGetGpuFabricInfoV`.
 
+The call exists from driver `615`. On an older driver it answers
+`FUNCTION_NOT_FOUND`, because that driver's library has no such symbol, and a
+consumer falls back to `nvmlDeviceGetGpuFabricInfoV`. Of the shipped profiles
+only `vrnvl72` declares a `615` driver; run another one with
+`driverVersion: 615.71.09` to read its cliques.
+
 | Clique type | Reported on | `cliques:` type |
 | ----------- | ----------- | --------------- |
 | Unicast Pointer | every GPU with a `fabric:` block | none: always `clique_id` |

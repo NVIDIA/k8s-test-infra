@@ -1037,8 +1037,21 @@ func testFabricHealth(deviceCount int) []testResult {
 // so device 0 pins the derived list and device 1, whose fabric block lists
 // cliques out of order, pins that the profile's entries arrive sorted. Either
 // way a consumer moving off v3 must find the same fabric in both structs.
+//
+// The call is newer than every 580 driver, so on an older configured driver
+// the right answer is that it does not exist; which branch runs is a property
+// of the fixture's driver_version.
 func testFabricCliques(deviceCount int) []testResult {
 	var results []testResult
+
+	driver, ret := nvml.SystemGetDriverVersion()
+	if ret != nvml.SUCCESS {
+		return []testResult{{"fabric_v4", false, fmt.Sprintf("SystemGetDriverVersion: %v", nvml.ErrorString(ret))}}
+	}
+	var major int
+	if _, err := fmt.Sscanf(driver, "%d", &major); err != nil {
+		return []testResult{{"fabric_v4", false, fmt.Sprintf("driver version %q: %v", driver, err)}}
+	}
 
 	cases := []struct {
 		index int
@@ -1073,6 +1086,11 @@ func testFabricCliques(deviceCount int) []testResult {
 		}
 
 		v4, ret := device.GetGpuFabricInfo_v4()
+		if major < 615 {
+			results = append(results, testResult{name + "/absent_before_615", ret == nvml.ERROR_FUNCTION_NOT_FOUND,
+				fmt.Sprintf("on driver %s -> %v; want FUNCTION_NOT_FOUND, the call arrived with r615", driver, nvml.ErrorString(ret))})
+			continue
+		}
 		if ret != nvml.SUCCESS {
 			results = append(results, testResult{name, false, fmt.Sprintf("GetGpuFabricInfo_v4 failed: %v", nvml.ErrorString(ret))})
 			continue

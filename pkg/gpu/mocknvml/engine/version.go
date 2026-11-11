@@ -152,6 +152,12 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlSystemEventSetWait":   {Added: "580.0"},
 	"nvmlSystemRegisterEvents": {Added: "580.0"},
 
+	// 615.x additions. The CUDA 13.4 header is the first to declare the v4
+	// fabric struct and 615 the earliest driver seen exporting the call; no 580
+	// driver does. A consumer on an older profile must therefore be told the
+	// symbol is absent, and fall back to nvmlDeviceGetGpuFabricInfoV.
+	"nvmlDeviceGetGpuFabricInfo_v4": {Added: "615.0"},
+
 	// The per-GPU hostname pair landed mid-branch: absent from
 	// libnvidia-ml.so.580.65.06, present from 580.95.05. The minor component
 	// matters here, which is why this entry is not rounded to 580.0.

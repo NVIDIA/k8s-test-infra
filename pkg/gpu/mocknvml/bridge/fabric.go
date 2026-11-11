@@ -135,6 +135,9 @@ func nvmlDeviceGetGpuFabricInfoV(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpu
 //
 //export nvmlDeviceGetGpuFabricInfo_v4
 func nvmlDeviceGetGpuFabricInfo_v4(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpuFabricInfo_v4_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetGpuFabricInfo_v4"); !ok {
+		return ret
+	}
 	if gpuFabricInfo == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
