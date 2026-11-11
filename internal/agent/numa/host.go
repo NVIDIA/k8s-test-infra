@@ -263,7 +263,7 @@ func (s *hostSetup) prepareKubelet(ctx context.Context) error {
 	if err := s.backupKubelet(); err != nil {
 		return err
 	}
-	return kubelet.InstallBootReset(ctx, s.host, kubelet.BootResetPlan{NUMA: true}, s.systemctl)
+	return kubelet.InstallBootReset(ctx, s.host, s.systemctl)
 }
 
 func (s *hostSetup) startSimulatedKubelet(ctx context.Context) error {

@@ -103,7 +103,7 @@ func TestHostApplyMountsConfigWithoutChangingOriginalAndRestores(t *testing.T) {
 	require.NoFileExists(t, h.HostPath("/var/lib/kubelet/memory_manager_state"))
 	require.NoDirExists(t, h.RunPath("mokka/numa/original"))
 	require.NoFileExists(t, h.RunPath(appliedRel))
-	require.NoFileExists(t, h.RootPath("kubelet/boot-reset.json"))
+	require.NoFileExists(t, h.RootPath("kubelet/boot-reset.enabled"))
 	require.NoFileExists(t, h.EtcPath("systemd/system/kubelet.service.d/30-mokka-reset.conf"))
 	require.NoFileExists(t, h.EtcPath("systemd/system/mokka-kubelet-reset.service"))
 	mounted, err = s.currentMounts()
@@ -152,7 +152,7 @@ func TestHostRestoreRetainsBackupsOnFailure(t *testing.T) {
 			requireFileContent(t, h.RunPath("mokka/numa/original/cpu_manager_state"), "original cpu")
 			requireFileContent(t, h.RunPath("mokka/numa/original/memory_manager_state"), "original memory")
 			requireFileContent(t, h.RunPath(appliedRel), "layout\n")
-			require.FileExists(t, h.RootPath("kubelet/boot-reset.json"))
+			require.FileExists(t, h.RootPath("kubelet/boot-reset.enabled"))
 		})
 	}
 }

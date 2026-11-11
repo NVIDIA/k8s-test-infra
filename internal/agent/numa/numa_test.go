@@ -404,7 +404,7 @@ func TestDisableRecoversPendingSetupAndBootRegistration(t *testing.T) {
 			if pending {
 				require.NoError(t, fsutil.Write(h.RunPath(pendingRel), []byte("partial"), 0600))
 			} else {
-				require.NoError(t, kubelet.ArmBootReset(h, kubelet.BootResetPlan{NUMA: true}))
+				require.NoError(t, kubelet.ArmBootReset(h))
 				require.NoError(t, os.RemoveAll(h.Run))
 			}
 			ops, calls := fakeHostOperations()
@@ -413,7 +413,7 @@ func TestDisableRecoversPendingSetupAndBootRegistration(t *testing.T) {
 			require.NoError(t, sim.Apply(t.Context(), nil))
 			require.Contains(t, *calls, "systemctl start kubelet")
 			require.NoFileExists(t, h.RunPath(pendingRel))
-			require.NoFileExists(t, h.RootPath("kubelet/boot-reset.json"))
+			require.NoFileExists(t, h.RootPath("kubelet/boot-reset.enabled"))
 		})
 	}
 }

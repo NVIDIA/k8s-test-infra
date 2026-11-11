@@ -54,7 +54,7 @@ func TestPrivilegedPodLifecycle(t *testing.T) {
 		original, err := os.ReadFile(baseline)
 		require.NoError(t, err)
 		require.Equal(t, string(original), string(readNodeFile(t, h, kubeletConfig)))
-		require.NoFileExists(t, h.RootPath("kubelet/boot-reset.json"))
+		require.NoFileExists(t, h.RootPath("kubelet/boot-reset.enabled"))
 		require.NoFileExists(t, h.RunPath(appliedRel))
 	case "boot":
 		original, err := os.ReadFile(baseline)
