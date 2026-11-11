@@ -1,6 +1,0 @@
-kind: Added
-body: |-
-  node-agent: on gb200 and gb300, stages `nvidia-imex` and `nvidia-imex-ctl` into the mock driver tree from the pinned NVIDIA archive placed in `/opt/mokka/imex`, for the DRA ComputeDomain daemon. Without that archive the node stages no IMEX and stays ready.
-time: 2026-10-14T23:22:34Z
-custom:
-  Issue: "821"

@@ -1,0 +1,6 @@
+NVIDIA-SMI version  : 615.71.09
+NVML version        : 615.71
+DRIVER version      : Deprecated, see "KMD version" instead
+CUDA version        : Deprecated, see "CUDA UMD version" instead
+KMD version         : 615.71.09
+CUDA UMD version    : 13.4

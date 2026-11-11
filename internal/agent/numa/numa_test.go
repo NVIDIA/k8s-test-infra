@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
@@ -48,16 +49,14 @@ func testState() *agent.State {
 	}}}, ConfigRaw: []byte("version: '1.0'\npcie_topology:\n  root_complexes:\n    - id: pci0000:00\n      numa_node: 0\n    - id: pci0000:80\n      numa_node: 1\n")}
 }
 
-func TestResolveSharesTopologyAndKeepsThreadsTogether(t *testing.T) {
+func TestResolveKeepsThreadsTogether(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
-	state := testPreparedState(t, h)
+	state := testEnrichedState(t, h)
 	plan := state.NodeShape.NUMA
 	require.Len(t, plan.Zones, 2)
 	require.Equal(t, []int{0, 1, 4, 5}, plan.Zones[0].CPUs)
 	require.Equal(t, []int{2, 3, 6, 7}, plan.Zones[1].CPUs)
-	require.Equal(t, "0-1,4-5", state.NodeShape.Topology.RootComplexes[0].CPUAffinity)
-	require.Contains(t, string(state.ConfigRaw), "cpu_affinity: 0-1,4-5")
 	require.Equal(t, uint64(8000), plan.Zones[0].MemoryKB)
 }
 
@@ -123,30 +122,20 @@ func TestResolveRejectsSparseOrUnknownNUMAIDs(t *testing.T) {
 func TestPersistentSetupIsNotRestartedOrRemovedOnPodTeardown(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
-	calls := 0
-	runner := hostRunnerFunc(func(context.Context, HostAction, bool) error {
-		calls++
-		desired, err := os.ReadFile(h.RootPath("numa/desired"))
-		require.NoError(t, err)
-		return fsutil.Write(h.RunPath(appliedRel), desired, 0600)
-	})
-	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, Runner: runner})
+	ops, calls := fakeHostOperations()
+	sim, err := newTestSimulator(h, Options{Enabled: true}, ops)
 	require.NoError(t, err)
-	require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
+	require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
 	require.NoError(t, sim.Apply(t.Context(), nil))
 	require.NoError(t, sim.Apply(t.Context(), nil))
-	require.Equal(t, 2, calls)
+	require.Equal(t, 1, strings.Count(strings.Join(*calls, "\n"), "systemctl stop kubelet"))
 	require.NoError(t, sim.Revoke(t.Context()))
 	require.NoError(t, sim.Discard(t.Context()))
 	require.FileExists(t, h.RunPath(appliedRel))
-	changed, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, Policy: "restricted"})
+	changed, err := newTestSimulator(h, Options{Enabled: true, Policy: "restricted"})
 	require.NoError(t, err)
-	require.ErrorContains(t, changed.Stage(t.Context(), testPreparedState(t, changed.host)), "disable NUMA simulation")
-	restore := hostRunnerFunc(func(_ context.Context, action HostAction, _ bool) error {
-		require.Equal(t, ActionRestore, action)
-		return os.Remove(h.RunPath(appliedRel))
-	})
-	disabled, err := newTestSimulator(h, Options{ConfigureKubelet: true, Runner: restore})
+	require.ErrorContains(t, changed.Stage(t.Context(), testEnrichedState(t, changed.host)), "disable NUMA simulation")
+	disabled, err := newTestSimulator(h, Options{}, ops)
 	require.NoError(t, err)
 	require.NoError(t, disabled.Stage(t.Context(), nil))
 	require.NoError(t, disabled.Apply(t.Context(), nil))
@@ -181,9 +170,9 @@ func TestStaticCPUManagerConfiguration(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := testHost(t)
-			sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", ReservedCPUs: tc.reserved})
+			sim, err := newTestSimulator(h, Options{Enabled: true, CPUManagerPolicy: "static", ReservedCPUs: tc.reserved})
 			require.NoError(t, err)
-			require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
+			require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
 			data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
 			require.NoError(t, err)
 			var config map[string]any
@@ -200,24 +189,22 @@ func TestStaticCPUManagerRejectsUnusableReservations(t *testing.T) {
 	for _, reserved := range []string{"8", "0-7", "invalid"} {
 		t.Run(reserved, func(t *testing.T) {
 			t.Parallel()
-			sim, err := newTestSimulator(testHost(t), Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", ReservedCPUs: reserved})
+			sim, err := newTestSimulator(testHost(t), Options{Enabled: true, CPUManagerPolicy: "static", ReservedCPUs: reserved})
 			require.NoError(t, err)
-			require.Error(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
+			require.Error(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
 		})
 	}
 	_, err := newTestSimulator(testHost(t), Options{CPUManagerPolicy: "invalid"})
 	require.Error(t, err)
-	_, err = newTestSimulator(testHost(t), Options{Enabled: true, CPUManagerPolicy: "static"})
-	require.ErrorContains(t, err, "configureKubelet")
 }
 
 func TestStaticMemoryReservationsMatchNodeReservations(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
 	require.NoError(t, os.WriteFile(h.HostPath("/var/lib/kubelet/config.yaml"), []byte("kubeReserved:\n  memory: 1Mi\nevictionHard:\n  memory.available: 1Mi\n"), 0600))
-	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedMemory: "2Mi"})
+	sim, err := newTestSimulator(h, Options{Enabled: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedMemory: "2Mi"})
 	require.NoError(t, err)
-	require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
+	require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
 	data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
 	require.NoError(t, err)
 	var config struct {
@@ -237,26 +224,50 @@ func TestStaticMemoryReservationsMatchNodeReservations(t *testing.T) {
 	}
 }
 
+// The expected values come from kubelet's eviction formula, which keeps
+// float32 precision; reservedMemory must match it exactly or kubelet refuses
+// to start with the static Memory Manager.
+func TestMemoryEvictionPercentMatchesKubeletRounding(t *testing.T) {
+	t.Parallel()
+	const capacity = 16 << 30
+	for _, tc := range []struct {
+		threshold string
+		want      int64
+	}{
+		{threshold: "1%", want: 171798688},
+		{threshold: "5%", want: 858993472},
+		{threshold: "7.5%", want: 1288490240},
+		{threshold: "10%", want: 1717986944},
+	} {
+		t.Run(tc.threshold, func(t *testing.T) {
+			t.Parallel()
+			got, err := memoryEviction(&kubelet.Settings{EvictionHard: map[string]string{"memory.available": tc.threshold}}, capacity)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestStaticMemoryRejectsImpossibleReservations(t *testing.T) {
 	t.Parallel()
 	for _, value := range []string{"invalid", "0", "1Gi"} {
 		t.Run(value, func(t *testing.T) {
 			t.Parallel()
-			sim, err := newTestSimulator(testHost(t), Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedMemory: value})
+			sim, err := newTestSimulator(testHost(t), Options{Enabled: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedMemory: value})
 			require.NoError(t, err)
-			require.Error(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
+			require.Error(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
 		})
 	}
-	_, err := newTestSimulator(testHost(t), Options{Enabled: true, ConfigureKubelet: true, MemoryManagerPolicy: "static"})
+	_, err := newTestSimulator(testHost(t), Options{Enabled: true, MemoryManagerPolicy: "static"})
 	require.ErrorContains(t, err, "static CPU Manager")
 }
 
 func TestFractionalSystemCPUReservation(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
-	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", SystemReservedCPU: "100m"})
+	sim, err := newTestSimulator(h, Options{Enabled: true, CPUManagerPolicy: "static", SystemReservedCPU: "100m"})
 	require.NoError(t, err)
-	require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
+	require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
 	data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
 	require.NoError(t, err)
 	var config map[string]any
@@ -267,8 +278,12 @@ func TestFractionalSystemCPUReservation(t *testing.T) {
 	require.ErrorContains(t, err, "mutually exclusive")
 }
 
-func newTestSimulator(h *host.Host, opts Options) (*Simulator, error) {
-	sim, err := New(h, opts)
+func newTestSimulator(h *host.Host, opts Options, operations ...hostOperations) (*Simulator, error) {
+	ops, _ := fakeHostOperations()
+	if len(operations) > 0 {
+		ops = operations[0]
+	}
+	sim, err := newSimulator(h, opts, ops)
 	if err != nil {
 		return nil, err
 	}
@@ -289,45 +304,25 @@ func TestStageRefreshesHostHelper(t *testing.T) {
 	h := testHost(t)
 	sim, err := newTestSimulator(h, Options{Enabled: true})
 	require.NoError(t, err)
-	require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
+	require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
 	requireFileContent(t, h.RootPath("kubelet/mokka-kubelet-helper"), "test Go executable")
 	require.NoError(t, os.WriteFile(sim.helperSource, []byte("updated executable"), 0700))
-	require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
+	require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
 	requireFileContent(t, h.RootPath("kubelet/mokka-kubelet-helper"), "updated executable")
-}
-
-func TestLegacySetupMustBeRestoredWithPreviousVersion(t *testing.T) {
-	t.Parallel()
-	for _, enabled := range []bool{true, false} {
-		t.Run(strconv.FormatBool(enabled), func(t *testing.T) {
-			t.Parallel()
-			h := testHost(t)
-			require.NoError(t, os.MkdirAll(h.RootPath("numa"), 0755))
-			require.NoError(t, os.WriteFile(h.RootPath("numa/.applied"), []byte("legacy"), 0600))
-			sim, err := newTestSimulator(h, Options{Enabled: enabled})
-			require.NoError(t, err)
-			require.ErrorContains(t, sim.Apply(t.Context(), nil), "previous Mokka version")
-			if enabled {
-				require.ErrorContains(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)), "previous Mokka version")
-			}
-			requireFileContent(t, h.RootPath("numa/.applied"), "legacy")
-		})
-	}
 }
 
 func TestLowercaseMemoryPolicyUsesKubeletSpellingInAppliedConfiguration(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
 	require.NoError(t, os.WriteFile(h.HostPath("/var/lib/kubelet/config.yaml"), []byte("evictionHard:\n  memory.available: 1Mi\n"), 0600))
-	runner := hostRunnerFunc(func(context.Context, HostAction, bool) error { return nil })
-	sim, err := newTestSimulator(h, Options{Runner: runner, Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedMemory: "2Mi"})
+	sim, err := newTestSimulator(h, Options{Enabled: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static", SystemReservedMemory: "2Mi"})
 	require.NoError(t, err)
-	require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
+	require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
 	// User settings are lowercase; the stored policy uses kubelet spelling.
-	const previous = "sysbus-v1:339badff2f87bb98162abc14e5e739ff2a7a0fb192e5987be55339009087961f:true:single-numa-node:static::Static:2Mi"
+	const previous = "339badff2f87bb98162abc14e5e739ff2a7a0fb192e5987be55339009087961f:true:single-numa-node:static::Static:2Mi"
 	requireFileContent(t, h.RootPath("numa/desired"), previous+"\n")
 	require.NoError(t, fsutil.Write(h.RunPath(appliedRel), []byte(previous+"\n"), 0600))
-	require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
+	require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
 	require.NoError(t, sim.Apply(t.Context(), nil))
 }
 
@@ -357,9 +352,9 @@ reservedMemory:
     futureField: keep
 `
 	require.NoError(t, os.WriteFile(h.HostPath("/var/lib/kubelet/config.yaml"), []byte(original), 0600))
-	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", SystemReservedCPU: "100m"})
+	sim, err := newTestSimulator(h, Options{Enabled: true, CPUManagerPolicy: "static", SystemReservedCPU: "100m"})
 	require.NoError(t, err)
-	require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
+	require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
 	data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
 	require.NoError(t, err)
 	var before, after map[string]any
@@ -376,74 +371,21 @@ func TestKubeletConfigRejectsInvalidManagedFields(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
 	require.NoError(t, os.WriteFile(h.HostPath("/var/lib/kubelet/config.yaml"), []byte("systemReserved: invalid\n"), 0600))
-	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true})
+	sim, err := newTestSimulator(h, Options{Enabled: true})
 	require.NoError(t, err)
-	require.ErrorContains(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)), "decode kubelet config")
-}
-
-type hostRunnerFunc func(context.Context, HostAction, bool) error
-
-func (f hostRunnerFunc) Run(ctx context.Context, action HostAction, managed bool) error {
-	return f(ctx, action, managed)
-}
-
-func TestConstructorHostRunnerReceivesActionsAndErrors(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name                   string
-		enabled, managed, fail bool
-		action                 HostAction
-	}{
-		{name: "mount only", enabled: true, action: ActionApply},
-		{name: "managed apply", enabled: true, managed: true, action: ActionApply},
-		{name: "restore", action: ActionRestore},
-		{name: "runner failure", enabled: true, fail: true, action: ActionApply},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			h := testHost(t)
-			require.NoError(t, os.MkdirAll(h.RootPath("numa"), 0755))
-			if !tc.enabled {
-				require.NoError(t, fsutil.Write(h.RunPath(appliedRel), []byte("active\n"), 0600))
-			}
-			calls := 0
-			failure := errors.New("test host runner failed")
-			runner := hostRunnerFunc(func(ctx context.Context, action HostAction, managed bool) error {
-				require.Equal(t, t.Context(), ctx)
-				require.Equal(t, tc.action, action)
-				require.Equal(t, tc.managed, managed)
-				calls++
-				if tc.fail {
-					return failure
-				}
-				return nil
-			})
-			sim, err := newTestSimulator(h, Options{Enabled: tc.enabled, ConfigureKubelet: tc.managed, Runner: runner})
-			require.NoError(t, err)
-			require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
-			err = sim.Apply(t.Context(), nil)
-			if tc.fail {
-				require.ErrorIs(t, err, failure)
-				require.False(t, sim.Ready())
-			} else {
-				require.NoError(t, err)
-				require.True(t, sim.Ready())
-			}
-			require.Equal(t, 1, calls)
-		})
-	}
+	require.ErrorContains(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)), "decode kubelet config")
 }
 
 func TestDefaultSystemMemoryReservation(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
 	require.NoError(t, os.WriteFile(h.ProcPath("meminfo"), []byte("MemTotal: 1048576 kB\n"), 0644))
-	sim, err := newTestSimulator(h, Options{Enabled: true, ConfigureKubelet: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static"})
+	sim, err := newTestSimulator(h, Options{Enabled: true, CPUManagerPolicy: "static", MemoryManagerPolicy: "static"})
 	require.NoError(t, err)
-	require.NoError(t, sim.Stage(t.Context(), testPreparedState(t, sim.host)))
+	require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, sim.host)))
 	data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
 	require.NoError(t, err)
-	var config kubeletSettings
+	var config kubelet.Settings
 	require.NoError(t, yaml.Unmarshal(data, &config))
 	require.Equal(t, "256Mi", config.SystemReserved.Memory)
 	require.Len(t, config.ReservedMemory, 2)
@@ -462,39 +404,139 @@ func TestDisableRecoversPendingSetupAndBootRegistration(t *testing.T) {
 			if pending {
 				require.NoError(t, fsutil.Write(h.RunPath(pendingRel), []byte("partial"), 0600))
 			} else {
-				require.NoError(t, kubelet.ArmBootReset(h, kubelet.BootResetPlan{NUMA: true}))
+				require.NoError(t, kubelet.ArmBootReset(h))
 				require.NoError(t, os.RemoveAll(h.Run))
 			}
-			called := false
-			runner := hostRunnerFunc(func(_ context.Context, action HostAction, managed bool) error {
-				require.Equal(t, ActionRestore, action)
-				require.False(t, managed)
-				called = true
-				return nil
-			})
-			sim, err := newTestSimulator(h, Options{Runner: runner})
+			ops, calls := fakeHostOperations()
+			sim, err := newTestSimulator(h, Options{}, ops)
 			require.NoError(t, err)
 			require.NoError(t, sim.Apply(t.Context(), nil))
-			require.True(t, called)
+			require.Contains(t, *calls, "systemctl start kubelet")
+			require.NoFileExists(t, h.RunPath(pendingRel))
+			require.NoFileExists(t, h.RootPath("kubelet/boot-reset.enabled"))
 		})
 	}
 }
 
-func testPreparedState(t *testing.T, h *host.Host) *agent.State {
-	t.Helper()
-	state, err := numatopology.ResolveState(t.Context(), h, testState())
+// A failed Apply requeues with a doubling delay until it succeeds, because the
+// agent does not retry it on its own.
+func TestFailedApplyRequeuesUntilItSucceeds(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	fail := true
+	ops, _ := fakeHostOperations()
+	run := ops.run
+	failure := errors.New("test host command failed")
+	ops.run = func(ctx context.Context, name string, args ...string) error {
+		if fail {
+			return failure
+		}
+		return run(ctx, name, args...)
+	}
+	sim, err := newTestSimulator(h, Options{Enabled: true}, ops)
 	require.NoError(t, err)
+	sim.retryFirst = time.Millisecond
+	state := testEnrichedState(t, h)
+	require.NoError(t, sim.Stage(t.Context(), state))
+	requeued := func() bool {
+		select {
+		case <-sim.Requeue():
+			return true
+		case <-time.After(time.Second):
+			return false
+		}
+	}
+
+	require.ErrorIs(t, sim.Apply(t.Context(), state), failure)
+	require.False(t, sim.Ready())
+	require.True(t, requeued())
+	require.ErrorIs(t, sim.Apply(t.Context(), state), failure)
+	require.False(t, sim.Ready())
+	require.Equal(t, 4*time.Millisecond, sim.retryDelay, "the delay doubles")
+	require.True(t, requeued())
+
+	fail = false
+	require.NoError(t, sim.Apply(t.Context(), state))
+	require.True(t, sim.Ready())
+	require.Zero(t, sim.retryDelay, "a success resets the delay")
+	select {
+	case <-sim.Requeue():
+		t.Fatal("a successful Apply must not requeue")
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+func testEnrichedState(t *testing.T, h *host.Host) *agent.State {
+	t.Helper()
+	state := testState()
+	require.NoError(t, numatopology.NewEnricher(h).Enrich(t.Context(), state))
 	return state
 }
 
-func TestStageRequiresRestoreForPreviousFilesystemSchema(t *testing.T) {
+func TestNUMAEnabledAlwaysStagesKubeletConfiguration(t *testing.T) {
 	t.Parallel()
 	h := testHost(t)
 	sim, err := newTestSimulator(h, Options{Enabled: true})
 	require.NoError(t, err)
-	state := testPreparedState(t, h)
-	require.NoError(t, sim.Stage(t.Context(), state))
-	previous := strings.TrimPrefix(sim.desired, "sysbus-v1:")
-	require.NoError(t, fsutil.Write(h.RunPath(appliedRel), []byte(previous+"\n"), 0600))
-	require.ErrorContains(t, sim.Stage(t.Context(), state), "disable NUMA simulation")
+	require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, h)))
+	data, err := os.ReadFile(h.RootPath("numa/kubelet-config.yaml"))
+	require.NoError(t, err)
+	require.Contains(t, string(data), "topologyManagerPolicy: single-numa-node")
+	require.Contains(t, string(data), "topologyManagerScope: container")
+}
+
+func TestSimulatorUsesHostOperationsWithDeadline(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	ops, calls := fakeHostOperations()
+	run := ops.run
+	ops.run = func(ctx context.Context, name string, args ...string) error {
+		deadline, ok := ctx.Deadline()
+		require.True(t, ok)
+		require.Positive(t, time.Until(deadline))
+		require.LessOrEqual(t, time.Until(deadline), 120*time.Second)
+		return run(ctx, name, args...)
+	}
+	sim, err := newTestSimulator(h, Options{Enabled: true}, ops)
+	require.NoError(t, err)
+	require.NoError(t, sim.Stage(t.Context(), testEnrichedState(t, h)))
+	require.NoError(t, sim.Apply(t.Context(), nil))
+	require.True(t, sim.Ready())
+	require.Contains(t, *calls, "systemctl start kubelet")
+	require.Contains(t, *calls, "healthcheck")
+	disabled, err := newTestSimulator(h, Options{}, ops)
+	require.NoError(t, err)
+	require.NoError(t, disabled.Apply(t.Context(), nil))
+	require.True(t, disabled.Ready())
+	require.NoFileExists(t, h.RunPath(appliedRel))
+	require.Contains(t, *calls, "umount "+h.HostPath(kubeletConfig))
+}
+
+func TestDisabledSimulatorLeavesUnmanagedNodeUntouched(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	ops, calls := fakeHostOperations()
+	sim, err := newTestSimulator(h, Options{}, ops)
+	require.NoError(t, err)
+	require.Empty(t, *calls, "construction must not change the node")
+	require.NoError(t, sim.Stage(t.Context(), nil))
+	require.NoError(t, sim.Apply(t.Context(), nil))
+	require.True(t, sim.Ready())
+	require.Empty(t, *calls, "disabled simulation must not change an unmanaged node")
+}
+
+func TestSimulatorRestoreFailureKeepsRecoveryState(t *testing.T) {
+	t.Parallel()
+	h := testHost(t)
+	require.NoError(t, fsutil.Write(h.RunPath(pendingRel), []byte("partial"), 0600))
+	ops, _ := fakeHostOperations()
+	failure := errors.New("cannot stop kubelet")
+	ops.run = func(context.Context, string, ...string) error { return failure }
+	sim, err := newTestSimulator(h, Options{}, ops)
+	require.NoError(t, err)
+	require.NoError(t, sim.Stage(t.Context(), nil))
+	require.ErrorIs(t, sim.Apply(t.Context(), nil), failure)
+	t.Cleanup(func() { sim.retryTimer.Stop() })
+	require.False(t, sim.Ready())
+	requireFileContent(t, h.RunPath(pendingRel), "partial")
 }

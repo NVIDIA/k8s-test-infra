@@ -5,7 +5,6 @@
 package kubelet
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -15,58 +14,34 @@ import (
 )
 
 const (
-	planPath = "kubelet/boot-reset.json"
-	donePath = "mokka/kubelet-reset.done"
+	enabledPath = "kubelet/boot-reset.enabled"
+	donePath    = "mokka/kubelet-reset.done"
 )
 
-// BootResetPlan identifies the features whose persistent state needs resetting.
-type BootResetPlan struct {
-	NUMA bool `json:"numa"`
-}
-
 // ArmBootReset registers cleanup before any simulation changes kubelet state.
-func ArmBootReset(h *host.Host, plan BootResetPlan) error {
-	data, err := json.Marshal(plan)
-	if err != nil {
-		return err
-	}
+func ArmBootReset(h *host.Host) error {
 	// Kubelet restarts during installation must not trigger boot cleanup.
 	if err := markBootResetCompleted(h); err != nil {
 		return err
 	}
-	return fsutil.Write(h.RootPath(planPath), data, 0600)
+	return fsutil.Write(h.RootPath(enabledPath), nil, 0600)
 }
 
 // ResetForBoot prepares kubelet to start with its original, unmounted config.
 // The node's /run is reset on boot; an ordinary pod or kubelet restart keeps it.
 func ResetForBoot(h *host.Host) error {
-	plan, err := readBootResetPlan(h)
-	if err != nil || plan == nil {
+	registered, err := BootResetRegistered(h)
+	if err != nil || !registered {
 		return err
 	}
 	completed, err := bootResetCompleted(h)
 	if err != nil || completed {
 		return err
 	}
-	if err := resetNUMAState(h, plan.NUMA); err != nil {
+	if err := resetNUMAState(h); err != nil {
 		return err
 	}
 	return markBootResetCompleted(h)
-}
-
-func readBootResetPlan(h *host.Host) (*BootResetPlan, error) {
-	data, err := os.ReadFile(h.RootPath(planPath))
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var plan BootResetPlan
-	if err := json.Unmarshal(data, &plan); err != nil {
-		return nil, fmt.Errorf("decode kubelet boot reset plan: %w", err)
-	}
-	return &plan, nil
 }
 
 func bootResetCompleted(h *host.Host) (bool, error) {
@@ -77,10 +52,7 @@ func bootResetCompleted(h *host.Host) (bool, error) {
 	return err == nil, err
 }
 
-func resetNUMAState(h *host.Host, enabled bool) error {
-	if !enabled {
-		return nil
-	}
+func resetNUMAState(h *host.Host) error {
 	zap.L().Info("resetting NUMA resource-manager checkpoints for node boot")
 	for _, name := range []string{"cpu_manager_state", "memory_manager_state"} {
 		if err := fsutil.Remove(h.HostPath("/var/lib/kubelet/" + name)); err != nil {
@@ -96,11 +68,20 @@ func markBootResetCompleted(h *host.Host) error {
 
 // DisarmBootReset is called only after the original node setup is healthy.
 func DisarmBootReset(h *host.Host) error {
-	return fsutil.Remove(h.RootPath(planPath))
+	return fsutil.Remove(h.RootPath(enabledPath))
 }
 
 // BootResetRegistered reports whether Mokka has registered persistent cleanup.
 func BootResetRegistered(h *host.Host) (bool, error) {
-	plan, err := readBootResetPlan(h)
-	return plan != nil, err
+	info, err := os.Stat(h.RootPath(enabledPath))
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect kubelet boot reset marker: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("kubelet boot reset marker is not a regular file: %s", h.RootPath(enabledPath))
+	}
+	return true, nil
 }

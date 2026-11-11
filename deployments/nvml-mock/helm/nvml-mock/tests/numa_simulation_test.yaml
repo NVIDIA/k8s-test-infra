@@ -11,7 +11,6 @@ tests:
     set:
       nodeAgent.containerRuntime.enabled: false
       nodeAgent.numa.enabled: false
-      nodeAgent.numa.configureKubelet: false
     asserts:
       - contains:
           path: spec.template.spec.initContainers[0].volumeMounts
@@ -44,7 +43,6 @@ tests:
     set:
       nodeAgent.containerRuntime.enabled: false
       nodeAgent.numa.enabled: false
-      nodeAgent.numa.configureKubelet: false
     asserts:
       - equal:
           path: spec.template.spec.hostPID
@@ -63,11 +61,10 @@ tests:
             hostPath:
               path: /
               type: Directory
-  - it: exposes the explicit kubelet setup options
+  - it: enables topology simulation with the selected kubelet policy
     set:
       nodeAgent.numa:
         enabled: true
-        configureKubelet: true
         topologyManagerPolicy: restricted
     asserts:
       - contains:
@@ -75,15 +72,11 @@ tests:
           content: --numa-simulation
       - contains:
           path: spec.template.spec.initContainers[0].command
-          content: --numa-configure-kubelet
-      - contains:
-          path: spec.template.spec.initContainers[0].command
           content: --numa-topology-manager-policy=restricted
   - it: can configure NUMA without changing the container runtime
     set:
       nodeAgent.containerRuntime.enabled: false
       nodeAgent.numa.enabled: true
-      nodeAgent.numa.configureKubelet: true
     asserts:
       - equal:
           path: spec.template.spec.hostPID
@@ -111,7 +104,6 @@ tests:
   - it: passes static CPU Manager settings
     set:
       nodeAgent.numa.enabled: true
-      nodeAgent.numa.configureKubelet: true
       nodeAgent.numa.cpuManagerPolicy: static
       nodeAgent.numa.reservedCPUs: "0,4"
     asserts:
@@ -129,7 +121,6 @@ tests:
   - it: enables simulated memory handling in both kubelet and NRI
     set:
       nodeAgent.numa.enabled: true
-      nodeAgent.numa.configureKubelet: true
       nodeAgent.numa.cpuManagerPolicy: static
       nodeAgent.numa.memoryManagerPolicy: static
     asserts:
@@ -150,7 +141,6 @@ tests:
   - it: allows a fractional shared CPU reservation
     set:
       nodeAgent.numa.enabled: true
-      nodeAgent.numa.configureKubelet: true
       nodeAgent.numa.cpuManagerPolicy: static
       nodeAgent.numa.systemReservedCPU: 100m
     asserts:
@@ -158,12 +148,6 @@ tests:
           path: spec.template.spec.initContainers[0].command
           content: --numa-system-reserved-cpu=100m
 
-  - it: rejects the previous top-level NUMA settings instead of silently disabling simulation
-    set:
-      numaSimulation.enabled: true
-    asserts:
-      - failedTemplate:
-          errorMessage: "numaSimulation has moved to nodeAgent.numa"
   - it: rejects capitalized user memory policy values
     set:
       nodeAgent.numa.memoryManagerPolicy: Static
@@ -173,7 +157,6 @@ tests:
   - it: passes the default system memory reservation from Helm values
     set:
       nodeAgent.numa.enabled: true
-      nodeAgent.numa.configureKubelet: true
       nodeAgent.numa.cpuManagerPolicy: static
       nodeAgent.numa.memoryManagerPolicy: static
     asserts:
@@ -183,7 +166,6 @@ tests:
   - it: passes the configured system memory reservation
     set:
       nodeAgent.numa.enabled: true
-      nodeAgent.numa.configureKubelet: true
       nodeAgent.numa.cpuManagerPolicy: static
       nodeAgent.numa.memoryManagerPolicy: static
       nodeAgent.numa.systemReservedMemory: 512Mi

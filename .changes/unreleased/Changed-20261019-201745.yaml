@@ -1,4 +1,0 @@
-kind: Changed
-body: |-
-  **Breaking:** helm: the mock InfiniBand NetworkPolicy admits peers from the release's namespace only; a fleet split across namespaces must list the others in `infiniband.ping.networkPolicy.peerNamespaces`.
-time: 2026-10-19T18:17:45Z

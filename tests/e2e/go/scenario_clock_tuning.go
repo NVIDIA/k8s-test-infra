@@ -72,6 +72,10 @@ func smiCurrentClocks(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx 
 // without disturbing it, and restores the defaults with `-rac`.
 func assertApplicationsClocksViaNvidiaSmi(ctx SpecContext, h *harness.Harness, consumer kube.PodRef, p profile.Profile) {
 	GinkgoHelper()
+	if p.ApplicationsClocksDeprecated() {
+		assertApplicationsClocksDeprecated(ctx, h, consumer, p)
+		return
+	}
 	mem, gfx, ok := p.AlternateApplicationsClocksMHz()
 	if !ok {
 		Skip("profile " + p.Name + " has no supported clock pair other than the default")
@@ -111,6 +115,31 @@ func assertApplicationsClocksViaNvidiaSmi(ctx SpecContext, h *harness.Harness, c
 		return smiAppClocks(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(defaults), "GPU %d applications clocks should return to the defaults after -rac", target)
+}
+
+// applicationsClocksDeprecatedNotice is what nvidia-smi prints for -ac and
+// -rac from driver 615. In -q -x each applications clock reads "Requested
+// functionality has been deprecated" instead of a number.
+const applicationsClocksDeprecatedNotice = "The requested functionality has been deprecated."
+
+// assertApplicationsClocksDeprecated checks the 615 behaviour: -ac and -rac
+// print the deprecation notice and change nothing. There are no applications
+// clocks to compare, so it checks they stay non-numeric and that the clocks in
+// effect do not move.
+func assertApplicationsClocksDeprecated(ctx SpecContext, h *harness.Harness, consumer kube.PodRef, p profile.Profile) {
+	GinkgoHelper()
+	mem, gfx, ok := p.AlternateApplicationsClocksMHz()
+	if !ok {
+		mem, gfx = p.DefaultApplicationsClocksMHz()
+	}
+	before := smiCurrentClocks(ctx, h, consumer, 0)
+	for _, args := range [][]string{{"-ac", fmt.Sprintf("%d,%d", mem, gfx)}, {"-rac"}} {
+		By(fmt.Sprintf("nvidia-smi %s reports applications clocks as deprecated on driver %d and changes nothing", args[0], p.DriverMajor()))
+		Expect(smiClockTuning(ctx, h, consumer, 0, args...)).To(ContainSubstring(applicationsClocksDeprecatedNotice))
+		_, _, numeric := smiGPU(ctx, h, consumer, 0).ApplicationsClocksMHz()
+		Expect(numeric).To(BeFalse(), "applications clocks must stay deprecated after %s", args[0])
+		Expect(smiCurrentClocks(ctx, h, consumer, 0)).To(Equal(before), "the clocks in effect must not change after %s", args[0])
+	}
 }
 
 // unlistedGraphicsClock returns a graphics clock the table does not pair with

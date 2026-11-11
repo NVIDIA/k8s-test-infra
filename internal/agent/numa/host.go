@@ -23,31 +23,45 @@ import (
 var checkpointFiles = []string{"cpu_manager_state", "memory_manager_state"}
 
 type hostSetup struct {
-	host        *host.Host
+	host *host.Host
+	hostOperations
+}
+
+// hostOperations isolates privileged operations from the setup lifecycle.
+type hostOperations struct {
 	run         func(context.Context, string, ...string) error
 	mounted     func(string) (bool, error)
 	mountedFrom func(string, string) (bool, error)
 	waitHealthy func(context.Context) error
 }
 
-func newHostSetup(h *host.Host) *hostSetup {
-	s := &hostSetup{host: h, mounted: fsutil.IsMounted, mountedFrom: fsutil.IsBindMounted}
-	s.run = func(ctx context.Context, name string, args ...string) error {
-		chroot := cri.Chroot{Root: h.Prefix}
-		if name == "systemctl" {
-			return cri.Systemctl(ctx, chroot, args...)
-		}
-		cmd := exec.CommandContext(ctx, name, args...)
-		// Mount paths are in the pod view; only systemctl needs the host root.
-		cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("%s %v: %w: %s", name, args, err, output)
-		}
-		return nil
+func newHostSetup(h *host.Host, ops hostOperations) *hostSetup {
+	s := &hostSetup{host: h, hostOperations: ops}
+	if s.mounted == nil {
+		s.mounted = fsutil.IsMounted
 	}
-
-	s.waitHealthy = s.waitForKubelet
+	if s.mountedFrom == nil {
+		s.mountedFrom = fsutil.IsBindMounted
+	}
+	if s.run == nil {
+		s.run = func(ctx context.Context, name string, args ...string) error {
+			chroot := cri.Chroot{Root: h.Prefix}
+			if name == "systemctl" {
+				return cri.Systemctl(ctx, chroot, args...)
+			}
+			cmd := exec.CommandContext(ctx, name, args...)
+			// Mount paths are in the pod view; only systemctl needs the host root.
+			cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("%s %v: %w: %s", name, args, err, output)
+			}
+			return nil
+		}
+	}
+	if s.waitHealthy == nil {
+		s.waitHealthy = s.waitForKubelet
+	}
 	return s
 }
 
@@ -71,17 +85,16 @@ func copyIfPresent(src, dst string) (bool, error) {
 	return true, fsutil.Copy(src, dst, 0o600)
 }
 
-func (s *hostSetup) restore(ctx context.Context, managed bool) error {
+func (s *hostSetup) restore(ctx context.Context) error {
 	zap.L().Info("restoring original node NUMA setup")
 	backup := s.host.RunPath("mokka/numa/original")
-	managed, err := s.restoreKubeletState(ctx, backup, managed)
-	if err != nil {
+	if err := s.restoreKubeletState(ctx, backup); err != nil {
 		return err
 	}
 	if err := s.unmountTree(ctx); err != nil {
 		return err
 	}
-	if err := s.finishRestore(ctx, managed); err != nil {
+	if err := s.finishRestore(ctx); err != nil {
 		return err
 	}
 	// Keep recovery copies until restoration and the health check succeeded.
@@ -91,37 +104,24 @@ func (s *hostSetup) restore(ctx context.Context, managed bool) error {
 	return os.RemoveAll(backup)
 }
 
-func (s *hostSetup) restoreKubeletState(ctx context.Context, backup string, managed bool) (bool, error) {
+func (s *hostSetup) restoreKubeletState(ctx context.Context, backup string) error {
 	saved, err := fileExists(filepath.Join(backup, "kubelet-config.yaml"))
 	if err != nil {
-		return false, err
-	}
-	registered, err := kubelet.BootResetRegistered(s.host)
-	if err != nil {
-		return false, err
-	}
-	managed = managed || saved || registered
-	if !managed {
-		return false, nil
+		return err
 	}
 	if err := s.systemctl(ctx, "stop", "kubelet"); err != nil {
-		return false, err
+		return err
 	}
 	if err := s.unmountOwned(ctx, s.host.RootPath("numa/kubelet-config.yaml"), s.host.HostPath(kubeletConfig)); err != nil {
-		return false, err
+		return err
 	}
 	if saved {
-		if err := s.restoreCheckpoints(backup); err != nil {
-			return false, err
-		}
+		return s.restoreCheckpoints(backup)
 	}
-	return true, nil
+	return nil
 }
 
-func (s *hostSetup) finishRestore(ctx context.Context, managed bool) error {
-	if !managed {
-		return nil
-	}
+func (s *hostSetup) finishRestore(ctx context.Context) error {
 	if err := s.systemctl(ctx, "start", "kubelet"); err != nil {
 		return err
 	}
@@ -183,8 +183,8 @@ func (s *hostSetup) backupFile(src, dst string) error {
 	return fsutil.Copy(src, dst, 0o600)
 }
 
-func (s *hostSetup) apply(ctx context.Context, managed bool) error {
-	desired, applied, err := s.prepareApply(managed)
+func (s *hostSetup) apply(ctx context.Context) error {
+	desired, applied, err := s.prepareApply()
 	if err != nil {
 		return err
 	}
@@ -194,8 +194,8 @@ func (s *hostSetup) apply(ctx context.Context, managed bool) error {
 	if err := fsutil.Write(s.host.RunPath(pendingRel), desired, 0600); err != nil {
 		return err
 	}
-	zap.L().Info("applying node NUMA setup", zap.Bool("configure_kubelet", managed))
-	applyErr := s.applySetup(ctx, managed)
+	zap.L().Info("applying node NUMA setup")
+	applyErr := s.applySetup(ctx)
 	if applyErr == nil {
 		applyErr = fsutil.Write(s.host.RunPath(appliedRel), desired, 0o600)
 		if applyErr == nil {
@@ -208,7 +208,7 @@ func (s *hostSetup) apply(ctx context.Context, managed bool) error {
 		// bounded window so cancellation does not prevent recovery.
 		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
 		defer cancel()
-		restoreErr := s.restore(rollbackCtx, managed)
+		restoreErr := s.restore(rollbackCtx)
 		if restoreErr != nil {
 			return errors.Join(applyErr, fmt.Errorf("NUMA rollback failed; inspect %s: %w", s.host.RunPath("mokka/numa/original"), restoreErr))
 		}
@@ -217,7 +217,7 @@ func (s *hostSetup) apply(ctx context.Context, managed bool) error {
 	return nil
 }
 
-func (s *hostSetup) prepareApply(managed bool) ([]byte, bool, error) {
+func (s *hostSetup) prepareApply() ([]byte, bool, error) {
 	desired, err := os.ReadFile(s.host.RootPath("numa/desired"))
 	if err != nil {
 		return nil, false, err
@@ -232,7 +232,7 @@ func (s *hostSetup) prepareApply(managed bool) ([]byte, bool, error) {
 		return nil, false, err
 	}
 	if bytes.Equal(applied, desired) {
-		current, err := s.currentMounts(managed)
+		current, err := s.currentMounts()
 		if err != nil {
 			return nil, false, err
 		}
@@ -240,25 +240,18 @@ func (s *hostSetup) prepareApply(managed bool) ([]byte, bool, error) {
 			return desired, true, nil
 		}
 	}
-	if managed {
-		if _, err := os.Stat(s.host.RootPath("numa/kubelet-config.yaml")); err != nil {
-			return nil, false, err
-		}
+	if _, err := os.Stat(s.host.RootPath("numa/kubelet-config.yaml")); err != nil {
+		return nil, false, err
 	}
 	return desired, false, nil
 }
 
-func (s *hostSetup) applySetup(ctx context.Context, managed bool) error {
-	if managed {
-		if err := s.prepareKubelet(ctx); err != nil {
-			return err
-		}
+func (s *hostSetup) applySetup(ctx context.Context) error {
+	if err := s.prepareKubelet(ctx); err != nil {
+		return err
 	}
 	if err := s.mountTree(ctx); err != nil {
 		return err
-	}
-	if !managed {
-		return nil
 	}
 	return s.startSimulatedKubelet(ctx)
 }
@@ -270,7 +263,7 @@ func (s *hostSetup) prepareKubelet(ctx context.Context) error {
 	if err := s.backupKubelet(); err != nil {
 		return err
 	}
-	return kubelet.InstallBootReset(ctx, s.host, kubelet.BootResetPlan{NUMA: true}, s.systemctl)
+	return kubelet.InstallBootReset(ctx, s.host, s.systemctl)
 }
 
 func (s *hostSetup) startSimulatedKubelet(ctx context.Context) error {
@@ -294,15 +287,12 @@ func (s *hostSetup) startSimulatedKubelet(ctx context.Context) error {
 	return s.waitHealthy(ctx)
 }
 
-func (s *hostSetup) currentMounts(managed bool) (bool, error) {
+func (s *hostSetup) currentMounts() (bool, error) {
 	for _, mount := range topologyMounts {
 		present, err := s.mountedFrom(s.host.RootPath(mount.source), s.host.SysPath(mount.target))
 		if err != nil || !present {
 			return false, err
 		}
-	}
-	if !managed {
-		return true, nil
 	}
 	return s.mountedFrom(s.host.RootPath("numa/kubelet-config.yaml"), s.host.HostPath(kubeletConfig))
 }

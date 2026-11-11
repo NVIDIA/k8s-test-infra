@@ -15,16 +15,19 @@ rename lands first.
 | `qx-l40s.xml` | 1x NVIDIA L40S (AWS `g6e.2xlarge`) | 595.91.07 / 13.2 |
 | `qx-t4.xml` | 1x Tesla T4 (AWS `g4dn.xlarge`) | 595.91.07 / 13.2 |
 | `qx-a100.xml` | 1x NVIDIA A100-SXM4-40GB (Lambda `gpu_1x_a100_sxm4`) | 570.148.08 / 12.8 |
+| `qx-vrnvl72.xml` | 4x Rubin (`NVIDIA Graphics Device`), one VR NVL72 compute tray, arm64 | 615.71.09 / 13.4 |
 
 The single-GPU captures are the no-NVLink, no-fabric end of the range — useful
 for seeing which elements a small board omits. The drivers deliberately spread
 from 570 to 595, since a spread is what exposes an element rename: the A100 is
 the oldest and the T4 and L40S the newest.
 
-The GB200 and GB300 are the only ones in a fabric cluster, so they are the only
-place `clusterUuid` and `cliqueId` carry values rather than zeros or `N/A`. The
-GB200 is also the only arm64 host, taken from a running GPU-operator driver pod
-rather than a node we control directly.
+The GB200, GB300 and VR NVL72 are the only ones in a fabric cluster, so they are
+the only place `clusterUuid` and `cliqueId` carry values rather than zeros or
+`N/A`. The GB200 and the VR NVL72 are the arm64 hosts, both taken from a running
+GPU-operator driver pod rather than a node we control directly. The VR NVL72 is
+the only capture on a 615 driver, which the mock pairs with its bundled 615
+`nvidia-smi`.
 
 The A100 matches the board `mock-nvml-config-a100.yaml` models
 (`NVIDIA A100-SXM4-40GB`). It came from a rented single-GPU VM rather than a

@@ -25,9 +25,10 @@ outlive a reconcile.
 
 | Simulator | Stages                                                                                                                                                   |
 |---|----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `nvml` | Character devices, the mock NVML and CUDA libraries, `nvidia-smi`, the engine config with the board's MIG table, and the machine type GFD reads |
+| `nvml` | Character devices, the mock NVML and CUDA libraries, [`nvidia-smi`](#which-nvidia-smi-a-node-runs), the engine config with the board's MIG table, and the machine type GFD reads |
 | `gpudriver` | In the userspace driver mode: the procfs entries and kernel module tree a loaded driver shows, and a bind mount of the driver tree at `/run/nvidia/driver`, the path GPU Operator expects |
 | `nvidiakmod` | In the kernel driver mode: the simulated kernel modules' sources and loader, the node's GPUs as their parameter, and the modprobe and linker directives the NRI plugin gives a driver installer's container |
+| `numa` | A [NUMA filesystem tree](#numa-simulation) for kubelet and topology reporters, plus kubelet configuration |
 | `pcibus` | A fake `/sys/bus/pci/devices` tree, the `libmockfs.so` shim, and the NFD feature file that lets Node Feature Discovery label the node                  |
 | `cri` | Two CDI specs that containerd uses to inject mock GPUs into workload containers, and the [container runtime setup](#container-runtime-setup) that registers the `nvidia` handler. While IMEX is staged, the GPU spec also mounts `nvidia-imex` and `nvidia-imex-ctl`, as the NVIDIA Container Toolkit does on a real GB200 or GB300 node, with `nvidia-imex.real` beside Mokka's `nvidia-imex` shim |
 | `imex` | On multi-node NVLink profiles: IMEX channel character devices, a `/proc/devices` overlay, and the capability file the DRA compute-domain plugin reads, plus `nvidia-imex` and `nvidia-imex-ctl` from a pinned archive: delivered by the chart's `imex.binaries.image`, or downloaded from NVIDIA into a node cache while the `IMEXDownload` [feature gate](../feature-gates.md) is on. A node without the archive stays ready and stages no IMEX, as a real node without the IMEX package |
@@ -36,42 +37,82 @@ outlive a reconcile.
 | `ib` | A fake `/sys/class/infiniband` tree, the IB shims and CLI tools, and the `mock-ib` daemon serving UMAD and verbs                                         |
 | `kernellog` | Announces injected Xids on the node's kernel log, the way a driver's printk does                                                                         |
 
+### Which nvidia-smi a node runs
+
+A real node's `nvidia-smi` comes with its driver, and a binary from another
+branch misreads a driver's answers: NVML numbered some field values
+differently, and from 615 it addresses 36 NVLinks per GPU where 580 addressed
+18. The image therefore ships one `nvidia-smi` per driver branch, 580.65.06
+and 615.71.09, and `gpudriver` stages one by the profile's
+`system.driver_version` (or the chart's `driverVersion`):
+
+- Within the driver's branch, the newest binary not newer than the driver, or
+  the branch's oldest when every one is newer: a binary of another branch can
+  address a different number of NVLinks.
+- A driver with no binary of its own branch gets the newest of an older
+  branch, never a newer one: NVML serves callers built for older drivers only.
+
+Running `nvidia-smi` in the node daemon's pod runs that same staged copy.
+
+| Profile driver | `nvidia-smi` |
+|---|---|
+| 615 and later | 615.71.09 |
+| 580 to 614 | 580.65.06 |
+| before 580 | 580.65.06, the oldest bundled |
+
+One pairing is still off: a driver from 580.95 to 614 numbers the clock-event
+counter fields the newer way, which the 580.65.06 binary cannot read, so it
+shows them as `N/A`. No shipped profile uses such a driver.
+
+The binaries come from NVIDIA's CUDA repository (580) and Canonical's Ubuntu
+archive (615, repackaged from NVIDIA's driver installer), pinned in
+`deployments/nvml-mock/Dockerfile`. The 615 package is checked against its
+pinned checksum, so any source will do: Launchpad, the Ubuntu archive, or one
+added to the `NVIDIA_SMI_615_URLS` build argument. `make nvidia-smi-smoke` runs each of them
+against the mock NVML without a cluster.
+
 ## The reconcile lifecycle
 
-The state source builds the complete state shared by all simulators. Each
-simulator then implements its staging, publication, and daemon interfaces.
+The state source builds the desired state from the profile; it never reads the
+node. Enrichers then add facts read from this node, and each simulator
+implements its staging, publication, and daemon interfaces.
 
 | Interface | Implemented by | Purpose |
 |---|---|---|
+| `Enricher` | the NUMA topology enricher, registered only with NUMA simulation enabled | `Enrich` reads the node, never changes it, and writes only the state fields it owns |
 | `Simulator` | all simulators | `Stage` writes artifacts that are not yet externally visible. Idempotent, re-runs on every state change |
-| `Applier` | `gpudriver`, `pcibus`, `cri` | `Apply` publishes artifacts that something *outside* the node acts on — containerd, NFD, the GPU Operator validator |
+| `Applier` | `numa`, `gpudriver`, `pcibus`, `cri` | `Apply` publishes artifacts that something *outside* the node acts on — containerd, NFD, the GPU Operator validator |
 | `Daemon` | `fabricmanager`, `ib`, `kernellog` | `Run` supervises a long-lived process; `Reload` delivers later state to it without a restart |
 
-Each state update runs through three waves:
+Each state update runs through enrichment and three waves:
 
 ```mermaid
 flowchart LR
-    source[Source builds complete state] --> valid{{Build succeeded?}}
+    source[Source builds desired state] --> valid{{Build succeeded?}}
     valid -->|no| invalid[Report source error<br/>keep the last valid state]
-    valid -->|yes| stage[Stage<br/>all simulators, in parallel]
+    valid -->|yes| enrich[Enrich<br/>in order, once per state]
+    enrich --> enriched{{All enriched?}}
+    enriched -->|no| retry[Keep the last enriched state<br/>retry with backoff]
+    enriched -->|yes| stage[Stage<br/>all simulators, in parallel]
     stage --> barrier{{All staged?}}
     barrier -->|no| fail[Report failing simulators<br/>no daemon starts, no Apply]
     barrier -->|yes| daemons[Supervise<br/>start once, or Reload]
     daemons --> apply[Apply<br/>appliers, in parallel]
 ```
 
-With NUMA simulation enabled, the file source reads the node's real CPUs and RAM
-and resolves one layout in `State.NodeShape.NUMA`. It copies the same CPU
-placement into the PCI topology and NVML engine configuration. All simulators,
-daemon reloads, and appliers receive this complete state and treat it as
-read-only. The NUMA simulator renders the supplied layout; it does not calculate
-it again.
+Enrichers run in a fixed order on a copy of the source's state, so a later
+enricher can use an earlier one's result. They run once for each new state; a
+requeue restages the enriched state without reading the node again. If an
+enricher fails, the agent drops the new state, like a source error: the node
+keeps the last fully enriched state, and the agent retries the enrichment with
+a delay that starts at 5 seconds and doubles up to 5 minutes. Before the first
+success, nothing is staged. Simulators share enriched fields, so none of them
+ever sees a state with some of those fields missing.
 
-State construction does not change the node. If it fails, the source reports an
-error and the agent keeps its last valid state. A later source refresh retries
-the build even if the profile has not changed. With NUMA enabled, refreshes also
-check for changes to host CPU and memory inputs. The source emits an update only
-when the profile, auxiliary documents, or resolved layout changes.
+With NUMA simulation enabled, the NUMA topology enricher reads the node's real
+CPUs and RAM and resolves one layout in `State.NodeShape.NUMA`. The NUMA
+simulator renders it, and `pcibus` and `gpudriver` publish each GPU's local CPUs
+from the same zones, so kubelet, the driver files, and NVML agree.
 
 The split between `Stage` and `Apply` is the important part. Staging is private:
 files exist but nothing outside the node is looking at them yet. Publishing is
@@ -85,7 +126,7 @@ The two waves handle failure differently, on purpose:
   that failed, not just the first, so one pass tells you everything that is
   wrong.
 - **Apply fails fast.** Appliers depend on each other — the CDI spec references
-  character devices `nvml` must have staged — so continuing past the first
+  character devices `gpudriver` must have staged — so continuing past the first
   failure would publish something incoherent.
 
 **Daemons start exactly once**, on the first successful barrier. A daemon owns a
@@ -95,31 +136,19 @@ profile edit does not need a pod restart.
 
 ## NUMA simulation
 
-The optional NUMA simulator uses the shared topology built by the source.
-It exposes the same zone placement to kubelet, the device plugin, and NFD through
-`/sys/devices/system/node` and `/sys/bus/node/devices`. The privileged pod uses
-bidirectional host volumes to apply and remove mounts from its own mount
-namespace. Each mount is made read-only in a private staging area before it is
-attached, so the node receives a read-only view. Mounts stay on the selected
-node even when Kind nodes share a VM.
+The optional NUMA simulator exposes the GPU profile's zones to kubelet and
+NodeResourceTopology (NRT) reporters. It uses the same resolved layout as PCI
+and NVML, so consumers agree on resource placement.
 
-With kubelet management enabled, the pod bind-mounts a modified configuration
-over `/var/lib/kubelet/config.yaml` and restarts kubelet. The original file on
-disk remains unchanged. Recovery copies, manager checkpoints, and applied or
-pending markers live under `/run/mokka/numa/`; they survive pod replacement but
-not a node reboot. Repeated setup preserves existing allocations.
+Enabling NUMA simulation configures kubelet for NUMA-aware admission and the
+selected CPU and memory allocation policies. NRI maps simulated memory
+bindings onto the real node. This tests allocation decisions, not physical
+memory locality.
 
-Explicit disable removes owned mounts, restores saved checkpoints, and checks
-that kubelet is active and answers a PodResources `List` request before deleting
-recovery files. The chart retains host access
-for this restore step even when NUMA and container runtime setup are disabled.
-Failed restoration keeps the backup and pending marker for a retry.
+The [kubelet helper](mokka-kubelet-helper.md) lets kubelet start after a node
+reboot, before the DaemonSet reapplies simulation.
 
-The pod installs the persistent [kubelet helper](mokka-kubelet-helper.md) and its
-systemd dependency to prepare kubelet after node reboot. The helper performs
-boot cleanup only; simulation setup and restoration remain in the pod.
-
-For configuration, requirements, and removal, see
+For configuration, requirements, restart behavior, and removal, see
 [NUMA filesystem simulation](../helm-chart.md#numa-filesystem-simulation).
 
 ## Health

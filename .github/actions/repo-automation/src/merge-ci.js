@@ -138,6 +138,19 @@ function evidenceState(record) {
   return record.conclusion === "success" ? "SUCCESS" : "FAILED";
 }
 
+function cancelled(run) {
+  return run.status === "completed" && run.conclusion === "cancelled";
+}
+
+// Events landing in the same second (several label changes at once) start parallel
+// runs on one head, and the workflow's concurrency group keeps an arbitrary one of
+// them, not necessarily the highest run number. A cancelled run therefore only
+// decides the result when every matching run for the head was cancelled.
+function preferredRun(run, latest) {
+  if (cancelled(run) !== cancelled(latest)) return cancelled(latest);
+  return run.runNumber > latest.runNumber || (run.runNumber === latest.runNumber && run.id > latest.id);
+}
+
 function evaluateCI(input) {
   const state = captureRecord(input, "CI input");
   if (state.repository !== REPOSITORY) throw new TypeError("CI repository must be the normalized managed repository");
@@ -188,8 +201,7 @@ function evaluateCI(input) {
     positiveInteger(run.runAttempt, "CI run attempt");
     evidenceState(run);
     const latest = required.get(workflowPath);
-    if (latest === null || run.runNumber > latest.runNumber
-      || (run.runNumber === latest.runNumber && run.id > latest.id)) required.set(workflowPath, run);
+    if (latest === null || preferredRun(run, latest)) required.set(workflowPath, run);
   }
 
   const requiredChecks = new Map(ci.checks.map((check) => [checkKey(check), null]));

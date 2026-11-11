@@ -1,4 +1,0 @@
-kind: Fixed
-body: |-
-  nvml-mock: error strings from `nvmlErrorString` stay valid after `nvmlShutdown`, so a client that collected a status before tearing NVML down no longer reads garbage.
-time: 2026-10-13T07:17:35Z

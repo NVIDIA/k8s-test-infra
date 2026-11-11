@@ -34,14 +34,14 @@ After=mokka-kubelet-reset.service
 `
 
 // InstallBootReset registers the small boot task before simulation is applied.
-func InstallBootReset(ctx context.Context, h *host.Host, plan BootResetPlan, systemctl func(context.Context, ...string) error) error {
+func InstallBootReset(ctx context.Context, h *host.Host, systemctl func(context.Context, ...string) error) error {
 	if _, err := os.Stat(h.HostPath(HelperPath)); err != nil {
 		return err
 	}
 	if err := fsutil.Write(h.EtcPath("systemd/system/"+serviceName), []byte(resetService), 0644); err != nil {
 		return err
 	}
-	if err := ArmBootReset(h, plan); err != nil {
+	if err := ArmBootReset(h); err != nil {
 		return err
 	}
 	if err := fsutil.Write(h.EtcPath(dropinPath), []byte(kubeletDependency), 0644); err != nil {

@@ -16,7 +16,7 @@ import (
 func TestPrestartCommandUsesRegisteredNodeRoot(t *testing.T) {
 	t.Parallel()
 	h := host.New(t.TempDir())
-	require.NoError(t, kubelet.ArmBootReset(h, kubelet.BootResetPlan{NUMA: true}))
+	require.NoError(t, kubelet.ArmBootReset(h))
 	require.NoError(t, os.RemoveAll(h.Run))
 	cpu := h.HostPath("/var/lib/kubelet/cpu_manager_state")
 	require.NoError(t, fsutil.Write(cpu, []byte("simulated"), 0600))

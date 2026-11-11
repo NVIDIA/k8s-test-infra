@@ -19,7 +19,6 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
-	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	ibconfig "github.com/NVIDIA/k8s-test-infra/internal/ib/config"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
@@ -51,7 +50,6 @@ type FileSource struct {
 	topologyPath   string
 	resyncInterval time.Duration
 	log            *zap.Logger
-	numaHost       *host.Host
 }
 
 // NewFileSource returns a FileSource that watches configPath and topologyPath.
@@ -207,28 +205,18 @@ func (f *FileSource) reload(ctx context.Context, ch chan<- agent.Update, lastHas
 	migTable := f.migTable()
 
 	h := inputsHash(data, topology, migTable)
-	if f.numaHost == nil && h == *lastHash {
+	if h == *lastHash {
 		f.log.Debug("watched documents unchanged; skipping reconcile")
 		return // content unchanged
 	}
-	state, err := f.buildState(ctx, data)
+	*lastHash = h
+
+	state, err := compileState(data, f.configPath)
 	if err != nil {
 		f.send(ctx, ch, agent.Update{Err: fmt.Errorf("%s: %w", f.configPath, err), At: time.Now()})
 		return
 	}
-	if f.numaHost != nil {
-		h, err = numaStateHash(h, state.NodeShape.NUMA)
-		if err != nil {
-			f.send(ctx, ch, agent.Update{Err: err, At: time.Now()})
-			return
-		}
-		if h == *lastHash {
-			return
-		}
-	}
-	// Commit the hash only after all inputs were resolved successfully, so
-	// transient node-read failures can recover without a profile edit.
-	*lastHash = h
+	state.ConfigRaw = data
 	state.TopologyRaw = topology
 	state.MIGProfilesRaw = migTable
 	f.log.Info("state updated from config", zap.String("config", f.configPath))
@@ -265,7 +253,7 @@ func readTopology(path string, log *zap.Logger) ([]byte, error) {
 
 // migTable returns the board's partition table bytes, or nil where the node has
 // none. The bytes are hashed to detect a change and carried on the State for
-// nvml to stage; parseProfile resolves and validates the document for the
+// gpudriver to stage; parseProfile resolves and validates the document for the
 // agent's own use, so a read failure surfaces from there rather than here.
 //
 // The table has to be hashed because it is a mount of its own. It can arrive
@@ -376,6 +364,7 @@ func compileState(data []byte, configPath string) (*agent.State, error) {
 
 	numDevices := resolveDeviceCount(cfg)
 	state.NodeShape.NumGPUs = numDevices
+	state.NodeShape.ProductName = cfg.System.ProductName
 
 	// PCIe topology
 	if cfg.PCIeTopology != nil {
@@ -443,7 +432,7 @@ func compileMIG(cfg *engine.YAMLConfig, numDevices int) agent.MIGState {
 		// A capability name identifies its GPU by device-node minor, which a
 		// profile can set independently of the NVML index. Deriving it from
 		// the index instead would name cap devices for a GPU other than the
-		// one nvml mknod'd, whenever the two differ.
+		// one gpudriver mknod'd, whenever the two differ.
 		gpu := agent.MIGGPU{Minor: ec.GetDeviceMinorNumber(layout.GPUIndex)}
 		for _, gi := range layout.GPUInstances {
 			cis := make([]agent.MIGComputeInstance, 0, len(gi.ComputeInstances))
