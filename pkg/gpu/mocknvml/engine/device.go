@@ -638,6 +638,13 @@ func (d *ConfigurableDevice) GetMemoryInfo() (nvml.Memory, nvml.Return) {
 		return nvml.Memory{}, ret
 	}
 	mem := d.memoryInfo()
+	// nvmlMemory_t has no reserved field: NVML counts the memory the driver
+	// reserves as used, so free + used is the total. The profile's used_bytes
+	// is the allocated memory alone, as GetMemoryInfo_v2 reports it next to
+	// reserved_bytes. A MIG device reports its slice and reserves nothing.
+	if c := d.cfg(); d.mig == nil && c.Memory != nil {
+		mem.Used += c.Memory.ReservedBytes
+	}
 	debugLog("[NVML] nvmlDeviceGetMemoryInfo -> total=%d used=%d\n", mem.Total, mem.Used)
 	return mem, nvml.SUCCESS
 }

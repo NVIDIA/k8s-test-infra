@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  nvml-mock: `nvmlDeviceGetMemoryInfo` (v1) now counts reserved memory as used, as the driver does, so free plus used adds up to the total; `nvmlDeviceGetMemoryInfo_v2` is unchanged.
+time: 2026-11-11T14:29:53Z
