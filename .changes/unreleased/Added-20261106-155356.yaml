@@ -1,4 +1,0 @@
-kind: Added
-body: |-
-  nvml-mock: profiles can set each GPU's PDI (`pdi`) and GPU Fabric GUID (`platform.gpu_fabric_guid`, a hex value or "pdi"); gb200 and gb300 now report each GPU's PDI as its fabric GUID instead of zero. See the configuration docs.
-time: 2026-11-06T22:53:56Z
