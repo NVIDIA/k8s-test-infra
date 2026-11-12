@@ -50,7 +50,7 @@ func TestProbesPassBeforeChecksAreSet(t *testing.T) {
 	t.Parallel()
 
 	srv := health.NewServer(":0", time.Second)
-	for _, path := range []string{"/healthz", "/readyz", "/stagedz"} {
+	for _, path := range []string{"/healthz", "/readyz", "/stagedz", "/startedz"} {
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 			require.Equal(t, http.StatusOK, get(t, srv.Handler(), path).Code)
@@ -66,6 +66,18 @@ func TestStagedzUsesIndependentCheck(t *testing.T) {
 
 	require.Equal(t, http.StatusServiceUnavailable, get(t, srv.Handler(), "/stagedz").Code)
 	require.Equal(t, http.StatusOK, get(t, srv.Handler(), "/readyz").Code)
+}
+
+func TestStartedzUsesIndependentCheck(t *testing.T) {
+	t.Parallel()
+
+	srv := health.NewServer(":0", time.Second)
+	srv.SetStarted(func() health.Probe { return health.Unhealthy("first apply wave running") })
+
+	w := get(t, srv.Handler(), "/startedz")
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Equal(t, "first apply wave running", decode(t, w).Reason)
+	require.Equal(t, http.StatusOK, get(t, srv.Handler(), "/stagedz").Code)
 }
 
 func TestChecksSetAfterHandlerStillTakeEffect(t *testing.T) {

@@ -587,14 +587,16 @@ DaemonSet pod. On Kubernetes 1.29 and later, the node agent is a [restartable
 init container](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/)
 and NRI a regular container, which orders them:
 
-- **Startup.** The node agent's startup probe reads `/stagedz`, which opens once
-  its first Stage wave has written the driver tree, so Kubernetes starts NRI
-  only after that. `/stagedz` does not wait for an intentional
-  `fabricmanager.initDelay`, so new workloads can still observe the simulated
-  `IN_PROGRESS` fabric state. Kubernetes runs no liveness probe until the
-  startup probe passes, so `nodeAgent.nriStartupTimeoutSeconds` (120 by
-  default) is also how long a node agent whose first staging failed waits
-  before it is restarted.
+- **Startup.** The node agent's startup probe reads `/startedz`, which opens
+  once its first Stage wave has written the driver tree and its first Apply
+  wave has returned, so Kubernetes starts NRI only after that. Apply restarts
+  containerd when the agent sets the container runtime up, and the kubelet
+  cannot create NRI while containerd is down. `/startedz` opens even when Apply
+  fails, and does not wait for an intentional `fabricmanager.initDelay`, so new
+  workloads can still observe the simulated `IN_PROGRESS` fabric state.
+  Kubernetes runs no liveness probe until the startup probe passes, so
+  `nodeAgent.nriStartupTimeoutSeconds` (120 by default) is also how long a node
+  agent whose first staging failed waits before it is restarted.
 - **Termination.** Kubernetes stops NRI before the node agent, so the plugin
   disconnects before the agent removes the staged driver tree.
 
@@ -798,7 +800,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `nodeAgent.livenessProbe` | `httpGet /healthz` on `health` | Node agent liveness probe. Set to `null` to drop it. |
 | `nodeAgent.readinessProbe` | `httpGet /readyz` on `health` | Node agent readiness probe. Set to `null` to drop it. |
 | `nodeLabels.featuresDir` | `/etc/kubernetes/node-feature-discovery/features.d` | Host directory NFD's local source reads feature files from. Override only if NFD runs with a non-default `featureFilesDir` |
-| `nodeAgent.nriStartupTimeoutSeconds` | `120` | On Kubernetes 1.29+, maximum time the node-agent `/stagedz` gate may wait for its first staging and apply cycle before Kubernetes restarts it when NRI uses native sidecars |
+| `nodeAgent.nriStartupTimeoutSeconds` | `120` | On Kubernetes 1.29+, maximum time the node-agent `/startedz` gate may wait for its first staging and apply cycle before Kubernetes restarts it when NRI uses native sidecars |
 | `nodeAgent.containerRuntime.enabled` | `true` | Set up the node's container runtime: install the NVIDIA container runtime and make it containerd's default `nvidia` handler; reverted when the node pod stops. See [Container runtime setup](components/node-daemon.md#container-runtime-setup). Refuses `updateStrategy.rollingUpdate.maxSurge` |
 | `nodeAgent.containerRuntime.type` | `containerd` | The container runtime on the nodes; containerd is the only one so far |
 | `nodeAgent.containerRuntime.restartMode` | `systemd` | `systemd` restarts the runtime's unit after a change, from the host's PID namespace; `none` writes the configuration and leaves the restart to you |

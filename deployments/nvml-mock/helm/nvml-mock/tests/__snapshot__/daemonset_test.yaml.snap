@@ -189,7 +189,7 @@ should match snapshot with all overrides:
               startupProbe:
                 failureThreshold: 120
                 httpGet:
-                  path: /stagedz
+                  path: /startedz
                   port: health
                 periodSeconds: 1
                 timeoutSeconds: 1
@@ -490,7 +490,7 @@ should match snapshot with b200 profile:
               startupProbe:
                 failureThreshold: 120
                 httpGet:
-                  path: /stagedz
+                  path: /startedz
                   port: health
                 periodSeconds: 1
                 timeoutSeconds: 1
@@ -783,7 +783,7 @@ should match snapshot with default values:
               startupProbe:
                 failureThreshold: 120
                 httpGet:
-                  path: /stagedz
+                  path: /startedz
                   port: health
                 periodSeconds: 1
                 timeoutSeconds: 1

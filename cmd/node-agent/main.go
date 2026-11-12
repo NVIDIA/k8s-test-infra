@@ -297,6 +297,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	healthSrv.SetLiveness(a.Liveness)
 	healthSrv.SetReadiness(a.Readiness)
 	healthSrv.SetStaged(a.Staged)
+	healthSrv.SetStarted(a.Started)
 
 	g, gctx := errgroup.WithContext(signalCtx)
 	g.Go(func() error { return healthSrv.Run(gctx) })

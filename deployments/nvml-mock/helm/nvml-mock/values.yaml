@@ -186,7 +186,7 @@ nodeAgent:
     # -- Log encoding for the node agent.
     format: json   # json | plain
   # On Kubernetes 1.29+, enabling NRI gates plugin startup on the node agent's
-  # /stagedz endpoint until its first Stage wave completes. Kubernetes runs no
+  # /startedz endpoint until its first Stage and Apply waves complete. Kubernetes runs no
   # liveness probe until then, so this is also how long a node agent whose
   # first staging failed waits before it is restarted.
   nriStartupTimeoutSeconds: 120
