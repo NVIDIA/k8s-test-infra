@@ -122,12 +122,24 @@ func TestNodeFabric_NvlinkBwModeUnnameable(t *testing.T) {
 	t.Parallel()
 
 	mode := uint8(7)
-	f := bwFabric(t, deviceBwMode([]uint8{0, 7}, &mode))
+	f := bwFabric(t, &NVLinkConfig{BwMode: systemBwMode([]uint8{0, 7}, &mode)})
 
 	got, ok := f.NvlinkConfiguredBwMode()
 	require.True(t, ok, "a value in the supported list is honoured")
 	require.Equal(t, uint8(7), got, "configured mode")
 	require.Contains(t, strings.Join(f.Validate(), "\n"), "nvidia-smi can name", "warning")
+}
+
+// TestNodeFabric_NvlinkBwModeUnnameableOnDeviceIsSilent: no nvidia-smi flag
+// reaches the per-device family, so its list may hold indices nvidia-smi has
+// no name for, as the Vera Rubin tray's 0, 4, ... 36 do.
+func TestNodeFabric_NvlinkBwModeUnnameableOnDeviceIsSilent(t *testing.T) {
+	t.Parallel()
+
+	f := bwFabric(t, deviceBwMode([]uint8{0, 4, 8, 12, 16, 20, 24, 28, 32, 36}, nil))
+
+	require.Empty(t, f.Validate())
+	require.Equal(t, []uint8{0, 4, 8, 12, 16, 20, 24, 28, 32, 36}, f.NvlinkSupportedBwModes())
 }
 
 // TestNodeFabric_NvlinkBwModeValidConfigIsSilent keeps the warnings above from

@@ -38,7 +38,7 @@ load('./local/slinky/slinky.tiltfile',
      slinky_upsert_timeout_s='UPSERT_TIMEOUT_S')
 
 config.define_string('gpu-profile', args=False,
-    usage='GPU profile to simulate (used unless --multi-gpu-profile is set): a100 | h100 | b200 | gb200 | gb300 | l40s | t4. Defaults to the chart\'s gpu.profile.')
+    usage='GPU profile to simulate (used unless --multi-gpu-profile is set): a100 | h100 | b200 | gb200 | gb300 | l40s | t4 | vrnvl72. Defaults to the chart\'s gpu.profile.')
 config.define_string('k8s-context', args=False,
     usage='kubectl context to deploy into (must be a local cluster)')
 # Boolean toggles use config.define_bool so `--multi-gpu-profile --gpu-operator

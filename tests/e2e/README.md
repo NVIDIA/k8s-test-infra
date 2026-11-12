@@ -54,8 +54,11 @@ it. The chart profiles are the deployed source of truth.
 ### Labels select the specs
 
 Every spec carries Ginkgo labels, and every profile name is also a label. Select
-work with `--label-filter`. This is how a scenario is run in isolation, and how
-CI splits the suite into parallel jobs.
+work with `--label-filter`. Scenario labels such as `dra` and `multi-node`
+select a whole scenario; check labels such as `nvidia-smi`, `nvlink`,
+`mockfiles`, `ib`, and `device-plugin` are shared across scenarios. Combine
+scenario and check labels with `&&` to select a check within one scenario.
+CI uses scenario labels to split the suite into parallel jobs.
 
 **`make e2e` does not run everything.** It applies a default filter written
 entirely as exclusions:
@@ -66,8 +69,18 @@ E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd
 
 The filter is phrased that way because the standalone scenario has no scenario
 label of its own — it is whatever remains once the specialised scenarios are
-excluded. So a bare `make e2e` runs the standalone scenario only; use the
-per-scenario targets for the rest.
+excluded. So a bare `make e2e` runs the standalone scenario and the
+`container-runtime` checks; use the per-scenario targets for the rest.
+
+Setting `E2E_GINKGO_FLAGS` **replaces** that default filter; it does not add to
+it. Keep all default scenario exclusions when selecting a standalone subset,
+including `!nri`: the NRI scenario also uses `nvidia-smi`. Selecting a label does not
+provision the scenario's dependencies. See the [DRA and multi-node
+setup](#dra-and-multi-node-setup) before selecting their checks.
+
+`make e2e` passes `--fail-on-empty`, so a filter matching no specs fails
+instead of passing. It does not validate label names: `nvidia-smi || nvlnk`
+still selects the `nvidia-smi` specs despite the misspelled second term.
 
 Specs also skip themselves when the selected profile cannot support them: no
 fabric means no fabric-health checks, no InfiniBand means no `ibping`, fewer
@@ -120,8 +133,8 @@ make e2e E2E_PROFILES=a100
 # Several profiles against the same cluster.
 make e2e E2E_PROFILES="a100 h100"
 
-# A subset of checks.
-make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
+# A subset of standalone checks.
+make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu"'
 
 # Against an image Tilt deployed under a different ref.
 make e2e E2E_IMAGE=ghcr.io/nvidia/nvml-mock:tilt-<digest>
@@ -145,6 +158,26 @@ tests that must not be scoped by `E2E_PROFILES`.
 | Container runtime setup | `make e2e` | `container-runtime` | The node daemon registers the `nvidia` handler with containerd on stock `kindest/node` as the default: a pod with `NVIDIA_VISIBLE_DEVICES` sees the node's mock GPUs, with or without `runtimeClassName: nvidia`, replacing the node pod sets the runtime up again, and a node that loses its node pod loses the handler |
 | MIG | `make e2e-mig` | `mig`, `mig-nvml`, `mig-caps`, `mig-device-plugin`, `mig-allocation`, `mig-runtime` | A MIG-capable board partitioned through `gpu.mig` enumerates its partitions through `nvidia-smi`, stages a capability node for each, and the upstream device plugin in `migStrategy=single` publishes and allocates one `nvidia.com/gpu` per partition; runtime repartitioning through `nvidia-smi mig` is followed. Profiles that cannot partition skip |
 | vGPU host and guest | `make e2e-vgpu` | `vgpu`, `vgpu-host`, `vgpu-guest` | Pinned to `a100`, and needs the GPU Operator rolled out (`tilt up -- --gpu-operator`). A vGPU host lists its configured instances under `nvidia-smi vgpu`; a guest reports a licensed vGPU in `nvidia-smi -q`, and the operator's GFD labels the node `nvidia.com/vgpu.*` from the PCI capability the node agent writes |
+
+### DRA and multi-node setup
+
+After [creating the cluster and loading the image](#provision-the-cluster-and-image),
+use the matching Tilt mode before running a scenario or one of its checks:
+
+```bash
+# DRA needs the driver installed, even when selecting only nvidia-smi.
+tilt ci -- --dra --gpu-profile=gb200 --nvmlmock-image=nvml-mock:e2e
+make e2e E2E_GINKGO_FLAGS='--label-filter="dra && nvidia-smi"'
+
+# Multi-node needs exactly two workers and the A100/T4 releases.
+tilt ci -- --multi-gpu-profile --nvmlmock-image=nvml-mock:e2e
+make e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter="multi-node && mockfiles"'
+```
+
+The multi-node mode installs `nvml-mock-a100` and `nvml-mock-t4`; a plain
+`tilt up` does not. For the full scenarios, use `make e2e-dra` or
+`make e2e-multi-node` after the corresponding setup. See the
+[local development modes](../../docs/contributing/local-development.md#choosing-what-the-fleet-looks-like) for details.
 
 ### Node-wide NRI injection
 
@@ -236,9 +269,9 @@ runtime-override TTL waits (30s).
 
 ```bash
 make e2e E2E_PROFILES=h100 E2E_GINKGO_FLAGS='--label-filter="failure-injection"'
-make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
+make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu"'
 make e2e E2E_GINKGO_FLAGS='--label-filter="gb200 && ibping"'
-make e2e-nri E2E_GINKGO_FLAGS='--label-filter="nri-cdi-suppression"'
+make e2e E2E_GINKGO_FLAGS='--label-filter="nri && nri-cdi-suppression"'
 ```
 
 ### Where things live
@@ -283,9 +316,9 @@ it into Kind. The archive never travels as a workflow artifact, which anyone
 could download from a public repository.
 
 Pull requests get the full matrix — `a100`, `h100`, `b200`, `gb200`, `gb300`,
-`t4`. Manual `workflow_dispatch` defaults to `gb200` alone for a fast run. The
-`l40s` profile is supported by the chart and the `profile` package but appears
-in no CI matrix, so it is only ever exercised locally.
+`t4`, `vrnvl72`. Manual `workflow_dispatch` defaults to `gb200` alone for a fast
+run. The `l40s` profile is supported by the chart and the `profile` package but
+appears in no CI matrix, so it is only ever exercised locally.
 
 CI stages [`ci/nvml-mock.values.yaml`](ci/nvml-mock.values.yaml) as Tilt's
 local-override values file, which turns on dynamic metrics with a fixed seed, a
