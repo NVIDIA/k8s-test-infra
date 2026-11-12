@@ -22,8 +22,17 @@ import (
 const kernelCPUOnlineRelPath = "devices/system/cpu/online"
 
 // Local is the set of CPUs local to rc on a host whose online CPUs are online.
-// A nil online leaves the profile's set untouched.
-func Local(rc agent.RootComplex, coresPerNUMA int, online []int) []int {
+// A nil online leaves the profile's set untouched. A resolved NUMA layout
+// decides for the zones it covers, so the CPUs local to a GPU are the CPUs
+// kubelet sees in that GPU's simulated zone.
+func Local(rc agent.RootComplex, coresPerNUMA int, online []int, layout *agent.NUMATopology) []int {
+	if layout != nil {
+		for _, zone := range layout.Zones {
+			if zone.ID == rc.NUMANode {
+				return slices.Clone(zone.CPUs)
+			}
+		}
+	}
 	return hostLocal(profileCPUs(rc, coresPerNUMA), online)
 }
 
