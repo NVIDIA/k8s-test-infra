@@ -409,9 +409,11 @@ spec:
           {{- if $nativeSidecar }}
           # A restartable init container is considered started after this
           # succeeds; regular containers, including NRI, are held until then.
+          # /startedz also waits for the first Apply wave, which restarts the
+          # container runtime: the kubelet cannot create NRI while it is down.
           startupProbe:
             httpGet:
-              path: /stagedz
+              path: /startedz
               port: health
             periodSeconds: 1
             timeoutSeconds: 1

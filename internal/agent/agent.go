@@ -32,6 +32,7 @@ type Agent struct {
 	stagingLockPath string
 	live            atomic.Pointer[health.Probe] // last Stage wave outcome, served on /healthz
 	staged          atomic.Bool                  // latest Stage wave completed; false while restaging and during teardown
+	applied         atomic.Bool                  // an Apply wave has returned, successfully or not
 
 	// Daemons launch into this group from reconcile but bind to supervisorCtx,
 	// so they outlive the reconcile that started them.
@@ -82,6 +83,18 @@ func (a *Agent) Staged() health.Probe {
 		return health.OK()
 	}
 	return health.Unhealthy("driver tree not staged")
+}
+
+// Started passes once the first Apply wave has returned, successfully or not,
+// and the tree is staged. It gates NRI's startup: the cri simulator restarts the
+// container runtime during Apply, and the kubelet cannot create the NRI
+// container while the runtime is down. Later Apply waves do not close it, so
+// it is a startup gate only; NRI's per-container check reads Staged.
+func (a *Agent) Started() health.Probe {
+	if !a.applied.Load() {
+		return health.Unhealthy("first apply wave not finished")
+	}
+	return a.Staged()
 }
 
 // Readiness aggregates every simulator's readiness and attributes the result
@@ -241,7 +254,9 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 			return nil
 		})
 	}
-	return applyG.Wait()
+	err := applyG.Wait()
+	a.applied.Store(true)
+	return err
 }
 
 // errStagingLockUnavailable marks a failure to take the staging lock, as

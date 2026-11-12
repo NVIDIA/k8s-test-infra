@@ -27,6 +27,7 @@ type Server struct {
 	liveness        Checker
 	readiness       Checker
 	staged          Checker
+	started         Checker
 }
 
 // NewServer returns a Server that will listen on addr. An empty addr disables
@@ -41,6 +42,7 @@ func NewServer(addr string, shutdownTimeout time.Duration) *Server {
 		liveness:        OK,
 		readiness:       OK,
 		staged:          OK,
+		started:         OK,
 	}
 }
 
@@ -53,9 +55,13 @@ func (s *Server) SetLiveness(check Checker) { s.liveness = check }
 func (s *Server) SetReadiness(check Checker) { s.readiness = check }
 
 // SetStaged replaces the /stagedz check: whether the binary's staged output is
-// usable right now. It gates dependents such as a startup probe; it is not
+// usable right now. It gates dependents that read that output; it is not
 // ongoing service readiness.
 func (s *Server) SetStaged(check Checker) { s.staged = check }
+
+// SetStarted replaces the /startedz check: whether the binary has finished
+// starting up, for a startup probe that needs more than /stagedz reports.
+func (s *Server) SetStarted(check Checker) { s.started = check }
 
 // Handler returns the routes, letting tests drive them without binding a port.
 // The checks are read per request, so probe setters still take effect after
@@ -67,6 +73,7 @@ func (s *Server) Handler() http.Handler {
 	router.Get("/healthz", Handler(func() Probe { return s.liveness() }))
 	router.Get("/readyz", Handler(func() Probe { return s.readiness() }))
 	router.Get("/stagedz", Handler(func() Probe { return s.staged() }))
+	router.Get("/startedz", Handler(func() Probe { return s.started() }))
 	return router
 }
 

@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -31,6 +32,10 @@ const (
 // imports. containerd loads the directory in name order and later files win,
 // so 99-nvidia.toml, which a toolkit installed later writes, takes precedence.
 const mokkaConfig = "50-mokka.toml"
+
+// restartTimeout bounds a containerd restart. It matches systemd's default
+// start timeout, after which systemd fails the restart itself.
+const restartTimeout = 90 * time.Second
 
 // nriPlugin names NRI's table in config versions 2 and 3 alike.
 const nriPlugin = "io.containerd.nri.v1.nri"
@@ -150,7 +155,13 @@ func (r *Runtime) Setup(ctx context.Context) error {
 		zap.String("reason", reason),
 	)
 
-	if err := r.systemctl(ctx, "restart", r.opts.Unit); err != nil {
+	// systemd carries a restart through once it starts, so cancelling systemctl
+	// would only return while containerd is still down. A sibling Apply failing
+	// cancels ctx, and NRI's startup gate opens as soon as Apply returns.
+	restartCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restartTimeout)
+	defer cancel()
+
+	if err := r.systemctl(restartCtx, "restart", r.opts.Unit); err != nil {
 		return fmt.Errorf("restart containerd: %w", err)
 	}
 

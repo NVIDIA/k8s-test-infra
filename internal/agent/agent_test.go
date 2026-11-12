@@ -26,6 +26,9 @@ type mockSimApplier struct {
 	applyCalls atomic.Int32
 	discards   atomic.Int32
 	applyErr   error
+	// applyGate, when set, holds Apply until it is closed, so a test can
+	// inspect the agent mid-Apply.
+	applyGate chan struct{}
 	// discardExpired records whether Discard ran on an already-expired context,
 	// which is how a teardown with no budget left shows up.
 	discardExpired atomic.Bool
@@ -53,6 +56,9 @@ func (m *mockSimApplier) Discard(ctx context.Context) error {
 func (m *mockSimApplier) Ready() bool { return m.stageFailN.Load() < 0 }
 func (m *mockSimApplier) Apply(_ context.Context, _ *State) error {
 	m.applyCalls.Add(1)
+	if m.applyGate != nil {
+		<-m.applyGate
+	}
 	return m.applyErr
 }
 func (m *mockSimApplier) Revoke(_ context.Context) error {
@@ -314,6 +320,61 @@ func TestApplyFailureKeepsStagedGateOpen(t *testing.T) {
 
 	cancel()
 	require.NoError(t, <-done)
+}
+
+// TestStartedWaitsForTheFirstApplyWave pins /startedz, the startup probe that
+// holds NRI back, behind the first Apply wave: the cri simulator restarts the
+// container runtime there, and NRI created during that restart fails.
+func TestStartedWaitsForTheFirstApplyWave(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		applyErr error
+	}{
+		{name: "apply succeeds"},
+		// A failed Apply is not retried until the state changes, so it must
+		// not hold NRI back.
+		{name: "apply fails", applyErr: errors.New("apply error")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sim := &mockSimApplier{name: "test", applyErr: tc.applyErr, applyGate: make(chan struct{})}
+			updates := make(chan Update, 1)
+			updates <- Update{State: &State{}, At: time.Now()}
+			a := New(Config{
+				Simulators: []Simulator{sim},
+				Source:     &chanSource{ch: updates},
+				Log:        zap.NewNop(),
+			})
+			require.False(t, a.Started().OK)
+			ctx, cancel := context.WithCancel(t.Context())
+			done := make(chan error, 1)
+			go func() { done <- a.Run(ctx) }()
+
+			require.Eventually(t, func() bool { return sim.applyCalls.Load() == 1 }, time.Second, time.Millisecond)
+			require.True(t, a.Staged().OK, "/stagedz opens before Apply")
+			require.False(t, a.Started().OK, "/startedz must stay closed while Apply runs")
+
+			close(sim.applyGate)
+			require.Eventually(t, func() bool { return a.Started().OK }, time.Second, time.Millisecond,
+				"/startedz must open once the Apply wave returns")
+
+			cancel()
+			require.NoError(t, <-done)
+			require.False(t, a.Started().OK, "a stopped agent must close the startup gate")
+		})
+	}
+}
+
+func TestStartedStaysClosedWhenStageFails(t *testing.T) {
+	sim := &mockSimApplier{name: "test"}
+	sim.stageFailN.Store(1)
+	a := newAgent(t, sim, Update{State: &State{}, At: time.Now()})
+	runAgent(t, a)
+
+	require.False(t, a.Started().OK, "an agent that never staged must not let NRI start")
 }
 
 // TestSupervise_ReloadRunsBetweenStageAndApply pins the supervisor wave to the
