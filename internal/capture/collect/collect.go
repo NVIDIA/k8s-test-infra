@@ -27,8 +27,6 @@ package collect
 import (
 	"bytes"
 	"context"
-	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -42,30 +40,11 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/urfave/cli/v3"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/cmdline"
 )
-
-const usage = `Usage: mokka-capture collect [flags] <command> [node...]
-
-Commands:
-  driver <node>...   nvidia-smi, NVML dump and /proc/driver/nvidia, taken inside
-                     the GPU Operator driver container on each node
-  host <node>...     PCI, NUMA, device files, NICs and CDI specs, taken from a
-                     temporary privileged pod on each node
-  network <node>...  NICs, network interfaces, RDMA devices and ports, SR-IOV,
-                     kernel modules and kernel log, plus the cluster's network
-                     objects; a subset of host, for adding network surfaces to
-                     an existing capture
-  cluster            node labels, ResourceSlices, ClusterPolicy, DCGM metrics
-  all <node>...      driver, host, then cluster
-  build-dump         build a Linux mokka-capture for the NVML dump, for this
-                     machine's architecture (needs Docker and the repository)
-
-kubectl reaches the cluster as it is configured (KUBECONFIG, current context).
-On a Mokka node, pass -mock: Mokka runs no driver container, so the driver
-commands run in a temporary stand-in pod, and both pods opt into the mock.
-
-Flags:
-`
 
 // The host pod is privileged and mounts the node's root, so its image is
 // pinned by digest (the multi-arch index of ubuntu:24.04) rather than by a tag
@@ -96,54 +75,120 @@ type collector struct {
 	standIn                        string // the -mock stand-in pod, deleted like the host pod
 }
 
-// Run runs `mokka-capture collect` with the given arguments.
-func Run(args []string, stdout, stderr io.Writer) int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return run(ctx, args, stdout, stderr, "kubectl")
+// Command is `mokka-capture collect`. Its flags apply to every command under
+// it, written before or after the command's name.
+func Command() *cli.Command { return newCommand("kubectl") }
+
+// newCommand is collect running kubectl for every cluster call; tests pass a
+// stand-in.
+func newCommand(kubectl string) *cli.Command {
+	var cfg config
+	action := func(ctx context.Context, cmd *cli.Command) error {
+		// An interrupt cancels the run instead of ending the process, so the
+		// pods it started are deleted.
+		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		c := &collector{cfg: cfg, ctx: ctx, stderr: cmd.Root().ErrWriter, kubectl: kubectl, suffix: strconv.Itoa(os.Getpid())}
+		return cmdline.Exit(c.run(cmd.Name, cmd.StringArgs("node"), cmd.Root().Writer))
+	}
+	onNodes := func(name, usage string) *cli.Command {
+		return &cli.Command{
+			Name:      name,
+			Usage:     usage,
+			Arguments: []cli.Argument{&cli.StringArgs{Name: "node", UsageText: "node [node ...]", Max: -1}},
+			Action: func(ctx context.Context, cmd *cli.Command) error {
+				if len(cmd.StringArgs("node")) == 0 {
+					return cmdline.Usage(cmd, "error: "+name+" needs at least one node")
+				}
+				return action(ctx, cmd)
+			},
+		}
+	}
+	return &cli.Command{
+		Name:  "collect",
+		Usage: "capture nodes and the cluster through kubectl",
+		Description: "kubectl reaches the cluster as it is configured (KUBECONFIG, current context). " +
+			"On a Mokka node, pass -mock: Mokka runs no driver container, so the driver commands run " +
+			"in a temporary stand-in pod, and both pods opt into the mock.",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        "out",
+				Value:       "./capture",
+				Usage:       "output directory",
+				Destination: &cfg.out,
+			},
+			&cli.StringFlag{
+				Name:        "operator-namespace",
+				Value:       "gpu-operator",
+				Usage:       "GPU Operator namespace",
+				Destination: &cfg.operatorNS,
+			},
+			&cli.StringFlag{
+				Name:        "driver-container",
+				Value:       "nvidia-driver-ctr",
+				Usage:       "driver container name",
+				Destination: &cfg.driverCtr,
+			},
+			&cli.StringFlag{
+				Name:        "toolkit-container",
+				Value:       "nvidia-container-toolkit-ctr",
+				Usage:       "toolkit container name",
+				Destination: &cfg.toolkitCtr,
+			},
+			&cli.StringFlag{
+				Name:        "toolkit-ctk",
+				Value:       "/usr/local/nvidia/toolkit/nvidia-ctk",
+				Usage:       "path of nvidia-ctk in the toolkit container",
+				Destination: &cfg.toolkitCTK,
+			},
+			&cli.StringFlag{
+				Name:        "host-pod-namespace",
+				Value:       "default",
+				Usage:       "namespace for the temporary host pod",
+				Destination: &cfg.hostPodNS,
+			},
+			&cli.StringFlag{
+				Name:        "host-pod-image",
+				Value:       defaultHostPodImage,
+				Usage:       "image for the host pod; it is privileged, so pin it by digest",
+				Destination: &cfg.hostPodImage,
+			},
+			&cli.StringFlag{
+				Name:        "dump-binary",
+				Usage:       "Linux mokka-capture to run dump with in the driver container (see build-dump); without it the NVML value dump is skipped",
+				Destination: &cfg.dumpBinary,
+			},
+			&cli.BoolFlag{
+				Name:        "mock",
+				Usage:       "the nodes are Mokka nodes: run the driver commands in a temporary stand-in pod, and opt it and the host pod into the mock with the nvml-mock NRI annotations",
+				Destination: &cfg.mock,
+			},
+		},
+		Commands: []*cli.Command{
+			onNodes("driver", "nvidia-smi, NVML dump and /proc/driver/nvidia, taken inside the GPU Operator driver container on each node"),
+			onNodes("host", "PCI, NUMA, device files, NICs and CDI specs, taken from a temporary privileged pod on each node"),
+			onNodes("network", "NICs, network interfaces, RDMA devices and ports, SR-IOV, kernel modules and kernel log, "+
+				"plus the cluster's network objects; a subset of host, for adding network surfaces to an existing capture"),
+			{Name: "cluster", Usage: "node labels, ResourceSlices, ClusterPolicy, DCGM metrics", Action: action},
+			onNodes("all", "driver, host, then cluster"),
+			{
+				Name:   "build-dump",
+				Usage:  "build a Linux mokka-capture for the NVML dump, for this machine's architecture (needs Docker and the repository)",
+				Action: action,
+			},
+		},
+		Action: cmdline.UnknownCommand,
+	}
 }
 
-//nolint:cyclop // one case per command, in the order the usage lists them
-func run(ctx context.Context, args []string, stdout, stderr io.Writer, kubectl string) int {
-	var cfg config
-	flags := flag.NewFlagSet("collect", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	flags.Usage = func() {
-		_, _ = io.WriteString(stderr, usage)
-		flags.PrintDefaults()
-	}
-	flags.StringVar(&cfg.out, "out", "./capture", "output directory")
-	flags.StringVar(&cfg.operatorNS, "operator-namespace", "gpu-operator", "GPU Operator namespace")
-	flags.StringVar(&cfg.driverCtr, "driver-container", "nvidia-driver-ctr", "driver container name")
-	flags.StringVar(&cfg.toolkitCtr, "toolkit-container", "nvidia-container-toolkit-ctr", "toolkit container name")
-	flags.StringVar(&cfg.toolkitCTK, "toolkit-ctk", "/usr/local/nvidia/toolkit/nvidia-ctk", "path of nvidia-ctk in the toolkit container")
-	flags.StringVar(&cfg.hostPodNS, "host-pod-namespace", "default", "namespace for the temporary host pod")
-	flags.StringVar(&cfg.hostPodImage, "host-pod-image", defaultHostPodImage, "image for the host pod; it is privileged, so pin it by digest")
-	flags.StringVar(&cfg.dumpBinary, "dump-binary", "", "Linux mokka-capture to run `dump` with in the driver container (see build-dump); without it the NVML value dump is skipped")
-	flags.BoolVar(&cfg.mock, "mock", false, "the nodes are Mokka nodes: run the driver commands in a temporary stand-in pod, and opt it and the host pod into the mock with the nvml-mock NRI annotations")
-	if err := flags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
-	}
-	if flags.NArg() == 0 {
-		flags.Usage()
-		return 2
-	}
-	c := &collector{cfg: cfg, ctx: ctx, stderr: stderr, kubectl: kubectl, suffix: strconv.Itoa(os.Getpid())}
+//nolint:cyclop // one case per command, in the order the help lists them
+func (c *collector) run(command string, nodes []string, stdout io.Writer) int {
 	// An interrupted run must not leave a privileged pod on the node.
 	defer func() {
-		c.stopPod(ctx, &c.hostPod)
-		c.stopPod(ctx, &c.standIn)
+		c.stopPod(c.ctx, &c.hostPod)
+		c.stopPod(c.ctx, &c.standIn)
 	}()
 
-	command, nodes := flags.Arg(0), flags.Args()[1:]
-	needsNodes := map[string]bool{"driver": true, "host": true, "network": true, "all": true}
-	if needsNodes[command] && len(nodes) == 0 {
-		c.logf("error: %s needs at least one node", command)
-		return 2
-	}
 	switch command {
 	case "driver", "host", "network", "all":
 		for _, node := range nodes {
@@ -162,7 +207,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, kubectl s
 				c.captureDriver(node)
 				c.captureHost(node)
 			}
-			if ctx.Err() != nil {
+			if c.ctx.Err() != nil {
 				return 130
 			}
 		}
@@ -185,11 +230,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, kubectl s
 		c.captureClusterNetwork()
 	case "build-dump":
 		return c.buildDump(stdout)
-	default:
-		flags.Usage()
-		return 2
 	}
-	if ctx.Err() != nil {
+	if c.ctx.Err() != nil {
 		return 130
 	}
 	c.report()
