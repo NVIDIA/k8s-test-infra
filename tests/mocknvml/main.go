@@ -84,6 +84,23 @@ func main() {
 		os.Exit(0)
 	}
 
+	// A suite named on the command line runs alone. The fixture declares one
+	// driver, so a call only a newer driver exports is exercised by running
+	// its suite on a copy of the fixture that declares that driver, where the
+	// rest of this harness, written for the fixture's own driver, cannot pass.
+	if len(os.Args) > 1 {
+		suite, ok := suites[os.Args[1]]
+		if !ok {
+			log.Fatalf("unknown suite %q", os.Args[1])
+		}
+		log.Printf("\n=== %s ===", os.Args[1])
+		if failures := report(suite(count)); failures > 0 {
+			log.Fatalf("FAILED: %d test(s) failed", failures)
+		}
+		log.Println("✓ All tests passed!")
+		return
+	}
+
 	// Enumerate devices (like a device plugin would)
 	log.Println("\nEnumerating devices:")
 	for i := range count {

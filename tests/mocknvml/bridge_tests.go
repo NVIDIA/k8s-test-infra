@@ -1040,7 +1040,8 @@ func testFabricHealth(deviceCount int) []testResult {
 //
 // The call is newer than every 580 driver, so on an older configured driver
 // the right answer is that it does not exist; which branch runs is a property
-// of the fixture's driver_version.
+// of the fixture's driver_version. The Makefile runs this suite a second time
+// on a 615 copy of the fixture, so both branches run.
 func testFabricCliques(deviceCount int) []testResult {
 	var results []testResult
 
@@ -1492,8 +1493,17 @@ func testInitShutdownCycles() []testResult {
 // Returns the number of failures.
 func runBridgeTests(deviceCount int) int {
 	log.Println("\n=== Bridge Edge-Case Tests ===")
+	return report(bridgeTests(deviceCount))
+}
 
-	results := bridgeTests(deviceCount)
+// suites are the tests that can run alone, by the name given on the command
+// line.
+var suites = map[string]func(deviceCount int) []testResult{
+	"fabric_v4": testFabricCliques,
+}
+
+// report logs each result and returns how many failed.
+func report(results []testResult) int {
 	failures, skips := 0, 0
 
 	for _, r := range results {
