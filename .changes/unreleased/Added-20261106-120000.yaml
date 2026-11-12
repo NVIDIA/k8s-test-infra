@@ -1,4 +1,0 @@
-kind: Added
-body: |-
-  profiles: `system.absent_features: not_supported` makes a feature the profile leaves out answer `NOT_SUPPORTED` (N/A), as a real GPU without it does; the default, `legacy_defaults`, keeps the mock's built-in values. `vrnvl72` sets it.
-time: 2026-11-06T12:00:00Z

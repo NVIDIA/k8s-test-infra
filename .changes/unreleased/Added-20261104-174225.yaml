@@ -1,4 +1,0 @@
-kind: Added
-body: |-
-  profiles: new `vrnvl72` profile simulates one Vera Rubin compute tray (four Rubin GPUs, compute capability 10.7, multi-node NVLink); select it with `--set gpu.profile=vrnvl72`.
-time: 2026-11-05T00:42:25Z

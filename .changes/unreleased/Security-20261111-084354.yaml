@@ -1,4 +1,0 @@
-kind: Security
-body: |-
-  build: images and binaries are now built with Go 1.27.4, which carries security fixes to cgo, the go command, the compiler, the linker and net/http.
-time: 2026-11-11T07:43:54Z
