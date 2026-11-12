@@ -377,6 +377,111 @@ func TestStartedStaysClosedWhenStageFails(t *testing.T) {
 	require.False(t, a.Started().OK, "an agent that never staged must not let NRI start")
 }
 
+// waitingApplier holds its Apply until it is released or its context ends, the
+// way the cri simulator holds on a container runtime restart.
+type waitingApplier struct {
+	name      string
+	entered   chan struct{}
+	release   chan struct{}
+	ctx       atomic.Pointer[context.Context]
+	sawCancel atomic.Bool
+}
+
+func newWaitingApplier(name string) *waitingApplier {
+	return &waitingApplier{name: name, entered: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (w *waitingApplier) Name() string                            { return w.name }
+func (w *waitingApplier) Stage(_ context.Context, _ *State) error { return nil }
+func (w *waitingApplier) Discard(_ context.Context) error         { return nil }
+func (w *waitingApplier) Ready() bool                             { return true }
+func (w *waitingApplier) Revoke(_ context.Context) error          { return nil }
+
+// Apply runs once per test: closing entered a second time would panic.
+func (w *waitingApplier) Apply(ctx context.Context, _ *State) error {
+	w.ctx.Store(&ctx)
+	close(w.entered)
+	select {
+	case <-w.release:
+	case <-ctx.Done():
+		w.sawCancel.Store(true)
+	}
+	return nil
+}
+
+func waitEntered(t *testing.T, w *waitingApplier) {
+	t.Helper()
+	select {
+	case <-w.entered:
+	case <-time.After(time.Second):
+		t.Fatalf("%s: Apply never ran", w.name)
+	}
+}
+
+// TestApplyFailureDoesNotCancelSiblingAppliers covers the cri simulator
+// restarting the container runtime while another applier fails: systemd
+// finishes the restart either way, so cancelling it would only end the Apply
+// wave, and open /startedz, while the runtime is still down.
+func TestApplyFailureDoesNotCancelSiblingAppliers(t *testing.T) {
+	t.Parallel()
+
+	failing := &mockSimApplier{name: "failing", applyErr: errors.New("apply error")}
+	waiting := newWaitingApplier("waiting")
+	updates := make(chan Update, 1)
+	updates <- Update{State: &State{}, At: time.Now()}
+	a := New(Config{
+		Simulators: []Simulator{failing, waiting},
+		Source:     &chanSource{ch: updates},
+		Log:        zap.NewNop(),
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+
+	waitEntered(t, waiting)
+	require.Eventually(t, func() bool { return failing.applyCalls.Load() == 1 }, time.Second, time.Millisecond)
+	require.Never(t, func() bool { return (*waiting.ctx.Load()).Err() != nil }, 100*time.Millisecond, time.Millisecond,
+		"a sibling's Apply failure must not cancel another applier")
+	require.False(t, a.Started().OK, "/startedz must wait for every applier")
+
+	close(waiting.release)
+	require.Eventually(t, func() bool { return a.Started().OK }, time.Second, time.Millisecond)
+	require.False(t, waiting.sawCancel.Load())
+
+	cancel()
+	require.NoError(t, <-done)
+}
+
+// TestShutdownInterruptsTheApplyWave keeps teardown inside the pod's grace
+// period: an applier waiting on the container runtime must stop on shutdown,
+// so Revoke and Discard still run before the kubelet kills the pod.
+func TestShutdownInterruptsTheApplyWave(t *testing.T) {
+	t.Parallel()
+
+	waiting := newWaitingApplier("waiting")
+	updates := make(chan Update, 1)
+	updates <- Update{State: &State{}, At: time.Now()}
+	a := New(Config{
+		Simulators: []Simulator{waiting},
+		Source:     &chanSource{ch: updates},
+		Log:        zap.NewNop(),
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+
+	waitEntered(t, waiting)
+	cancel()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("shutdown waited for an Apply that holds until released")
+	}
+	require.True(t, waiting.sawCancel.Load(), "shutdown must cancel the Apply wave")
+	require.False(t, a.Started().OK)
+}
+
 // TestSupervise_ReloadRunsBetweenStageAndApply pins the supervisor wave to the
 // barrier: a daemon sees a state change after its Stage lands, before Apply.
 func TestSupervise_ReloadRunsBetweenStageAndApply(t *testing.T) {
