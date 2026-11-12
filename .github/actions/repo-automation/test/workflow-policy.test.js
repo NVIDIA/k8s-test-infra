@@ -105,3 +105,13 @@ test("foundation scope does not add excluded workflow families", () => {
   assert.match(runbook, /GitHub native auto-merge/);
   assert.match(runbook, /does not (?:install|deploy) (?:Prow or )?Tide/i);
 });
+
+
+test("Pages builds follow MEP sources and the publishing hook", () => {
+  const { workflow } = read("deploy-pages.yaml");
+  for (const event of ["push", "pull_request"]) {
+    for (const changedPath of ["enhancements/**", "hack/mkdocs_meps.py", "hack/test_mkdocs_meps.py"]) {
+      assert.ok(workflow.on[event].paths.includes(changedPath), `${event}: ${changedPath}`);
+    }
+  }
+});
