@@ -1,4 +1,4 @@
 kind: Fixed
 body: |-
-  nvml-mock: `nvmlDeviceGetMemoryInfo` (v1) now counts reserved memory as used, as the driver does, so free plus used adds up to the total; `nvmlDeviceGetMemoryInfo_v2` is unchanged.
+  nvml-mock: `nvmlDeviceGetMemoryInfo` (v1) reported 0 MiB used on an idle GPU, leaving free plus used short of the total, and `nvmlDeviceGetMemoryInfo_v2` reported the parent GPU's reserved memory on a MIG device.
 time: 2026-11-11T14:29:53Z
