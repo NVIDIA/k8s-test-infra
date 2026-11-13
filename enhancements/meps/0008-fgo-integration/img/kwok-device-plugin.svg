@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 580" width="1000" height="580" role="img" aria-labelledby="title desc">
+  <title id="title">Device plugin mode on KWOK Nodes</title>
+  <desc id="desc">In device plugin mode, consumers read the same values for a GPU Node and for a KWOK Node, written by different components. On a GPU Node, NVIDIA's device plugin lists the GPUs and the kubelet reports them as nvidia.com/gpu capacity and allocatable, GFD and NFD label the Node, the kubelet's device manager picks each container's GPUs and serves them through the PodResources API, and the kubelet reports Pod status. On a KWOK Node, the Mokka KWOK data plane patches nvidia.com/gpu, applies the labels from the rack state, and picks each container's GPUs once the Pod is bound, recording them in a Pod annotation, and KWOK fakes the Pod status. kube-scheduler fits nvidia.com/gpu requests to allocatable, and KAI, Run:ai and other consumers read allocatable and the labels, the same way for both kinds of Node. The device plugin's Allocate call and GPU health are not simulated on KWOK Nodes.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .head { font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; fill: #59636e; }
+    .title { font-size: 14px; font-weight: 600; }
+    .body { font-size: 12.5px; fill: #59636e; }
+    .label { font-size: 12px; fill: #59636e; }
+    .box { fill: #ffffff; stroke-width: 1.5; }
+    .dashed { stroke-dasharray: 5 4; }
+    .wire { fill: none; stroke-width: 1.5; }
+    .sep { stroke: #d1d9e0; stroke-width: 1; stroke-dasharray: 2 3; }
+    .b-dp, .w-dp { stroke: #1a7f37; }
+    .b-obj { stroke: #59636e; }
+    .b-ext, .w-ext { stroke: #59636e; }
+    .h-dp { fill: #1a7f37; }
+    .h-ext { fill: #59636e; }
+    .f-dp { fill: #1a7f37; fill-opacity: 0.1; }
+    .f-obj { fill: #f6f8fa; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .head, .body, .label { fill: #9198a1; }
+      .box { fill: #0d1117; }
+      .sep { stroke: #3d444d; }
+      .b-dp, .w-dp { stroke: #3fb950; }
+      .b-obj { stroke: #9198a1; }
+      .b-ext, .w-ext { stroke: #9198a1; }
+      .h-dp { fill: #3fb950; }
+      .h-ext { fill: #9198a1; }
+      .f-dp { fill: #3fb950; fill-opacity: 0.16; }
+      .f-obj { fill: #151b23; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow-dp" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-dp" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-ext" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-ext" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="579" rx="12"/>
+
+  <!-- Column headings -->
+  <text class="head" x="154" y="40" text-anchor="middle">ON A GPU NODE</text>
+  <text class="head" x="500" y="40" text-anchor="middle">WHAT CONSUMERS READ</text>
+  <text class="head" x="846" y="40" text-anchor="middle">ON A KWOK NODE</text>
+
+  <!-- GPU Node: the device plugin stack and the kubelet -->
+  <rect class="box b-ext" x="24" y="120" width="260" height="56" rx="8"/>
+  <text class="title" x="154" y="144" text-anchor="middle">NVIDIA device plugin</text>
+  <text class="body" x="154" y="163" text-anchor="middle">lists GPUs, the kubelet reports them</text>
+
+  <rect class="box b-ext" x="24" y="192" width="260" height="56" rx="8"/>
+  <text class="title" x="154" y="216" text-anchor="middle">GFD and NFD</text>
+  <text class="body" x="154" y="235" text-anchor="middle">label the Node from the hardware</text>
+
+  <rect class="box b-ext" x="24" y="264" width="260" height="56" rx="8"/>
+  <text class="title" x="154" y="288" text-anchor="middle">kubelet device manager</text>
+  <text class="body" x="154" y="307" text-anchor="middle">picks each container's GPUs</text>
+
+  <rect class="box b-ext" x="24" y="336" width="260" height="56" rx="8"/>
+  <text class="title" x="154" y="360" text-anchor="middle">kubelet</text>
+  <text class="body" x="154" y="379" text-anchor="middle">reports the Pods' status</text>
+
+  <!-- What consumers read for both kinds of Node -->
+  <rect class="box b-obj f-obj" x="370" y="120" width="260" height="56" rx="8"/>
+  <text class="title" x="500" y="144" text-anchor="middle">Node capacity and allocatable</text>
+  <text class="body" x="500" y="163" text-anchor="middle">nvidia.com/gpu: the slot's GPU count</text>
+
+  <rect class="box b-obj f-obj" x="370" y="192" width="260" height="56" rx="8"/>
+  <text class="title" x="500" y="216" text-anchor="middle">Node labels</text>
+  <text class="body" x="500" y="235" text-anchor="middle">nvidia.com/gpu.*, pci-10de.present</text>
+
+  <rect class="box b-obj f-obj" x="370" y="264" width="260" height="56" rx="8"/>
+  <text class="title" x="500" y="288" text-anchor="middle">Each container's GPUs</text>
+  <text class="body" x="500" y="307" text-anchor="middle">PodResources, or a Pod annotation</text>
+
+  <rect class="box b-obj f-obj" x="370" y="336" width="260" height="56" rx="8"/>
+  <text class="title" x="500" y="360" text-anchor="middle">Pod status</text>
+  <text class="body" x="500" y="379" text-anchor="middle">Running and Ready</text>
+
+  <!-- KWOK Node: the data plane and KWOK -->
+  <rect class="box b-dp f-dp" x="716" y="60" width="260" height="260" rx="8"/>
+  <text class="title" x="846" y="86" text-anchor="middle">Mokka KWOK data plane</text>
+  <text class="body" x="846" y="104" text-anchor="middle">in place of the device plugin stack</text>
+  <line class="sep" x1="732" y1="116" x2="960" y2="116"/>
+  <text class="body" x="846" y="152" text-anchor="middle">patches nvidia.com/gpu only</text>
+  <line class="sep" x1="732" y1="184" x2="960" y2="184"/>
+  <text class="body" x="846" y="224" text-anchor="middle">applies them from the rack state</text>
+  <line class="sep" x1="732" y1="256" x2="960" y2="256"/>
+  <text class="body" x="846" y="296" text-anchor="middle">picks GPUs once the Pod is bound</text>
+
+  <rect class="box b-ext dashed" x="716" y="336" width="260" height="56" rx="8"/>
+  <text class="title" x="846" y="360" text-anchor="middle">KWOK</text>
+  <text class="body" x="846" y="379" text-anchor="middle">fakes Pod status, no kubelet</text>
+
+  <!-- Writes, from both sides -->
+  <text class="label" x="327" y="140" text-anchor="middle">writes</text>
+  <path class="wire w-ext" d="M284,148 H369" marker-end="url(#arrow-ext)"/>
+  <path class="wire w-ext" d="M284,220 H369" marker-end="url(#arrow-ext)"/>
+  <path class="wire w-ext" d="M284,292 H369" marker-end="url(#arrow-ext)"/>
+  <path class="wire w-ext" d="M284,364 H369" marker-end="url(#arrow-ext)"/>
+
+  <text class="label" x="673" y="140" text-anchor="middle">writes</text>
+  <path class="wire w-dp" d="M716,148 H631" marker-end="url(#arrow-dp)"/>
+  <path class="wire w-dp" d="M716,220 H631" marker-end="url(#arrow-dp)"/>
+  <path class="wire w-dp" d="M716,292 H631" marker-end="url(#arrow-dp)"/>
+  <path class="wire w-ext dashed" d="M716,364 H631" marker-end="url(#arrow-ext)"/>
+
+  <!-- Readers, unchanged -->
+  <path class="wire w-ext" d="M500,392 V441" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="512" y="422">read the same way for both</text>
+
+  <rect class="box b-ext f-obj" x="24" y="442" width="952" height="86" rx="8"/>
+  <text class="head" x="40" y="466">UNCHANGED FOR BOTH KINDS OF NODE</text>
+  <line class="sep" x1="500" y1="478" x2="500" y2="518"/>
+  <text class="title" x="262" y="494" text-anchor="middle">kube-scheduler</text>
+  <text class="body" x="262" y="513" text-anchor="middle">fits nvidia.com/gpu requests to allocatable</text>
+  <text class="title" x="738" y="494" text-anchor="middle">KAI, Run:ai and other consumers</text>
+  <text class="body" x="738" y="513" text-anchor="middle">read allocatable and the GPU labels</text>
+
+  <text class="label" x="500" y="556" text-anchor="middle">Not simulated on KWOK Nodes: the device plugin's Allocate call, which gives containers their GPUs, and GPU health.</text>
+</svg>
