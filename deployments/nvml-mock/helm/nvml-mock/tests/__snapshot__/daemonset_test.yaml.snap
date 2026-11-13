@@ -1,3 +1,6 @@
+should match config checksum snapshot with vrnvl72 profile:
+  1: |
+    ee6af2b4edd68244c8201f71cc9e7609e58ebe36e0091d9e4b4197c9cd9c3e3a
 should match snapshot with all overrides:
   1: |
     apiVersion: apps/v1
@@ -613,7 +616,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: d729831d5e74382f60024af5cbc48ccd6f94f0381e8d7ae63c506dbd37b4986a
+            checksum/config: 3ccbc8e8d6d44fed056017089035a73a4cfa73330fb469873d1d4dd69ad0fb38
             checksum/mig-profiles: fb2ebf8b158ede295783bcc2f137d194ef2e4f7648855ea626d419f41e62cf2d
             kubectl.kubernetes.io/default-container: node-agent
           labels:

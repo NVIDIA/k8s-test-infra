@@ -65,6 +65,17 @@ tests:
     asserts:
       - matchSnapshot: {}
 
+  - it: should match snapshot with vrnvl72 profile
+    set:
+      gpu:
+        profile: vrnvl72
+        count: 4
+    asserts:
+      - matchSnapshot: {}
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "host_max_link_gen: 6"
+
   # ── Assertions ──────────────────────────────────────────────────────
   - it: should render a ConfigMap with default values
     asserts:
