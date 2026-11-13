@@ -274,6 +274,13 @@ func nvmlDeviceGetGpuInstancePossiblePlacements(
 	return C.NVML_SUCCESS
 }
 
+//export nvmlDeviceGetGpuInstancePossiblePlacements_v1
+func nvmlDeviceGetGpuInstancePossiblePlacements_v1(
+	device C.nvmlDevice_t, profileId C.uint, placements *C.nvmlGpuInstancePlacement_t, count *C.uint,
+) C.nvmlReturn_t {
+	return nvmlDeviceGetGpuInstancePossiblePlacements(device, profileId, placements, count)
+}
+
 //export nvmlDeviceGetGpuInstancePossiblePlacements_v2
 func nvmlDeviceGetGpuInstancePossiblePlacements_v2(
 	device C.nvmlDevice_t, profileId C.uint, placements *C.nvmlGpuInstancePlacement_t, count *C.uint,
