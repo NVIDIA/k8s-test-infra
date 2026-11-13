@@ -101,9 +101,9 @@ func pdiFromUUID(uuid string) uint64 {
 	return h.Sum64()
 }
 
-// OnSameBoard reports whether two devices share a physical board. Every mocked
-// GPU is a board of its own, as GetMultiGpuBoard says, so only a GPU and its
-// MIG devices share one; the board ID already encodes exactly that.
+// OnSameBoard reports whether two devices share a physical board: a GPU and its
+// MIG devices always do, and two GPUs do when the profile gives them the same
+// board_id. The board ID encodes exactly that, as GetMultiGpuBoard reads it.
 func (d *ConfigurableDevice) OnSameBoard(other nvml.Device) (int, nvml.Return) {
 	peer, ok := other.(*ConfigurableDevice)
 	if !ok || peer == nil {
@@ -123,7 +123,8 @@ func (d *ConfigurableDevice) OnSameBoard(other nvml.Device) (int, nvml.Return) {
 }
 
 // GetBridgeChipInfo declines: bridge chips sit on multi-GPU boards, nvml.h
-// answers NOT_SUPPORTED everywhere else, and no mocked board is one.
+// answers NOT_SUPPORTED everywhere else, and no profile describes the bridge
+// chips of a board its GPUs share.
 func (d *ConfigurableDevice) GetBridgeChipInfo() (nvml.BridgeChipHierarchy, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return nvml.BridgeChipHierarchy{}, ret

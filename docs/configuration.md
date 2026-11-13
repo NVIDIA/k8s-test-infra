@@ -903,6 +903,42 @@ device_defaults:
     average_latency_us: 0
 ```
 
+`session_count` also decides how many sessions `nvmlDeviceGetEncoderSessions`
+and `nvmlDeviceGetFBCSessions` list. Each session reports the configured
+`average_fps` and `average_latency_us` and is assigned to the configured
+[processes](#processes) in turn; with no processes, the sessions report pid 0.
+`nvmlDeviceGetEncoderUtilization` reports the sum of the processes' `enc_util`,
+capped at 100, and `nvmlDeviceGetEncoderCapacity` reports what is left of 100
+for every codec, so the two always add up to 100.
+
+### Board and operation mode
+
+```yaml
+device_defaults:
+  gpu_operation_mode:
+    current: "all_on"               # all_on, compute, low_dp
+    pending: "all_on"               # defaults to current
+```
+
+`gpu_operation_mode` is what `nvmlDeviceGetGpuOperationMode` reports; an
+unknown value is rejected when the profile loads.
+
+```yaml
+devices:
+  - index: 0
+    board_id: "0x4100"              # quoted, 0x and up to 8 hex digits
+  - index: 1
+    board_id: "0x4100"              # same board as GPU 0
+```
+
+`board_id` is what `nvmlDeviceGetBoardId` reports. Without it the board ID is
+derived from the GPU's PCI address, so every GPU is a board of its own. GPUs
+that share a `board_id` sit on one board, as the GPUs of a dual-GPU card do:
+`nvmlDeviceOnSameBoard` reports 1 for them and `nvmlDeviceGetMultiGpuBoard`
+reports 1 for each. A board ID wider than 32 bits is rejected when the profile
+loads. The CPER log and system events still name each GPU by its own
+PCI-derived ID.
+
 ### Processes
 
 `processes` drive the running-process queries, `nvmlDeviceGetProcessUtilization`,

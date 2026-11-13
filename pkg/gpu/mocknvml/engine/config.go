@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -337,26 +338,21 @@ func validateYAMLConfig(config *YAMLConfig) error {
 		seen[dev.Index] = true
 	}
 
-	if err := ValidateMinorNumbers(config); err != nil {
-		return err
+	for _, validate := range []func(*YAMLConfig) error{
+		ValidateMinorNumbers,
+		ValidateUniqueBDFs,
+		validateDeviceUUIDs,
+		validateDeviceIdentifiers,
+		validateMIGConfigs,
+		validateGPUOperationModes,
+		validateBoardIDs,
+		validateVGPUConfig,
+	} {
+		if err := validate(config); err != nil {
+			return err
+		}
 	}
-
-	if err := ValidateUniqueBDFs(config); err != nil {
-		return err
-	}
-
-	if err := validateDeviceUUIDs(config); err != nil {
-		return err
-	}
-
-	if err := validateDeviceIdentifiers(config); err != nil {
-		return err
-	}
-
-	if err := validateMIGConfigs(config); err != nil {
-		return err
-	}
-	return validateVGPUConfig(config)
+	return nil
 }
 
 // validateMIGConfigs checks the board-wide MIG block and every per-device one.
@@ -777,6 +773,56 @@ func validateMIGInstances(instances []MIGGPUInstanceRecord) error {
 					return fmt.Errorf("instances[%d].compute_instances[%d]: %w", i, j, err)
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// validateBoardIDs rejects a board_id nvmlDeviceGetBoardId cannot carry: NVML
+// reports the board as a 32-bit value, so a wider one would be truncated into
+// a board some other GPU may already be on.
+func validateBoardIDs(config *YAMLConfig) error {
+	check := func(where string, id *HexID) error {
+		if id != nil && uint64(*id) > math.MaxUint32 {
+			return fmt.Errorf("%s.board_id %s does not fit in 32 bits", where, formatHexID(uint64(*id)))
+		}
+		return nil
+	}
+	if err := check("device_defaults", config.DeviceDefaults.BoardID); err != nil {
+		return err
+	}
+	for _, dev := range config.Devices {
+		if err := check(fmt.Sprintf("devices[index=%d]", dev.Index), dev.BoardID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateGPUOperationModes rejects a gpu_operation_mode the getter would
+// otherwise silently read as all_on.
+func validateGPUOperationModes(config *YAMLConfig) error {
+	check := func(where string, gom *GPUOperationModeConfig) error {
+		if gom == nil {
+			return nil
+		}
+		// A slice, not a map: with both fields wrong, the error names current
+		// every time rather than whichever field map iteration reached first.
+		for _, f := range []struct{ field, mode string }{{"current", gom.Current}, {"pending", gom.Pending}} {
+			switch f.mode {
+			case "", "all_on", "compute", "low_dp":
+			default:
+				return fmt.Errorf("%s.gpu_operation_mode.%s must be \"all_on\", \"compute\" or \"low_dp\", got %q", where, f.field, f.mode)
+			}
+		}
+		return nil
+	}
+	if err := check("device_defaults", config.DeviceDefaults.GPUOperationMode); err != nil {
+		return err
+	}
+	for _, dev := range config.Devices {
+		if err := check(fmt.Sprintf("devices[index=%d]", dev.Index), dev.GPUOperationMode); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1223,6 +1269,18 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	}
 	if override.Accounting != nil {
 		base.Accounting = override.Accounting
+	}
+	if override.EncoderStats != nil {
+		base.EncoderStats = override.EncoderStats
+	}
+	if override.FBCStats != nil {
+		base.FBCStats = override.FBCStats
+	}
+	if override.GPUOperationMode != nil {
+		base.GPUOperationMode = override.GPUOperationMode
+	}
+	if override.BoardID != nil {
+		base.BoardID = override.BoardID
 	}
 	if override.MIG != nil {
 		mergeMIGOverride(base, override.MIG)

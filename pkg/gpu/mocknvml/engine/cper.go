@@ -226,7 +226,7 @@ func (e *Engine) cperFaults() map[int]cperFaultSource {
 		}
 		faults[index] = cperFaultSource{
 			UUID:  dev.UUID,
-			GpuID: dev.boardID,
+			GpuID: dev.gpuID,
 			Mode:  fi.Mode(),
 			// ConfiguredXid peeks without consuming the event-set delivery, so
 			// a CPER read never steals the Xid from nvmlEventSetWait.
