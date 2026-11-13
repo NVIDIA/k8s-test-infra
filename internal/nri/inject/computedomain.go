@@ -25,7 +25,7 @@ const (
 // its driver footprint from elsewhere, such as the DRA driver's CDI edits.
 type specializedWorkload struct {
 	name    string
-	matches func(Container) bool
+	matches func(Config, Container) bool
 	// adjust returns ok=false to leave the container unmodified. It never
 	// fails: like the generic overlay, a specialized workload fails open.
 	adjust func(Config, Container) (Adjustment, bool)
@@ -36,21 +36,22 @@ type specializedWorkload struct {
 
 var specializedWorkloads = []specializedWorkload{
 	{name: computeDomainContainerName, matches: computeDomainDaemon, adjust: adjustComputeDomain, ungated: true},
+	{name: driverManagerContainerName, matches: driverManager, adjust: adjustDriverManager, ungated: true},
+	{name: driverContainerName, matches: driverContainer, adjust: adjustDriverContainer, ungated: true},
 }
 
-// Gated reports whether adjusting container waits for the node agent's staging
+// Gated reports whether adjusting the container waits for the node agent's staging
 // gate. The ComputeDomain daemon does not: NRI sees a container only when it is
 // created, and a daemon started behind a closed gate would have the shim but
 // not nvidia-imex.real. The DRA daemon then restarts the shim inside its
 // container, so NRI would not see it again until the driver's startup probe
-// gives up, about 20 minutes later.
-func Gated(container Container) bool {
-	for i := range specializedWorkloads {
-		if specializedWorkloads[i].matches(container) {
-			return !specializedWorkloads[i].ungated
-		}
+// gives up, about 20 minutes later. Nor do the simulated modules, which the
+// agent does not stage.
+func (d Decision) Gated() bool {
+	if d.sel.workload != nil {
+		return !d.sel.workload.ungated
 	}
-	return true
+	return !d.sel.modules || d.sel.gpu() || d.sel.infiniband || d.sel.imex
 }
 
 // computeDomainDaemon identifies the DRA-managed container from metadata NRI
@@ -59,7 +60,7 @@ func Gated(container Container) bool {
 // selector here. Requiring both the DRA-owned label and the container name
 // avoids widening this adjustment to unrelated containers in the same
 // namespace.
-func computeDomainDaemon(container Container) bool {
+func computeDomainDaemon(_ Config, container Container) bool {
 	return container.Name == computeDomainContainerName && container.PodLabels[computeDomainLabel] != ""
 }
 
