@@ -55,7 +55,7 @@ package scrub
 import (
 	"bytes"
 	"compress/gzip"
-	"flag"
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -67,13 +67,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/urfave/cli/v3"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/cmdline"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/redact"
 )
-
-type listFlag []string
-
-func (l *listFlag) String() string     { return strings.Join(*l, ",") }
-func (l *listFlag) Set(v string) error { *l = append(*l, v); return nil }
 
 // kinds of value the scrubber replaces. Each draws its own placeholder numbers.
 const (
@@ -654,52 +652,106 @@ func sourceHolding(out string, srcs []string) string {
 	return ""
 }
 
-//nolint:cyclop // flag parsing and the walk over the capture, in the order they run
-func run(args []string, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("scrub", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	var replaces, excludes, seeds listFlag
-	out := flags.String("out", "", "directory to write the scrubbed copy to (required, must not exist or be empty)")
-	report := flags.String("report", "", "write the table of substitutions here (contains originals: never commit it)")
-	flags.Var(&replaces, "replace", "old=new literal replacement, for host and cluster names (repeatable)")
-	flags.Var(&excludes, "exclude", "file name pattern to skip (repeatable; default errors.log and *.so*)")
-	flags.Var(&seeds, "seed", "file whose GPU UUIDs are numbered first, in file order (repeatable)")
-	checkOnly := flags.Bool("check", false, "check nvidia-smi -q -x files for identifiers left unscrubbed instead; exit 1 if any")
-	if err := flags.Parse(args); err != nil {
-		return 2
-	}
-	if *checkOnly && flags.NArg() > 0 {
-		return runCheck(flags.Args(), stdout, stderr)
-	}
-	if *out == "" || flags.NArg() == 0 {
-		_, _ = fmt.Fprintln(stderr, "usage: mokka-capture scrub -out DIR [-replace old=new]... [-seed FILE]... SRC_DIR...\n       mokka-capture scrub -check FILE...")
-		return 2
-	}
-	if len(excludes) == 0 {
-		excludes = listFlag{"errors.log", "*.so", "*.so.*"}
-	}
+type options struct {
+	out, report               string
+	replaces, excludes, seeds []string
+	check                     bool
+}
 
+// Command is `mokka-capture scrub`.
+func Command() *cli.Command {
+	var opts options
+	return &cli.Command{
+		Name:  "scrub",
+		Usage: "replace identifiers in a capture, or -check that none are left",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        "out",
+				Usage:       "directory to write the scrubbed copy to (required, must not exist or be empty)",
+				Destination: &opts.out,
+			},
+			&cli.StringFlag{
+				Name:        "report",
+				Usage:       "write the table of substitutions here (contains originals: never commit it)",
+				Destination: &opts.report,
+			},
+			&cli.StringSliceFlag{
+				Name:        "replace",
+				Usage:       "old=new literal replacement, for host and cluster names",
+				Destination: &opts.replaces,
+			},
+			&cli.StringSliceFlag{
+				Name:        "exclude",
+				Usage:       "file name pattern to skip",
+				DefaultText: "errors.log and *.so*",
+				Destination: &opts.excludes,
+			},
+			&cli.StringSliceFlag{
+				Name:        "seed",
+				Usage:       "file whose GPU UUIDs are numbered first, in file order",
+				Destination: &opts.seeds,
+			},
+			&cli.BoolFlag{
+				Name:        "check",
+				Usage:       "check the nvidia-smi -q -x files given in place of SRC_DIR for identifiers left unscrubbed instead; exit 1 if any",
+				Destination: &opts.check,
+			},
+		},
+		// Each -replace, -exclude or -seed value is one value, comma or not.
+		DisableSliceFlagSeparator: true,
+		Arguments: []cli.Argument{
+			&cli.StringArgs{Name: "SRC_DIR", UsageText: "SRC_DIR...", Min: 1, Max: -1},
+		},
+		Action: func(_ context.Context, cmd *cli.Command) error {
+			srcs, stdout, stderr := cmd.StringArgs("SRC_DIR"), cmd.Root().Writer, cmd.Root().ErrWriter
+			if opts.check {
+				return cmdline.Exit(runCheck(srcs, stdout, stderr))
+			}
+			if opts.out == "" {
+				return cmdline.Usage(cmd, "-out is required unless -check is given")
+			}
+			reps, err := replacements(opts.replaces)
+			if err != nil {
+				return cmdline.Usage(cmd, err.Error())
+			}
+			return cmdline.Exit(run(opts, reps, srcs, stderr))
+		},
+	}
+}
+
+// replacements splits each -replace value at its first "=", so the new half
+// may itself hold one. An empty old half is refused: strings.ReplaceAll would
+// insert the new half between every character of every file.
+func replacements(values []string) ([][2]string, error) {
 	var reps [][2]string
-	for _, r := range replaces {
+	for _, r := range values {
 		i := strings.Index(r, "=")
 		if i <= 0 {
-			_, _ = fmt.Fprintf(stderr, "-replace %q: want old=new\n", r)
-			return 2
+			return nil, fmt.Errorf("-replace %q: want old=new", r)
 		}
 		reps = append(reps, [2]string{r[:i], r[i+1:]})
 	}
+	return reps, nil
+}
 
-	if src := sourceHolding(*out, flags.Args()); src != "" {
-		_, _ = fmt.Fprintf(stderr, "%s is inside %s; the walk would copy its own output\n", *out, src)
+//nolint:cyclop // the walk over the capture, in the order it runs
+func run(opts options, reps [][2]string, srcs []string, stderr io.Writer) int {
+	out, excludes := opts.out, opts.excludes
+	if len(excludes) == 0 {
+		excludes = []string{"errors.log", "*.so", "*.so.*"}
+	}
+
+	if src := sourceHolding(out, srcs); src != "" {
+		_, _ = fmt.Fprintf(stderr, "%s is inside %s; the walk would copy its own output\n", out, src)
 		return 1
 	}
-	if entries, err := os.ReadDir(*out); err == nil && len(entries) > 0 {
-		_, _ = fmt.Fprintf(stderr, "%s is not empty\n", *out)
+	if entries, err := os.ReadDir(out); err == nil && len(entries) > 0 {
+		_, _ = fmt.Fprintf(stderr, "%s is not empty\n", out)
 		return 1
 	}
 
 	s := newScrubber(reps)
-	for _, seed := range seeds {
+	for _, seed := range opts.seeds {
 		raw, err := os.ReadFile(seed)
 		if err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
@@ -708,7 +760,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		s.seedGPUs(string(raw))
 	}
 
-	for _, src := range flags.Args() {
+	for _, src := range srcs {
 		_ = filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || excluded(d.Name(), excludes) {
 				return nil
@@ -720,14 +772,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		})
 	}
 
-	dsts, err := destinations(s, *out, flags.Args())
+	dsts, err := destinations(s, out, srcs)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
 
 	status := 0
-	for i, src := range flags.Args() {
+	for i, src := range srcs {
 		dst := dsts[i]
 		err := filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
@@ -780,18 +832,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "%-20s %d distinct value(s), %d replacement(s)\n", k, len(s.seen[k]), s.counts[k])
 	}
 
-	if *report != "" {
+	if opts.report != "" {
 		var b strings.Builder
 		for _, l := range s.log {
 			_, _ = fmt.Fprintf(&b, "%s\t%s\t%s\n", l.kind, l.from, l.to)
 		}
-		if err := os.WriteFile(*report, []byte(b.String()), 0o600); err != nil {
+		if err := os.WriteFile(opts.report, []byte(b.String()), 0o600); err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
 			return 1
 		}
 	}
 	return status
 }
-
-// Run runs the scrubber with the given arguments.
-func Run(args []string, stdout, stderr io.Writer) int { return run(args, stdout, stderr) }

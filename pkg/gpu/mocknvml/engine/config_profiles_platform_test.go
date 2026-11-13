@@ -28,13 +28,14 @@ import (
 // cannot report one, so it must leave the whole block absent — a new profile
 // has to choose a side here rather than defaulting into the untested one.
 var gracePlatformProfiles = map[string]bool{
-	"gb200.yaml": true,
-	"gb300.yaml": true,
-	"a100.yaml":  false,
-	"b200.yaml":  false,
-	"h100.yaml":  false,
-	"l40s.yaml":  false,
-	"t4.yaml":    false,
+	"gb200.yaml":   true,
+	"gb300.yaml":   true,
+	"vrnvl72.yaml": true,
+	"a100.yaml":    false,
+	"b200.yaml":    false,
+	"h100.yaml":    false,
+	"l40s.yaml":    false,
+	"t4.yaml":      false,
 }
 
 // TestProfilePlatformIdentity pins the layout the NVL72 profiles ship: the

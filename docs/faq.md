@@ -29,8 +29,9 @@ failure handling and actively harmful anywhere real work is expected to land.
 
 ## Which GPU models can I simulate?
 
-Seven profiles ship with the chart: `a100`, `b200`, `gb200`, `gb300`, `h100`,
-`l40s` and `t4`. `gb300` is the default. Switch with `--set gpu.profile=<name>`.
+Eight profiles ship with the chart: `a100`, `b200`, `gb200`, `gb300`, `h100`,
+`l40s`, `t4` and `vrnvl72`. `gb300` is the default. Switch with
+`--set gpu.profile=<name>`.
 
 See [Configuration](configuration.md) for what each profile defines.
 
@@ -49,8 +50,10 @@ the vendor one and reports whatever the profile describes.
 
 Because the profile says so, and nothing moves it. Mokka runs no kernels, so no
 workload consumes device memory, and the profile's `memory.used_bytes` — `0` in
-every shipped profile — is what every consumer reads no matter what is
-scheduled.
+every shipped profile — is the used memory `nvidia-smi` and other
+`nvmlDeviceGetMemoryInfo_v2` consumers read no matter what is scheduled.
+`nvmlDeviceGetMemoryInfo` (v1) has no reserved field, so as on a real GPU it
+reports `memory.reserved_bytes` plus `memory.used_bytes` as used.
 
 Set `allocationWatcher.enabled=true` to make used and free memory track
 Kubernetes GPU allocation instead: a sidecar polls the kubelet pod-resources API

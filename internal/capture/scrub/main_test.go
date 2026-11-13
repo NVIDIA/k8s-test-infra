@@ -16,6 +16,7 @@ package scrub
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -25,7 +26,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/urfave/cli/v3"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/cmdline"
 )
+
+// runCLI runs `mokka-capture scrub` with args and returns its exit code.
+func runCLI(args []string, stdout, stderr io.Writer) int {
+	root := &cli.Command{Name: "mokka-capture", Commands: []*cli.Command{Command()}}
+	return cmdline.Run(context.Background(), root, append([]string{"scrub"}, args...), stdout, stderr)
+}
 
 func TestGPUUUIDsKeepOnePlaceholderAcrossText(t *testing.T) {
 	s := newScrubber(nil)
@@ -150,7 +160,7 @@ func TestRunWritesACopySkipsBinariesAndExclusions(t *testing.T) {
 
 	dst := filepath.Join(t.TempDir(), "out")
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"-out", dst, "-replace", "worker-7=node-a", "-seed", filepath.Join(src, "node-a", "smi-L.txt"),
+	code := runCLI([]string{"-out", dst, "-replace", "worker-7=node-a", "-seed", filepath.Join(src, "node-a", "smi-L.txt"),
 		filepath.Join(src, "node-a")}, &stdout, &stderr)
 	require.Equal(t, 0, code, stderr.String())
 
@@ -163,12 +173,43 @@ func TestRunWritesACopySkipsBinariesAndExclusions(t *testing.T) {
 	}
 }
 
+// urfave/cli splits a repeated flag's value on commas unless told not to; a
+// -replace value is one old=new pair whatever it holds.
+func TestReplaceValueWithACommaIsOnePair(t *testing.T) {
+	src := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(src, "hosts.txt"), []byte("worker-7,rack-1\n"), 0o600))
+	dst := filepath.Join(t.TempDir(), "out")
+	var stderr bytes.Buffer
+	require.Equal(t, 0, runCLI([]string{"-out", dst, "-replace", "worker-7,rack-1=node-a", src}, io.Discard, &stderr), stderr.String())
+	got, err := os.ReadFile(filepath.Join(dst, filepath.Base(src), "hosts.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "node-a\n", string(got))
+}
+
+func TestRunRejectsBadUsage(t *testing.T) {
+	src := t.TempDir()
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{src}, "-out is required unless -check is given"},
+		{[]string{"-out", filepath.Join(t.TempDir(), "out")}, "SRC_DIR"},
+		{[]string{"-check"}, "SRC_DIR"},
+		{[]string{"-out", filepath.Join(t.TempDir(), "out"), "-replace", "worker-7", src}, `-replace "worker-7": want old=new`},
+	} {
+		var stdout, stderr bytes.Buffer
+		require.Equal(t, 2, runCLI(tc.args, &stdout, &stderr), tc.args)
+		require.Contains(t, stderr.String(), tc.want, tc.args)
+		require.Empty(t, stdout.String(), tc.args)
+	}
+}
+
 func TestRunRefusesANonEmptyOutputDirectory(t *testing.T) {
 	dst := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dst, "x"), nil, 0o600))
 
 	var stdout, stderr bytes.Buffer
-	require.Equal(t, 1, run([]string{"-out", dst, t.TempDir()}, &stdout, &stderr))
+	require.Equal(t, 1, runCLI([]string{"-out", dst, t.TempDir()}, &stdout, &stderr))
 }
 
 func TestRunRefusesAnOutputDirectoryInsideASource(t *testing.T) {
@@ -177,7 +218,7 @@ func TestRunRefusesAnOutputDirectoryInsideASource(t *testing.T) {
 
 	for _, out := range []string{src, filepath.Join(src, "scrubbed"), filepath.Join(src, "a", "b")} {
 		var stdout, stderr bytes.Buffer
-		require.Equal(t, 1, run([]string{"-out", out, t.TempDir(), src}, &stdout, &stderr), out)
+		require.Equal(t, 1, runCLI([]string{"-out", out, t.TempDir(), src}, &stdout, &stderr), out)
 		require.Equal(t, out+" is inside "+src+"; the walk would copy its own output\n", stderr.String())
 		entries, err := os.ReadDir(src)
 		require.NoError(t, err)
@@ -209,7 +250,7 @@ func TestRunRefusesTwoSourcesWithOneOutputDirectory(t *testing.T) {
 			args = append(args, a)
 		}
 		var stdout, stderr bytes.Buffer
-		require.Equal(t, 1, run(args, &stdout, &stderr), tc.name)
+		require.Equal(t, 1, runCLI(args, &stdout, &stderr), tc.name)
 		want := filepath.Join(root, tc.dup[0]) + " and " + filepath.Join(root, tc.dup[1]) +
 			" would both be written to " + filepath.Join(out, filepath.Base(tc.dup[1])) + "\n"
 		require.Equal(t, want, stderr.String(), tc.name)
@@ -225,7 +266,7 @@ func TestRunAcceptsASiblingWithASourcesNameAsPrefix(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(src, "a.txt"), []byte("x\n"), 0o600))
 
 	var stdout, stderr bytes.Buffer
-	require.Equal(t, 0, run([]string{"-out", filepath.Join(root, "raw-scrubbed"), src}, &stdout, &stderr), stderr.String())
+	require.Equal(t, 0, runCLI([]string{"-out", filepath.Join(root, "raw-scrubbed"), src}, &stdout, &stderr), stderr.String())
 	got, err := os.ReadFile(filepath.Join(root, "raw-scrubbed", "raw", "a.txt"))
 	require.NoError(t, err)
 	require.Equal(t, "x\n", string(got))
@@ -326,7 +367,7 @@ func TestRunScrubsNestedFileAndDirectoryNames(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out")
 
 	var stderr bytes.Buffer
-	require.Equal(t, 0, run([]string{"-out", out, "-replace", "worker-7=node-a", src}, io.Discard, &stderr), stderr.String())
+	require.Equal(t, 0, runCLI([]string{"-out", out, "-replace", "worker-7=node-a", src}, io.Discard, &stderr), stderr.String())
 
 	got, err := os.ReadFile(filepath.Join(out, "capture", "node-a", "node-a.txt"))
 	require.NoError(t, err)
@@ -381,7 +422,7 @@ func TestDumpPlaceholdersFollowTheNodesTextFiles(t *testing.T) {
 	}
 	out := filepath.Join(t.TempDir(), "out")
 	var stderr bytes.Buffer
-	require.Equal(t, 0, run(append([]string{"-out", out}, srcs...), io.Discard, &stderr), stderr.String())
+	require.Equal(t, 0, runCLI(append([]string{"-out", out}, srcs...), io.Discard, &stderr), stderr.String())
 
 	for _, node := range []string{"node-a", "node-b"} {
 		xmlOut, err := os.ReadFile(filepath.Join(out, node, "smi-q.xml"))
@@ -467,7 +508,7 @@ func TestDumpPDIAndFabricGUIDFollowTheTextFiles(t *testing.T) {
 	}
 	out := filepath.Join(t.TempDir(), "out")
 	var stderr bytes.Buffer
-	require.Equal(t, 0, run([]string{"-out", out, dir}, io.Discard, &stderr), stderr.String())
+	require.Equal(t, 0, runCLI([]string{"-out", out, dir}, io.Discard, &stderr), stderr.String())
 
 	text, err := os.ReadFile(filepath.Join(out, "node-a", "smi-q.txt"))
 	require.NoError(t, err)

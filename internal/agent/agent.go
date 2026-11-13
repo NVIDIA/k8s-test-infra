@@ -32,6 +32,7 @@ type Agent struct {
 	stagingLockPath string
 	live            atomic.Pointer[health.Probe] // last Stage wave outcome, served on /healthz
 	staged          atomic.Bool                  // latest Stage wave completed; false while restaging and during teardown
+	applied         atomic.Bool                  // an Apply wave has returned, successfully or not
 
 	// Daemons launch into this group from reconcile but bind to supervisorCtx,
 	// so they outlive the reconcile that started them.
@@ -82,6 +83,18 @@ func (a *Agent) Staged() health.Probe {
 		return health.OK()
 	}
 	return health.Unhealthy("driver tree not staged")
+}
+
+// Started passes once the first Apply wave has returned, successfully or not,
+// and the tree is staged. It gates NRI's startup: the cri simulator restarts the
+// container runtime during Apply, and the kubelet cannot create the NRI
+// container while the runtime is down. Later Apply waves do not close it, so
+// it is a startup gate only; NRI's per-container check reads Staged.
+func (a *Agent) Started() health.Probe {
+	if !a.applied.Load() {
+		return health.Unhealthy("first apply wave not finished")
+	}
+	return a.Staged()
 }
 
 // Readiness aggregates every simulator's readiness and attributes the result
@@ -225,23 +238,30 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 	// has written, and before Apply publishes them off-node.
 	a.supervise(ctx, state)
 
-	// Apply wave: fail-fast — appliers share cross-component dependencies
-	// (CDI spec references chardevs that gpudriver must have staged first).
+	// Apply wave: appliers run after the Stage barrier, which orders their
+	// cross-component dependencies (a CDI spec references chardevs Stage wrote).
+	// A failing applier does not cancel the others: the cri simulator may be
+	// restarting the container runtime, which systemd finishes regardless, and
+	// cutting that wait short would return, and open /startedz, while the
+	// runtime is still down. Shutdown still cancels ctx, so teardown keeps its
+	// place in the pod's grace period. The wave returns the first error.
 	// Only simulators that also implement Applier participate.
-	applyG, applyCtx := errgroup.WithContext(ctx)
+	var applyG errgroup.Group
 	for _, sim := range a.simulators {
 		app, ok := sim.(Applier)
 		if !ok {
 			continue
 		}
 		applyG.Go(func() error {
-			if err := app.Apply(applyCtx, state); err != nil {
+			if err := app.Apply(ctx, state); err != nil {
 				return fmt.Errorf("apply %s: %w", applierName(app), err)
 			}
 			return nil
 		})
 	}
-	return applyG.Wait()
+	err := applyG.Wait()
+	a.applied.Store(true)
+	return err
 }
 
 // errStagingLockUnavailable marks a failure to take the staging lock, as

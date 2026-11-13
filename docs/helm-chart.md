@@ -88,7 +88,7 @@ at any level. The pods simply start with no mock GPU.
 
 **Published image:** The nvml-mock container image is published at
 `ghcr.io/nvidia/nvml-mock`, tagged with the release version on every release,
-and with the chart `appVersion` (the next `-dev` version, such as `0.7.0-dev`)
+and with the chart `appVersion` (the next `-dev` version, such as `0.8.0-dev`)
 on pushes to `main`. The chart installs the image tagged with
 its `appVersion` by default, so a released chart pulls its own release and the
 chart on `main` pulls the latest `main` build. If the
@@ -576,7 +576,7 @@ containerd reject container creation outright.
 Neither mode changes *which* GPUs an allocated container gets. A container
 that holds a device-plugin or NVIDIA DRA allocation keeps exactly that
 allocation in both modes, even with the annotation, per
-[MEP-0002](https://github.com/NVIDIA/k8s-test-infra/blob/main/enhancements/meps/0002-device-plugin-nri-composition/README.md).
+[MEP-0002](../enhancements/meps/0002-device-plugin-nri-composition/README.md).
 
 ## NRI pod lifecycle
 
@@ -587,14 +587,16 @@ DaemonSet pod. On Kubernetes 1.29 and later, the node agent is a [restartable
 init container](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/)
 and NRI a regular container, which orders them:
 
-- **Startup.** The node agent's startup probe reads `/stagedz`, which opens once
-  its first Stage wave has written the driver tree, so Kubernetes starts NRI
-  only after that. `/stagedz` does not wait for an intentional
-  `fabricmanager.initDelay`, so new workloads can still observe the simulated
-  `IN_PROGRESS` fabric state. Kubernetes runs no liveness probe until the
-  startup probe passes, so `nodeAgent.nriStartupTimeoutSeconds` (120 by
-  default) is also how long a node agent whose first staging failed waits
-  before it is restarted.
+- **Startup.** The node agent's startup probe reads `/startedz`, which opens
+  once its first Stage wave has written the driver tree and its first Apply
+  wave has returned, so Kubernetes starts NRI only after that. Apply restarts
+  containerd when the agent sets the container runtime up, and the kubelet
+  cannot create NRI while containerd is down. `/startedz` opens even when Apply
+  fails, and does not wait for an intentional `fabricmanager.initDelay`, so new
+  workloads can still observe the simulated `IN_PROGRESS` fabric state.
+  Kubernetes runs no liveness probe until the startup probe passes, so
+  `nodeAgent.nriStartupTimeoutSeconds` (120 by default) is also how long a node
+  agent whose first staging failed waits before it is restarted.
 - **Termination.** Kubernetes stops NRI before the node agent, so the plugin
   disconnects before the agent removes the staged driver tree.
 
@@ -763,13 +765,13 @@ namespace, on the pod IP where the kubelet reaches it.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `gpu.profile` | `gb300` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, or `t4` |
-| `gpu.count` | `""` | Number of mock GPUs per node. Empty derives it from the profile's `devices:` list (8 for the baseboard profiles, 4 for `t4`, `gb200` and `gb300`); a larger value is capped to that list at runtime |
+| `gpu.profile` | `gb300` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4`, or `vrnvl72` |
+| `gpu.count` | `""` | Number of mock GPUs per node. Empty derives it from the profile's `devices:` list (8 for the baseboard profiles, 4 for `t4`, `gb200`, `gb300` and `vrnvl72`); a larger value is capped to that list at runtime |
 | `gpu.customConfig` | `""` | Inline YAML to override profile config entirely |
 | `gpu.dynamicMetrics.enabled` | `false` | Make the mock return time-varying temperature / power / utilization readings instead of the static profile values. See [Dynamic Metrics](#dynamic-metrics) below. |
 | `gpu.dynamicMetrics.seed` | `0` (baseline) | RNG seed; `0` uses a time-based seed, non-zero produces reproducible sequences. |
 | `gpu.dynamicMetrics.temperature.*` | baseline (`base_c: 55`, …) | `base_c`, `variance_c`, `ramp_c`, `ramp_period_sec` for the GPU temperature generator. |
-| `gpu.dynamicMetrics.power.*` | profile default, else baseline `250000`/`25000` | `base_mw`, `variance_mw` for the power generator (clamped to the profile's `min/max_limit_mw`). Resolved **baseline < profile default < user override**; profiles outside the 250W baseline set their own (`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W). See [Dynamic Metrics](#dynamic-metrics). |
+| `gpu.dynamicMetrics.power.*` | profile default, else baseline `250000`/`25000` | `base_mw`, `variance_mw` for the power generator (clamped to the profile's `min/max_limit_mw`). Resolved **baseline < profile default < user override**; profiles outside the 250W baseline set their own (`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W, `vrnvl72` ~420W, its idle draw). See [Dynamic Metrics](#dynamic-metrics). |
 | `gpu.dynamicMetrics.utilization.*` | baseline (`pattern: burst`, …) | `pattern` (`idle` \| `busy` \| `burst` \| `steady`), `gpu_min/max`, `memory_min/max`, `burst_period_sec`. |
 | `gpu.failureInjection.enabled` | `false` | Enable simulated GPU failures (lost / fallen off bus / uncorrectable ECC). See [Failure Injection](#failure-injection) below. |
 | `gpu.failureInjection.mode` | `healthy` | Failure mode: `healthy` (default, no-op), `lost`, `fallen_off_bus`, or `ecc_uncorrectable`. With the inert default, `enabled: true` alone produces a healthy device — you must set `mode` explicitly to engage failures. |
@@ -798,7 +800,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `nodeAgent.livenessProbe` | `httpGet /healthz` on `health` | Node agent liveness probe. Set to `null` to drop it. |
 | `nodeAgent.readinessProbe` | `httpGet /readyz` on `health` | Node agent readiness probe. Set to `null` to drop it. |
 | `nodeLabels.featuresDir` | `/etc/kubernetes/node-feature-discovery/features.d` | Host directory NFD's local source reads feature files from. Override only if NFD runs with a non-default `featureFilesDir` |
-| `nodeAgent.nriStartupTimeoutSeconds` | `120` | On Kubernetes 1.29+, maximum time the node-agent `/stagedz` gate may wait for its first staging and apply cycle before Kubernetes restarts it when NRI uses native sidecars |
+| `nodeAgent.nriStartupTimeoutSeconds` | `120` | On Kubernetes 1.29+, maximum time the node-agent `/startedz` gate may wait for its first staging and apply cycle before Kubernetes restarts it when NRI uses native sidecars |
 | `nodeAgent.containerRuntime.enabled` | `true` | Set up the node's container runtime: install the NVIDIA container runtime and make it containerd's default `nvidia` handler; reverted when the node pod stops. See [Container runtime setup](components/node-daemon.md#container-runtime-setup). Refuses `updateStrategy.rollingUpdate.maxSurge` |
 | `nodeAgent.containerRuntime.type` | `containerd` | The container runtime on the nodes; containerd is the only one so far |
 | `nodeAgent.containerRuntime.restartMode` | `systemd` | `systemd` restarts the runtime's unit after a change, from the host's PID namespace; `none` writes the configuration and leaves the restart to you |
@@ -894,24 +896,24 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 
 #### Profile Comparison
 
-| | A100 | H100 | B200 | GB200 | GB300 | L40S | T4 |
-|---|---|---|---|---|---|---|---|
-| **Profile name** | `a100` | `h100` | `b200` | `gb200` | `gb300` | `l40s` | `t4` |
-| **Full name** | A100-SXM4-40GB | H100 80GB HBM3 | B200 | GB200 NVL | GB300 NVL | L40S | Tesla T4 |
-| **Architecture** | Ampere | Hopper | Blackwell | Blackwell | Blackwell Ultra | Ada Lovelace | Turing |
-| **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 | 10.0 | 8.9 | 7.5 |
-| **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 21,632 | 18,176 | 2,560 |
-| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 180 GiB HBM3e | 186 GiB HBM3e | 278 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 |
-| **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | v5, 18 links | — | — |
-| **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | 1.8 TB/s | — | — |
-| **TDP** | 400W | 700W | 1,000W | 1,000W | 1,400W | 350W | 70W |
-| **PCIe** | Gen4 | Gen5 | Gen5 | Gen6 | Gen6 | Gen4 | Gen3 |
-| **MIG instances** | 7 | 7 | 7 | 7 | 7 | 0 | 0 |
-| **Grace CPU** | — | — | — | Yes (NVLink-C2C) | Yes (NVLink-C2C) | — | — |
-| **FP8** | — | Yes | Yes | Yes | Yes | Yes | — |
-| **FP4** | — | — | Yes | Yes | Yes | — | — |
-| **FP6** | — | — | — | — | Yes | — | — |
-| **Driver version** | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 |
+| | A100 | H100 | B200 | GB200 | GB300 | L40S | T4 | VR NVL72 |
+|---|---|---|---|---|---|---|---|---|
+| **Profile name** | `a100` | `h100` | `b200` | `gb200` | `gb300` | `l40s` | `t4` | `vrnvl72` |
+| **Full name** | A100-SXM4-40GB | H100 80GB HBM3 | B200 | GB200 NVL | GB300 NVL | L40S | Tesla T4 | NVIDIA Graphics Device |
+| **Architecture** | Ampere | Hopper | Blackwell | Blackwell | Blackwell Ultra | Ada Lovelace | Turing | Rubin |
+| **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 | 10.0 | 8.9 | 7.5 | 10.7 |
+| **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 21,632 | 18,176 | 2,560 | 27,136 |
+| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 180 GiB HBM3e | 186 GiB HBM3e | 278 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 | 280 GiB HBM4 |
+| **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | v5, 18 links | — | — | v6, 36 links |
+| **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | 1.8 TB/s | — | — | 2.95 TB/s |
+| **TDP** | 400W | 700W | 1,000W | 1,000W | 1,400W | 350W | 70W | 2,300W |
+| **PCIe** | Gen4 | Gen5 | Gen5 | Gen6 | Gen6 | Gen4 | Gen3 | Gen6 |
+| **MIG instances** | 7 | 7 | 7 | 7 | 7 | 0 | 0 | 7 |
+| **Host CPU** | — | — | — | Grace (NVLink-C2C) | Grace (NVLink-C2C) | — | — | Vera (NVLink-C2C) |
+| **FP8** | — | Yes | Yes | Yes | Yes | Yes | — | Yes |
+| **FP4** | — | — | Yes | Yes | Yes | — | — | Yes |
+| **FP6** | — | — | — | — | Yes | — | — | — |
+| **Driver version** | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 615.71.09 |
 
 #### When to Use Each Profile
 
@@ -922,6 +924,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 - **`gb300`** (default) — testing Grace-Blackwell Ultra Superchip: 278 GiB HBM3e per GPU, 1.4 kW TDP, and FP6 in addition to FP4/FP8.
 - **`l40s`** — testing Ada Lovelace inference workloads: FP8, PCIe Gen4, no NVLink (PCIe-only topology).
 - **`t4`** — testing Turing inference GPUs: low power (70W), small memory (16 GiB), 4 GPUs per node.
+- **`vrnvl72`** — testing a Vera Rubin compute tray: Rubin architecture with compute capability 10.7, 286,524 MiB of HBM4, 36 NVLink 6 links across nodes (IMEX and ComputeDomains), RoCE NICs, MIG, and a GPU name the driver does not yet know (`NVIDIA Graphics Device`).
 
 ### Custom Configuration
 
@@ -1027,7 +1030,7 @@ chart baseline  <  GPU profile default  <  user override (values / --set)
 The profile layer matters for **power**: one global `base_mw` can't fit every
 profile's `[min_limit_mw, max_limit_mw]` envelope, so profiles outside the 250W
 baseline declare their own base via a Helm-only `dynamic_metrics_defaults` key
-(`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W). The engine ignores that key;
+(`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W, `vrnvl72` ~420W, its idle draw). The engine ignores that key;
 it only takes effect once `enabled: true` folds it into `dynamic_metrics`.
 
 ```bash

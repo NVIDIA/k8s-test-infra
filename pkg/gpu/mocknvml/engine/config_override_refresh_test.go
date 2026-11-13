@@ -156,7 +156,7 @@ func TestRefresh_HotReloadsMemoryUsedBytes(t *testing.T) {
 
 	mem, ret := dev.GetMemoryInfo()
 	require.Equal(t, nvml.SUCCESS, ret, "baseline GetMemoryInfo")
-	require.Equal(t, uint64(0), mem.Used, "baseline used bytes")
+	require.Equal(t, a100ReservedBytes, mem.Used, "baseline used bytes: v1 counts reserved as used")
 	require.Equal(t, a100TotalBytes, mem.Total, "baseline total bytes")
 	require.Equal(t, a100FreeBytes, mem.Free, "baseline free bytes")
 
@@ -164,7 +164,7 @@ func TestRefresh_HotReloadsMemoryUsedBytes(t *testing.T) {
 
 	mem, ret = dev.GetMemoryInfo()
 	require.Equal(t, nvml.SUCCESS, ret, "GetMemoryInfo after override")
-	require.Equal(t, overrideUsedBytes, mem.Used, "used bytes must follow the runtime override")
+	require.Equal(t, overrideUsedBytes+a100ReservedBytes, mem.Used, "used bytes must follow the runtime override")
 	require.Equal(t, overrideFreeBytes, mem.Free, "free bytes must follow the runtime override")
 	require.Equal(t, a100TotalBytes, mem.Total, "total bytes must survive a partial memory override")
 
@@ -175,7 +175,7 @@ func TestRefresh_HotReloadsMemoryUsedBytes(t *testing.T) {
 
 	mem, ret = dev.GetMemoryInfo()
 	require.Equal(t, nvml.SUCCESS, ret, "GetMemoryInfo after override removed")
-	require.Equal(t, uint64(0), mem.Used, "used bytes must revert when the override is removed")
+	require.Equal(t, a100ReservedBytes, mem.Used, "used bytes must revert when the override is removed")
 	require.Equal(t, a100FreeBytes, mem.Free, "free bytes must revert when the override is removed")
 	require.Equal(t, a100TotalBytes, mem.Total, "total bytes must revert when the override is removed")
 }

@@ -752,6 +752,9 @@ func (st *migState) newMigDeviceLocked(
 		pciInfo:     parent.pciInfo,
 		boardID:     parent.boardID,
 		mig:         id,
+
+		absentNotSupported: parent.absentNotSupported,
+		driverVersion:      parent.driverVersion,
 	}
 	dev.effective.Store(parent.effective.Load())
 

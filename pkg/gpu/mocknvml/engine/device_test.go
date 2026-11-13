@@ -1067,6 +1067,33 @@ func TestConfigurableDevice_GetMemoryInfo_v2_VersionEncoding(t *testing.T) {
 		expectedVersion, unsafe.Sizeof(nvml.Memory_v2{}))
 }
 
+// TestConfigurableDevice_GetMemoryInfo_CountsReservedAsUsed pins the v1 memory
+// struct to what NVML reports: nvmlMemory_t has no reserved field, so its used
+// is reserved plus allocated and free + used is the total. The values are the
+// vrnvl72 profile's, which the captured tray reports through both calls
+// (tests/hardware-captures/vr-nvl72/node-a/nvml-dump.json.gz): v1 used
+// 1338638336, v2 reserved 1338638336 and used 0.
+func TestConfigurableDevice_GetMemoryInfo_CountsReservedAsUsed(t *testing.T) {
+	const (
+		total    uint64 = 300442189824
+		reserved uint64 = 1338638336
+		free     uint64 = 299103551488
+	)
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Memory: &MemoryConfig{TotalBytes: total, ReservedBytes: reserved, FreeBytes: free},
+	})
+
+	v1, ret := dev.GetMemoryInfo()
+	require.Equal(t, nvml.SUCCESS, ret, "GetMemoryInfo failed")
+	require.Equal(t, nvml.Memory{Total: total, Free: free, Used: reserved}, v1)
+	require.Equal(t, v1.Total, v1.Free+v1.Used, "v1 free + used must add up to total")
+
+	v2, ret := dev.GetMemoryInfo_v2()
+	require.Equal(t, nvml.SUCCESS, ret, "GetMemoryInfo_v2 failed")
+	require.Equal(t, reserved, v2.Reserved, "v2 reports reserved apart")
+	require.Equal(t, uint64(0), v2.Used, "v2 used leaves reserved out")
+}
+
 // =============================================================================
 // Audit Fix Tests: Zero-Value Sentinel Bug (T4)
 // =============================================================================

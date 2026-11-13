@@ -67,6 +67,13 @@ type ConfigurableDevice struct {
 	pciInfo    nvml.PciInfo
 	boardID    uint32
 
+	// absentNotSupported is the profile's absent_features: not_supported; see
+	// absent_features.go.
+	absentNotSupported bool
+
+	// driverVersion is the driver the mock reports; see nvlink_telemetry.go.
+	driverVersion string
+
 	// migState is the device's MIG partitioning. Non-nil on every physical
 	// GPU (it also records that a board is not MIG-capable); nil on MIG
 	// devices, which cannot themselves be partitioned.
@@ -587,15 +594,17 @@ func (d *ConfigurableDevice) GetBAR1MemoryInfo() (nvml.BAR1Memory, nvml.Return) 
 // memoryInfo resolves device memory from the effective config so a runtime
 // config override of memory.{total,free,used}_bytes is observed without a
 // restart, matching how the process and thermal getters already read d.cfg().
-// The values are reported verbatim: overriding used_bytes alone does not
-// recompute free_bytes, because free_bytes is an explicit profile field and
-// silently deriving it would make that field dead. Falls back to the
+// It returns the v2 view, with reserved memory apart from used, from a single
+// config read, so the v1 and v2 getters derive their replies from one
+// consistent snapshot. Fields come from the profile as written: overriding
+// used_bytes alone does not recompute free_bytes, because free_bytes is an
+// explicit profile field and silently deriving it would make that field dead. Falls back to the
 // construction-time struct when the device was built without a memory block
 // (legacy/default mode), where d.MemoryInfo carries the base mock's values.
 //
 // It refreshes first, which makes it the entry point for callers that do not
 // hold migState.mu; callers that do hold it must use effectiveMemoryInfo.
-func (d *ConfigurableDevice) memoryInfo() nvml.Memory {
+func (d *ConfigurableDevice) memoryInfo() nvml.Memory_v2 {
 	d.refresh()
 	return d.effectiveMemoryInfo()
 }
@@ -609,20 +618,22 @@ func (d *ConfigurableDevice) memoryInfo() nvml.Memory {
 // declared-layout path it is deliberately the construction-time one, because a
 // declared layout answers for the config it was handed rather than for the
 // document on disk.
-func (d *ConfigurableDevice) effectiveMemoryInfo() nvml.Memory {
-	// A MIG device reports its slice, not the board it was carved from.
+func (d *ConfigurableDevice) effectiveMemoryInfo() nvml.Memory_v2 {
+	// A MIG device reports its slice, not the board it was carved from, and
+	// reserves nothing of it.
 	if d.mig != nil {
 		total := d.mig.attrs.MemorySizeMB * oneMiB
-		return nvml.Memory{Total: total, Free: total}
+		return nvml.Memory_v2{Total: total, Free: total}
 	}
 	if c := d.effective.Load(); c.Memory != nil {
-		return nvml.Memory{
-			Total: c.Memory.TotalBytes,
-			Free:  c.Memory.FreeBytes,
-			Used:  c.Memory.UsedBytes,
+		return nvml.Memory_v2{
+			Total:    c.Memory.TotalBytes,
+			Reserved: c.Memory.ReservedBytes,
+			Free:     c.Memory.FreeBytes,
+			Used:     c.Memory.UsedBytes,
 		}
 	}
-	return d.MemoryInfo
+	return nvml.Memory_v2{Total: d.MemoryInfo.Total, Free: d.MemoryInfo.Free, Used: d.MemoryInfo.Used}
 }
 
 // GetMemoryInfo returns GPU memory information
@@ -630,7 +641,12 @@ func (d *ConfigurableDevice) GetMemoryInfo() (nvml.Memory, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return nvml.Memory{}, ret
 	}
-	mem := d.memoryInfo()
+	m := d.memoryInfo()
+	// nvmlMemory_t has no reserved field: NVML counts the memory the driver
+	// reserves as used, so free + used is the total. The profile's used_bytes
+	// is the allocated memory alone, as GetMemoryInfo_v2 reports it next to
+	// reserved_bytes.
+	mem := nvml.Memory{Total: m.Total, Free: m.Free, Used: m.Used + m.Reserved}
 	debugLog("[NVML] nvmlDeviceGetMemoryInfo -> total=%d used=%d\n", mem.Total, mem.Used)
 	return mem, nvml.SUCCESS
 }
@@ -640,18 +656,8 @@ func (d *ConfigurableDevice) GetMemoryInfo_v2() (nvml.Memory_v2, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return nvml.Memory_v2{}, ret
 	}
-	base := d.memoryInfo()
-	mem := nvml.Memory_v2{
-		Version:  nvmlStructVersion(unsafe.Sizeof(nvml.Memory_v2{}), 2),
-		Total:    base.Total,
-		Reserved: 0,
-		Free:     base.Free,
-		Used:     base.Used,
-	}
-	// If we have config with reserved bytes, use it
-	if c := d.cfg(); c.Memory != nil {
-		mem.Reserved = c.Memory.ReservedBytes
-	}
+	mem := d.memoryInfo()
+	mem.Version = nvmlStructVersion(unsafe.Sizeof(nvml.Memory_v2{}), 2)
 	debugLog("[NVML] nvmlDeviceGetMemoryInfo_v2 -> total=%d reserved=%d used=%d\n", mem.Total, mem.Reserved, mem.Used)
 	return mem, nvml.SUCCESS
 }
@@ -897,6 +903,9 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 	case nvml.TEMPERATURE_THRESHOLD_GPU_MAX:
 		temp = uint32(c.Thermal.MaxOperating_C)
 	default:
+		if ret := d.unsupportedWhenAbsent("nvmlDeviceGetTemperatureThreshold", declaresThreshold(c.Thermal, thresholdType)); ret != nvml.SUCCESS {
+			return 0, ret
+		}
 		temp = uint32(c.Thermal.MaxOperating_C)
 	}
 	debugLog("[NVML] nvmlDeviceGetTemperatureThreshold(type=%d) -> %d\n", thresholdType, temp)
@@ -914,8 +923,9 @@ func (d *ConfigurableDevice) reportsTLimit() bool {
 
 // GetMarginTemperature returns the GPU's headroom to its thermal limit in
 // degrees C — the value nvidia-smi renders as "GPU T.Limit Temp" (via
-// nvmlDeviceGetMarginTemperature). It is the slowdown threshold (falling back
-// to shutdown, then max-operating) minus the current temperature. The margin is
+// nvmlDeviceGetMarginTemperature). It is thermal.tlimit.reference_c when the
+// profile states one, else the slowdown threshold (falling back to shutdown,
+// then max-operating), minus the current temperature. The margin is
 // SIGNED and goes negative once the current temperature passes the limit,
 // mirroring real T.Limit hardware; consumers such as NVSentinel's
 // GpuThermalMarginWatch key on that sign crossing (it FAILs when the margin
@@ -932,12 +942,9 @@ func (d *ConfigurableDevice) GetMarginTemperature() (nvml.MarginTemperature, nvm
 	if c.Thermal == nil {
 		return nvml.MarginTemperature{}, nvml.ERROR_NOT_SUPPORTED
 	}
-	limit := c.Thermal.SlowdownThreshold_C
-	if limit == 0 {
-		limit = c.Thermal.ShutdownThreshold_C
-	}
-	if limit == 0 {
-		limit = c.Thermal.MaxOperating_C
+	limit := tlimitReference(c.Thermal)
+	if t := c.Thermal.TLimit; t != nil && t.Reference_C != 0 {
+		limit = t.Reference_C
 	}
 	if limit == 0 {
 		return nvml.MarginTemperature{}, nvml.ERROR_NOT_SUPPORTED
@@ -1698,6 +1705,9 @@ func (d *ConfigurableDevice) GetFBCSessions() ([]nvml.FBCSessionInfo, nvml.Retur
 
 // GetGpuOperationMode returns GPU operation mode
 func (d *ConfigurableDevice) GetGpuOperationMode() (nvml.GpuOperationMode, nvml.GpuOperationMode, nvml.Return) {
+	if ret := d.unsupportedWhenAbsent("nvmlDeviceGetGpuOperationMode", d.cfg().GPUOperationMode != nil); ret != nvml.SUCCESS {
+		return 0, 0, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetGpuOperationMode -> ALL_ON\n")
 	return nvml.GOM_ALL_ON, nvml.GOM_ALL_ON, nvml.SUCCESS
 }
@@ -1841,8 +1851,12 @@ func (d *ConfigurableDevice) GetP2PStatus(other nvml.Device, _ nvml.GpuP2PCapsIn
 
 // GetNvLinkErrorCounter returns the deterministic error counter for a
 // link. Healthy links accrue at rate 0 (always 0); a configured error
-// rate accrues monotonically against the shared epoch.
+// rate accrues monotonically against the shared epoch. A 615 or newer driver
+// answers NOT_SUPPORTED for every link, before checking the link.
 func (d *ConfigurableDevice) GetNvLinkErrorCounter(link int, counter nvml.NvLinkErrorCounter) (uint64, nvml.Return) {
+	if ret := d.legacyNVLinkTelemetry("nvmlDeviceGetNvLinkErrorCounter"); ret != nvml.SUCCESS {
+		return 0, ret
+	}
 	if !d.nvlinkLinkInRange(link) {
 		return 0, nvml.ERROR_INVALID_ARGUMENT
 	}
@@ -1886,8 +1900,12 @@ func (d *ConfigurableDevice) nvLinkInjectedErrorCount(link int) uint64 {
 
 // GetNvLinkUtilizationCounter returns the deterministic (rx, tx)
 // utilization counters for a link. The values grow monotonically with
-// wall-clock time and across separate processes (shared epoch).
+// wall-clock time and across separate processes (shared epoch). A 615 or newer
+// driver answers NOT_SUPPORTED for every link, before checking the link.
 func (d *ConfigurableDevice) GetNvLinkUtilizationCounter(link, counter int) (uint64, uint64, nvml.Return) {
+	if ret := d.legacyNVLinkTelemetry("nvmlDeviceGetNvLinkUtilizationCounter"); ret != nvml.SUCCESS {
+		return 0, 0, ret
+	}
 	if !d.nvlinkLinkInRange(link) {
 		return 0, 0, nvml.ERROR_INVALID_ARGUMENT
 	}
@@ -2362,18 +2380,27 @@ func (d *ConfigurableDevice) sramLocationErrors(errorType nvml.MemoryErrorType, 
 
 // GetRetiredPages returns retired pages
 func (d *ConfigurableDevice) GetRetiredPages(_ nvml.PageRetirementCause) ([]uint64, nvml.Return) {
+	if ret := d.unsupportedWhenAbsent("nvmlDeviceGetRetiredPages", d.cfg().RetiredPages != nil); ret != nvml.SUCCESS {
+		return nil, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetRetiredPages -> []\n")
 	return []uint64{}, nvml.SUCCESS
 }
 
 // GetRetiredPages_v2 returns retired pages with timestamps
 func (d *ConfigurableDevice) GetRetiredPages_v2(_ nvml.PageRetirementCause) ([]uint64, []uint64, nvml.Return) {
+	if ret := d.unsupportedWhenAbsent("nvmlDeviceGetRetiredPages_v2", d.cfg().RetiredPages != nil); ret != nvml.SUCCESS {
+		return nil, nil, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetRetiredPages_v2 -> [], []\n")
 	return []uint64{}, []uint64{}, nvml.SUCCESS
 }
 
 // GetRetiredPagesPendingStatus returns whether there are pending retired pages
 func (d *ConfigurableDevice) GetRetiredPagesPendingStatus() (nvml.EnableState, nvml.Return) {
+	if ret := d.unsupportedWhenAbsent("nvmlDeviceGetRetiredPagesPendingStatus", d.cfg().RetiredPages != nil); ret != nvml.SUCCESS {
+		return nvml.FEATURE_DISABLED, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetRetiredPagesPendingStatus -> NOT_PENDING\n")
 	return nvml.FEATURE_DISABLED, nvml.SUCCESS // No pending pages
 }
