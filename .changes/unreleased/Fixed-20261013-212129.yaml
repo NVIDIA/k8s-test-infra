@@ -1,6 +1,6 @@
 kind: Fixed
 body: |-
-  nvml-mock: Host Max PCIe generation now reports N/A unless explicitly configured; the GB300 profile reports Gen4 independently of its Gen6 device maximum.
+  nvml-mock: Host Max PCIe generation reports N/A unless explicitly configured; GB300 reports Gen4 independently of its Gen6 device maximum, and VRNVL72 reports Gen6.
 time: 2026-10-13T18:21:29Z
 custom:
   Issue: "692"

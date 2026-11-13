@@ -122,6 +122,7 @@ device_defaults:
 
   pcie:
     max_link_gen: 6                 # PCIe Gen6 x16
+    host_max_link_gen: 6            # captured Vera host bridge is PCIe Gen6
     current_link_gen: 6
     max_link_width: 16
     current_link_width: 2           # the tray trains its links at x2 when idle

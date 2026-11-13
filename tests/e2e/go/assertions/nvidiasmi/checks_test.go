@@ -462,6 +462,7 @@ func TestPCIeHostMaximumMatchesHardwareCaptures(t *testing.T) {
 		{"b200", "N/A"},
 		{"gb200", "N/A"},
 		{"gb300", "4"},
+		{"vrnvl72", "6"},
 	} {
 		t.Run(tc.profile, func(t *testing.T) {
 			snap, err := ParseSnapshot(loadFixture(t, "hardware/qx-"+tc.profile+".xml"))

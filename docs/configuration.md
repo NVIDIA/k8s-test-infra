@@ -164,8 +164,9 @@ reading identity out of sysfs gets the full picture.
 `device_defaults.pcie.host_max_link_gen` optionally sets the independent
 `Host Max` value in `nvidia-smi -q` and `max_host_link_gen` in `-q -x`. An absent
 value returns `NVML_ERROR_NOT_SUPPORTED`, which renders as `N/A`; it does not
-fall back to `max_link_gen`. Only the shipped `gb300` profile sets it to `4`.
-The other shipped profiles, including `gb200` and `b200`, report `N/A`.
+fall back to `max_link_gen`. The shipped `gb300` and `vrnvl72` profiles set it
+to `4` and `6`, respectively. The other shipped profiles, including `gb200` and
+`b200`, report `N/A`.
 This host value does not cap the device or negotiated maximum: real GB300
 reports device Max `6` and Host Max `4`.
 

@@ -136,6 +136,7 @@ func TestHostMaxPCIeLinkGenUsesProfileSpecificValues(t *testing.T) {
 		{"t4", 0},
 		{"gb200", 0},
 		{"gb300", 4},
+		{"vrnvl72", 6},
 		{"b200", 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

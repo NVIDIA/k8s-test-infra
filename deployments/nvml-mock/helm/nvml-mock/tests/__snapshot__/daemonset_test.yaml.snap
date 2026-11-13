@@ -1,3 +1,6 @@
+should match config checksum snapshot with vrnvl72 profile:
+  1: |
+    ee6af2b4edd68244c8201f71cc9e7609e58ebe36e0091d9e4b4197c9cd9c3e3a
 should match snapshot with all overrides:
   1: |
     apiVersion: apps/v1

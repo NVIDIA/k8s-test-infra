@@ -52,6 +52,15 @@ tests:
     asserts:
       - matchSnapshot: {}
 
+  - it: should match config checksum snapshot with vrnvl72 profile
+    set:
+      gpu:
+        profile: vrnvl72
+        count: 4
+    asserts:
+      - matchSnapshot:
+          path: spec.template.metadata.annotations["checksum/config"]
+
   # ── Assertions ──────────────────────────────────────────────────────
   - it: should render a DaemonSet with default values
     asserts:

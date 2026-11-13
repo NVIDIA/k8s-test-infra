@@ -27,6 +27,7 @@ func TestHostMaxPcieSlot_UsesOnlyExplicitHostValue(t *testing.T) {
 		{"b200", 99, nvml.ERROR_NOT_SUPPORTED},
 		{"gb200", 99, nvml.ERROR_NOT_SUPPORTED},
 		{"gb300", 4, nvml.SUCCESS},
+		{"vrnvl72", 6, nvml.SUCCESS},
 	} {
 		t.Run(tc.profile, func(t *testing.T) {
 			t.Setenv("MOCK_NVML_CONFIG", filepath.Join("..", "configs", "mock-nvml-config-"+tc.profile+".yaml"))
