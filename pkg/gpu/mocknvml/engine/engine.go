@@ -39,6 +39,16 @@ type Engine struct {
 	computeInstances *ComputeInstanceTable
 	initCount        int
 	mu               sync.RWMutex
+
+	// systemEvents fans GPU driver bind/unbind transitions out to the
+	// nvmlSystemEventSet_t handles clients have registered. It holds its own
+	// lock and is never nil, so the system event exports work before Init()
+	// the way nvmlSystemGetDriverVersion does.
+	systemEvents *systemEventBroker
+
+	// cper accumulates the Common Platform Error Records synthesised from
+	// injected RAS state. Like systemEvents it is independent of init state.
+	cper *cperLog
 }
 
 var (
@@ -67,6 +77,8 @@ func NewEngine(config *Config) *Engine {
 		handles:          NewHandleTable(),
 		gpuInstances:     NewGpuInstanceTable(),
 		computeInstances: NewComputeInstanceTable(),
+		systemEvents:     newSystemEventBroker(),
+		cper:             newCPERLog(),
 	}
 
 	return e
@@ -159,6 +171,8 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *mockserver.Serv
 	for _, w := range fabric.Validate() {
 		warnLog("[ENGINE] NVLink topology: %s\n", w)
 	}
+	// Read once, so an unknown value is warned about once, not per GPU.
+	absentNotSupported := absentFeaturesNotSupported(e.config)
 
 	for i := range min(e.config.NumDevices, MaxDevices) {
 		// Get merged device config (defaults + overrides)
@@ -186,6 +200,8 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *mockserver.Serv
 			minorNumber,
 			fabric,
 		)
+		server.configurableDevices[i].absentNotSupported = absentNotSupported
+		server.configurableDevices[i].driverVersion = configuredDriver(e.config)
 
 		debugLog("[ENGINE] Created device %d: uuid=%s pci=%s\n", i, uuid, pciBusID)
 	}

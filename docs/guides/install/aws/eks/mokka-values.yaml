@@ -1,9 +1,6 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 
-image:
-  tag: 0.5.0
-
 # Keep Mokka away from real GPU nodes and unrelated managed node groups.
 nodeSelector:
   mokka.nvidia.com/type: sgpu

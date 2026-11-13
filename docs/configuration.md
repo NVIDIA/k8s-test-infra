@@ -37,11 +37,17 @@ LD_LIBRARY_PATH=. nvidia-smi
 version: "1.0"                    # Config format version (required)
 
 system:                           # System-level settings
-  driver_version: "550.163.01"    # Required
+  driver_version: "550.163.01"    # Required; also gates which NVML functions exist and picks the nvidia-smi
   nvml_version: "12.550.163.01"
   cuda_version: "12.4"
   cuda_version_major: 12
   cuda_version_minor: 4
+  driver_branch: "r550_00"        # Optional; derived from driver_version when unset
+  product_name: "VR NVL72"        # Optional; the DMI product name GFD labels nvidia.com/gpu.machine (default: the GPU name)
+  absent_features: not_supported  # Optional; what a feature the profile leaves out answers (default: legacy_defaults; see below)
+  hic:                            # Optional; host interface cards `nvidia-smi -q -u` prints
+    - id: 0
+      firmware_version: "1.2.3.4"
 
 device_defaults:                  # Default settings for all devices
   name: "NVIDIA A100-SXM4-40GB"
@@ -74,7 +80,23 @@ device_defaults:
   serial: "1234567890123"             # Serial number
   board_part_number: "900-21001-0000-000"
   vbios_version: "92.00.45.00.03"
+  hostname: "gpu-node-0"              # nvmlDeviceGetHostname_v1; Blackwell or newer
+
+devices:
+  - index: 0
+    pdi: "0x9c1f4d2e8a7b6c50"         # nvmlDeviceGetPdi; quoted, 0x and up to 16 hex digits
 ```
+
+The PDI (Per Device Identifier) is a 64-bit ID fused into each GPU, which
+`nvidia-smi -q` prints as `PDI` from driver 580. Without `pdi` the mock derives
+one from the GPU's UUID, so it differs between GPUs and stays the same in every
+process. Set it per device to report the IDs a captured node or an external
+inventory assigned. A MIG device reports the PDI of the GPU it is carved from.
+
+Write the value as a quoted string. YAML reads an unquoted `0x…` as a number,
+and the config is rejected with an error asking for quotes. Two devices that would
+report the same PDI, for example from one `pdi` set in `device_defaults`, are
+rejected too.
 
 ### Architecture
 
@@ -139,11 +161,20 @@ resources: error -2` on `lspci -v` comes from, and a container on real hardware
 prints it too. Both are display-only: `lspci` still exits 0, and a consumer
 reading identity out of sysfs gets the full picture.
 
+`device_defaults.pcie.host_max_link_gen` optionally sets the independent
+`Host Max` value in `nvidia-smi -q` and `max_host_link_gen` in `-q -x`. An absent
+value returns `NVML_ERROR_NOT_SUPPORTED`, which renders as `N/A`; it does not
+fall back to `max_link_gen`. The shipped `gb300` and `vrnvl72` profiles set it
+to `4` and `6`, respectively. The other shipped profiles, including `gb200` and
+`b200`, report `N/A`.
+This host value does not cap the device or negotiated maximum: real GB300
+reports device Max `6` and Host Max `4`.
+
 ### Platform identity (rack location)
 
 Where the node's boards sit in a rack, which `nvidia-smi -q` renders as its
 `Platform Info` block. Rack-scale fault correlation reads it to turn a GPU fault
-into a physical location. Only `gb200` and `gb300` ship it; on every other
+into a physical location. Only `gb200`, `gb300` and `vrnvl72` ship it; on every other
 profile the whole block reads `N/A`, which is the correct reading for a board
 whose platform reports no location.
 
@@ -155,6 +186,7 @@ device_defaults:
     tray_index: 11                  # position among compute trays only
     host_id: 1                      # the OS domain within the tray — this node
     peer_type: "switch_connected"    # or "direct_connected"
+    gpu_fabric_guid: "pdi"          # or a quoted hex value, set per device
 
 devices:
   - index: 0
@@ -165,11 +197,11 @@ devices:
       module_id: 2
 ```
 
-Only `module_id` varies between the GPUs of a node: NVML defines it as the ID of
-the GPU within the node, while the other fields describe the node, which occupies
-exactly one tray in one slot of one chassis. All six are settable per device
-anyway, and a device override merges field by field, so a device declares just
-its `module_id`.
+Only `module_id` and `gpu_fabric_guid` vary between the GPUs of a node: NVML
+defines the module ID as the ID of the GPU within the node, while the location
+fields describe the node, which occupies exactly one tray in one slot of one
+chassis. Every field is settable per device anyway, and a device override merges
+field by field, so a device declares just its `module_id`.
 
 `slot_number` counts switch trays and compute trays alike while `tray_index`
 counts compute trays only, so on an NVL72 rack — 18 compute trays, 9 switch
@@ -182,10 +214,35 @@ including an absent key, renders as `Direct Connected`.
 As everywhere else in a device override, a zero is indistinguishable from an
 unset key, so `module_id` numbers from 1.
 
+`gpu_fabric_guid` is the `GPU Fabric GUID` row of the block
+(`platform.gpu_fabric_guid` in `nvidia-smi --query-gpu`). NVLink fabric
+managers identify a GPU by it, so it has to differ between GPUs. It takes one
+of three forms:
+
+| Value | Reported GUID | Use it for |
+|-------|---------------|------------|
+| absent | `0x0000000000000000` | Boards nothing reads the GUID from |
+| `"pdi"` | The GPU's own PDI, derived or set with [`pdi`](#basic-identification) | Grace-Blackwell (GB200, GB300), whose captures report the PDI here |
+| `"0x…"` | The value as given | Boards that report a GUID of their own, such as B200 and Vera Rubin |
+
+`gb200` and `gb300` set `"pdi"` in `device_defaults`, so a tool that rewrites
+their UUIDs per node still gets a distinct GUID per GPU without listing one. A
+fixed value names one GPU, so it belongs in that GPU's `devices` entry. Two
+devices that would report the same GUID are rejected, whether it is fixed or
+taken from a PDI. The check covers every value known when the config loads; a
+GPU with no `uuid` and no `pdi` gets its PDI only at startup, so it is left out.
+
+!!! note "Distinct within a node, not across nodes"
+    Every node that loads the same profile reports the same GPU UUIDs, and so
+    the same PDIs and fabric GUIDs. That is fine for software that reads one
+    node at a time. A consumer that compares fabric GUIDs across a rack, such
+    as an NVLink partition manager, sees GPUs on different nodes collide. To
+    simulate that rack, give each node a config with its own `uuid`, `pdi` or
+    `gpu_fabric_guid` values.
+
 Declaring the block also requires a driver new enough to have the API:
 `nvmlDeviceGetPlatformInfo` arrived in 560, so a profile on an older
-`system.driver_version` reports `N/A` regardless. The `GPU Fabric GUID` row of
-the same block is not modelled and reads `0x0000000000000000`.
+`system.driver_version` reports `N/A` regardless.
 
 ### Power
 
@@ -221,6 +278,23 @@ as on real hardware. Ada and later expose them as signed T.Limit offsets
 field IDs), which `nvidia-smi -q` renders as the "T.Limit" rows. Pre-Ada
 architectures report `NVML_ERROR_NOT_SUPPORTED` for both, so `nvidia-smi -q`
 falls back to the absolute `GPU Shutdown / Slowdown / Max Operating Temp` rows.
+
+By default the T.Limit view is derived from the absolute thresholds, measured
+from the slowdown threshold. A real driver reports the two views separately and
+they don't currently agree, so a profile captured from hardware can state the T.Limit
+view directly. The absolute thresholds above still answer
+`nvmlDeviceGetTemperatureThreshold`:
+
+```yaml
+  thermal:
+    tlimit:
+      reference_c: 88      # the margin reads reference_c - current temperature
+      shutdown_c: -5       # NVML_FI_DEV_TEMPERATURE_SHUTDOWN_TLIMIT
+      slowdown_c: -2       # NVML_FI_DEV_TEMPERATURE_SLOWDOWN_TLIMIT
+      max_operating_c: 0   # NVML_FI_DEV_TEMPERATURE_GPU_MAX_TLIMIT
+```
+
+A distance left out of the block is derived as without it.
 
 ### Fan
 
@@ -562,6 +636,46 @@ the source breakdown and threshold flag, while pre-Ampere (`t4`) prints one
 combined `SRAM Uncorrectable` row and omits the rest. The configuration is the
 same either way — only the presentation differs.
 
+#### Memory repair state
+
+Health agents decide between a reset, a row remap and a replacement from three
+queries: the repair status, the unrepairable-memory flag and the SRAM unique
+uncorrectable error counts. They are derived from the state above and from
+[`remapped_rows`](#remapped-rows), so an injected fault moves all of them
+together:
+
+| Query | Reports | Architecture |
+|---|---|---|
+| Repair status | A channel repair is pending when `remapped_rows.pending` is set or an `ecc_uncorrectable` failure is injected. A TPC repair is never pending. | Ampere and later |
+| Unrepairable-memory flag | Set when `remapped_rows.failure_occurred` is set, an `ecc_uncorrectable` failure is injected, or `ecc.sram.threshold_exceeded` is set. | Hopper and later |
+| SRAM unique uncorrectable errors | One entry per non-zero `ecc.sram.uncorrectable_sources` unit, carrying the unit and its count. | Blackwell and later, with ECC on |
+
+Earlier architectures report each query as unsupported.
+
+The same NVML calls write back. They persist in the runtime override document,
+so a separate process sees the result:
+
+- `nvidia-smi -e` sets `mode_pending` only; `mode_current` takes it when the GPU
+  is reset with [`nvidia-smi -r`](nvml-mock-ctl.md#reset-via-nvidia-smi), as on
+  hardware.
+- Clearing the volatile or aggregate error counters zeroes the DRAM and SRAM
+  counters of that scope. Clearing the aggregate scope also zeroes
+  `uncorrectable_sources` and `threshold_exceeded`, which are derived from the
+  counters.
+- Setting the DRAM encryption mode writes `dram_encryption.mode_pending`.
+
+```yaml
+device_defaults:
+  ecc:
+    dram_encryption:        # Blackwell and later; earlier parts report it unsupported
+      mode_current: "disabled"
+      mode_pending: "disabled"
+```
+
+The InfoROM validation query succeeds for any profile with an `inforom` block.
+Its configuration checksum is a CRC-32 of the declared versions, so it is stable
+for a profile and differs between profiles with different InfoROM versions.
+
 ### Remapped rows
 
 `availability_histogram` is how many memory banks still have spare rows to remap
@@ -600,6 +714,7 @@ device_defaults:
   compute_mode: "default"             # default, exclusive_thread,
                                       # prohibited, exclusive_process
   addressing_mode: "hmm"              # hmm, ats, none
+  egm: false                          # Extended GPU Memory capability
 ```
 
 `addressing_mode` is the `Addressing Mode` row of `nvidia-smi -q`: how the GPU
@@ -611,6 +726,57 @@ A `devices[]` entry can set it for one GPU. Leaving the key unset, or
 misspelling it, renders `N/A`. The row needs a driver
 of `580` or newer: on an older profile the query does not exist, as on real
 hardware.
+
+`egm` sets the EGM bit of `nvmlDeviceGetCapabilities`, the `EGM` row under
+`Capabilities` in `nvidia-smi -q`. The host's kernel module turns Extended GPU
+Memory on, so it is off unless a profile sets it; `vrnvl72` does, as its
+captured tray reported. A `devices[]` entry can turn it on for one GPU.
+
+### Features a profile leaves out
+
+`system.absent_features` sets what a feature the profile leaves out answers:
+
+- `not_supported`: `NOT_SUPPORTED`, which `nvidia-smi` renders as `N/A`, as on
+  a real GPU without the feature. A profile checked against a capture of real
+  hardware sets it; `vrnvl72` does.
+- `legacy_defaults`, the default: the mock's built-in values, as if the
+  feature existed. The other profiles were written before captures were
+  available and rely on these values, so they keep them until each is checked
+  against its capture. An unknown value also keeps them, and the mock logs a
+  warning.
+
+| Profile key left out | NVML calls that answer `NOT_SUPPORTED` |
+|---|---|
+| `gpu_operation_mode` | `nvmlDeviceGetGpuOperationMode` |
+| `retired_pages` | `nvmlDeviceGetRetiredPages`, `nvmlDeviceGetRetiredPages_v2`, `nvmlDeviceGetRetiredPagesPendingStatus` |
+| `ecc.dram_encryption` | `nvmlDeviceGetDramEncryptionMode`, `nvmlDeviceSetDramEncryptionMode` |
+| `thermal.temperature_memory_c` | `nvmlDeviceGetTemperatureThreshold` for the memory maximum |
+| `thermal.target_temperature_c` | `nvmlDeviceGetTemperatureThreshold` for the acoustic thresholds (the target temperature and its range) |
+| none | `nvmlDeviceGetTemperatureThreshold` for the GPS threshold |
+
+With `accounting` disabled, `nvmlDeviceGetAccountingPids` lists no processes
+and `nvmlDeviceGetAccountingStats` answers `NOT_FOUND`, instead of
+`NOT_SUPPORTED`.
+
+### NVLink telemetry on a 615 driver
+
+A `615` or newer driver reports NVLink counters through field values only. As
+on a real 615 tray, these answer `NOT_SUPPORTED` for every link:
+
+- `nvmlDeviceGetNvLinkErrorCounter` and `nvmlDeviceGetNvLinkUtilizationCounter`
+- the per-link speed fields (`NVML_FI_DEV_NVLINK_SPEED_MBPS_L0`–`L11` and
+  `_COMMON`, ids 84–90 and 132–137)
+- the data-link error fields (`NVML_FI_DEV_NVLINK_ERROR_DL_REPLAY`, `_RECOVERY`,
+  `_CRC`, ids 161–163)
+
+The NVLink5 counter fields (`NVML_FI_DEV_NVLINK_COUNT_*`) keep answering. They
+are what `nvidia-smi nvlink -e` reads, and where an
+[NVLink error injection](#nvlink-error-injection-per-device) shows.
+
+Unlike `system.absent_features` above, this follows the driver version, not the
+profile: which calls exist is the driver's. Any profile run on a `615` driver
+answers this way, `gb300` with `driverVersion: 615.71.09` included, and older
+drivers keep answering the getters and fields.
 
 ### Drain, removal and exclusion
 
@@ -669,6 +835,19 @@ profile needs to describe what the silicon can do. The board's partition
 table, where that table lives, and the two ways to declare a layout have a
 page of their own: [MIG](mig.md).
 
+### Virtualization
+
+```yaml
+device_defaults:
+  virtualization:
+    mode: "none"                    # none, passthrough, vgpu, host_vgpu
+    host_vgpu_mode: "N/A"           # host_vgpu only: sriov, non_sriov
+```
+
+`vgpu` and `host_vgpu` simulate the two sides of NVIDIA vGPU and take a
+`virtualization.vgpu` block; its fields, defaults and validation are on a page
+of their own: [vGPU](vgpu.md).
+
 ### InfoROM
 
 ```yaml
@@ -682,12 +861,41 @@ device_defaults:
 
 ### Accounting
 
+Per-process accounting is what `nvidia-smi --query-accounted-apps` and DCGM's
+job statistics read. With `mode: "enabled"` the buffer holds a record for every
+configured [process](#processes) still running, plus the `terminated` records
+you declare for processes that have already exited:
+
 ```yaml
 device_defaults:
   accounting:
-    mode: "disabled"
-    buffer_size: 4000
+    mode: "enabled"                   # enabled, disabled
+    buffer_size: 4000                 # records kept; the oldest drop first
+    terminated:                       # oldest first
+      - pid: 3131
+        gpu_util: 62                  # lifetime GPU utilization %
+        mem_util: 31                  # lifetime memory utilization %
+        max_memory_mib: 1024
+        time_ms: 120000               # how long it ran
 ```
+
+A running process's record takes its utilization and memory from its
+`processes` entry and reports a run time of 0, as NVML does until a process
+exits. Every process counts as started when the driver loaded. If a PID appears
+twice, the later record wins, which matches NVML reusing a PID after the first
+process exited.
+
+With accounting disabled, and on a GPU with MIG enabled, the accounting queries
+return `NVML_ERROR_NOT_SUPPORTED`. A PID with no record returns
+`NVML_ERROR_NOT_FOUND`. `nvmlDeviceGetAccountingStats_v2` needs a configured
+driver of `600` or newer.
+
+`nvidia-smi -am` (`nvmlDeviceSetAccountingMode`) and `nvidia-smi -caa`
+(`nvmlDeviceClearAccountingPids`) are recorded in the
+[runtime override document](nvml-mock-ctl.md), like a power cap. Clearing
+drops the terminated records and keeps the running ones. Disabling accounting
+drops the terminated records too, so they do not come back when it is enabled
+again. Both calls are refused on a GPU with MIG enabled.
 
 ### Encoder/Decoder
 
@@ -706,9 +914,27 @@ device_defaults:
 
 ### Processes
 
-`processes` drive the running-process queries and `nvmlDeviceGetProcessUtilization`.
-The utilization fields (`sm_util`/`mem_util`/`enc_util`/`dec_util`, all percent) are
-reported for every process — compute and graphics/video alike.
+`processes` drive the running-process queries, `nvmlDeviceGetProcessUtilization`,
+`nvmlDeviceGetProcessesUtilizationInfo` and the running records in
+[accounting](#accounting). The utilization fields
+(`sm_util`/`mem_util`/`enc_util`/`dec_util`, all percent) are reported for every
+process, whatever its type.
+
+`type` decides which running-process query reports the process:
+
+| `type` | Reported by |
+|--------|-------------|
+| `C` (or omitted) | `nvmlDeviceGetComputeRunningProcesses` |
+| `G` | `nvmlDeviceGetGraphicsRunningProcesses` |
+| `M` | `nvmlDeviceGetMPSComputeRunningProcesses` only |
+
+An `M` process is an MPS client. Under MPS (Multi-Process Service) a client's
+work runs in the MPS server's context, so NVML lists the server among the
+compute processes and the client only in the MPS list. To model an MPS node,
+declare the server as a `C` process named `nvidia-cuda-mps-server` and its
+clients as `M`. `nvmlDeviceGetRunningProcessDetailList` returns the same
+processes as the query for its mode, or all of them for
+`NVML_PROCESS_MODE_ALL`. The mock does not run an MPS daemon.
 
 They also show up in `nvidia-smi`: the default table's Processes box, `-q`, and
 `--query-compute-apps`. Two caveats there — `nvidia-smi` labels every row `M+C+G`
@@ -731,6 +957,10 @@ device_defaults:
       used_memory_mib: 512
       enc_util: 60                    # encoder utilization %
       dec_util: 30                    # decoder utilization %
+    - pid: 9012
+      type: "M"                       # MPS client
+      name: "train.py"
+      used_memory_mib: 4096
 ```
 
 ## Per-Device Overrides
@@ -776,6 +1006,7 @@ nvlink:
   links_per_gpu: 18
   bandwidth_per_link_mbps: 26562
   c2c_enabled: false
+  multi_node: false
   nvle_enabled: false                # see bandwidth mode, low power and NVLE
   bw_mode:                           # see bandwidth mode, low power and NVLE
     scope: system
@@ -794,9 +1025,21 @@ nvlink:
 on every attached GPU: `true` reports `Enabled`, while `false` or an absent key
 reports `N/A` — never `Disabled`, because NVML answers
 `NVML_ERROR_NOT_SUPPORTED`, the correct reading for a board with no NVLink-C2C
-link to a host CPU. Only `gb200` and `gb300` enable it. This is the only key that
+link to a host CPU. Only `gb200`, `gb300` and `vrnvl72` enable it. This is the only key that
 drives the row: `device_defaults.features.nvlink_c2c` is descriptive metadata and
 is not read.
+
+`multi_node` marks a board whose NVLink domain spans nodes, as in a rack-scale
+NVLink system, as opposed to an NVLink fabric that stays on one baseboard, such
+as HGX H100 or B200. Of the shipped profiles, `gb200`, `gb300` and `vrnvl72`
+set it. On such a node the
+node agent stages the IMEX capability surface the DRA driver's ComputeDomain
+plugin reads: a substitute `/proc/devices` entry, the `fabric-imex-mgmt`
+capability file and the `channel0` device node, the only channel the driver of
+a real node creates on its own. The chart's `imex.deviceNumbers` values set
+their device majors; a major the node's kernel already gives to another driver
+is replaced by a free one from 384 to 511. A node whose surface cannot be
+staged stays ready without IMEX, and the node agent logs why.
 
 ### Bandwidth mode, low power and NVLE
 
@@ -824,7 +1067,7 @@ that names neither is warned about and treated as an absent block.
 |---|---|---|
 | NVML | `nvmlSystemGetNvlinkBwMode`, `nvmlSystemSetNvlinkBwMode` | `nvmlDeviceGetNvlinkBwMode`, `nvmlDeviceSetNvlinkBwMode`, `nvmlDeviceGetNvlinkSupportedBwModes` |
 | `nvidia-smi` | `nvlink -gBwMode`, `nvlink -sBwMode` | no flag reaches it — NVML callers only |
-| Shipped profiles | `h100` | `b200`, `gb200`, `gb300` |
+| Shipped profiles | `h100` | `b200`, `gb200`, `gb300`, `vrnvl72` |
 
 Either way, `supported` is the set the setter accepts, and the reported mode is
 the last value a setter recorded, else `mode`, else the best supported mode.
@@ -852,8 +1095,9 @@ stops at four because a sixth value would index past its name table.
 | 4 | `3QUARTER` | about 75% of `FULL` |
 
 A `supported` value above 4 is accepted, since the indices are the driver's and
-a later one may define more, but it has no name to print and the profile is
-warned about it. A `mode` outside the effective `supported` set is ignored with
+a later one may define more. With `scope: system` it has no name to print, and
+the profile is warned about it; with `scope: device` no `nvidia-smi` flag shows
+it, so it is not (`vrnvl72` lists the tray's 0, 4, ... 36). A `mode` outside the effective `supported` set is ignored with
 a warning and the best supported mode is reported instead —
 `nvmlDeviceSetNvlinkBwMode` answers `NVML_ERROR_INVALID_ARGUMENT` for that very
 value, so honouring it would have the getter hand out a mode the setter refuses.
@@ -939,7 +1183,9 @@ devices:
 ```
 
 The count accrues monotonically off the shared counter epoch (same model as
-`nvlink.defaults.error_rate`); `rate: 0` (or omitting the block) is healthy. This
+`nvlink.defaults.error_rate`); `rate: 0` (or omitting the block) is healthy. On
+a `615` or newer driver it shows only in the NVLink5 counter fields (see
+[NVLink telemetry on a 615 driver](#nvlink-telemetry-on-a-615-driver)). This
 is deliberately *not* an "NVSwitch entity health" knob — DCGM's NVSwitch/SXID
 health is NSCQ/kernel-log sourced and cannot be driven from a `libnvidia-ml.so`
 mock.
@@ -1017,8 +1263,8 @@ set it.
 The mock reports this field as `NOT_SUPPORTED`, which is what a real GB300 tray
 in a healthy rack reports (the driver does not answer it). Whether the row
 appears at all is up to the `nvidia-smi` build: 580.173.02 prints
-`Partition Assigned : N/A`, while the 580.65.06 binary the mock image bundles has
-no such label and omits the row for every mask value.
+`Partition Assigned : N/A`, while the 580.65.06 binary the mock image runs for
+580 profiles has no such label and omits the row for every mask value.
 
 Fabric health can also be degraded and restored at runtime with
 [`nvml-mock-ctl fabric-health`](nvml-mock-ctl.md#fabric-health--degrade-nvlink-fabric-health),
@@ -1037,10 +1283,11 @@ Standalone configuration files are provided for each supported GPU model:
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml` | NVIDIA A100-SXM4-40GB | 40 GiB | Ampere |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-l40s.yaml` | NVIDIA L40S | 48 GiB | Ada Lovelace |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-t4.yaml` | NVIDIA T4 | 16 GiB | Turing |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-vrnvl72.yaml` | NVIDIA Graphics Device (Vera Rubin) | 280 GiB | Rubin |
 
 Each file contains a complete configuration with every device configured: 8 for
-the baseboard profiles, 4 for the Grace-Blackwell ones (`gb200`, `gb300`), which
-model one NVL72 compute tray, the unit a real node reports.
+the baseboard profiles, 4 for the rack-scale ones (`gb200`, `gb300`, `vrnvl72`),
+which model one compute tray, the unit a real node reports.
 
 ## Integration Values
 
@@ -1189,6 +1436,93 @@ the symbols, so nvidia-smi cannot find the function. Of the shipped profiles onl
 `gb200` and `gb300` satisfy both; the others run a new enough driver but declare
 no profiles.
 
+### Power smoothing
+
+Power smoothing is the Blackwell feature that holds a GPU's power draw above a
+floor so that load swings do not ripple back into the facility's supply. It
+renders as the "Power Smoothing" block of `nvidia-smi -q` and is driven by
+`nvidia-smi power-smoothing`. Blackwell and later devices support it by default,
+which on the shipped profiles means `b200`, `gb200` and `gb300`; earlier
+architectures report it as `N/A`. It also needs a `system.driver_version` of 570
+or later: an older driver reports none of the power smoothing fields and lacks the
+setters. `power.smoothing` seeds its state:
+
+```yaml
+power:
+  smoothing:
+    supported: true                    # override the architecture default
+    state: "enabled"                   # default "disabled"
+    active_profile: 1                  # preset 0-4, default 0
+    profiles:
+      1:
+        percent_tmp_floor: 65.5        # floor as % of the power ceiling, 0-100
+        ramp_up_rate_mw_per_s: 30000   # rendered as 30.00 W/s
+        ramp_down_rate_mw_per_s: 15000
+        ramp_down_hysteresis_ms: 250
+```
+
+The device has five preset profiles, numbered 0 to 4. A preset the config does
+not list reads as all zeros. The power ceiling ("Current TMP") is the enforced
+power limit, so it follows `nvidia-smi -pl`. While smoothing is enabled, the floor
+is that ceiling times the active preset's `percent_tmp_floor`. Disabled, the floor
+is 0 W. Smoothing does not change the simulated power draw.
+
+`-s`, `-spp`, `-ptf`, `-rur`, `-rdr` and `-rdh` are recorded in the runtime
+override document like `nvidia-smi -pl`, so a later `nvidia-smi` reads them back
+and they hold until a reset:
+
+```console
+$ nvidia-smi power-smoothing -i 0 -s 1
+Successfully Enabled Power Smoothing
+$ nvidia-smi power-smoothing -i 0 -p 2 -rur 30000
+Successfully updated Ramp Up Rate for Preset Profile ID 2
+$ nvidia-smi power-smoothing -i 0 -spp 2
+Successfully Activated Preset Profile ID: 2
+$ nvidia-smi -i 0 -q | grep -A3 "Current Profile"
+        Current Profile
+            % TMP Floor                   : 0.00%
+            Ramp Up Rate                  : 30.00 W/s
+            Ramp Down Rate                : 0.00 W/s
+```
+
+A preset outside 0-4, a floor outside 0-100 %, a negative ramp rate or a
+fractional hysteresis is refused with `NVML_ERROR_INVALID_ARGUMENT`. Admin
+overrides are not modelled and read `Not Set`; the privilege level reads `N/A`,
+immediate ramp-down `Disabled`, and the remaining hardware lifetime 100 %.
+
+!!! note
+    Captures from real B200, GB200 and GB300 nodes render the whole block as
+    `Insufficient Permissions`. The mock does not model NVML privileges, so it
+    always renders the full block.
+
+Like workload power profiles, the feature also needs `system.driver_version` 570
+or later; an older driver does not export the symbols.
+
+### PowerMizer mode and power source
+
+`power.power_mizer_mode` sets the mode `nvmlDeviceGetPowerMizerMode_v1` reports:
+`adaptive`, `prefer_maximum_performance`, `auto` (the default) or
+`prefer_consistent_performance`. Earlier than Maxwell, both calls decline.
+`power.supported_power_mizer_modes` lists the modes the device accepts, by the
+same names; it becomes the `supportedPowerMizerModes` mask. Left out, empty, or
+naming no NVML mode, all four are supported. Names NVML does not define are
+ignored, with a warning. The `vrnvl72` profile lists `adaptive`, `prefer_maximum_performance`
+and `auto`, which is the mask of 7 the real tray reports.
+
+```yaml
+power:
+  power_mizer_mode: "adaptive"
+  supported_power_mizer_modes: ["adaptive", "prefer_maximum_performance", "auto"]
+```
+
+`nvmlDeviceSetPowerMizerMode_v1` writes the mode to the runtime override
+document, so other processes read it back. It refuses a mode the device does
+not list with `NVML_ERROR_INVALID_ARGUMENT`, as it does an undefined mode.
+Both entry points need `system.driver_version` 580 or later. nvidia-smi 580 does
+not show this mode, so only an NVML consumer observes it.
+
+`nvmlDeviceGetPowerSource` reports AC power on every device.
+
 ### Deliberately fixed
 
 **Profiling metrics (`DCGM_FI_PROF_*`).** DCGM reads these on Hopper+ through the
@@ -1215,6 +1549,14 @@ mock does not run, so deriving them from anything other than the configured
 utilization would be fabrication rather than simulation. They stay fixed by
 design and are not a gap to be closed.
 
+With MIG enabled, a GPU instance can be sampled by its ID
+(`nvmlGpmMigSampleGet`) or through one of its MIG device handles
+(`nvmlGpmSampleGet`); both answer the same. The mock spreads the board's load
+evenly across its slices, so every GPU instance reports the board's activity
+percentages, while PCIe and NVLink throughput are its slice share of the
+board's: a `1g` instance on a seven-slice board reports one seventh of the
+board's PCIe rate.
+
 **Conf Compute protected memory.** The `Conf Compute Protected Memory Usage`
 block of `nvidia-smi -q` reports `0 MiB` for Total, Used and Free on every
 profile, and there is no key to change it. Nothing partitions protected memory
@@ -1233,10 +1575,21 @@ renders one, it matches the hardware captures of a freshly loaded driver:
 |-------|--------|
 | Bus type | PCIe, on every profile including Grace boards |
 | EGM (`capabilities` block) | `disabled` |
-| PDI | A fixed 64-bit value derived from the GPU's UUID, the same in every process |
 | Clock monitor | No faults, on Ampere and newer |
 | InfoROM BBX flush | `N/A`: not flushed yet during this driver run |
 | Bridge chips, IRQ number, PRM registers | Not supported |
+
+**Sample buffers.** `nvmlDeviceGetSamples` reports 20 samples one second
+apart, and every one of them carries the current reading of the matching
+getter: power draw, GPU and memory utilization, the graphics and memory clocks,
+and encoder, decoder, JPEG and OFA utilization. The mock keeps no history, so
+the minimum, maximum and average over the window all equal the current value,
+even under [dynamic metrics](#simulated-changes-between-calls). Timestamps
+sit on a fixed one-second grid, so a poller that passes back the last
+timestamp it saw gets only the samples taken since, and `NVML_ERROR_NOT_FOUND`
+when there are none. On a GPU with MIG enabled, the GPU, memory, encoder and
+decoder utilization samples are not supported. Module power samples are not
+supported on any profile.
 
 **Identity and topology.** Device `name`, `architecture`, `brand`,
 `compute_capability`, `uuid`, PCI `bus_id`, and the BAR1 aperture

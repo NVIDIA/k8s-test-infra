@@ -26,7 +26,7 @@ const profilesDir = "../../../../deployments/nvml-mock/helm/nvml-mock/profiles"
 // YAML against an authoritative table. The NV# column matches the engine
 // oracle constants in
 // pkg/gpu/mocknvml/engine/topology_test.go:TestNodeFabric_BuiltinProfiles
-// (a100 NV12; h100/gb200/gb300 NV18; b200 NV0). Keeping this table in lockstep
+// (a100 NV12; h100/gb200/gb300 NV18; vrnvl72 NV36; b200 NV0). Keeping this table in lockstep
 // with that oracle is the guard that stops the chart profiles/ and engine
 // configs/ copies from drifting in a way the e2e would not catch.
 func TestDerivations(t *testing.T) {
@@ -43,8 +43,8 @@ func TestDerivations(t *testing.T) {
 		// pciBridges is how many NVSwitches the profile puts on the node's own
 		// PCIe bus, i.e. how many bridge-class entries `lspci` must list beside
 		// the GPUs. Non-zero only for the HGX baseboard profiles: on NVL72 the
-		// switches are in their own trays, so gb200/gb300 declare NVSwitches
-		// (NV18 above) and render no bridges.
+		// switches are in their own trays, so gb200/gb300/vrnvl72 declare
+		// NVSwitches (NV18/NV36 above) and render no bridges.
 		pciBridges    int
 		reportsTLimit bool
 		c2c           bool
@@ -61,11 +61,12 @@ func TestDerivations(t *testing.T) {
 	}{
 		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, 6, false, false, 92, 87, 83, 4, 1410}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
 		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, 4, true, false, 92, 87, 83, 5, 1980},
-		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, 0, true, false, 95, 90, 85, 6, 1965}, // NVLink negative control, IB enabled
+		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, 0, true, false, 95, 90, 85, 5, 1965}, // NVLink negative control, IB enabled
 		{"gb200", "NVIDIA GB200", 4, 4, 18, true, true, true, 2, 0, true, true, 95, 90, 85, 6, 2062}, // one NVL72 compute tray: 2 superchips, 4 GPUs
 		{"gb300", "NVIDIA GB300 NVL", 4, 4, 18, true, true, true, 2, 0, true, true, 95, 90, 85, 6, 2070},
 		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, 0, true, false, 96, 93, 89, 4, 2520}, // IB + NVLink negative control
 		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, 0, false, false, 96, 93, 89, 3, 1590},
+		{"vrnvl72", "NVIDIA Graphics Device", 4, 12, 36, true, true, true, 4, 0, true, true, 93, 88, 90, 6, 2424}, // one Vera Rubin tray: three RoCE NICs per GPU, a host bridge per GPU
 	}
 
 	for _, c := range cases {
@@ -121,6 +122,28 @@ func TestNegativeControlsAreIndependent(t *testing.T) {
 		require.NoError(t, err, "Load(%s)", name)
 		assert.Zero(t, p.ExpectedHCAs(), "%s ExpectedHCAs() want 0 (IB disabled)", name)
 		assert.Zero(t, p.ExpectedNV(), "%s ExpectedNV() want 0 (no NVSwitch)", name)
+	}
+}
+
+func TestHostMaxPCIeLinkGenUsesProfileSpecificValues(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want int
+	}{
+		{"a100", 0},
+		{"h100", 0},
+		{"l40s", 0},
+		{"t4", 0},
+		{"gb200", 0},
+		{"gb300", 4},
+		{"vrnvl72", 6},
+		{"b200", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := Load(profilesDir, tc.name)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, p.HostMaxPCIeLinkGen())
+		})
 	}
 }
 
@@ -197,20 +220,35 @@ func TestAll(t *testing.T) {
 	require.Len(t, ps, len(KnownProfiles), "All() returned wrong count")
 }
 
-// TestC2CIsGraceOnly pins C2C as a Grace-only axis. gb200/gb300 declare the
-// link; every other shipped profile must report false, including b200, which is
-// Blackwell but has no Grace CPU. Without this, a profile-derived e2e
-// expectation could quietly become "always Enabled". See issue #639.
+// TestC2CIsSuperchipOnly pins C2C as a superchip axis: the link exists only
+// where a CPU sits on the other end of it, which is Grace on gb200/gb300 and
+// Vera on vrnvl72. Every other shipped profile must report false, including b200,
+// which is Blackwell but has no host CPU on NVLink. Without this, a
+// profile-derived e2e expectation could quietly become "always Enabled". See
+// issue #639.
 //
 // Driven from KnownProfiles so a newly added profile has to declare which side
 // it belongs on rather than defaulting into the untested one.
-func TestC2CIsGraceOnly(t *testing.T) {
-	graceProfiles := map[string]bool{"gb200": true, "gb300": true}
+func TestC2CIsSuperchipOnly(t *testing.T) {
+	superchipProfiles := map[string]bool{"gb200": true, "gb300": true, "vrnvl72": true}
 	for _, name := range KnownProfiles {
 		p, err := Load(profilesDir, name)
 		require.NoError(t, err, "Load(%q)", name)
-		require.Equal(t, graceProfiles[name], p.C2CEnabled(),
-			"%s: nvlink.c2c_enabled should be %v", name, graceProfiles[name])
+		require.Equal(t, superchipProfiles[name], p.C2CEnabled(),
+			"%s: nvlink.c2c_enabled should be %v", name, superchipProfiles[name])
+	}
+}
+
+// TestMultiNodeNVLinkProfiles pins which profiles simulate IMEX. h100 also
+// declares an NVLink fabric, so a test that keyed IMEX on the fabric would run
+// against a board whose NVLink never leaves the node.
+func TestMultiNodeNVLinkProfiles(t *testing.T) {
+	multiNode := map[string]bool{"gb200": true, "gb300": true, "vrnvl72": true}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, multiNode[name], p.MultiNodeNVLink(),
+			"%s: nvlink.multi_node should be %v", name, multiNode[name])
 	}
 }
 
@@ -250,6 +288,23 @@ func TestWorkloadPowerProfilesAreBlackwellOnDriver570(t *testing.T) {
 				require.Greater(t, wp.ID, profiles[i-1].ID, "%s: profiles should ascend by id", name)
 			}
 		}
+	}
+}
+
+// TestPowerSmoothingIsBlackwellOnDriver570 pins which shipped profiles the
+// power smoothing e2e treats as supporting the feature, so the positive and
+// negative specs cannot quietly swap. Every shipped profile also starts with
+// smoothing off on preset 0, which is what the setter spec writes away from.
+func TestPowerSmoothingIsBlackwellOnDriver570(t *testing.T) {
+	wantSupported := map[string]bool{"b200": true, "gb200": true, "gb300": true, "vrnvl72": true}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, wantSupported[name], p.SupportsPowerSmoothing(),
+			"%s: power smoothing support should be %v (%s, driver %d.x)",
+			name, wantSupported[name], p.Architecture(), p.DriverMajor())
+		require.False(t, p.PowerSmoothingEnabled(), "%s: ships with power smoothing enabled", name)
+		require.Zero(t, p.PowerSmoothingActiveProfile(), "%s: ships with a non-zero active preset", name)
 	}
 }
 
@@ -302,7 +357,7 @@ func TestAddressingModeMatchesHardwareCaptures(t *testing.T) {
 	captured := map[string]string{
 		"a100": "hmm", "h100": "hmm", "l40s": "hmm", "t4": "hmm",
 		"b200":  "none",
-		"gb200": "ats", "gb300": "ats",
+		"gb200": "ats", "gb300": "ats", "vrnvl72": "ats",
 	}
 	for _, name := range KnownProfiles {
 		p, err := Load(profilesDir, name)
@@ -343,7 +398,7 @@ func TestDeviceIdentityQueriesGateOnDriver(t *testing.T) {
 // become "always reports one". b200 is the interesting case — Blackwell, but a
 // board in no rack. See issue #642.
 func TestPlatformIdentityIsRackScaleOnly(t *testing.T) {
-	rackProfiles := map[string]bool{"gb200": true, "gb300": true}
+	rackProfiles := map[string]bool{"gb200": true, "gb300": true, "vrnvl72": true}
 	for _, name := range KnownProfiles {
 		p, err := Load(profilesDir, name)
 		require.NoError(t, err, "Load(%q)", name)
@@ -359,11 +414,24 @@ func TestPlatformIdentityIsRackScaleOnly(t *testing.T) {
 	}
 }
 
+// The GB200 and GB300 captures report each GPU's PDI as its fabric GUID, while
+// the B200 and Vera Rubin captures report a value of their own, so only the
+// Grace-Blackwell profiles may ask the e2e check to expect the PDI there.
+func TestFabricGUIDIsPDIOnGraceBlackwellOnly(t *testing.T) {
+	want := map[string]bool{"gb200": true, "gb300": true}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		identity, _ := p.PlatformIdentity()
+		require.Equal(t, want[name], identity.FabricGUIDIsPDI, "%s: gpu_fabric_guid is \"pdi\"", name)
+	}
+}
+
 // The per-device module ids must survive the profile decode distinctly: they are
 // the only field that tells one of a node's GPUs from another, and a decode that
 // read them from device_defaults alone would hand every GPU the same one.
 func TestPlatformIdentityModuleIDsAreDistinct(t *testing.T) {
-	for _, name := range []string{"gb200", "gb300"} {
+	for _, name := range []string{"gb200", "gb300", "vrnvl72"} {
 		t.Run(name, func(t *testing.T) {
 			p, err := Load(profilesDir, name)
 			require.NoError(t, err, "Load(%q)", name)
@@ -420,20 +488,21 @@ func TestDetailedSramECCIsAmpereAndLater(t *testing.T) {
 // The two NVLink predicates answer on different axes, and pinning both per
 // profile is what keeps one from collapsing into the other: the bandwidth mode
 // is node-wide and answers on Hopper alone, so only h100 reports it, while the
-// NVLE row needs a 580 driver and NVLink links, which a100, h100, gb200 and
-// gb300 declare. a100 and the GB boards report NVLE without the bandwidth mode,
+// NVLE row needs a 580 driver and NVLink links, which a100, h100, gb200,
+// gb300 and vrnvl72 declare. a100 and the superchip boards report NVLE without the bandwidth mode,
 // and a100 prints NVLE yet refuses the Hopper-and-later low-power threshold.
 // Driven from KnownProfiles so a newly added profile has to declare which side
 // it belongs on.
 func TestNvlinkDerivations(t *testing.T) {
 	want := map[string]struct{ bwMode, nvle, lowPower bool }{
-		"t4":    {false, false, false},
-		"l40s":  {false, false, false},
-		"a100":  {false, true, false},
-		"h100":  {true, true, true},
-		"b200":  {false, false, false},
-		"gb200": {false, true, true},
-		"gb300": {false, true, true},
+		"t4":      {false, false, false},
+		"l40s":    {false, false, false},
+		"a100":    {false, true, false},
+		"h100":    {true, true, true},
+		"b200":    {false, false, false},
+		"gb200":   {false, true, true},
+		"gb300":   {false, true, true},
+		"vrnvl72": {false, true, true},
 	}
 	for _, name := range KnownProfiles {
 		w, ok := want[name]
@@ -622,13 +691,14 @@ infiniband:
 func TestProfileArchitectures(t *testing.T) {
 	t.Parallel()
 	want := map[string]gpuarch.Arch{
-		"a100":  gpuarch.Ampere,
-		"h100":  gpuarch.Hopper,
-		"b200":  gpuarch.Blackwell,
-		"gb200": gpuarch.Blackwell,
-		"gb300": gpuarch.Blackwell,
-		"l40s":  gpuarch.Ada,
-		"t4":    gpuarch.Turing,
+		"a100":    gpuarch.Ampere,
+		"h100":    gpuarch.Hopper,
+		"b200":    gpuarch.Blackwell,
+		"gb200":   gpuarch.Blackwell,
+		"gb300":   gpuarch.Blackwell,
+		"l40s":    gpuarch.Ada,
+		"t4":      gpuarch.Turing,
+		"vrnvl72": gpuarch.Rubin,
 	}
 	for _, name := range KnownProfiles {
 		p, err := Load(profilesDir, name)
@@ -725,4 +795,42 @@ func TestNoProfileDeclaresAMIGLayout(t *testing.T) {
 				"profile %s declares a MIG layout; a layout belongs in gpu.mig.gpuInstances at install", name)
 		})
 	}
+}
+
+// Only a profile on a 615 driver has applications clocks deprecated.
+func TestApplicationsClocksDeprecated(t *testing.T) {
+	t.Parallel()
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, name == "vrnvl72", p.ApplicationsClocksDeprecated(), name)
+	}
+}
+
+func TestTLimit(t *testing.T) {
+	// vrnvl72 states the T.Limit view its capture reports; the other profiles
+	// leave it to the engine's derivation.
+	vr, err := Load(profilesDir, "vrnvl72")
+	require.NoError(t, err, "Load(vrnvl72)")
+	tl, ok := vr.TLimit()
+	require.True(t, ok, "vrnvl72 states thermal.tlimit")
+	require.Equal(t, TLimit{ReferenceC: 88, ShutdownC: -5, SlowdownC: -2, MaxOperatingC: 0}, tl)
+
+	gb300, err := Load(profilesDir, "gb300")
+	require.NoError(t, err, "Load(gb300)")
+	_, ok = gb300.TLimit()
+	require.False(t, ok, "gb300 states no thermal.tlimit")
+
+	// The margin's reference: stated on vrnvl72, the slowdown threshold where a
+	// profile states none, and none before Ada.
+	ref, ok := vr.TLimitReferenceC()
+	require.True(t, ok)
+	require.Equal(t, 88, ref)
+	ref, ok = gb300.TLimitReferenceC()
+	require.True(t, ok)
+	require.Equal(t, gb300.SlowdownThresholdC(), ref)
+	a100, err := Load(profilesDir, "a100")
+	require.NoError(t, err, "Load(a100)")
+	_, ok = a100.TLimitReferenceC()
+	require.False(t, ok, "a100 predates the T.Limit view")
 }

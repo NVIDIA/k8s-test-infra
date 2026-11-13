@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Keep aligned with the nvidia.com/gpu.clique labels in
-# local/kind/compute-domain.kind.yaml.
+# Two NVLink domains, each with one clique of two workers. Node names match
+# the workers in local/kind/compute-domain.kind.yaml.
 topology:
   enabled: true
   domains:
@@ -23,8 +23,6 @@ topology:
         - id: 0
           nodes:
             - worker-0
-        - id: 1
-          nodes:
             - worker-1
     - name: spine-2
       uuid: "00000000-0000-0000-0000-0000000000cd"
@@ -32,6 +30,4 @@ topology:
         - id: 0
           nodes:
             - worker-2
-        - id: 1
-          nodes:
             - worker-3

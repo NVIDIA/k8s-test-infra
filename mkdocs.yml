@@ -24,6 +24,11 @@ edit_uri: edit/main/docs/
 
 docs_dir: docs
 
+hooks:
+  - hack/mkdocs_meps.py
+watch:
+  - enhancements/meps
+
 # Internal design notes and working plans live under docs/ but are not part of
 # the published site. Listing them here drops them from the build entirely, so
 # --strict does not then fail them for being absent from the nav.
@@ -124,6 +129,7 @@ nav:
           - Configuration: configuration.md
           - Feature Gates: feature-gates.md
           - MIG: mig.md
+          - vGPU: vgpu.md
           - Helm Chart Values: helm-chart-values.md
           - Control Plane API: crd-reference.md
           # The pages stay under docs/tools/ because hack/check-docs-tools-sync.sh
@@ -140,6 +146,7 @@ nav:
   - Guides:
       - Overview: guides/README.md
       - Scenarios:
+          - DSX Air: guides/dsx-air.md
           - NVIDIA Device Plugin: guides/device-plugin.md
           - Node Feature Discovery: guides/nfd.md
           - Amazon EKS: guides/install/aws/eks/README.md
@@ -150,9 +157,11 @@ nav:
           - Compute Domain: guides/compute-domain/README.md
           - NVSentinel: guides/nv-sentinel/README.md
           - Run.ai Fake GPU Operator: guides/runai-fgo/README.md
+          - Topograph: guides/topograph/README.md
       - Tasks:
           - Set Up NRI Injection: guides/nri-injection.md
           - MIG Partitioning: guides/mig/README.md
+          - vGPU Host and Guest: guides/vgpu/README.md
           - Failure Injection: guides/failure-injection/README.md
           - Use in CI/CD: guides/ci-cd.md
           - Runtime Control: nvml-mock-ctl.md
@@ -161,6 +170,9 @@ nav:
       - Local Development: contributing/local-development.md
       - Testing: contributing/testing.md
       - Gating New Behavior: contributing/feature-gates.md
+      - Capturing a Real Node:
+          - Guide: contributing/capturing-a-real-node.md
+          - mokka-capture: tools/mokka-capture.md
       - Tools:
           - check-fabric: tools/check-fabric.md
           - generate-bridge: tools/generate-bridge.md

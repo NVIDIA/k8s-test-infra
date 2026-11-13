@@ -1,7 +1,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package health serves the /healthz, /readyz, and /stagedz probes shared by
+// Package health serves the /healthz, /readyz, /stagedz and /startedz probes shared by
 // Mokka binaries. A probe answers with its reason in the body, not just a
 // status code, so a failing pod explains itself in `kubectl describe pod`
 // instead of leaving an operator to guess which of its parts went red.

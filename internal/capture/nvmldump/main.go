@@ -1,0 +1,103 @@
+// Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Package nvmldump records what an NVML library answers, and compares two
+// recordings. It backs `mokka-capture dump` and `mokka-capture diff nvml`.
+//
+// The dump calls every argument-free getter on every device, by reflection
+// over go-nvml's device handle, so a getter added in a newer go-nvml is picked
+// up without editing this file. For each call it records the NVML return code
+// and the value. A getter the library answers with NOT_SUPPORTED is recorded
+// as such: on real hardware that is the answer the mock has to give too.
+//
+// A getter whose arguments are integers or enums is called over a fixed range
+// of values (clock types, NVLink indexes, ECC counter kinds and so on) and
+// recorded as "Name(a,b)"; a value past the end of an enum answers
+// INVALID_ARGUMENT, which is recorded too. GetFieldValues is probed one field
+// ID at a time, since the IDs a driver defines differ between releases. A getter
+// with any other kind of argument (a struct, a handle, a string) is listed under
+// "skipped" rather than called, so the coverage of a dump is visible in the
+// dump itself.
+//
+// A dump of real hardware contains identifiers (the GPU UUID, the serial
+// number, fabric UUIDs). Keep it out of the repository until it has been
+// reviewed.
+package nvmldump
+
+import (
+	"context"
+	"fmt"
+	"regexp"
+
+	"github.com/urfave/cli/v3"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/cmdline"
+)
+
+// DumpCommand is `mokka-capture dump`, which writes a recording of the NVML
+// library on the loader path to standard output.
+func DumpCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "dump",
+		Usage: "record the NVML library on the loader path (collect runs this in the driver container)",
+		Action: func(_ context.Context, cmd *cli.Command) error {
+			if err := cmdline.RejectExtraArgs(cmd); err != nil {
+				return err
+			}
+			return cmdline.Exit(runDump(cmd.Root().Writer, cmd.Root().ErrWriter))
+		},
+	}
+}
+
+// DiffCommand is `mokka-capture diff nvml`, which compares two recordings.
+func DiffCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "nvml",
+		Usage: "compare two NVML recordings",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        "ignore",
+				Value:       defaultIgnore,
+				DefaultText: "readings and identifiers, as docs/tools/mokka-capture.md lists",
+				Usage:       "regexp of call names, or Call.Field parts of an answer, whose value is not compared (return codes still are)",
+			},
+			&cli.IntFlag{Name: "max", Value: 40, Usage: "maximum entries to list per kind"},
+		},
+		Arguments: []cli.Argument{
+			&cli.StringArg{Name: "real.json", Required: true},
+			&cli.StringArg{Name: "mock.json", Required: true},
+		},
+		Action: func(_ context.Context, cmd *cli.Command) error {
+			if err := cmdline.RejectExtraArgs(cmd); err != nil {
+				return err
+			}
+			ignore, err := regexp.Compile(cmd.String("ignore"))
+			if err != nil {
+				return cmdline.Usage(cmd, fmt.Sprintf("-ignore: %v", err))
+			}
+			return cmdline.Exit(runDiff(ignore, cmd.Int("max"), cmd.StringArg("real.json"), cmd.StringArg("mock.json"),
+				cmd.Root().Writer, cmd.Root().ErrWriter))
+		},
+	}
+}
+
+// Recording is a dump as Load reads it back: System and each device's Calls
+// map a call name such as "GetClockInfo(0)" to its return code and value.
+// Numbers are json.Number, so 64-bit values keep every digit.
+type Recording = dump
+
+// Call is one recorded answer.
+type Call = call
+
+// Load reads a recording written by Dump, gzipped (.json.gz) or not.
+func Load(path string) (Recording, error) { return load(path) }

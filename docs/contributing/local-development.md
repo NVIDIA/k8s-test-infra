@@ -18,10 +18,10 @@ tilt up -- --gpu-operator    # the dev loop
 
 Two cluster shapes exist, selected with `PROFILE`:
 
-| `PROFILE`        | Shape                                           | Cluster name           | Use with                          |
-|------------------|-------------------------------------------------|------------------------|-----------------------------------|
-| `default`        | 1 control-plane + 2 workers                     | `mokka`                | everything except compute-domain  |
-| `compute-domain` | 1 control-plane + 4 workers with NVLink cliques | `mokka-compute-domain` | `--compute-domain`, `--topograph` |
+| `PROFILE`        | Shape                                                    | Cluster name           | Use with                          |
+|------------------|----------------------------------------------------------|------------------------|-----------------------------------|
+| `default`        | 1 control-plane + 2 workers                              | `mokka`                | everything except compute-domain  |
+| `compute-domain` | 1 control-plane + 4 workers in two NVLink cliques of two | `mokka-compute-domain` | `--compute-domain`, `--topograph` |
 
 ```bash
 make cluster-create                         # default
@@ -50,7 +50,7 @@ Everything else is a flag.
 
 | Flag | Effect |
 |---|---|
-| `--gpu-profile <name>` | Which GPU profile the release uses, instead of the chart's default. One of `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4` |
+| `--gpu-profile <name>` | Which GPU profile the release uses, instead of the chart's default. One of `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4`, `vrnvl72` |
 | `--multi-gpu-profile` | One release per worker instead of one for the fleet: `a100` on `worker-0`, `t4` on `worker-1`. Ignores `--gpu-profile` |
 | `--compute-domain` | GB200 profile with an NVLink topology overlay. Needs the `compute-domain` cluster |
 | `--nvmlmock-image <ref>` | Skip the image build and pin the release to an image you already built, as CI does |
@@ -62,7 +62,7 @@ Everything else is a flag.
 | `--gpu-operator` | The NVIDIA GPU Operator, in CDI mode |
 | `--dra` | The NVIDIA DRA driver |
 | `--fgo` | Run:ai's fake-gpu-operator alongside Mokka, splitting workers into two pools |
-| `--topograph` | [topograph](https://github.com/NVIDIA/topograph) network-topology discovery |
+| `--topograph` | [Topograph](../guides/topograph/README.md), labelling each worker with its NVLink domain |
 | `--observability` | kube-prometheus-stack and a Grafana dashboard for the mock fleet |
 | `--dynamo` | The NVIDIA Dynamo operator and a `qwen3` inference graph whose mocker worker runs on a mock GPU |
 | `--slinky` | cert-manager, the Slinky slurm-operator and a Slurm cluster with one GPU `slurmd` per mock-GPU worker |
@@ -77,7 +77,6 @@ Most flags stack. These do not:
 | `--fgo` with `--gpu-operator` | FGO replaces the GPU Operator |
 | `--fgo` with `--compute-domain` | Different fleet shapes |
 | `--compute-domain` with `--multi-gpu-profile` or `--gpu-profile` | The compute-domain scenario fixes both |
-| `--compute-domain` with `--nvmlmock-image` | The scenario builds its own layered images |
 | `--slinky` with `--dynamo` | `slurmd` claims every mock GPU, so the Dynamo worker could never schedule |
 
 Four flags imply others: `--topograph` implies `--compute-domain`, because

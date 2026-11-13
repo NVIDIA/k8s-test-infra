@@ -35,6 +35,16 @@ A merged MEP is the record of intent, not a promise that the code matches it
 yet. Implementation lands in later pull requests that reference it by number
 (`MEP-NNNN`).
 
+The site publishes every proposal directly from `enhancements/meps/`. Each
+`NNNN-short-title/README.md` is added to navigation automatically. Keep normal
+repository-relative Markdown links in proposals: links to docs and other MEPs
+stay within the site, and other repository links open GitHub. Relative images
+must live under `docs/` or `enhancements/meps/`. Preview source edits, assets and
+new or removed proposals with `make docs-serve`; no generated source tree is needed.
+
+Documentation pages also link to proposals using repository-relative paths under
+`enhancements/meps/`. The site rewrites these links to the published proposals.
+
 ## Keeping it honest
 
 A MEP describes a design at the time it was accepted. Some are fully built,
@@ -49,10 +59,11 @@ history is preserved, not rewritten.
 
 | MEP | Proposes |
 |---|---|
-| [MEP-0001](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0001-mokka-control-plane) | A control plane owning cluster-wide simulated-GPU inventory |
-| [MEP-0002](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0002-device-plugin-nri-composition) | How the NRI plugin composes with the NVIDIA device plugin |
-| [MEP-0003](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0003-node-agent) | The node daemon: one reconciler replacing a dozen CLIs |
-| [MEP-0006](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0006-automatic-cdi-setup) | Automating the node's CDI setup from the node pod |
+| [MEP-0001](../../enhancements/meps/0001-mokka-control-plane/README.md) | A control plane owning cluster-wide simulated-GPU inventory |
+| [MEP-0002](../../enhancements/meps/0002-device-plugin-nri-composition/README.md) | How the NRI plugin composes with the NVIDIA device plugin |
+| [MEP-0003](../../enhancements/meps/0003-node-agent/README.md) | The node daemon: one reconciler replacing a dozen CLIs |
+| [MEP-0006](../../enhancements/meps/0006-automatic-cdi-setup/README.md) | Automating the node's CDI setup from the node pod |
+| [MEP-0007](../../enhancements/meps/0007-vgpu-host-guest/README.md) | Simulating vGPU hosts and guests from the profile |
 
 MEP-0003 also carries the project's most complete record of which contract
 surfaces are and are not simulated.

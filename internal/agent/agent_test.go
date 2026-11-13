@@ -26,6 +26,9 @@ type mockSimApplier struct {
 	applyCalls atomic.Int32
 	discards   atomic.Int32
 	applyErr   error
+	// applyGate, when set, holds Apply until it is closed, so a test can
+	// inspect the agent mid-Apply.
+	applyGate chan struct{}
 	// discardExpired records whether Discard ran on an already-expired context,
 	// which is how a teardown with no budget left shows up.
 	discardExpired atomic.Bool
@@ -53,6 +56,9 @@ func (m *mockSimApplier) Discard(ctx context.Context) error {
 func (m *mockSimApplier) Ready() bool { return m.stageFailN.Load() < 0 }
 func (m *mockSimApplier) Apply(_ context.Context, _ *State) error {
 	m.applyCalls.Add(1)
+	if m.applyGate != nil {
+		<-m.applyGate
+	}
 	return m.applyErr
 }
 func (m *mockSimApplier) Revoke(_ context.Context) error {
@@ -316,6 +322,166 @@ func TestApplyFailureKeepsStagedGateOpen(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
+// TestStartedWaitsForTheFirstApplyWave pins /startedz, the startup probe that
+// holds NRI back, behind the first Apply wave: the cri simulator restarts the
+// container runtime there, and NRI created during that restart fails.
+func TestStartedWaitsForTheFirstApplyWave(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		applyErr error
+	}{
+		{name: "apply succeeds"},
+		// A failed Apply is not retried until the state changes, so it must
+		// not hold NRI back.
+		{name: "apply fails", applyErr: errors.New("apply error")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sim := &mockSimApplier{name: "test", applyErr: tc.applyErr, applyGate: make(chan struct{})}
+			updates := make(chan Update, 1)
+			updates <- Update{State: &State{}, At: time.Now()}
+			a := New(Config{
+				Simulators: []Simulator{sim},
+				Source:     &chanSource{ch: updates},
+				Log:        zap.NewNop(),
+			})
+			require.False(t, a.Started().OK)
+			ctx, cancel := context.WithCancel(t.Context())
+			done := make(chan error, 1)
+			go func() { done <- a.Run(ctx) }()
+
+			require.Eventually(t, func() bool { return sim.applyCalls.Load() == 1 }, time.Second, time.Millisecond)
+			require.True(t, a.Staged().OK, "/stagedz opens before Apply")
+			require.False(t, a.Started().OK, "/startedz must stay closed while Apply runs")
+
+			close(sim.applyGate)
+			require.Eventually(t, func() bool { return a.Started().OK }, time.Second, time.Millisecond,
+				"/startedz must open once the Apply wave returns")
+
+			cancel()
+			require.NoError(t, <-done)
+			require.False(t, a.Started().OK, "a stopped agent must close the startup gate")
+		})
+	}
+}
+
+func TestStartedStaysClosedWhenStageFails(t *testing.T) {
+	sim := &mockSimApplier{name: "test"}
+	sim.stageFailN.Store(1)
+	a := newAgent(t, sim, Update{State: &State{}, At: time.Now()})
+	runAgent(t, a)
+
+	require.False(t, a.Started().OK, "an agent that never staged must not let NRI start")
+}
+
+// waitingApplier holds its Apply until it is released or its context ends, the
+// way the cri simulator holds on a container runtime restart.
+type waitingApplier struct {
+	name      string
+	entered   chan struct{}
+	release   chan struct{}
+	ctx       atomic.Pointer[context.Context]
+	sawCancel atomic.Bool
+}
+
+func newWaitingApplier(name string) *waitingApplier {
+	return &waitingApplier{name: name, entered: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (w *waitingApplier) Name() string                            { return w.name }
+func (w *waitingApplier) Stage(_ context.Context, _ *State) error { return nil }
+func (w *waitingApplier) Discard(_ context.Context) error         { return nil }
+func (w *waitingApplier) Ready() bool                             { return true }
+func (w *waitingApplier) Revoke(_ context.Context) error          { return nil }
+
+// Apply runs once per test: closing entered a second time would panic.
+func (w *waitingApplier) Apply(ctx context.Context, _ *State) error {
+	w.ctx.Store(&ctx)
+	close(w.entered)
+	select {
+	case <-w.release:
+	case <-ctx.Done():
+		w.sawCancel.Store(true)
+	}
+	return nil
+}
+
+func waitEntered(t *testing.T, w *waitingApplier) {
+	t.Helper()
+	select {
+	case <-w.entered:
+	case <-time.After(time.Second):
+		t.Fatalf("%s: Apply never ran", w.name)
+	}
+}
+
+// TestApplyFailureDoesNotCancelSiblingAppliers covers the cri simulator
+// restarting the container runtime while another applier fails: systemd
+// finishes the restart either way, so cancelling it would only end the Apply
+// wave, and open /startedz, while the runtime is still down.
+func TestApplyFailureDoesNotCancelSiblingAppliers(t *testing.T) {
+	t.Parallel()
+
+	failing := &mockSimApplier{name: "failing", applyErr: errors.New("apply error")}
+	waiting := newWaitingApplier("waiting")
+	updates := make(chan Update, 1)
+	updates <- Update{State: &State{}, At: time.Now()}
+	a := New(Config{
+		Simulators: []Simulator{failing, waiting},
+		Source:     &chanSource{ch: updates},
+		Log:        zap.NewNop(),
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+
+	waitEntered(t, waiting)
+	require.Eventually(t, func() bool { return failing.applyCalls.Load() == 1 }, time.Second, time.Millisecond)
+	require.Never(t, func() bool { return (*waiting.ctx.Load()).Err() != nil }, 100*time.Millisecond, time.Millisecond,
+		"a sibling's Apply failure must not cancel another applier")
+	require.False(t, a.Started().OK, "/startedz must wait for every applier")
+
+	close(waiting.release)
+	require.Eventually(t, func() bool { return a.Started().OK }, time.Second, time.Millisecond)
+	require.False(t, waiting.sawCancel.Load())
+
+	cancel()
+	require.NoError(t, <-done)
+}
+
+// TestShutdownInterruptsTheApplyWave keeps teardown inside the pod's grace
+// period: an applier waiting on the container runtime must stop on shutdown,
+// so Revoke and Discard still run before the kubelet kills the pod.
+func TestShutdownInterruptsTheApplyWave(t *testing.T) {
+	t.Parallel()
+
+	waiting := newWaitingApplier("waiting")
+	updates := make(chan Update, 1)
+	updates <- Update{State: &State{}, At: time.Now()}
+	a := New(Config{
+		Simulators: []Simulator{waiting},
+		Source:     &chanSource{ch: updates},
+		Log:        zap.NewNop(),
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+
+	waitEntered(t, waiting)
+	cancel()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("shutdown waited for an Apply that holds until released")
+	}
+	require.True(t, waiting.sawCancel.Load(), "shutdown must cancel the Apply wave")
+	require.False(t, a.Started().OK)
+}
+
 // TestSupervise_ReloadRunsBetweenStageAndApply pins the supervisor wave to the
 // barrier: a daemon sees a state change after its Stage lands, before Apply.
 func TestSupervise_ReloadRunsBetweenStageAndApply(t *testing.T) {
@@ -436,4 +602,45 @@ func TestAgentReadiness_AggregatesSimulators(t *testing.T) {
 			}
 		})
 	}
+}
+
+// requeueSim reports each Stage and asks for a reconcile on demand.
+type requeueSim struct {
+	readySim
+	requeue chan struct{}
+	staged  chan *State
+}
+
+func (s *requeueSim) Stage(_ context.Context, state *State) error {
+	s.staged <- state
+	return nil
+}
+func (s *requeueSim) Requeue() <-chan struct{} { return s.requeue }
+
+// A simulator that finishes work in the background gets it staged without
+// waiting for the next State.
+func TestRequeueRestagesTheLatestState(t *testing.T) {
+	t.Parallel()
+
+	sim := &requeueSim{
+		readySim: readySim{name: "requeue", ready: true},
+		requeue:  make(chan struct{}),
+		staged:   make(chan *State, 4),
+	}
+	updates := make(chan Update, 1)
+	a := New(Config{Simulators: []Simulator{sim}, Source: &chanSource{ch: updates}, Log: zap.NewNop()})
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+
+	state := &State{Generation: 7}
+	updates <- Update{State: state}
+	require.Same(t, state, <-sim.staged)
+
+	sim.requeue <- struct{}{}
+	require.Same(t, state, <-sim.staged)
+
+	cancel()
+	require.NoError(t, <-done)
 }

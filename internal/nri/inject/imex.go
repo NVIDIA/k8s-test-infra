@@ -15,13 +15,14 @@ import "go.uber.org/zap"
 // delivers one, so there is no allocation to widen — suppressing channels here
 // would instead deny a ComputeDomain workload the fabric it explicitly asked for.
 func attachIMEXChannels(cfg Config, adjustment *Adjustment) {
-	// Fail open like the GPU path: channels are staged by the node agent
-	// (imex.mockChannels.enabled) and are off by default, so an annotation on a
+	// Fail open like the GPU path: the node agent stages channels only on
+	// multi-node NVLink profiles (nvlink.multi_node), so an annotation on a
 	// node without them must not block the pod.
+	// Delivers every channel the node agent staged, which is channel0 only.
 	channels, err := discoverImexChannels(cfg.ImexChannelHostPath)
 	if err != nil {
 		zap.L().Warn("imex channel injection requested but the channel tree is unavailable; "+
-			"injecting without channels (is imex.mockChannels.enabled set?)",
+			"injecting without channels (does the node's GPU profile set nvlink.multi_node?)",
 			zap.String("path", cfg.ImexChannelHostPath), zap.Error(err))
 		return
 	}

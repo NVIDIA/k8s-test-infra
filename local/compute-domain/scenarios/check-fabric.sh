@@ -7,6 +7,8 @@
 set -euo pipefail
 
 RELEASE_NAME="nvml-mock"
+# compute_domain.tiltfile installs the release here.
+NAMESPACE="${NAMESPACE:-mokka}"
 # Two spine domains — see local/compute-domain/topology.yaml.
 SPINE1_UUID="00000000-0000-0000-0000-0000000000ab"
 SPINE2_UUID="00000000-0000-0000-0000-0000000000cd"
@@ -16,7 +18,7 @@ pod_on_node() {
   # Poll: the pod list can lag briefly after a rollout.
   for _ in $(seq 1 30); do
     local name
-    name=$(kubectl get pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
+    name=$(kubectl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${RELEASE_NAME}" \
       --field-selector="spec.nodeName=${node},status.phase=Running" \
       -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
     if [[ -n "${name}" ]]; then
@@ -36,7 +38,7 @@ assert_clique() {
     return 1
   fi
   local out
-  out=$(kubectl exec "${pod}" -- check-fabric 2>&1 || true)
+  out=$(kubectl exec -n "${NAMESPACE}" "${pod}" -- check-fabric 2>&1 || true)
   printf '%s\n' "${out}" | sed 's/^/      /'
   if ! printf '%s\n' "${out}" | grep -q "cliqueId    : ${expected_clique}"; then
     printf 'FAIL: %s expected cliqueId %s\n' "${node}" "${expected_clique}" >&2
@@ -54,8 +56,8 @@ assert_clique() {
 }
 
 assert_clique worker-0 0 "${SPINE1_UUID}"
-assert_clique worker-1 1 "${SPINE1_UUID}"
+assert_clique worker-1 0 "${SPINE1_UUID}"
 assert_clique worker-2 0 "${SPINE2_UUID}"
-assert_clique worker-3 1 "${SPINE2_UUID}"
+assert_clique worker-3 0 "${SPINE2_UUID}"
 
 printf '\n==> Scenario 1 passed: 4/4 workers report expected fabric identity.\n'

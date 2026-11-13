@@ -334,7 +334,8 @@ func renderDeviceAttrs(root, devDir string, pci PCI) error {
 	return writeConfigSpace(root, filepath.Join(devDir, "config"), configSpace{
 		vendor: uint16(vendor), device: uint16(device),
 		subVendor: uint16(subVendor), subDevice: uint16(subDevice),
-		class: class,
+		class:    class,
+		vgpuHost: pci.VGPUHostDriver,
 	})
 }
 
@@ -343,11 +344,13 @@ type configSpace struct {
 	vendor, device       uint16
 	subVendor, subDevice uint16
 	class                uint32
+	vgpuHost             *VGPUHostDriver
 }
 
 // writeConfigSpace emits a minimal 256-byte PCI configuration space with the
-// identity, class, and header-type fields populated. All other bytes are
-// zero — enough for libpci to parse a Type 0 header without erroring.
+// identity, class, and header-type fields populated — enough for libpci to
+// parse a Type 0 header without erroring. A vGPU guest additionally carries
+// the vGPU vendor capability; all other bytes are zero.
 func writeConfigSpace(root, rel string, id configSpace) error {
 	cfg := make([]byte, 256)
 	binary.LittleEndian.PutUint16(cfg[0x00:], id.vendor)
@@ -360,6 +363,9 @@ func writeConfigSpace(root, rel string, id configSpace) error {
 	cfg[0x0e] = 0x00
 	binary.LittleEndian.PutUint16(cfg[0x2c:], id.subVendor)
 	binary.LittleEndian.PutUint16(cfg[0x2e:], id.subDevice)
+	if id.vgpuHost != nil {
+		writeVGPUCapability(cfg, *id.vgpuHost)
+	}
 
 	full := filepath.Join(root, rel)
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
@@ -369,6 +375,36 @@ func writeConfigSpace(root, rel string, id configSpace) error {
 		return fmt.Errorf("write %s: %w", rel, err)
 	}
 	return nil
+}
+
+// The vGPU vendor-specific capability, in the layout the host driver gives a
+// vGPU and GPU Feature Discovery parses: ID 0x09, next pointer, length, the
+// signature "VF", then records. Record 0 holds the host driver version and
+// branch in fixed 10-byte NUL-padded fields; engine validation keeps both
+// within that width.
+const (
+	pciStatusOffset         = 0x06
+	pciStatusCapabilityList = 0x10
+	pciCapabilityPointer    = 0x34
+	pciCapVendorSpecific    = 0x09
+	vgpuCapabilityOffset    = 0xd0
+	vgpuDriverFieldLength   = 10
+	vgpuDriverRecordLength  = 2 + 2*vgpuDriverFieldLength
+	vgpuCapabilityLength    = 5 + vgpuDriverRecordLength
+)
+
+func writeVGPUCapability(cfg []byte, host VGPUHostDriver) {
+	cfg[pciStatusOffset] |= pciStatusCapabilityList
+	cfg[pciCapabilityPointer] = vgpuCapabilityOffset
+	c := cfg[vgpuCapabilityOffset : vgpuCapabilityOffset+vgpuCapabilityLength]
+	c[0] = pciCapVendorSpecific
+	c[1] = 0 // last capability in the chain
+	c[2] = vgpuCapabilityLength
+	c[3], c[4] = 'V', 'F'
+	c[5] = 0 // host driver record
+	c[6] = vgpuDriverRecordLength
+	copy(c[7:7+vgpuDriverFieldLength], host.Version)
+	copy(c[7+vgpuDriverFieldLength:], host.Branch)
 }
 
 // replaceSymlink ensures `path` is a symlink pointing at `target`,

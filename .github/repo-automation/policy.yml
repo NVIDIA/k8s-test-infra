@@ -31,11 +31,11 @@ merge:
           - OWNERS
           - OWNERS_ALIASES
       - path: .github/workflows/helm.yaml
-        files: ["deployments/nvml-mock/helm/**", "deployments/mokka-crds/helm/**"]
+        files: [".github/workflows/helm.yaml", "deployments/nvml-mock/helm/**", "deployments/mokka-crds/helm/**"]
       - path: .github/workflows/dependency-integrity.yaml
         files: [go.mod, go.sum, Makefile, .github/workflows/dependency-integrity.yaml]
       - path: .github/workflows/deploy-pages.yaml
-        files: ["docs/**", mkdocs.yml, requirements-docs.txt, Makefile, .github/workflows/deploy-pages.yaml]
+        files: ["docs/**", "enhancements/**", hack/mkdocs_meps.py, hack/test_mkdocs_meps.py, mkdocs.yml, requirements-docs.txt, Makefile, .github/workflows/deploy-pages.yaml]
     checks:
       - name: DCO
         appId: 1861
@@ -46,6 +46,6 @@ bots:
     emails: ["41898282+github-actions[bot]@users.noreply.github.com"]
 sizeThresholds:
   S: 0
-  M: 50
-  L: 250
+  M: 100
+  L: 500
   XL: 1000

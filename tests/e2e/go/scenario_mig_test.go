@@ -62,13 +62,14 @@ type migLayout struct {
 // untested before.
 // A slice is named for the share of its own board it holds, so each name below
 // is an eighth of that board's capacity: 180 GiB for b200, 186 for gb200, 278
-// for gb300. Read a board's names off `nvidia-smi mig -lgip`.
+// for gb300, 280 for vrnvl72. Read a board's names off `nvidia-smi mig -lgip`.
 var migLayouts = map[string]migLayout{
-	"a100":  {Profile: "1g.5gb", Count: 7},
-	"h100":  {Profile: "1g.10gb", Count: 7},
-	"b200":  {Profile: "1g.23gb", Count: 7},
-	"gb200": {Profile: "1g.23gb", Count: 7},
-	"gb300": {Profile: "1g.35gb", Count: 7},
+	"a100":    {Profile: "1g.5gb", Count: 7},
+	"h100":    {Profile: "1g.10gb", Count: 7},
+	"b200":    {Profile: "1g.23gb", Count: 7},
+	"gb200":   {Profile: "1g.23gb", Count: 7},
+	"gb300":   {Profile: "1g.35gb", Count: 7},
+	"vrnvl72": {Profile: "1g.35gb", Count: 7},
 }
 
 // MIG scenario (#241). The acceptance criterion this exists for is the last one
@@ -728,7 +729,7 @@ func installMIGChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 		Namespace:       nvmlMockNamespace,
 		CreateNamespace: true,
 		HideOutput:      true,
-		Set: map[string]string{
+		Set: withSuiteFeatureGates(map[string]string{
 			"gpu.count":                       strconv.Itoa(p.ExpectedGPUs()),
 			"gpu.profile":                     p.Name,
 			"image.repository":                repo,
@@ -736,7 +737,7 @@ func installMIGChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 			"gpu.mig.enabled":                 strconv.FormatBool(on),
 			"gpu.mig.gpuInstances[0].profile": layout.Profile,
 			"gpu.mig.gpuInstances[0].count":   strconv.Itoa(layout.Count),
-		},
+		}),
 		Wait:    true,
 		Timeout: config.HelmTimeout(),
 	}

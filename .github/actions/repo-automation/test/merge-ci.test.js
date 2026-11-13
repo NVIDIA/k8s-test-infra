@@ -271,6 +271,31 @@ test("selects the newest matching workflow by run number then ID regardless of o
   ] })), "FAILED");
 });
 
+test("a cancelled run does not outrank another run of the same workflow on the same head", () => {
+  // Label events in the same second start several runs at once; concurrency keeps an arbitrary one.
+  for (const [status, conclusion, want] of [
+    ["completed", "success", "SUCCESS"], ["in_progress", null, "PENDING"], ["completed", "failure", "FAILED"],
+  ]) {
+    const runs = [
+      run("validate-changelog.yaml", { id: 662, runNumber: 662, conclusion: "cancelled" }),
+      run("validate-changelog.yaml", { id: 663, runNumber: 663, status, conclusion }),
+      run("validate-changelog.yaml", { id: 664, runNumber: 664, conclusion: "cancelled" }),
+      run("basic-checks.yaml"),
+    ];
+    assert.equal(evaluateCI(evidence({ runs })), want);
+    assert.equal(evaluateCI(evidence({ runs: [...runs].reverse() })), want);
+  }
+  assert.equal(evaluateCI(evidence({ runs: [
+    run("validate-changelog.yaml", { id: 662, runNumber: 662, conclusion: "cancelled" }),
+    run("validate-changelog.yaml", { id: 664, runNumber: 664, conclusion: "cancelled" }), run("basic-checks.yaml"),
+  ] })), "FAILED");
+  assert.equal(evaluateCI(evidence({ runs: [
+    run("validate-changelog.yaml", { id: 663, runNumber: 663 }),
+    run("validate-changelog.yaml", { id: 664, runNumber: 664, headOid: OLD_HEAD, conclusion: "cancelled" }),
+    run("basic-checks.yaml", { conclusion: "cancelled" }),
+  ] })), "FAILED");
+});
+
 test("uses the current rerun attempt without allowing newer unrelated runs to hide it", () => {
   assert.equal(evaluateCI(evidence({ runs: [
     run("basic-checks.yaml", { runAttempt: 2, status: "in_progress", conclusion: null }),
@@ -303,6 +328,9 @@ test("requires conditional workflows for changed paths and both sides of renames
     ["deployments/nvml-mock/helm/Chart.yaml", ["helm.yaml"]], ["deployments/mokka-crds/helm/templates/crd.yaml", ["helm.yaml"]],
     ["go.mod", ["dependency-integrity.yaml"]], ["go.sum", ["dependency-integrity.yaml"]],
     ["docs/general/overview.md", ["deploy-pages.yaml"]], ["docs/.internal/file.md", ["deploy-pages.yaml"]],
+    ["enhancements/meps/0006-automatic-cdi-setup/README.md", ["deploy-pages.yaml"]],
+    ["hack/mkdocs_meps.py", ["deploy-pages.yaml"]],
+    ["hack/test_mkdocs_meps.py", ["deploy-pages.yaml"]],
     ["mkdocs.yml", ["deploy-pages.yaml"]], ["requirements-docs.txt", ["deploy-pages.yaml"]],
     ["Makefile", ["automation-ci.yml", "dependency-integrity.yaml", "deploy-pages.yaml"]],
     [".github/workflows/dependency-integrity.yaml", ["automation-ci.yml", "dependency-integrity.yaml"]],

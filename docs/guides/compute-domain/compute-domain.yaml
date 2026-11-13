@@ -1,0 +1,73 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# A ComputeDomain across the two nodes of rack-1, with one workload on each.
+#
+# The DRA driver's controller creates the ResourceClaimTemplate the
+# ComputeDomain names, rack-1-channel, and starts an IMEX daemon on each node a
+# workload claiming it lands on. Each workload is pinned to its node by
+# hostname; allocationMode Single gives it IMEX channel 0 only.
+#
+# Needs the DRA driver with ComputeDomains on and the nodes of
+# tests/e2e/kind-compute-domain-racks.yaml. See README.md in this directory.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: compute-domain-demo
+---
+apiVersion: resource.nvidia.com/v1beta1
+kind: ComputeDomain
+metadata:
+  name: rack-1
+  namespace: compute-domain-demo
+spec:
+  numNodes: 2
+  channel:
+    resourceClaimTemplate:
+      name: rack-1-channel
+    allocationMode: Single
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rack-1-a
+  namespace: compute-domain-demo
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 1
+  nodeSelector:
+    kubernetes.io/hostname: worker-0
+  containers:
+    - name: workload
+      image: debian:bookworm-slim
+      command: ["/bin/sh", "-c"]
+      # Runs until deleted: the claim generated for the pod goes with it.
+      args: ["trap 'exit 0' TERM; sleep infinity & wait"]
+      resources:
+        claims:
+          - name: imex-channel
+  resourceClaims:
+    - name: imex-channel
+      resourceClaimTemplateName: rack-1-channel
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rack-1-b
+  namespace: compute-domain-demo
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 1
+  nodeSelector:
+    kubernetes.io/hostname: worker-1
+  containers:
+    - name: workload
+      image: debian:bookworm-slim
+      command: ["/bin/sh", "-c"]
+      args: ["trap 'exit 0' TERM; sleep infinity & wait"]
+      resources:
+        claims:
+          - name: imex-channel
+  resourceClaims:
+    - name: imex-channel
+      resourceClaimTemplateName: rack-1-channel

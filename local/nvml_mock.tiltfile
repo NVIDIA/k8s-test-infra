@@ -19,7 +19,7 @@ _NAMESPACE = 'mokka'
 
 # A tag given alongside a digest is informational only: the chart renders
 # repository@digest whenever image.digest is set.
-def _split_image(ref):
+def split_image(ref):
     name, digest = ref, ''
     at = ref.find('@')
     if at >= 0:
@@ -95,7 +95,7 @@ def _install(release, profile, active_consumers, extra_set, nvmlmock_image='', c
         flags += ['--set', kv]
 
     if nvmlmock_image:
-        repo, tag, digest = _split_image(nvmlmock_image)
+        repo, tag, digest = split_image(nvmlmock_image)
         flags += ['--set', 'image.repository=' + repo]
         if tag:
             flags += ['--set', 'image.tag=' + tag]

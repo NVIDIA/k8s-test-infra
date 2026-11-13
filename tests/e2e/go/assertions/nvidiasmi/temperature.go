@@ -143,3 +143,40 @@ func absoluteOrderingProblems(name string, t temperature) []string {
 	}
 	return problems
 }
+
+// TLimitValueProblems checks the T.Limit rows of every GPU in a
+// `nvidia-smi -q -x` document against the distances a profile states, and
+// that the T.Limit temperature (the margin) reads as a number. The margin's
+// value is not compared here: it moves with the temperature, which the e2e
+// chart's dynamic metrics vary on every read, so nvidia-smi's temperature and
+// margin rows come from different samples. The runtime-control scenario checks
+// it against a pinned temperature instead.
+func TLimitValueProblems(out string, shutdownC, slowdownC, maxOperatingC int) []string {
+	doc, err := parse(out)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	var problems []string
+	for i, gpu := range doc.GPUs {
+		name := gpu.label(i)
+		t := gpu.Temperature
+		for _, c := range []struct {
+			r    namedReading
+			want int
+		}{
+			{namedReading{"gpu_temp_max_tlimit_threshold", t.MaxTLimitThreshold}, shutdownC},
+			{namedReading{"gpu_temp_slow_tlimit_threshold", t.SlowTLimitThreshold}, slowdownC},
+			{namedReading{"gpu_temp_max_gpu_tlimit_threshold", t.MaxGPUTLimitThreshold}, maxOperatingC},
+		} {
+			if got, ok := c.r.raw.intValue(); !ok || got != c.want {
+				problems = append(problems, fmt.Sprintf("%s: %s is %q, want %d C",
+					name, c.r.element, string(c.r.raw), c.want))
+			}
+		}
+		if _, ok := t.TLimit.intValue(); !ok {
+			problems = append(problems, fmt.Sprintf("%s: gpu_temp_tlimit is %q, want a temperature",
+				name, string(t.TLimit)))
+		}
+	}
+	return problems
+}

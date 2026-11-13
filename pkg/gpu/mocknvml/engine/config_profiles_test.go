@@ -161,6 +161,7 @@ func TestLoadConfig_GB300Profile(t *testing.T) {
 	pcie := yamlCfg.DeviceDefaults.PCIe
 	require.NotNil(t, pcie, "GB300 PCIe config is nil")
 	require.Equal(t, 6, pcie.MaxLinkGen, "GB300 PCIe max_link_gen")
+	require.Equal(t, 4, pcie.HostMaxLinkGen, "GB300 host PCIe max_link_gen")
 
 	// 1400W default TDP (vs. GB200's 1000W).
 	power := yamlCfg.DeviceDefaults.Power
@@ -182,6 +183,29 @@ func TestLoadConfig_GB300Profile(t *testing.T) {
 // bandwidth-mode call answers, as on boards before Hopper.
 const noBwMode NVLinkBwModeScope = ""
 
+func TestLoadConfig_HostMaxUsesExplicitProfileValues(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want int
+	}{
+		{"a100", 0},
+		{"h100", 0},
+		{"l40s", 0},
+		{"t4", 0},
+		{"b200", 0},
+		{"gb200", 0},
+		{"gb300", 4},
+		{"vrnvl72", 6},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			yamlCfg, err := LoadYAMLConfig(filepath.Join(testdataDir(), tc.name+".yaml"))
+			require.NoError(t, err)
+			require.NotNil(t, yamlCfg.DeviceDefaults.PCIe)
+			require.Equal(t, tc.want, yamlCfg.DeviceDefaults.PCIe.HostMaxLinkGen)
+		})
+	}
+}
+
 func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 	profiles := []struct {
 		name         string
@@ -189,7 +213,7 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 		architecture string
 		ccMajor      int
 		ccMinor      int
-		memGiB       uint64
+		memMiB       uint64
 		deviceCount  int
 		// bwScope is the NVML family the board answers bandwidth mode on:
 		// the node-wide pair on Hopper, the per-device trio on Blackwell,
@@ -197,13 +221,14 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 		// bandwidth mode is not supported" for the node-wide pair.
 		bwScope NVLinkBwModeScope
 	}{
-		{"A100", "a100.yaml", "ampere", 8, 0, 40, 8, noBwMode},
-		{"H100", "h100.yaml", "hopper", 9, 0, 80, 8, NVLinkBwModeScopeSystem},
-		{"B200", "b200.yaml", "blackwell", 10, 0, 180, 8, NVLinkBwModeScopeDevice},
-		{"GB200", "gb200.yaml", "blackwell", 10, 0, 186, 4, NVLinkBwModeScopeDevice},
-		{"GB300", "gb300.yaml", "blackwell", 10, 0, 278, 4, NVLinkBwModeScopeDevice},
-		{"L40S", "l40s.yaml", "ada_lovelace", 8, 9, 48, 8, noBwMode},
-		{"T4", "t4.yaml", "turing", 7, 5, 16, 4, noBwMode},
+		{"A100", "a100.yaml", "ampere", 8, 0, 40960, 8, noBwMode},
+		{"H100", "h100.yaml", "hopper", 9, 0, 81920, 8, NVLinkBwModeScopeSystem},
+		{"B200", "b200.yaml", "blackwell", 10, 0, 184320, 8, NVLinkBwModeScopeDevice},
+		{"GB200", "gb200.yaml", "blackwell", 10, 0, 190464, 4, NVLinkBwModeScopeDevice},
+		{"GB300", "gb300.yaml", "blackwell", 10, 0, 284672, 4, NVLinkBwModeScopeDevice},
+		{"L40S", "l40s.yaml", "ada_lovelace", 8, 9, 49152, 8, noBwMode},
+		{"T4", "t4.yaml", "turing", 7, 5, 16384, 4, noBwMode},
+		{"VRNVL72", "vrnvl72.yaml", "rubin", 10, 7, 286524, 4, NVLinkBwModeScopeDevice},
 	}
 
 	for _, p := range profiles {
@@ -221,8 +246,8 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 
 			mem := yamlCfg.DeviceDefaults.Memory
 			require.NotNil(t, mem, "%s memory config is nil", p.name)
-			expectedBytes := p.memGiB * 1024 * 1024 * 1024
-			require.Equal(t, expectedBytes, mem.TotalBytes, "%s memory (%d GiB)", p.name, p.memGiB)
+			expectedBytes := p.memMiB * 1024 * 1024
+			require.Equal(t, expectedBytes, mem.TotalBytes, "%s memory (%d MiB)", p.name, p.memMiB)
 
 			require.Len(t, yamlCfg.Devices, p.deviceCount, "%s device count", p.name)
 

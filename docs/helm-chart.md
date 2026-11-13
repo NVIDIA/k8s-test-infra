@@ -88,7 +88,7 @@ at any level. The pods simply start with no mock GPU.
 
 **Published image:** The nvml-mock container image is published at
 `ghcr.io/nvidia/nvml-mock`, tagged with the release version on every release,
-and with the chart `appVersion` (the next `-dev` version, such as `0.5.0-dev`)
+and with the chart `appVersion` (the next `-dev` version, such as `0.8.0-dev`)
 on pushes to `main`. The chart installs the image tagged with
 its `appVersion` by default, so a released chart pulls its own release and the
 chart on `main` pulls the latest `main` build. If the
@@ -490,13 +490,18 @@ needs UMAD I/O. For IB-enabled profiles, the chart preloads
 and exposes a headless Service on port 18515 for TCP fabric relay between
 nvml-mock pods.
 
-The fabric listener binds `0.0.0.0` with no authentication, so the chart
-also ships a `NetworkPolicy` (`infiniband.ping.networkPolicy.enabled`,
-default `true`) that allows inbound fabric traffic only from peer
-nvml-mock pods. NetworkPolicy is enforced only by CNIs that implement it;
-Kind's default `kindnet` ignores it, so it is a no-op in the typical Kind
-fixture but limits exposure on Calico/Cilium-backed clusters. mock-ib is a
-test fixture — don't deploy it to a shared or production cluster.
+The fabric listener binds `0.0.0.0` with no authentication, so at the
+`full` tier the chart also ships a `NetworkPolicy`
+(`infiniband.ping.networkPolicy.enabled`, default `true`) that allows inbound
+fabric traffic only from peer nvml-mock pods in the release's namespace. A
+fleet split across namespaces lists the others in
+`infiniband.ping.networkPolicy.peerNamespaces`. Below `full` nothing listens
+on the port, so no policy is rendered. NetworkPolicy is enforced only by CNIs
+that implement it, which includes Kind's default `kindnet` (since
+[Kind v0.24.0](https://github.com/kubernetes-sigs/kind/releases/tag/v0.24.0)),
+Calico, and Cilium. Older Kind releases and CNIs without NetworkPolicy support
+do not enforce this policy. mock-ib is a test fixture — don't deploy it to a
+shared or production cluster.
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
@@ -571,7 +576,7 @@ containerd reject container creation outright.
 Neither mode changes *which* GPUs an allocated container gets. A container
 that holds a device-plugin or NVIDIA DRA allocation keeps exactly that
 allocation in both modes, even with the annotation, per
-[MEP-0002](https://github.com/NVIDIA/k8s-test-infra/blob/main/enhancements/meps/0002-device-plugin-nri-composition/README.md).
+[MEP-0002](../enhancements/meps/0002-device-plugin-nri-composition/README.md).
 
 ## NRI pod lifecycle
 
@@ -582,14 +587,16 @@ DaemonSet pod. On Kubernetes 1.29 and later, the node agent is a [restartable
 init container](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/)
 and NRI a regular container, which orders them:
 
-- **Startup.** The node agent's startup probe reads `/stagedz`, which opens once
-  its first Stage wave has written the driver tree, so Kubernetes starts NRI
-  only after that. `/stagedz` does not wait for an intentional
-  `fabricmanager.initDelay`, so new workloads can still observe the simulated
-  `IN_PROGRESS` fabric state. Kubernetes runs no liveness probe until the
-  startup probe passes, so `nodeAgent.nriStartupTimeoutSeconds` (120 by
-  default) is also how long a node agent whose first staging failed waits
-  before it is restarted.
+- **Startup.** The node agent's startup probe reads `/startedz`, which opens
+  once its first Stage wave has written the driver tree and its first Apply
+  wave has returned, so Kubernetes starts NRI only after that. Apply restarts
+  containerd when the agent sets the container runtime up, and the kubelet
+  cannot create NRI while containerd is down. `/startedz` opens even when Apply
+  fails, and does not wait for an intentional `fabricmanager.initDelay`, so new
+  workloads can still observe the simulated `IN_PROGRESS` fabric state.
+  Kubernetes runs no liveness probe until the startup probe passes, so
+  `nodeAgent.nriStartupTimeoutSeconds` (120 by default) is also how long a node
+  agent whose first staging failed waits before it is restarted.
 - **Termination.** Kubernetes stops NRI before the node agent, so the plugin
   disconnects before the agent removes the staged driver tree.
 
@@ -681,10 +688,9 @@ A wedged handler is the case that defeats every simpler check: `pgrep
 nri-plugin` finds the process, and a plain TCP check finds the socket bound,
 in exactly the state where nothing is being injected.
 
-Losing the connection is deliberately *not* a liveness failure. The NRI stub's
-`Run` returns when the connection drops and the plugin exits on its own, so the
-kubelet already restarts it; failing liveness on "not registered" as well would
-only add restart loops whenever containerd is slow to come up.
+Losing the connection is deliberately *not* a liveness failure: the plugin
+re-registers in-process every 500 ms, without the kubelet's crash backoff, during
+which new containers would come up unmocked.
 
 ### containerd `plugin_request_timeout`
 
@@ -759,13 +765,13 @@ namespace, on the pod IP where the kubelet reaches it.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `gpu.profile` | `gb300` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, or `t4` |
-| `gpu.count` | `""` | Number of mock GPUs per node. Empty derives it from the profile's `devices:` list (8 for the baseboard profiles, 4 for `t4`, `gb200` and `gb300`); a larger value is capped to that list at runtime |
+| `gpu.profile` | `gb300` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4`, or `vrnvl72` |
+| `gpu.count` | `""` | Number of mock GPUs per node. Empty derives it from the profile's `devices:` list (8 for the baseboard profiles, 4 for `t4`, `gb200`, `gb300` and `vrnvl72`); a larger value is capped to that list at runtime |
 | `gpu.customConfig` | `""` | Inline YAML to override profile config entirely |
 | `gpu.dynamicMetrics.enabled` | `false` | Make the mock return time-varying temperature / power / utilization readings instead of the static profile values. See [Dynamic Metrics](#dynamic-metrics) below. |
 | `gpu.dynamicMetrics.seed` | `0` (baseline) | RNG seed; `0` uses a time-based seed, non-zero produces reproducible sequences. |
 | `gpu.dynamicMetrics.temperature.*` | baseline (`base_c: 55`, …) | `base_c`, `variance_c`, `ramp_c`, `ramp_period_sec` for the GPU temperature generator. |
-| `gpu.dynamicMetrics.power.*` | profile default, else baseline `250000`/`25000` | `base_mw`, `variance_mw` for the power generator (clamped to the profile's `min/max_limit_mw`). Resolved **baseline < profile default < user override**; profiles outside the 250W baseline set their own (`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W). See [Dynamic Metrics](#dynamic-metrics). |
+| `gpu.dynamicMetrics.power.*` | profile default, else baseline `250000`/`25000` | `base_mw`, `variance_mw` for the power generator (clamped to the profile's `min/max_limit_mw`). Resolved **baseline < profile default < user override**; profiles outside the 250W baseline set their own (`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W, `vrnvl72` ~420W, its idle draw). See [Dynamic Metrics](#dynamic-metrics). |
 | `gpu.dynamicMetrics.utilization.*` | baseline (`pattern: burst`, …) | `pattern` (`idle` \| `busy` \| `burst` \| `steady`), `gpu_min/max`, `memory_min/max`, `burst_period_sec`. |
 | `gpu.failureInjection.enabled` | `false` | Enable simulated GPU failures (lost / fallen off bus / uncorrectable ECC). See [Failure Injection](#failure-injection) below. |
 | `gpu.failureInjection.mode` | `healthy` | Failure mode: `healthy` (default, no-op), `lost`, `fallen_off_bus`, or `ecc_uncorrectable`. With the inert default, `enabled: true` alone produces a healthy device — you must set `mode` explicitly to engage failures. |
@@ -782,7 +788,9 @@ namespace, on the pod IP where the kubelet reaches it.
 | `image.tag` | `""` (chart `appVersion`) | Container image tag. When empty, the chart `appVersion`: the release version in a released chart, the next `-dev` version on `main`. |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy. When empty, the Kubernetes default for the rendered image: `Always` for the `latest` tag, `IfNotPresent` otherwise. |
 | `featureGates` | `{}` | Feature gates passed to the node agent, NRI plugin and control plane, as `Name: true\|false`. See [Feature Gates](feature-gates.md). |
-| `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, read from `system.driver_version` of the resolved GPU config (the selected `gpu.profile` file, or `gpu.customConfig` if set), so the profile is the single source of truth (every shipped profile pins `580.65.06`). Set explicitly only to override the profile. |
+| `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, read from `system.driver_version` of the resolved GPU config (the selected `gpu.profile` file, or `gpu.customConfig` if set), so the profile is the single source of truth (every shipped profile pins `580.65.06`). Set explicitly to override the profile — the version also decides which NVML functions exist, since the mock refuses the ones its declared driver predates. |
+| `driverBranch` | `""` (derived) | Branch `nvmlSystemGetDriverBranch` reports. Derived from the driver version when empty (`580.65.06` → `r580_00`); set it to model a point-release branch such as `r570_40` |
+| `hic` | `[]` | Host interface cards `nvmlSystemGetHicVersion` reports, which is what `nvidia-smi -q -u` prints. Entries are `{id, firmwareVersion}`. Real HICs only exist on the retired S-class enclosures, so no profile configures any. |
 | `nodeSelector` | `{}` | Node selector for DaemonSet |
 | `tolerations` | `[{operator: Exists}]` | Pod tolerations (default: tolerate all) |
 | `priorityClassName` | `""` | PriorityClass for the node DaemonSet pods. The node agent stands in for its node's GPU driver, so `system-node-critical` keeps it from being starved or evicted before the workloads that depend on it. |
@@ -792,7 +800,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `nodeAgent.livenessProbe` | `httpGet /healthz` on `health` | Node agent liveness probe. Set to `null` to drop it. |
 | `nodeAgent.readinessProbe` | `httpGet /readyz` on `health` | Node agent readiness probe. Set to `null` to drop it. |
 | `nodeLabels.featuresDir` | `/etc/kubernetes/node-feature-discovery/features.d` | Host directory NFD's local source reads feature files from. Override only if NFD runs with a non-default `featureFilesDir` |
-| `nodeAgent.nriStartupTimeoutSeconds` | `120` | On Kubernetes 1.29+, maximum time the node-agent `/stagedz` gate may wait for its first staging and apply cycle before Kubernetes restarts it when NRI uses native sidecars |
+| `nodeAgent.nriStartupTimeoutSeconds` | `120` | On Kubernetes 1.29+, maximum time the node-agent `/startedz` gate may wait for its first staging and apply cycle before Kubernetes restarts it when NRI uses native sidecars |
 | `nodeAgent.containerRuntime.enabled` | `true` | Set up the node's container runtime: install the NVIDIA container runtime and make it containerd's default `nvidia` handler; reverted when the node pod stops. See [Container runtime setup](components/node-daemon.md#container-runtime-setup). Refuses `updateStrategy.rollingUpdate.maxSurge` |
 | `nodeAgent.containerRuntime.type` | `containerd` | The container runtime on the nodes; containerd is the only one so far |
 | `nodeAgent.containerRuntime.restartMode` | `systemd` | `systemd` restarts the runtime's unit after a change, from the host's PID namespace; `none` writes the configuration and leaves the restart to you |
@@ -804,7 +812,8 @@ namespace, on the pod IP where the kubelet reaches it.
 | `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Extra labels on profile ConfigMaps. The contract labels `fake-gpu-operator/gpu-profile` and `nvml-mock/profile-name` are always emitted and cannot be removed here |
 | `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
-| `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
+| `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. Rendered only at the `full` tier. No-op on CNIs that don't enforce NetworkPolicy |
+| `infiniband.ping.networkPolicy.peerNamespaces` | `[]` | Namespaces besides the release's whose nvml-mock pods may reach the fabric port |
 | `nri.enabled` | `true` | Run the `nvml-mock-nri` containerd NRI plugin in the node DaemonSet. In non-excluded namespaces it injects containers that hold a GPU allocation or whose pod opts in by annotation; see [Set up NRI injection](guides/nri-injection.md). Set `false` where containerd has NRI disabled. Always install into a dedicated namespace (`-n mokka`) to avoid excluding `default` |
 | `nri.nativeSidecar` | `true` | On Kubernetes 1.29+, use the ordered `SidecarContainers` layout. Set to `false` when that feature gate is explicitly disabled; the chart falls back to unordered regular containers |
 | `nri.socketPath` | `/var/run/nri/nri.sock` | NRI socket on the host. Its directory is hostPath-mounted into the plugin |
@@ -814,7 +823,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `nri.deviceAnnotation` | `nvml-mock.nvidia.com/devices` | Pod annotation; value `true` gives a pod with no GPU allocation the overlay and every mock GPU on the node. Ignored for containers that hold an allocation. Pod-authored, so treat it as part of the demo trust boundary |
 | `nri.deviceInjectionMode` | `raw` | How `nri.deviceAnnotation` delivers GPUs: `raw` stages the device nodes directly, `cdi` emits a CDI device reference the runtime resolves. See [Device injection mode](#device-injection-mode) |
 | `nri.cdiSpecDir` | `/var/run/cdi` | Host directory holding CDI specs, mounted read-only into the plugin. Must be one of the runtime's configured `cdi_spec_dirs` |
-| `nri.imexChannelAnnotation` | `nvml-mock.nvidia.com/imex-channels` | Pod annotation; value `true` gives the pod the mock `/dev/nvidia-caps-imex-channels/channelN` nodes staged by `imex.mockChannels` (no channels when that is disabled), and nothing else. Same trust boundary as `nri.deviceAnnotation` |
+| `nri.imexChannelAnnotation` | `nvml-mock.nvidia.com/imex-channels` | Pod annotation; value `true` gives the pod the mock `/dev/nvidia-caps-imex-channels/channel0` node the node agent stages on multi-node NVLink profiles (none on other profiles), and nothing else. Same trust boundary as `nri.deviceAnnotation` |
 | `nri.infinibandAnnotation` | `nvml-mock.nvidia.com/infiniband` | Pod annotation; value `true` gives the pod the overlay with the mock InfiniBand tools active (`MOCK_IB=full`). Without mock GPUs unless the pod also selects them. Same trust boundary as `nri.deviceAnnotation` |
 | `nri.excludedNamespaces` | `[]` | Extra namespaces to skip. The release namespace and `kube-system` are always excluded |
 | `nri.healthPort` | `8080` | Port serving `/healthz` and `/readyz`. Bound only in the pod's network namespace — this DaemonSet does not use `hostNetwork`, so nothing is exposed on the node |
@@ -887,34 +896,35 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 
 #### Profile Comparison
 
-| | A100 | H100 | B200 | GB200 | GB300 | L40S | T4 |
-|---|---|---|---|---|---|---|---|
-| **Profile name** | `a100` | `h100` | `b200` | `gb200` | `gb300` | `l40s` | `t4` |
-| **Full name** | A100-SXM4-40GB | H100 80GB HBM3 | B200 | GB200 NVL | GB300 NVL | L40S | Tesla T4 |
-| **Architecture** | Ampere | Hopper | Blackwell | Blackwell | Blackwell Ultra | Ada Lovelace | Turing |
-| **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 | 10.0 | 8.9 | 7.5 |
-| **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 21,632 | 18,176 | 2,560 |
-| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 180 GiB HBM3e | 186 GiB HBM3e | 278 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 |
-| **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | v5, 18 links | — | — |
-| **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | 1.8 TB/s | — | — |
-| **TDP** | 400W | 700W | 1,000W | 1,000W | 1,400W | 350W | 70W |
-| **PCIe** | Gen4 | Gen5 | Gen6 | Gen6 | Gen6 | Gen4 | Gen3 |
-| **MIG instances** | 7 | 7 | 7 | 7 | 7 | 0 | 0 |
-| **Grace CPU** | — | — | — | Yes (NVLink-C2C) | Yes (NVLink-C2C) | — | — |
-| **FP8** | — | Yes | Yes | Yes | Yes | Yes | — |
-| **FP4** | — | — | Yes | Yes | Yes | — | — |
-| **FP6** | — | — | — | — | Yes | — | — |
-| **Driver version** | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 |
+| | A100 | H100 | B200 | GB200 | GB300 | L40S | T4 | VR NVL72 |
+|---|---|---|---|---|---|---|---|---|
+| **Profile name** | `a100` | `h100` | `b200` | `gb200` | `gb300` | `l40s` | `t4` | `vrnvl72` |
+| **Full name** | A100-SXM4-40GB | H100 80GB HBM3 | B200 | GB200 NVL | GB300 NVL | L40S | Tesla T4 | NVIDIA Graphics Device |
+| **Architecture** | Ampere | Hopper | Blackwell | Blackwell | Blackwell Ultra | Ada Lovelace | Turing | Rubin |
+| **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 | 10.0 | 8.9 | 7.5 | 10.7 |
+| **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 21,632 | 18,176 | 2,560 | 27,136 |
+| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 180 GiB HBM3e | 186 GiB HBM3e | 278 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 | 280 GiB HBM4 |
+| **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | v5, 18 links | — | — | v6, 36 links |
+| **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | 1.8 TB/s | — | — | 2.95 TB/s |
+| **TDP** | 400W | 700W | 1,000W | 1,000W | 1,400W | 350W | 70W | 2,300W |
+| **PCIe** | Gen4 | Gen5 | Gen5 | Gen6 | Gen6 | Gen4 | Gen3 | Gen6 |
+| **MIG instances** | 7 | 7 | 7 | 7 | 7 | 0 | 0 | 7 |
+| **Host CPU** | — | — | — | Grace (NVLink-C2C) | Grace (NVLink-C2C) | — | — | Vera (NVLink-C2C) |
+| **FP8** | — | Yes | Yes | Yes | Yes | Yes | — | Yes |
+| **FP4** | — | — | Yes | Yes | Yes | — | — | Yes |
+| **FP6** | — | — | — | — | Yes | — | — | — |
+| **Driver version** | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 580.65.06 | 615.71.09 |
 
 #### When to Use Each Profile
 
 - **`a100`** — broadest compatibility. Most NVIDIA software assumes A100 in docs and examples. Use it when a test targets Ampere or trips over newer architectures.
 - **`h100`** — testing Hopper-specific features: FP8, Transformer Engine, PCIe Gen5, or NVLink v4 topology.
-- **`b200`** — testing next-gen Blackwell features: FP4, NVLink v5, PCIe Gen6. Standalone GPU (no Grace CPU).
+- **`b200`** — testing next-gen Blackwell features: FP4 and NVLink v5. Standalone GPU (no Grace CPU).
 - **`gb200`** — testing Grace-Blackwell Superchip: NVLink-C2C to Grace CPU, unified memory, and Blackwell features.
 - **`gb300`** (default) — testing Grace-Blackwell Ultra Superchip: 278 GiB HBM3e per GPU, 1.4 kW TDP, and FP6 in addition to FP4/FP8.
 - **`l40s`** — testing Ada Lovelace inference workloads: FP8, PCIe Gen4, no NVLink (PCIe-only topology).
 - **`t4`** — testing Turing inference GPUs: low power (70W), small memory (16 GiB), 4 GPUs per node.
+- **`vrnvl72`** — testing a Vera Rubin compute tray: Rubin architecture with compute capability 10.7, 286,524 MiB of HBM4, 36 NVLink 6 links across nodes (IMEX and ComputeDomains), RoCE NICs, MIG, and a GPU name the driver does not yet know (`NVIDIA Graphics Device`).
 
 ### Custom Configuration
 
@@ -1020,7 +1030,7 @@ chart baseline  <  GPU profile default  <  user override (values / --set)
 The profile layer matters for **power**: one global `base_mw` can't fit every
 profile's `[min_limit_mw, max_limit_mw]` envelope, so profiles outside the 250W
 baseline declare their own base via a Helm-only `dynamic_metrics_defaults` key
-(`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W). The engine ignores that key;
+(`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W, `vrnvl72` ~420W, its idle draw). The engine ignores that key;
 it only takes effect once `enabled: true` folds it into `dynamic_metrics`.
 
 ```bash

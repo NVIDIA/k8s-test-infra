@@ -36,6 +36,31 @@ type SystemConfig struct {
 	CUDAVersionMajor int    `json:"cuda_version_major"`
 	CUDAVersionMinor int    `json:"cuda_version_minor"`
 	NumDevices       int    `json:"num_devices,omitzero"`
+
+	// ProductName is the system's DMI product name, the string a real node
+	// reports in /sys/class/dmi/id/product_name and GPU Feature Discovery
+	// labels as nvidia.com/gpu.machine. Empty falls back to the GPU name.
+	ProductName string `json:"product_name,omitempty"`
+
+	// AbsentFeatures is what a feature the profile leaves out answers; see
+	// absent_features.go. Empty means AbsentFeaturesLegacyDefaults.
+	AbsentFeatures string `json:"absent_features,omitempty"`
+
+	// DriverBranch names the driver branch nvmlSystemGetDriverBranch reports.
+	// Left empty it is derived from DriverVersion (580.65.06 -> r580_00), so
+	// only a profile modelling a point-release branch needs to state it.
+	DriverBranch string `json:"driver_branch,omitempty"`
+
+	// HIC lists the host interface cards nvmlSystemGetHicVersion reports, which
+	// nvidia-smi renders as the `hic_info` block of `nvidia-smi -q -u`. Absent
+	// on every modern system: HICs belong to the retired S-class enclosures.
+	HIC []HICConfig `json:"hic,omitempty"`
+}
+
+// HICConfig describes one host interface card.
+type HICConfig struct {
+	ID              uint32 `json:"id,omitzero"`
+	FirmwareVersion string `json:"firmware_version,omitempty"`
 }
 
 // DeviceConfig represents the full device configuration.
@@ -47,6 +72,17 @@ type DeviceConfig struct {
 	Serial          string `json:"serial,omitempty"`
 	BoardPartNumber string `json:"board_part_number,omitempty"`
 	VBIOSVersion    string `json:"vbios_version,omitempty"`
+
+	// PDI is the Per Device Identifier nvmlDeviceGetPdi reports. Nil derives
+	// one from the GPU's UUID, which keeps it distinct per GPU and the same in
+	// every process; set it to report an ID a capture or an outside inventory
+	// assigned. A pointer so that an explicit zero stays distinguishable from
+	// an unset key.
+	PDI *HexID `json:"pdi,omitempty"`
+
+	// Hostname seeds nvmlDeviceGetHostname_v1 before anything calls the setter.
+	// Blackwell and newer only, matching NVML's support statement.
+	Hostname string `json:"hostname,omitempty"`
 
 	// Architecture
 	Architecture      string                   `json:"architecture,omitempty"`
@@ -109,6 +145,11 @@ type DeviceConfig struct {
 	// HMM needs kernel support, ATS a Grace CPU — so the same GPU on the same
 	// driver can report either, and the profile has to say which host it models.
 	AddressingMode string `json:"addressing_mode,omitempty"`
+
+	// EGM reports Extended GPU Memory as enabled in the device capability
+	// mask. It is off unless the host's kernel module turns it on, which the
+	// captured Vera Rubin tray did.
+	EGM bool `json:"egm,omitzero"`
 
 	// Draining is the drain state nvmlDeviceModifyDrainState sets. A draining
 	// GPU drops out of enumeration for every process that initialises NVML
@@ -229,9 +270,15 @@ type PlatformConfig struct {
 	// "switch_connected" through an NVSwitch tray, or "direct_connected".
 	// Empty defaults to direct. See PeerType* constants.
 	PeerType string `json:"peer_type,omitempty"`
-	// ModuleID is the id of this GPU within the node, and the one field a
-	// profile is expected to vary per device.
+	// ModuleID is the id of this GPU within the node, so a profile sets it
+	// per device.
 	ModuleID uint8 `json:"module_id,omitzero"`
+	// GPUFabricGUID is what nvidia-smi reports as "GPU Fabric GUID"
+	// (platform.gpu_fabric_guid), carried in nvmlPlatformInfo_t.ibGuid. NVLink
+	// fabric managers identify a GPU by it, so it has to differ between GPUs.
+	// Nil leaves it zero; "pdi" reports the GPU's PDI, as Grace-Blackwell does;
+	// a hex value is reported as given, which takes a per-device entry.
+	GPUFabricGUID *FabricGUIDConfig `json:"gpu_fabric_guid,omitempty"`
 }
 
 // NVLinkErrorInjectionConfig injects NVLink data-link error accrual on a
@@ -313,6 +360,7 @@ type PCIConfig struct {
 // PCIeConfig defines PCIe link information
 type PCIeConfig struct {
 	MaxLinkGen       int    `json:"max_link_gen,omitzero"`
+	HostMaxLinkGen   int    `json:"host_max_link_gen,omitzero"`
 	CurrentLinkGen   int    `json:"current_link_gen,omitzero"`
 	MaxLinkWidth     int    `json:"max_link_width,omitzero"`
 	CurrentLinkWidth int    `json:"current_link_width,omitzero"`
@@ -337,6 +385,55 @@ type PowerConfig struct {
 	// profile feature. Absent means the device declines it, which is what
 	// every pre-Blackwell part does.
 	WorkloadProfiles *WorkloadPowerProfilesConfig `json:"workload_power_profiles,omitempty"`
+
+	// PowerMizerMode is the PowerMizer mode the device starts in: adaptive,
+	// prefer_maximum_performance, auto or prefer_consistent_performance.
+	// Empty, or a name NVML does not define, is auto — the driver-controlled
+	// mode.
+	PowerMizerMode string `json:"power_mizer_mode,omitempty"`
+
+	// SupportedPowerMizerModes lists the modes the device accepts, by the
+	// names PowerMizerMode uses. Unset, empty, or naming no NVML mode, it is
+	// all four; names NVML does not define are ignored.
+	SupportedPowerMizerModes []string `json:"supported_power_mizer_modes,omitempty"`
+
+	// Smoothing configures the datacenter power smoothing feature that
+	// `nvidia-smi power-smoothing` drives. Absent still models the feature on
+	// Blackwell and newer, disabled and with all-zero presets.
+	Smoothing *PowerSmoothingConfig `json:"smoothing,omitempty"`
+}
+
+// PowerSmoothingConfig models power smoothing, which holds the module's power
+// draw between a floor and the power limit while a workload ramps. Only the
+// reported and persisted state is simulated; it does not shape the simulated
+// power draw.
+type PowerSmoothingConfig struct {
+	// Supported overrides the architecture default, which is Blackwell and
+	// newer.
+	Supported *bool `json:"supported,omitempty"`
+
+	// State is "enabled" or "disabled"; anything else is disabled.
+	State string `json:"state,omitempty"`
+
+	// ActiveProfile is the preset in force, 0-4.
+	ActiveProfile uint32 `json:"active_profile,omitzero"`
+
+	// Profiles holds the preset definitions by profile id. It is a map
+	// rather than a list so a setter can record one parameter of one preset
+	// without rewriting the others.
+	Profiles map[uint32]PowerSmoothingProfileConfig `json:"profiles,omitempty"`
+}
+
+// PowerSmoothingProfileConfig is one preset profile definition. A preset the
+// config leaves out has every parameter at zero.
+type PowerSmoothingProfileConfig struct {
+	// PercentTMPFloor is the floor as a percentage of the power limit
+	// (TMP, total module power), 0-100.
+	PercentTMPFloor float64 `json:"percent_tmp_floor,omitzero"`
+
+	RampUpRateMWPerS     float64 `json:"ramp_up_rate_mw_per_s,omitzero"`
+	RampDownRateMWPerS   float64 `json:"ramp_down_rate_mw_per_s,omitzero"`
+	RampDownHysteresisMS uint32  `json:"ramp_down_hysteresis_ms,omitzero"`
 }
 
 // WorkloadPowerProfilesConfig models the pre-tuned performance/power recipes
@@ -376,6 +473,26 @@ type ThermalConfig struct {
 	SlowdownThreshold_C int `json:"slowdown_threshold_c,omitzero"`
 	MaxOperating_C      int `json:"max_operating_c,omitzero"`
 	TargetTemperature_C int `json:"target_temperature_c,omitzero"`
+
+	// TLimit is the T.Limit view an Ada-or-later board reports through
+	// GetMarginTemperature and the NVML_FI_DEV_TEMPERATURE_*_TLIMIT fields.
+	// The driver keeps it apart from the thresholds above, and on a real tray
+	// it cannot be derived from them, so a profile captured from hardware
+	// states it here. Without it the view is derived from the slowdown
+	// threshold.
+	TLimit *TLimitConfig `json:"tlimit,omitempty"`
+}
+
+// TLimitConfig is the T.Limit view of the thermal limits, in degrees C.
+// Reference is the temperature the margin is measured to: the margin reads
+// Reference minus the current temperature. The thresholds are the signed
+// distances nvidia-smi prints as the T.Limit rows; 0 is a valid distance, so
+// they are pointers and a nil one is derived as without this block.
+type TLimitConfig struct {
+	Reference_C    int  `json:"reference_c"`
+	Shutdown_C     *int `json:"shutdown_c,omitempty"`
+	Slowdown_C     *int `json:"slowdown_c,omitempty"`
+	MaxOperating_C *int `json:"max_operating_c,omitempty"`
 }
 
 // FanConfig defines fan settings.
@@ -549,6 +666,17 @@ type ECCConfig struct {
 	DefaultMode string           `json:"default_mode,omitempty"`
 	Errors      *ECCErrorsConfig `json:"errors,omitempty"`
 	SRAM        *ECCSramConfig   `json:"sram,omitempty"`
+	// DRAMEncryption is the DRAM encryption state of a Blackwell or newer
+	// board. Earlier architectures answer NOT_SUPPORTED whatever it holds.
+	DRAMEncryption *ECCDRAMEncryptionConfig `json:"dram_encryption,omitempty"`
+}
+
+// ECCDRAMEncryptionConfig defines the DRAM encryption mode. Changing it takes
+// a reboot, so the pending mode is the target the next boot applies while the
+// current mode is what the GPU runs with now.
+type ECCDRAMEncryptionConfig struct {
+	ModeCurrent string `json:"mode_current,omitempty"`
+	ModePending string `json:"mode_pending,omitempty"`
 }
 
 // ECCSramConfig defines the on-die SRAM ECC error state. Hardware counts SRAM
@@ -744,16 +872,89 @@ type DriverModelConfig struct {
 	Pending string `json:"pending,omitempty"`
 }
 
-// AccountingConfig defines accounting mode settings
+// AccountingConfig defines accounting mode settings. Running processes are
+// accounted from Processes; Terminated holds the records of processes that have
+// already exited, which the driver keeps until they are cleared or overwritten.
 type AccountingConfig struct {
 	Mode       string `json:"mode,omitempty"`
 	BufferSize int    `json:"buffer_size,omitzero"`
+	// Terminated runs oldest to newest, so a full buffer drops from the front.
+	Terminated []AccountedProcessConfig `json:"terminated,omitempty"`
+}
+
+// AccountedProcessConfig is the accounting record of a process that has exited.
+type AccountedProcessConfig struct {
+	PID          uint32 `json:"pid"`
+	GPUUtil      uint32 `json:"gpu_util,omitzero"` // lifetime SM utilization %
+	MemUtil      uint32 `json:"mem_util,omitzero"` // lifetime memory-bandwidth utilization %
+	MaxMemoryMiB uint64 `json:"max_memory_mib,omitzero"`
+	TimeMS       uint64 `json:"time_ms,omitzero"` // how long the process ran
 }
 
 // VirtualizationConfig defines virtualization settings
 type VirtualizationConfig struct {
 	Mode         string `json:"mode,omitempty"`
 	HostVGPUMode string `json:"host_vgpu_mode,omitempty"`
+	// VGPU carries the side of the hypervisor Mode selects: types and running
+	// instances for a host (host_vgpu), the guest block for the vGPU a VM sees
+	// (vgpu).
+	VGPU *VGPUConfig `json:"vgpu,omitempty"`
+}
+
+// VGPUConfig is the vGPU block of a virtualized GPU.
+type VGPUConfig struct {
+	Types     []VGPUTypeConfig     `json:"types,omitempty"`
+	Instances []VGPUInstanceConfig `json:"instances,omitempty"`
+	Guest     *VGPUGuestConfig     `json:"guest,omitempty"`
+}
+
+// VGPUTypeConfig declares one vGPU type a host GPU supports. Installs name the
+// types themselves: which a board offers depends on the vGPU software release,
+// not on the silicon.
+type VGPUTypeConfig struct {
+	ID                   uint32          `json:"id"`
+	Name                 string          `json:"name"`
+	Class                string          `json:"class,omitempty"`
+	FramebufferMiB       uint64          `json:"framebuffer_mib"`
+	MaxInstances         uint32          `json:"max_instances"`
+	MaxInstancesPerVM    uint32          `json:"max_instances_per_vm,omitempty"`
+	License              string          `json:"license,omitempty"`
+	NumDisplayHeads      uint32          `json:"num_display_heads,omitempty"`
+	Resolution           *VGPUResolution `json:"resolution,omitempty"`
+	FrameRateLimit       uint32          `json:"frame_rate_limit,omitempty"`
+	GPUInstanceProfileID *uint32         `json:"gpu_instance_profile_id,omitempty"`
+	// DeviceID and SubsystemID are the PCI identity the type presents to its
+	// guest, encoded as in PCIConfig. Zero takes the board's.
+	DeviceID    uint32 `json:"device_id,omitzero"`
+	SubsystemID uint32 `json:"subsystem_id,omitzero"`
+}
+
+// VGPUResolution is a vGPU type's maximum display resolution.
+type VGPUResolution struct {
+	Width  uint32 `json:"width"`
+	Height uint32 `json:"height"`
+}
+
+// VGPUInstanceConfig asks for Count running instances of the named type. An
+// omitted count is one instance, as in a MIG layout.
+type VGPUInstanceConfig struct {
+	Type  string `json:"type"`
+	Count int    `json:"count,omitempty"`
+}
+
+// VGPUGuestConfig is what a VM learns about its host from the vGPU: the host
+// driver, through a PCI vendor capability, and the license the guest holds.
+type VGPUGuestConfig struct {
+	HostDriverVersion string             `json:"host_driver_version"`
+	HostDriverBranch  string             `json:"host_driver_branch"`
+	License           *VGPULicenseConfig `json:"license,omitempty"`
+}
+
+// VGPULicenseConfig is the vGPU software license a guest holds.
+type VGPULicenseConfig struct {
+	Product string `json:"product,omitempty"`
+	State   string `json:"state,omitempty"`
+	Expiry  string `json:"expiry,omitempty"`
 }
 
 // GSPFirmwareConfig defines GSP firmware settings
@@ -794,7 +995,7 @@ type CPUConfig struct {
 // ProcessConfig defines a running process
 type ProcessConfig struct {
 	PID           uint32 `json:"pid"`
-	Type          string `json:"type,omitempty"` // "C" for compute, "G" for graphics
+	Type          string `json:"type,omitempty"` // "C" compute (default), "G" graphics, "M" MPS client
 	Name          string `json:"name,omitempty"`
 	UsedMemoryMiB uint64 `json:"used_memory_mib,omitzero"`
 	SmUtil        uint32 `json:"sm_util,omitzero"`  // SM utilization %
@@ -1057,6 +1258,12 @@ type NVLinkConfig struct {
 	// i.e. 53125 Mbps.
 	BandwidthPerLinkMbps int  `json:"bandwidth_per_link_mbps,omitzero"`
 	C2CEnabled           bool `json:"c2c_enabled,omitzero"`
+
+	// MultiNode marks a board whose NVLink domain spans nodes (GB200 and GB300
+	// NVL72, later Vera Rubin and NVL576), as opposed to an NVLink fabric
+	// confined to one baseboard (HGX). Only such boards run IMEX and take part
+	// in DRA ComputeDomains.
+	MultiNode bool `json:"multi_node,omitempty"`
 
 	// NvleEnabled mirrors nvlink.nvle_enabled: NVLink encryption, reported
 	// by nvmlDeviceGetNvLinkInfo and the " NVLE:" row of

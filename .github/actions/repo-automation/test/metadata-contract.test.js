@@ -79,7 +79,7 @@ function metadataState(overrides = {}) {
       baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
     },
     filePages: [
-      [{ path: "docs/guide.md", additions: 30, deletions: 10, status: "modified" }],
+      [{ path: "docs/guide.md", additions: 70, deletions: 20, status: "modified" }],
       [{ path: "pkg/gpu/mocknvml/model.go", additions: 8, deletions: 2, status: "modified" }],
     ],
     commitPages: [[signedCommit()]],
@@ -517,7 +517,10 @@ test("GitHub boundary paginates and normalizes every metadata list", async () =>
     { path: "a.go", additions: 1, deletions: 2, status: "modified" },
     { path: "b.go", additions: 3, deletions: 4, status: "added" },
   ]);
-  assert.equal((await github.listPullRequestCommits(42)).length, 2);
+  assert.deepEqual((await github.listPullRequestCommits(42)).map(({ sha, parents }) => ({ sha, parents })), [
+    { sha: "live-head-oid-6f9d", parents: [{ sha: "parent" }] },
+    { sha: "second", parents: [{ sha: "parent" }] },
+  ]);
   assert.deepEqual(await github.listPullRequestReviews(42), [
     {
       id: 7,

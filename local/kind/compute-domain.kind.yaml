@@ -1,17 +1,22 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Derived from tests/e2e/kind-compute-domain-config.yaml, which has neither DRA
-# setting; the DynamicResourceAllocation gate and resource.k8s.io/v1beta1 are added
-# here because the scenario supports --compute-domain --dra.
+# The DynamicResourceAllocation and DRAExtendedResource gates and
+# resource.k8s.io/v1beta1 are on because the scenario supports --compute-domain
+# --dra; local/kind/default.kind.yaml says what DRAExtendedResource adds. The
+# ComputeDomain e2e and guide use the two-rack
+# tests/e2e/kind-compute-domain-racks.yaml instead.
 #
 # Workers are named worker-0..3 through JoinConfiguration, and
-# local/compute-domain/topology.yaml assigns cliques by those names.
+# local/compute-domain/topology.yaml assigns cliques by those names. No node
+# carries a clique label: consumers such as topograph read the fabric from the
+# mock driver.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: mokka-compute-domain
 featureGates:
   DynamicResourceAllocation: true
+  DRAExtendedResource: true
 nodes:
   - role: control-plane
     kubeadmConfigPatches:
@@ -26,7 +31,6 @@ nodes:
           name: control-0
   - role: worker
     labels:
-      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000ab.0"
       mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |
@@ -35,7 +39,6 @@ nodes:
           name: worker-0
   - role: worker
     labels:
-      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000ab.1"
       mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |
@@ -44,7 +47,6 @@ nodes:
           name: worker-1
   - role: worker
     labels:
-      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000cd.0"
       mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |
@@ -53,7 +55,6 @@ nodes:
           name: worker-2
   - role: worker
     labels:
-      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000cd.1"
       mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |

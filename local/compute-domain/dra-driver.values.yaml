@@ -1,9 +1,15 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# image.repository and image.tag are deliberately not set: the root Tiltfile
-# injects the locally built compute-domain-daemon image through image_keys, and a
-# value here would race that injection and defeat the rebuild wiring.
+# Layered on local/dra/dra-driver.values.yaml when --compute-domain and --dra are
+# set. The driver keeps its upstream images; on gb200 the node agent stages what
+# it reads.
 resources:
   computeDomains:
     enabled: true
+
+# The node agent's substitute /proc/devices, which carries the
+# nvidia-caps-imex-channels major a real NVIDIA kernel module registers. The
+# compute-domain kubelet plugin reads it at startup and aborts without it.
+# Needs chart 0.5.0 or later.
+altProcDevices: /var/lib/nvml-mock/imex/proc-devices

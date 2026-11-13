@@ -69,7 +69,7 @@ Every flag also reads an environment variable; the flag wins when both are set.
 | `--cdi-spec-host-path` | `MOKKA_NRI_CDI_SPEC_HOST_PATH` | `/var/run/cdi/nvml-mock-nri.yaml` | Spec checked before a CDI reference is emitted; a missing spec falls back to raw injection |
 | `--infiniband-annotation` | `MOKKA_NRI_INFINIBAND_ANNOTATION` | `nvml-mock.nvidia.com/infiniband` | Pod annotation key; value `true` enables the mock InfiniBand tools and shims, independently of GPU access |
 | `--imex-channel-annotation` | `MOKKA_NRI_IMEX_CHANNEL_ANNOTATION` | `nvml-mock.nvidia.com/imex-channels` | Pod annotation key; value `true` adds `/dev/nvidia-caps-imex-channels/*` nodes |
-| `--imex-channel-host-path` | `MOKKA_NRI_IMEX_CHANNEL_HOST_PATH` | `<overlay-host-path>/driver/dev/nvidia-caps-imex-channels` | Host path containing the mock IMEX channel nodes staged by `imex.mockChannels` |
+| `--imex-channel-host-path` | `MOKKA_NRI_IMEX_CHANNEL_HOST_PATH` | `<overlay-host-path>/driver/dev/nvidia-caps-imex-channels` | Host path containing the mock IMEX channel nodes the node agent stages on multi-node NVLink profiles (`nvlink.multi_node`) |
 
 The three `<overlay-...>` derivations resolve against whatever the overlay flags
 ended up being, not against the packaged defaults. An error out of the plugin

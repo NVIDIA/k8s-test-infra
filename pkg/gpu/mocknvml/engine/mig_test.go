@@ -433,6 +433,35 @@ func TestMigDevice_Identity(t *testing.T) {
 	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
 }
 
+// TestMigDevice_MemoryInfoReservesNothing: a MIG device reports its slice
+// through both memory getters, without the parent board's reserved memory.
+func TestMigDevice_MemoryInfoReservesNothing(t *testing.T) {
+	t.Parallel()
+
+	cfg := a100MIGConfig()
+	cfg.Memory.ReservedBytes = 611319808
+	cfg.Memory.FreeBytes = a100_40GiB - cfg.Memory.ReservedBytes
+	dev := newTestDeviceWithConfig(t, cfg)
+	enableMIG(t, dev)
+	createSpanningCI(t, createOneSliceGI(t, dev))
+
+	migDev, ret := dev.GetMigDeviceHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+
+	slice := uint64(4864) * oneMiB
+
+	v1, ret := migDev.GetMemoryInfo()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, nvml.Memory{Total: slice, Free: slice}, v1)
+
+	v2, ret := migDev.GetMemoryInfo_v2()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, uint64(0), v2.Reserved, "the parent's reserved memory is not the slice's")
+	require.Equal(t, slice, v2.Total)
+	require.Equal(t, slice, v2.Free)
+	require.Equal(t, uint64(0), v2.Used)
+}
+
 // TestMigDeviceUUID_IsDeterministic matters because two processes load the
 // mock independently and must agree on device identity, exactly as they
 // already must for full-GPU UUIDs. The derivation is therefore a pure function

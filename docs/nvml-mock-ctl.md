@@ -349,7 +349,12 @@ model as the profile's `nvlink.defaults.error_rate`), so consumers that sample
 over time see a *rising error rate* rather than a one-shot step. It surfaces on
 both the per-counter direct API (`nvmlDeviceGetNvLinkErrorCounter`) and the DL
 error field values (`NVML_FI_DEV_NVLINK_ERROR_DL_{REPLAY,RECOVERY,CRC}`, field
-ids 161–163, e.g. `dcgmi dmon -e 161,162,163`). Injection lands only on links the
+ids 161–163, e.g. `dcgmi dmon -e 161,162,163`), and in the NVLink5 error
+counters (`NVML_FI_DEV_NVLINK_COUNT_*`) that `nvidia-smi nvlink -e` reads. On a
+615 or newer driver only the NVLink5 counters carry it: the direct API and fields
+161–163 answer `NOT_SUPPORTED`, as on a real 615 tray (see
+[NVLink telemetry on a 615 driver](configuration.md#nvlink-telemetry-on-a-615-driver)).
+Injection lands only on links the
 device actually has **active** — a nonexistent link is never conjured into an
 errored one — and `--links` (comma-separated ids) narrows it further; omit it to
 target all active links (the "GPU lost its switch uplinks" fault).
@@ -551,6 +556,10 @@ at a time:
   (no write, no lock), so a reset on a healthy GPU never depends on the overrides
   being writable.
 
+Unlike the CLI, it also applies an ECC mode that `nvidia-smi -e` left pending, as
+a reset does on hardware: the GPU comes back reporting that mode as both current
+and pending. `nvml-mock-ctl reset` drops it with every other override.
+
 The reset works from an injected consumer container as well as from the nvml-mock
 pod, which is what lets a remediation controller run it where the workload sees
 the GPU. Clearing a bucket rewrites `overrides.yaml` under an flock, so the config
@@ -564,7 +573,7 @@ healthy ones reported success through the no-write path above.
 | Action | Effect on runtime overrides | Result |
 | ------ | --------------------------- | ------ |
 | `nvml-mock-ctl reset [--gpu <t>]` | clears the targeted bucket(s) from `overrides.yaml` | device(s) revert to pristine profile within one TTL |
-| `nvidia-smi --gpu-reset [-i <idx>]` | clears the same per-device bucket(s) — see [via nvidia-smi](#reset-via-nvidia-smi) | device(s) revert to pristine profile within one TTL |
+| `nvidia-smi --gpu-reset [-i <idx>]` | clears the same per-device bucket(s) and applies a pending ECC mode — see [via nvidia-smi](#reset-via-nvidia-smi) | device(s) revert to pristine profile within one TTL |
 | `nvml-mock-ctl fail --gpu <t> --mode healthy` | removes just the `failure` block for the target | that device recovers within one TTL; other overrides stay |
 | `nvml-mock-ctl fabric-health --gpu <t> healthy` | clears just the fabric health conditions for the target | that device's fabric reports healthy within one TTL; other overrides stay |
 | DaemonSet pod restart | the node daemon deletes `overrides.yaml` at startup | **all** overrides wiped; back to pristine profile |

@@ -10,6 +10,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
+	imexpaths "github.com/NVIDIA/k8s-test-infra/internal/imex"
 	"github.com/NVIDIA/k8s-test-infra/internal/kmod"
 	"github.com/NVIDIA/k8s-test-infra/internal/migcaps"
 	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
@@ -72,7 +73,8 @@ type cdiDevice struct {
 
 // buildNvidiaSpec returns the nvidia.com/gpu CDI spec consumed by nvidia-container-runtime.
 // It includes library mounts, an ldcache hook, and per-GPU + "all" device entries.
-func buildNvidiaSpec(state *agent.State) cdiSpec {
+// imexStaged says whether the IMEX node software is staged to mount.
+func buildNvidiaSpec(state *agent.State, imexStaged bool) cdiSpec {
 	devRoot := overlayHostRoot + "/driver/dev"
 
 	edits := &cdiEdits{
@@ -138,6 +140,7 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 
 	edits.Mounts = append(edits.Mounts, pciSysfsMounts(state)...)
 	edits.Mounts = append(edits.Mounts, kernelModuleMounts()...)
+	edits.Mounts = append(edits.Mounts, imexMounts(imexStaged)...)
 
 	// The .so resolving fabric.state:auto runs in the consumer container, so the
 	// marker dir mounts there — but only where it exists, else creation fails.
@@ -269,6 +272,34 @@ func pciSysfsMounts(state *agent.State) []cdiMount {
 		mounts = append(mounts, cdiMount{
 			HostPath:      filepath.Join(overlayHostRoot, relPath),
 			ContainerPath: "/" + relPath,
+			Options:       readOnlyBind,
+		})
+	}
+	return mounts
+}
+
+// imexMounts serves the IMEX daemon and control tool where the NVIDIA Container
+// Toolkit mounts them on a real GB200 or GB300 node, which lists nvidia-imex
+// and nvidia-imex-ctl among the driver binaries a GPU container gets.
+// Mokka's nvidia-imex is the --nogpu shim, which runs the real daemon from
+// beside itself, so nvidia-imex.real goes too.
+//
+// Only when staged, since a mount with a missing source fails container
+// creation for the whole pod. A Stage that withdraws IMEX leaves this spec
+// naming it until the Apply that follows; that happens only when IMEX goes
+// away. A restart does not open that window: after a crash the agent finds IMEX
+// still staged and keeps it, and a graceful shutdown revokes this spec before
+// it discards IMEX.
+func imexMounts(staged bool) []cdiMount {
+	if !staged {
+		return nil
+	}
+	binaries := []string{imexpaths.DaemonBinary, imexpaths.RealDaemonBinary, imexpaths.CtlBinary}
+	mounts := make([]cdiMount, 0, len(binaries))
+	for _, binary := range binaries {
+		mounts = append(mounts, cdiMount{
+			HostPath:      overlayHostRoot + "/" + imexpaths.BinDir + "/" + binary,
+			ContainerPath: imexpaths.ContainerBinDir + "/" + binary,
 			Options:       readOnlyBind,
 		})
 	}

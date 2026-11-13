@@ -170,6 +170,12 @@ func stageCUDAShim(ctx context.Context, h *host.Host, state *agent.State) error 
 // exec nvidia-smi to confirm driver presence. The ELF uses the NVML shim via
 // RPATH; the shell fallback covers environments where the ELF is unavailable.
 func stageNvidiaSMI(ctx context.Context, h *host.Host, state *agent.State) error {
+	return stageNvidiaSMIFrom(ctx, h, state, defaultNvidiaSMIImage)
+}
+
+// stageNvidiaSMIFrom stages the nvidia-smi img bundles for the profile's driver
+// and points the node agent's own nvidia-smi at it.
+func stageNvidiaSMIFrom(ctx context.Context, h *host.Host, state *agent.State, img nvidiaSMIImage) error {
 	binDir := h.RootPath("driver/usr/bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return err
@@ -182,13 +188,26 @@ func stageNvidiaSMI(ctx context.Context, h *host.Host, state *agent.State) error
 	if err := fsutil.Write(filepath.Join(binDir, "nvidia-smi.sh"), []byte(fallback), 0o755); err != nil {
 		return err
 	}
-	elfPath := filepath.Join(binDir, "nvidia-smi")
-	if _, err := os.Stat("/usr/local/bin/nvidia-smi"); err == nil {
-		zap.L().Debug("staging nvidia-smi from the real ELF binary")
-		return fsutil.Copy("/usr/local/bin/nvidia-smi", elfPath, 0o755)
+	elfPath := filepath.Join(binDir, nvidiaSMIName)
+	src, version, err := img.pick(dv)
+	if err != nil {
+		// The shipped image always bundles one, so this is a broken image:
+		// the stub prints a banner and nothing else nvidia-smi does.
+		zap.L().Warn("no nvidia-smi binary in the image; staging the shell stub", zap.Error(err))
+		return fsutil.Symlink("nvidia-smi.sh", elfPath)
 	}
-	zap.L().Debug("no nvidia-smi ELF binary in image; staging the shell fallback")
-	return fsutil.Symlink("nvidia-smi.sh", elfPath)
+	if err := fsutil.Copy(src, elfPath, 0o755); err != nil {
+		return err
+	}
+	zap.L().Info("staged nvidia-smi", zap.String("version", version), zap.String("driver", dv))
+
+	// Fail open: consumers already get the staged binary, and the pod keeps
+	// the image's own nvidia-smi if its PATH entry cannot be repointed.
+	if err := repoint(elfPath, img.podPath); err != nil {
+		zap.L().Warn("node agent's own nvidia-smi still runs the image default, not the staged one",
+			zap.String("path", img.podPath), zap.Error(err))
+	}
+	return nil
 }
 
 // writeProcFS provides the procfs entries that libnvidia-ml and
@@ -329,18 +348,22 @@ const machineTypeRel = "driver/config/machine-type"
 // without DMI (Docker Desktop) the path does not exist at all (#681). A file of
 // our own sidesteps both.
 //
-// The value is the GPU's product name for want of a platform field in the
-// profiles, so gpu.machine reads NVIDIA-GB300-NVL rather than the
-// NVIDIA-GB300-NVL72 a real tray reports.
+// The value is the profile's system.product_name, the DMI product name a real
+// node reports. A profile without one falls back to the GPU's product name, so
+// gpu.machine reads NVIDIA-GB300-NVL rather than the NVIDIA-GB300-NVL72 a real
+// tray reports.
 func writeMachineType(ctx context.Context, h *host.Host, state *agent.State) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if len(state.Devices) == 0 || state.Devices[0].Name == "" {
+	name := state.NodeShape.ProductName
+	if name == "" && len(state.Devices) > 0 {
+		name = state.Devices[0].Name
+	}
+	if name == "" {
 		return nil
 	}
-	return fsutil.Write(h.RootPath(machineTypeRel),
-		[]byte(state.Devices[0].Name+"\n"), 0o644)
+	return fsutil.Write(h.RootPath(machineTypeRel), []byte(name+"\n"), 0o644)
 }
 
 // writeEngineConfig writes the GPU profile so the mock NVML shim knows how many

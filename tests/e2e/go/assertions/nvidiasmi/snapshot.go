@@ -208,6 +208,10 @@ func (s Snapshot) MaxUncorrectedECCAggregate() (int, bool) {
 // TemperatureC is <gpu_temp>, i.e. temperature.gpu.
 func (g GPU) TemperatureC() (int, bool) { return g.element.Temperature.GPUTemp.intValue() }
 
+// TLimitC is <gpu_temp_tlimit>, the T.Limit margin: degrees left before the GPU
+// reaches its T.Limit reference.
+func (g GPU) TLimitC() (int, bool) { return g.element.Temperature.TLimit.intValue() }
+
 // UtilizationGPUPercent is <gpu_util>, i.e. utilization.gpu.
 func (g GPU) UtilizationGPUPercent() (int, bool) { return g.element.Utilization.GPU.intValue() }
 
@@ -326,6 +330,7 @@ type PlatformInfo struct {
 	HostID              string
 	PeerType            string
 	ModuleID            string
+	GPUFabricGUID       string
 }
 
 // PlatformInfo decodes this GPU's <platformInfo> block.
@@ -338,8 +343,12 @@ func (g GPU) PlatformInfo() PlatformInfo {
 		HostID:              strings.TrimSpace(string(p.HostID)),
 		PeerType:            strings.TrimSpace(string(p.PeerType)),
 		ModuleID:            strings.TrimSpace(string(p.ModuleID)),
+		GPUFabricGUID:       strings.TrimSpace(string(p.GPUFabricGUID)),
 	}
 }
+
+// PDI is the body of <pdi>, as rendered.
+func (g GPU) PDI() string { return strings.TrimSpace(string(g.element.PDI)) }
 
 // ModuleID is <module_id> inside <platformInfo>: which GPU this is within its
 // node. false when the platform reports no location, so a caller deriving a

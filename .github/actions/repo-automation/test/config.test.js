@@ -150,7 +150,22 @@ test("loads exact authority, branch, review, command, bot, and size policy", () 
       emails: ["41898282+github-actions[bot]@users.noreply.github.com"],
     },
   ]);
-  assert.deepEqual(policy.sizeThresholds, { S: 0, M: 50, L: 250, XL: 1000 });
+  assert.deepEqual(policy.sizeThresholds, { S: 0, M: 100, L: 500, XL: 1000 });
+});
+
+test("describes each size label with the changed-line range its policy threshold assigns", () => {
+  const { labels, policy } = loadConfig(repositoryRoot);
+  const descriptions = Object.fromEntries(labels.labels
+    .filter((label) => label.name.startsWith("size/"))
+    .map((label) => [label.name, label.description]));
+  const { M, L, XL } = policy.sizeThresholds;
+
+  assert.deepEqual(descriptions, {
+    "size/S": `PR metadata automation manages changes with fewer than ${M} changed lines.`,
+    "size/M": `PR metadata automation manages changes with ${M} to ${L - 1} changed lines.`,
+    "size/L": `PR metadata automation manages changes with ${L} to ${XL - 1} changed lines.`,
+    "size/XL": `PR metadata automation manages changes with at least ${XL} changed lines.`,
+  });
 });
 
 test("declares the required CI that merge-ci.js hard-coded at 809294d", () => {
@@ -169,7 +184,7 @@ test("declares the required CI that merge-ci.js hard-coded at 809294d", () => {
       },
       {
         path: ".github/workflows/helm.yaml",
-        files: ["deployments/nvml-mock/helm/**", "deployments/mokka-crds/helm/**"],
+        files: [".github/workflows/helm.yaml", "deployments/nvml-mock/helm/**", "deployments/mokka-crds/helm/**"],
       },
       {
         path: ".github/workflows/dependency-integrity.yaml",
@@ -177,7 +192,7 @@ test("declares the required CI that merge-ci.js hard-coded at 809294d", () => {
       },
       {
         path: ".github/workflows/deploy-pages.yaml",
-        files: ["docs/**", "mkdocs.yml", "requirements-docs.txt", "Makefile", ".github/workflows/deploy-pages.yaml"],
+        files: ["docs/**", "enhancements/**", "hack/mkdocs_meps.py", "hack/test_mkdocs_meps.py", "mkdocs.yml", "requirements-docs.txt", "Makefile", ".github/workflows/deploy-pages.yaml"],
       },
     ],
     checks: [{ name: "DCO", appId: 1861 }],

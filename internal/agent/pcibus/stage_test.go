@@ -485,3 +485,13 @@ func TestStagePCIShim_StagesEverySoname(t *testing.T) {
 		require.Equal(t, name, string(data))
 	}
 }
+
+func TestBuildIdentities_ForwardsVGPUGuest(t *testing.T) {
+	t.Parallel()
+	ids := buildIdentities(&agent.State{Devices: []agent.DeviceSpec{
+		{PCIBusID: "0000:07:00.0", VGPUGuest: &agent.VGPUGuestSpec{HostDriverVersion: "550.163.01", HostDriverBranch: "r550_00"}},
+		{PCIBusID: "0000:0F:00.0"},
+	}})
+	require.Equal(t, &pcisysfs.VGPUHostDriver{Version: "550.163.01", Branch: "r550_00"}, ids["0000:07:00.0"].VGPUHostDriver)
+	require.Nil(t, ids["0000:0f:00.0"].VGPUHostDriver)
+}

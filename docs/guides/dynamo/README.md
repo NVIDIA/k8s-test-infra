@@ -46,36 +46,28 @@ profile the node runs.
 Takes about 15 minutes, most of it pulling the GPU Operator and Dynamo images.
 Both Dynamo images used here are multi-arch, so it runs on arm64 hosts too.
 
-## Step 1 — Create a cluster with NRI enabled
-
-The Mokka node image ships containerd with CDI enabled and the NVIDIA container
-runtime installed. The NRI plugin also needs containerd's NRI socket, which
-the config below turns on.
+## Step 1 — Create a cluster
 
 ```bash
 cat > kind.yaml <<'EOF'
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-containerdConfigPatches:
-  - |-
-    [plugins."io.containerd.nri.v1.nri"]
-      disable = false
-      disable_connections = false
-      socket_path = "/var/run/nri/nri.sock"
 nodes:
   - role: control-plane
   - role: worker
 EOF
 
-kind create cluster --name dynamo --config kind.yaml \
-  --image ghcr.io/nvidia/mokka-kind-node:latest
+kind create cluster --name dynamo --config kind.yaml
 ```
+
+Mokka's node daemon sets up containerd for both the GPU Operator and the NRI
+plugin when it starts in Step 2, so the cluster needs nothing more; see
+[Container runtime setup](../../components/node-daemon.md#container-runtime-setup).
 
 ## Step 2 — Install Mokka with the NRI plugin
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --version 0.5.0 \
   --namespace mokka --create-namespace \
   --set nri.enabled=true \
   --set 'nri.excludedNamespaces={gpu-operator}' \

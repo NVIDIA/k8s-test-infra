@@ -128,10 +128,25 @@ labeler:
 # keeps the node quarantined even after the GPU cools back down, so the
 # recovery/uncordon path never completes. Suppressing it lets all checks clear
 # once the thermal margin recovers.
+#
+# DCGM_FR_IMEX_UNHEALTHY is not the fault under test either. On a board whose
+# NVLink domain spans nodes (gb200 and gb300, for example), Mokka stages the
+# IMEX tools, so DCGM's health check runs `nvidia-imex-ctl -q`. This demo runs
+# no IMEX daemon, so the query fails, DCGM reports "IMEX daemon status is -3
+# (not READY)", and NVSentinel cordons every worker before any GPU is heated.
+# Other boards, such as the default h100, have no nvidia-imex-ctl, which DCGM
+# treats as healthy. A real multi-node NVLink cluster runs the IMEX daemon and
+# should keep this check.
 gpu-health-monitor:
   dcgmHealthCheck:
     suppressedErrorCodes:
+      - DCGM_FR_CLOCK_THROTTLE_POWER
+      - DCGM_FR_CLOCKS_EVENT_POWER
+      - DCGM_FR_CLOCK_THROTTLE_THERMAL
+      - DCGM_FR_CLOCKS_EVENT_THERMAL
       - DCGM_FR_NVLINK_EFFECTIVE_BER_THRESHOLD
+      - DCGM_FR_NVLINK_SYMBOL_BER_THRESHOLD
+      - DCGM_FR_IMEX_UNHEALTHY
   # GpuThermalMarginWatch (DCGM field 153 vs the per-GPU slowdown T.Limit offset
   # from gpu_metadata.json) is the fault this demo exercises. By default the
   # watch is enabled but runs dry (gpuTempLimitStoreOnly=true), so its events

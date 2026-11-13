@@ -50,6 +50,7 @@ Kubernetes: `>= 1.28.0-0`
 | controlPlane.tolerations | list | `[]` | Tolerations for control-plane pods. |
 | controlPlane.topologySpreadConstraints | list | `[]` | Topology spread constraints for control-plane pods. |
 | controlPlane.workers | int | `2` | Number of control-plane worker goroutines. |
+| driverBranch | string | `""` | Driver branch nvmlSystemGetDriverBranch reports; empty derives it from the driver version ("580.65.06" -> "r580_00"). |
 | driverVersion | string | `""` | Driver version reported by the simulated driver; empty derives it from the profile. |
 | extraObjects | list | `[]` | Additional Kubernetes objects rendered with the release after tpl evaluation. |
 | fabricmanager.enabled | string | `""` | Enable or disable the fake fabric manager; empty derives it from the profile. |
@@ -70,17 +71,24 @@ Kubernetes: `>= 1.28.0-0`
 | gpu.mig.enabled | bool | `false` | Enable MIG partitioning for profiles that support it. |
 | gpu.mig.gpuInstances | list | `[]` | GPU instance layout to create on each simulated device. |
 | gpu.profile | string | `"gb300"` | GPU profile and per-device simulation settings. |
+| hic | list | `[]` | Host interface cards `nvidia-smi -q -u` reports, as `{id, firmwareVersion}` entries. |
 | image.digest | string | `""` | Immutable image digest; when set, it takes precedence over the tag. |
 | image.pullPolicy | string | `"IfNotPresent"` | Kubernetes image pull policy. |
 | image.repository | string | `"ghcr.io/nvidia/nvml-mock"` | Container image repository for the node agent. |
 | image.tag | string | `""` | Image tag; defaults to the chart appVersion. |
 | imagePullSecrets | list | `[]` | Pull secrets for nvml-mock, NRI, and control-plane pods. |
-| imex.mockChannels.capsMajor | int | `236` | Major number used for IMEX capability devices. |
-| imex.mockChannels.channelCount | int | `2048` | Number of IMEX channel device nodes to create per node. |
-| imex.mockChannels.channelMajor | int | `235` | Major number used for IMEX channel devices. |
-| imex.mockChannels.enabled | bool | `false` | Enable simulation of IMEX channel devices. |
+| imex.binaries.download.timeout | string | `"1m"` | Time limit of one IMEX archive download attempt while the IMEXDownload feature gate is on. |
+| imex.binaries.image.digest | string | `""` | Immutable IMEX binaries image digest; when set, it takes precedence over the tag. |
+| imex.binaries.image.pullPolicy | string | `""` | IMEX binaries image pull policy; empty picks IfNotPresent, or Always for a "latest" tag. |
+| imex.binaries.image.repository | string | `""` | IMEX binaries image repository; empty (default) renders no init container. |
+| imex.binaries.image.tag | string | `""` | IMEX binaries image tag, the IMEX version it carries; required unless digest is set. |
+| imex.binaries.resources.requests.cpu | string | `"10m"` | CPU requested by the IMEX binaries init container. |
+| imex.binaries.resources.requests.memory | string | `"32Mi"` | Memory requested by the IMEX binaries init container. |
+| imex.deviceNumbers.capsMajor | int | `236` | Major number used for IMEX capability devices. |
+| imex.deviceNumbers.channelMajor | int | `235` | Major number used for IMEX channel devices. |
 | infiniband.mockTier | string | `""` | InfiniBand mock tier; empty derives the tier from the selected profile. mockTier sets the container's MOCK_IB value: off | sysfs | full. Defaults to "full" for InfiniBand-enabled profiles and "sysfs" for non-IB profiles (sysfs keeps the libibmocksys redirect active so any real host IB is masked, i.e. ibstat reports 0 HCAs). Leaving this empty auto-derives that per profile. Set it explicitly to override (an invalid value fails `helm template`). |
-| infiniband.ping.networkPolicy.enabled | bool | `true` | Restrict mock InfiniBand traffic to peer nvml-mock pods. |
+| infiniband.ping.networkPolicy.enabled | bool | `true` | Restrict mock InfiniBand traffic to peer nvml-mock pods. Rendered only at the `full` tier, the only one that listens on the port. |
+| infiniband.ping.networkPolicy.peerNamespaces | list | `[]` | Namespaces besides the release's whose nvml-mock pods may reach the port, for a fleet split across namespaces. Empty admits the release's namespace only, which keeps OVN-Kubernetes from re-listing every Pod in the cluster on each Pod event. |
 | infiniband.ping.port | int | `18515` | TCP port used by the mock InfiniBand ping service. |
 | integrations.fakeGpuOperator.enabled | bool | `false` | Enable fake-gpu-operator profile integration. |
 | integrations.fakeGpuOperator.profileLabels."run.ai/gpu-profile" | string | `"true"` | Additional label applied to generated fake-gpu-operator profiles. |

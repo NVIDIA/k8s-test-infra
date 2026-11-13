@@ -72,21 +72,25 @@ $ kubectl -n node-feature-discovery wait \
 
 ## Step 3 — Verify the label and its provenance
 
-NFD polls the local-source directory and adds the namespaced label to nodes
-where the feature file exists:
+NFD polls the local-source directory on every node its worker runs on and adds
+the namespaced label where the feature file exists:
 
 ```console
 $ kubectl get nodes \
     -o custom-columns='NODE:.metadata.name,NFD_GPU:.metadata.labels.feature\.node\.kubernetes\.io/pci-10de\.present'
 ```
 
-The simulated nodes should report `true`:
+The worker reports `true`:
 
 ```text
-NODE                         NFD_GPU
-mokka-nfd-control-plane      true
-mokka-nfd-worker             true
+NODE                      NFD_GPU
+mokka-nfd-control-plane   <none>
+mokka-nfd-worker          true
 ```
+
+The control plane stays unlabelled. Mokka writes the feature file there too,
+but the NFD worker does not tolerate the control-plane taint, so nothing reads
+the file on that node.
 
 The input is a feature file, not a label written by Mokka. You can inspect it
 from the node-agent container:
@@ -108,7 +112,7 @@ when a workload or admission rule needs to distinguish NFD-owned labels from
 labels written by another component:
 
 ```console
-$ kubectl get node mokka-nfd-control-plane \
+$ kubectl get node mokka-nfd-worker \
     -o jsonpath='{.metadata.annotations.nfd\.node\.kubernetes\.io/feature-labels}{"\n"}'
 ```
 

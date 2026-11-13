@@ -54,20 +54,33 @@ it. The chart profiles are the deployed source of truth.
 ### Labels select the specs
 
 Every spec carries Ginkgo labels, and every profile name is also a label. Select
-work with `--label-filter`. This is how a scenario is run in isolation, and how
-CI splits the suite into parallel jobs.
+work with `--label-filter`. Scenario labels such as `dra` and `multi-node`
+select a whole scenario; check labels such as `nvidia-smi`, `nvlink`,
+`mockfiles`, `ib`, and `device-plugin` are shared across scenarios. Combine
+scenario and check labels with `&&` to select a check within one scenario.
+CI uses scenario labels to split the suite into parallel jobs.
 
 **`make e2e` does not run everything.** It applies a default filter written
 entirely as exclusions:
 
 ```make
-E2E_DEFAULT_LABEL_FILTER ?= !gfd && !dra && !gpu-operator && !multi-node && !nri && !nfd
+E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu
 ```
 
 The filter is phrased that way because the standalone scenario has no scenario
-label of its own — it is whatever remains once the six specialised scenarios are
-excluded. So a bare `make e2e` runs the standalone scenario only; use the
-per-scenario targets for the rest.
+label of its own — it is whatever remains once the specialised scenarios are
+excluded. So a bare `make e2e` runs the standalone scenario and the
+`container-runtime` checks; use the per-scenario targets for the rest.
+
+Setting `E2E_GINKGO_FLAGS` **replaces** that default filter; it does not add to
+it. Keep all default scenario exclusions when selecting a standalone subset,
+including `!nri`: the NRI scenario also uses `nvidia-smi`. Selecting a label does not
+provision the scenario's dependencies. See the [DRA and multi-node
+setup](#dra-and-multi-node-setup) before selecting their checks.
+
+`make e2e` passes `--fail-on-empty`, so a filter matching no specs fails
+instead of passing. It does not validate label names: `nvidia-smi || nvlnk`
+still selects the `nvidia-smi` specs despite the misspelled second term.
 
 Specs also skip themselves when the selected profile cannot support them: no
 fabric means no fabric-health checks, no InfiniBand means no `ibping`, fewer
@@ -120,8 +133,8 @@ make e2e E2E_PROFILES=a100
 # Several profiles against the same cluster.
 make e2e E2E_PROFILES="a100 h100"
 
-# A subset of checks.
-make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
+# A subset of standalone checks.
+make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu"'
 
 # Against an image Tilt deployed under a different ref.
 make e2e E2E_IMAGE=ghcr.io/nvidia/nvml-mock:tilt-<digest>
@@ -138,11 +151,33 @@ tests that must not be scoped by `E2E_PROFILES`.
 | Standalone | `make e2e` | `labels`, `fgo`, `mockfiles`, `nvidia-smi`, `nvlink`, `ib`, `pcisysfs`, `ibping`, `ibfabric`, `failure-injection`, `runtime-control` | The mock renders a complete GPU node: driver files, device nodes, `nvidia-smi` inventory, NVLink topology, IB devices, PCI sysfs tree, cross-node `ibping` and fabric discovery, and the four failure modes |
 | DRA driver | `make e2e-dra` | `dra` | Dynamic Resource Allocation (DRA) scheduling works end to end: ResourceSlices report the profile's GPU count, and a pod using a `ResourceClaimTemplate` reaches `Running`, which requires `NodePrepareResources` to have succeeded. With the NRI plugin running, as it does by default, `dra-nri` runs two claim pods and checks that NRI injects each and `nvidia-smi` lists exactly its claimed GPU; without NRI it is skipped, or fails when `E2E_EXPECT_NRI` is set |
 | GPU Operator | `make e2e-gpu-operator` | `gpu-operator`, `device-plugin`, `dcgm`, `xid`, `pcisysfs`, `runtime-control`, `gpu-operator-nri` | The full operator stack accepts the mock: the validator pod starts, GPU Feature Discovery (GFD) labels appear, allocatable `nvidia.com/gpu` matches the profile, and DCGM telemetry is answered. With the NRI plugin running, as it does by default, `gpu-operator-nri` checks that a pod requesting one GPU is injected and sees exactly one, and that GFD is not injected; without NRI it is skipped, or fails when `E2E_EXPECT_NRI` is set |
+| ComputeDomains | `make e2e-compute-domain` | `dra-compute-domain` | The unmodified DRA driver runs ComputeDomains on multi-node NVLink nodes, such as gb200, with IMEX staged by the node agent. On the two-rack cluster (`tests/e2e/kind-compute-domain-racks.yaml`), the two nodes of a rack join one Ready IMEX domain and a node leaves it with its workload; the other rack forms a domain of its own; a `Single` workload gets channel 0 only and an `All` one every channel; a second workload, of the same or another domain, waits for a busy node. Without IMEX on the node, the node agent stays ready, the workload waits in `ContainerCreating` with failed-preparation events, and a GPU claim prepared while IMEX was staged still restarts its container. `E2E_IMEX_BINARIES_IMAGE` provides IMEX from a binaries image |
 | Multi-node fleet | `make e2e-multi-node` | `multi-node` | A heterogeneous fleet works: separate A100 and T4 releases on different workers, correct per-node mock files and IB behaviour, and a GPU workload scheduled across them |
 | Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | Node Resource Interface (NRI) injection follows the allocation rules: a pod with no Mokka-specific spec sees exactly its device-plugin allocation, a `devices`-annotated pod with no GPU request sees every GPU, and a pod that asks for neither is left untouched |
 | NFD label provenance | `make e2e-nfd` | `nfd`, `nfd-provenance` | Node Feature Discovery (NFD) derives `feature.node.kubernetes.io/pci-10de.present` from the feature file the mock writes — and that the mock does not write the label itself. Pinned to `a100`, because the label is vendor-only and identical across profiles |
 | Container runtime setup | `make e2e` | `container-runtime` | The node daemon registers the `nvidia` handler with containerd on stock `kindest/node` as the default: a pod with `NVIDIA_VISIBLE_DEVICES` sees the node's mock GPUs, with or without `runtimeClassName: nvidia`, replacing the node pod sets the runtime up again, and a node that loses its node pod loses the handler |
-| Standalone GFD | opt-in | `gfd` | Standalone GPU Feature Discovery derives the required node labels from the mock GPU inventory. **Skipped by default** — see below |
+| MIG | `make e2e-mig` | `mig`, `mig-nvml`, `mig-caps`, `mig-device-plugin`, `mig-allocation`, `mig-runtime` | A MIG-capable board partitioned through `gpu.mig` enumerates its partitions through `nvidia-smi`, stages a capability node for each, and the upstream device plugin in `migStrategy=single` publishes and allocates one `nvidia.com/gpu` per partition; runtime repartitioning through `nvidia-smi mig` is followed. Profiles that cannot partition skip |
+| vGPU host and guest | `make e2e-vgpu` | `vgpu`, `vgpu-host`, `vgpu-guest` | Pinned to `a100`, and needs the GPU Operator rolled out (`tilt up -- --gpu-operator`). A vGPU host lists its configured instances under `nvidia-smi vgpu`; a guest reports a licensed vGPU in `nvidia-smi -q`, and the operator's GFD labels the node `nvidia.com/vgpu.*` from the PCI capability the node agent writes |
+
+### DRA and multi-node setup
+
+After [creating the cluster and loading the image](#provision-the-cluster-and-image),
+use the matching Tilt mode before running a scenario or one of its checks:
+
+```bash
+# DRA needs the driver installed, even when selecting only nvidia-smi.
+tilt ci -- --dra --gpu-profile=gb200 --nvmlmock-image=nvml-mock:e2e
+make e2e E2E_GINKGO_FLAGS='--label-filter="dra && nvidia-smi"'
+
+# Multi-node needs exactly two workers and the A100/T4 releases.
+tilt ci -- --multi-gpu-profile --nvmlmock-image=nvml-mock:e2e
+make e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter="multi-node && mockfiles"'
+```
+
+The multi-node mode installs `nvml-mock-a100` and `nvml-mock-t4`; a plain
+`tilt up` does not. For the full scenarios, use `make e2e-dra` or
+`make e2e-multi-node` after the corresponding setup. See the
+[local development modes](../../docs/contributing/local-development.md#choosing-what-the-fleet-looks-like) for details.
 
 ### Node-wide NRI injection
 
@@ -181,24 +216,6 @@ on Hopper and later profiles.
 
 The Xid injection runs **last**, because it leaves the mock in a failed state.
 
-### Standalone GFD
-
-Skipped by default and run by no workflow
-([#446](https://github.com/NVIDIA/k8s-test-infra/issues/446)). GFD runs from the
-same `k8s-device-plugin` image the device plugin scenarios pull in CI. Enable it
-locally:
-
-```bash
-make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="gfd"'
-```
-
-It installs NFD, which turns GFD's feature file into node labels, and targets a
-worker node, because the NFD chart schedules nothing on the control plane. It then
-applies [`device-plugin-mock.yaml`](go/assets/device-plugin-mock.yaml), waits for
-allocatable GPUs, applies [`gfd-mock.yaml`](go/assets/gfd-mock.yaml), and verifies
-the required GFD labels. It uninstalls NFD afterwards, so the NFD provenance
-scenario, which needs NFD absent at its start, can still run on the same cluster.
-
 ### Reference Kind configs
 
 The scenarios do not create clusters, but the DRA scenario expects a specific
@@ -220,8 +237,9 @@ Read by the suite:
 | `E2E_CLUSTER_NAME` | `mokka` | Kind cluster name, used in attach errors and diagnostics |
 | `E2E_KUBE_CONTEXT` | `kind-mokka` | Kubeconfig context, passed explicitly to helm and kubectl. Node discovery goes through this, not the cluster name |
 | `E2E_ARTIFACTS` | `artifacts/e2e/go` | Where failure diagnostics are written |
-| `E2E_RUN_NGC` | `false` | Run scenarios needing `nvcr.io` images. Truthy: `1`, `true`, `yes`, `on` |
-| `E2E_EXPECT_NRI` | `false` | Fail, instead of skip, NRI-only specs when the nvml-mock NRI plugin is not running. CI sets it on the DRA and GPU Operator jobs |
+| `E2E_EXPECT_NRI` | `false` | Fail, instead of skip, NRI-only specs when the nvml-mock NRI plugin is not running. CI sets it on the DRA and GPU Operator jobs. Truthy: `1`, `true`, `yes`, `on` |
+| `E2E_IMEX_DOWNLOAD` | `true` | `false` turns the `IMEXDownload` feature gate off in every nvml-mock install the suite makes, so no node agent downloads IMEX. CI sets it |
+| `E2E_IMEX_BINARIES_IMAGE` | empty | IMEX binaries image (`repo:tag`), already loaded into the cluster, that the ComputeDomain scenario installs the chart with. With it set the node agent never downloads IMEX; empty leaves that to the `IMEXDownload` feature gate. CI builds one from the cached archive and sets it |
 | `E2E_REPO_ROOT` | walks up for `go.mod` | Overrides repo-root discovery for chart and profile paths |
 | `E2E_HELM_TIMEOUT` | `5m` | `helm upgrade --install --wait` |
 | `E2E_READY_TIMEOUT` | `2m` | DaemonSet, pod and label readiness waits |
@@ -251,9 +269,9 @@ runtime-override TTL waits (30s).
 
 ```bash
 make e2e E2E_PROFILES=h100 E2E_GINKGO_FLAGS='--label-filter="failure-injection"'
-make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
+make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu"'
 make e2e E2E_GINKGO_FLAGS='--label-filter="gb200 && ibping"'
-make e2e-nri E2E_GINKGO_FLAGS='--label-filter="nri-cdi-suppression"'
+make e2e E2E_GINKGO_FLAGS='--label-filter="nri && nri-cdi-suppression"'
 ```
 
 ### Where things live
@@ -280,20 +298,31 @@ cluster, loads the image onto the nodes, and rolls it out with
 `tilt ci -- --nvmlmock-image="$E2E_IMAGE"`. Using an artifact rather than a
 registry keeps this working on fork pull requests with no credentials.
 
-Six scenario jobs run in parallel: `e2e`, `e2e-dra`, `e2e-gpu-operator`,
-`e2e-multi-node`, `e2e-nri` and `e2e-nfd`. Each runs one GPU profile per matrix
-entry, with `fail-fast: false` so one profile's failure does not cancel the
-others. `e2e-nfd` is pinned to `a100`; `e2e-multi-node` has no matrix and uses
-its own fixed A100/T4 topology. There is no gfd job.
+The scenario jobs run in parallel: `e2e`, `e2e-dra`, `e2e-compute-domain`,
+`e2e-gpu-operator`, `e2e-multi-node`, `e2e-nri`, `e2e-nfd`, `e2e-mig` and
+`e2e-vgpu`. Each runs one GPU profile per matrix entry, with `fail-fast: false`
+so one profile's failure does not cancel the others. `e2e-nfd` and `e2e-vgpu`
+are pinned to `a100` and `e2e-mig` runs `h100` and `b200`; `e2e-multi-node` has
+no matrix and uses its own fixed A100/T4 topology; `e2e-compute-domain` runs
+`gb200` on the two-rack cluster.
+
+No job downloads IMEX from NVIDIA inside its cluster: `E2E_IMEX_DOWNLOAD=false`
+turns the `IMEXDownload` gate off in every install. The `prepare-imex` job
+downloads the archive pinned in `imex.lock.json` with `make imex-archive` into
+the Actions cache, keyed on the lock, so NVIDIA is contacted once per IMEX
+version. `e2e-compute-domain`
+restores it, builds the binaries image with `make imex-binaries-image`, and loads
+it into Kind. The archive never travels as a workflow artifact, which anyone
+could download from a public repository.
 
 Pull requests get the full matrix — `a100`, `h100`, `b200`, `gb200`, `gb300`,
-`t4`. Manual `workflow_dispatch` defaults to `gb200` alone for a fast run. The
-`l40s` profile is supported by the chart and the `profile` package but appears
-in no CI matrix, so it is only ever exercised locally.
+`t4`, `vrnvl72`. Manual `workflow_dispatch` defaults to `gb200` alone for a fast
+run. The `l40s` profile is supported by the chart and the `profile` package but
+appears in no CI matrix, so it is only ever exercised locally.
 
 CI stages [`ci/nvml-mock.values.yaml`](ci/nvml-mock.values.yaml) as Tilt's
-local-override values file, which turns on dynamic metrics with a fixed seed and
-a 100% rolling-update budget.
+local-override values file, which turns on dynamic metrics with a fixed seed, a
+100% rolling-update budget, and the `IMEXDownload` gate off.
 
 ## Troubleshooting
 
@@ -304,7 +333,6 @@ The suite never deletes the cluster, so a failed run can be inspected directly.
 | Pods stuck in `ImagePullBackOff` after a reshaping spec | `E2E_IMAGE` names an image that is not on the nodes | Set `E2E_IMAGE` to the ref Tilt deployed, or `kind load` the ref you passed |
 | Attach fails or times out at startup | Cluster name or context does not match | Confirm `kind get clusters`; the defaults expect `mokka` and `kind-mokka` |
 | A scenario is silently absent from the run | The default label filter excludes it | Use the scenario's own target, or override `E2E_GINKGO_FLAGS` |
-| `gfd` specs all skip | `E2E_RUN_NGC` is `false` | Set `E2E_RUN_NGC=true`, with `nvcr.io` images reachable |
 | GPU Operator waits time out | Operand replacement outlasts the readiness wait | Raise `E2E_OPERAND_SETTLE_TIMEOUT` rather than `E2E_READY_TIMEOUT` |
 | Assertions fail right after a DCGM run | Xid injection ran and left the mock failed | Expected; it is ordered last. Reinstall the release before re-running other specs |
 
@@ -365,9 +393,9 @@ subpackages are untagged and run in the normal unit-test path:
 go test ./tests/e2e/go/framework/... ./tests/e2e/go/assertions/... \
         ./tests/e2e/go/profile ./tests/e2e/go/ibutil
 
-# The two pure unit tests inside the e2e-tagged root package.
+# The pure unit tests inside the e2e-tagged root package.
 go test -tags=e2e ./tests/e2e/go \
-  -run 'TestDRAResourceClaimManifest|TestValidatorGFDRequiredLabels'
+  -run 'TestDRAResourceClaimManifest|TestValidatorGFDRequiredLabels|TestRackTopologyValues|TestComputeDomainManifests'
 ```
 
 `profile/` holds a drift guard that checks **all** known profiles regardless of

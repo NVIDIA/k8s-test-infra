@@ -345,7 +345,7 @@ should match snapshot with a100 profile:
           # Virtualization
           # ---------------------------------------------------------------------------
           virtualization:
-            mode: "none"                    # none, passthrough, vgpu
+            mode: "none"                    # none, passthrough, vgpu, host_vgpu
             host_vgpu_mode: "N/A"
 
           # ---------------------------------------------------------------------------
@@ -603,8 +603,8 @@ should match snapshot with b200 profile:
             subsystem_id: 0x199910DE
 
           pcie:
-            max_link_gen: 6                 # PCIe Gen6
-            current_link_gen: 6
+            max_link_gen: 5                 # PCIe Gen5
+            current_link_gen: 5
             max_link_width: 16              # x16
             current_link_width: 16
             replay_counter: 0
@@ -1152,6 +1152,7 @@ should match snapshot with default gb300 profile:
             tray_index: 16
             host_id: 1                      # the tray's OS domain; all its GPUs report it
             peer_type: "switch_connected"   # peers reached through the NVSwitch trays
+            gpu_fabric_guid: "pdi"          # each GPU reports its own PDI, as on Grace-Blackwell
 
           # ---------------------------------------------------------------------------
           # InfoROM versions
@@ -1186,6 +1187,7 @@ should match snapshot with default gb300 profile:
 
           pcie:
             max_link_gen: 6                 # PCIe Gen6 (or NVLink-C2C to Grace)
+            host_max_link_gen: 4            # Grace host bridge is PCIe Gen4
             current_link_gen: 6
             max_link_width: 16              # x16
             current_link_width: 16
@@ -1590,6 +1592,7 @@ should match snapshot with default gb300 profile:
           links_per_gpu: 18
           bandwidth_per_link_mbps: 53125    # NVLink5 53.125 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
           c2c_enabled: true                 # NVLink-C2C to Grace CPU
+          multi_node: true                  # NVLink spans nodes, so IMEX and ComputeDomains apply
           # Bandwidth mode answers on the per-device trio, nvmlDeviceGet/SetNvlinkBwMode;
           # the node-wide pair `nvidia-smi nvlink -gBwMode` calls reports it unsupported,
           # as a real GB300 does.
@@ -1755,6 +1758,7 @@ should match snapshot with gb200 profile:
             tray_index: 11
             host_id: 1                      # the tray's OS domain; all its GPUs report it
             peer_type: "switch_connected"   # peers reached through the NVSwitch trays
+            gpu_fabric_guid: "pdi"          # each GPU reports its own PDI, as on Grace-Blackwell
 
           # ---------------------------------------------------------------------------
           # InfoROM versions
@@ -2196,6 +2200,7 @@ should match snapshot with gb200 profile:
           links_per_gpu: 18
           bandwidth_per_link_mbps: 53125    # NVLink5 53.125 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
           c2c_enabled: true                 # NVLink-C2C to Grace CPU
+          multi_node: true                  # NVLink spans nodes, so IMEX and ComputeDomains apply
           # Bandwidth mode answers on the per-device trio, nvmlDeviceGet/SetNvlinkBwMode;
           # the node-wide pair `nvidia-smi nvlink -gBwMode` calls reports it unsupported,
           # as a real GB300 does.
@@ -3694,6 +3699,646 @@ should match snapshot with t4 profile:
                 - "0000:86:00.0"
                 - "0000:AF:00.0"
                 - "0000:D8:00.0"
+    kind: ConfigMap
+    metadata:
+      labels:
+        app.kubernetes.io/instance: RELEASE-NAME
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: nvml-mock
+        app.kubernetes.io/version: 0.0.0-dev
+        helm.sh/chart: nvml-mock-0.0.0-dev
+      name: RELEASE-NAME-nvml-mock-config
+should match snapshot with vrnvl72 profile:
+  1: |
+    apiVersion: v1
+    data:
+      config.yaml: |
+        # Mock NVML Configuration: VR NVL72 compute tray (Vera Rubin)
+        # One compute tray of a rack-scale system whose NVLink domain spans nodes:
+        # 2 Vera CPUs and 4 Rubin GPUs per tray, 18 trays per rack.
+        # Full configuration for nvidia-smi -x -q compatibility
+        # Use: export MOCK_NVML_CONFIG=/path/to/this/file.yaml
+        #
+        # Values are read off a real tray on driver 615.71.09 (nvidia-smi -q -x, an
+        # NVML dump, sysfs and the node's Kubernetes labels); identifiers (serials,
+        # UUIDs) are placeholders.
+
+        version: "1.0"
+
+        # =============================================================================
+        # System-level configuration
+        # =============================================================================
+        system:
+          driver_version: "615.71.09"
+          nvml_version: "13.615.71.09"
+          cuda_version: "13.4"
+          cuda_version_major: 13
+          cuda_version_minor: 4
+          # DMI product name; GPU Feature Discovery labels it nvidia.com/gpu.machine
+          # (VR-NVL72), where the other profiles fall back to the GPU name.
+          product_name: "VR NVL72"
+          # Checked against a real tray: a feature this profile leaves out answers
+          # NOT_SUPPORTED (N/A), as the tray does, on any driver.
+          absent_features: not_supported
+
+        # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
+        # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
+        dynamic_metrics_defaults:
+          power:
+            base_mw: 420000                 # 420W, the idle draw the tray reports
+            variance_mw: 25000
+
+        # =============================================================================
+        # Default device configuration (applied to all devices unless overridden)
+        # =============================================================================
+        device_defaults:
+          # ---------------------------------------------------------------------------
+          # Basic identification
+          # ---------------------------------------------------------------------------
+          # Early drivers carry no marketing name for the board, so NVML falls back
+          # to the generic one.
+          name: "NVIDIA Graphics Device"
+          brand: "nvidia"
+          board_part_number: "699-2G558-0201-TS5"
+          vbios_version: "99.00.16.55.13"
+          hostname: "GR100 Nvidia Technologies" # GetHostname_v1, the same on every GPU
+
+          # ---------------------------------------------------------------------------
+          # Architecture - Rubin, compute capability 10.7 (sm_107). NVML reports the
+          # Rubin architecture; consumers that map compute capability to a family by
+          # its major number alone still name it Blackwell.
+          # ---------------------------------------------------------------------------
+          architecture: "rubin"
+          compute_capability:
+            major: 10
+            minor: 7
+          num_gpu_cores: 27136
+
+          # ---------------------------------------------------------------------------
+          # NVLink fabric (multi-node NVLink ComputeDomain). The clique_id / cluster_uuid below
+          # are placeholder defaults; the topology-overlay step in the engine
+          # rewrites them per-node based on the cluster-level topology ConfigMap
+          # (set Helm value `topology.enabled=true`). Nodes that don't appear in
+          # the topology fall through to these defaults, which is sufficient for
+          # single-node experiments. See pkg/gpu/mocknvml/engine/fabric.go.
+          # ---------------------------------------------------------------------------
+          fabric:
+            cluster_uuid: "00000000-0000-0000-0000-000000000001"
+            clique_id: 65534                # what the captured tray reports
+            state: "auto"                   # couple GPU fabric registration to fake fabricmanager readiness
+            # Health defaults to a healthy fabric (nvidia-smi -q reports Summary:
+            # Healthy, Bandwidth: Full). Add a `health:` block to fault a specific
+            # condition, or use `nvml-mock-ctl fabric-health` at runtime.
+            # See docs/configuration.md#fabric-health.
+
+          # ---------------------------------------------------------------------------
+          # Platform identity — where this node sits in the NVL72 rack, which
+          # nvidia-smi -q renders as its "Platform Info" block and rack-scale fault
+          # correlation reads to turn a GPU fault into a physical location.
+          #
+          # Every field but module_id describes the node, so all its GPUs share them:
+          # a node occupies one tray, in one slot, of one chassis. Only module_id
+          # ("ID of this GPU within the node") is set per device below.
+          #
+          # slot_number counts switch trays as well as compute trays while tray_index
+          # counts compute trays only, so the two can differ: the captured tray
+          # reports slot 4, tray index 3.
+          # ---------------------------------------------------------------------------
+          platform:
+            chassis_serial_number: "1820000000001"
+            slot_number: 4
+            tray_index: 3
+            host_id: 1                      # the tray's OS domain; all its GPUs report it
+            peer_type: "switch_connected"   # peers reached through the NVSwitch trays
+
+          # ---------------------------------------------------------------------------
+          # InfoROM versions. No power-management object: the tray reports N/A.
+          # ---------------------------------------------------------------------------
+          inforom:
+            image_version: "G558.0200.00.02"
+            oem_object: "2.1"
+            ecc_object: "7.16"
+
+          # ---------------------------------------------------------------------------
+          # Memory configuration - 288 GB HBM4 per GPU, of which the driver exposes
+          # 286524 MiB
+          # ---------------------------------------------------------------------------
+          memory:
+            total_bytes: 300442189824       # 286524 MiB
+            reserved_bytes: 1338638336      # GetMemoryInfo_v2.Reserved; nvidia-smi rounds it to 1277 MiB
+            free_bytes: 299103551488        # total - reserved at idle
+            used_bytes: 0
+            memory_bus_width: 16128
+
+          bar1_memory:
+            total_bytes: 549755813888       # 512 GiB
+            free_bytes: 549755289600        # total - used
+            used_bytes: 524288              # 512 KiB at idle on every GPU (GetBAR1MemoryInfo)
+
+          # ---------------------------------------------------------------------------
+          # PCI configuration
+          # ---------------------------------------------------------------------------
+          pci:
+            device_id: 0x304110DE
+            subsystem_id: 0x221A10DE
+
+          pcie:
+            max_link_gen: 6                 # PCIe Gen6 x16
+            host_max_link_gen: 6            # Captured Rubin tray host maximum
+            current_link_gen: 6
+            max_link_width: 16
+            current_link_width: 2           # the tray trains its links at x2 when idle
+            replay_counter: 0
+            tx_throughput_kbps: 0
+            rx_throughput_kbps: 0
+
+          # ---------------------------------------------------------------------------
+          # Power configuration. Workload power profiles are left absent: the tray
+          # reports none requested and the capture does not list the supported set.
+          # ---------------------------------------------------------------------------
+          power:
+            management_supported: true
+            management_mode: "enabled"
+            default_limit_mw: 2300000       # 2300W
+            enforced_limit_mw: 2300000
+            min_limit_mw: 200000            # 200W
+            max_limit_mw: 2300000
+            current_draw_mw: 418000         # 418W idle (liquid cooled)
+            power_state: "P0"
+            total_energy_consumption_mj: 1000000  # millijoules since boot
+            power_mizer_mode: "adaptive"    # GetPowerMizerMode_v1.CurrentMode = 0
+            supported_power_mizer_modes:    # GetPowerMizerMode_v1.SupportedPowerMizerModes = 7
+              - "adaptive"
+              - "prefer_maximum_performance"
+              - "auto"
+
+          # ---------------------------------------------------------------------------
+          # Thermal configuration: GPU 0's readings in the NVML dump of the captured
+          # tray, with the absolute thresholds derived from the T.Limit view so every
+          # thermal answer adds up:
+          #   tlimit.reference_c   = GetTemperatureThreshold(SLOWDOWN)  = 88
+          #   tlimit distances     = T.Limit fields 193 / 194 / 196   = -5 / -2 / 0
+          #   shutdown_threshold_c = reference_c - shutdown_c         = 93
+          #   slowdown_threshold_c = reference_c                      = 88
+          #   max_operating_c      = reference_c - slowdown_c         = 90
+          #   temperature_gpu_c    = GetTemperature                   = 34
+          # The mock answers GetMarginTemperature as reference_c - temperature = 54.
+          # The tray's GPU 0 reads 53: its temperature + margin comes to 85-87, never
+          # the reference. The pairing is the driver's: it answers SLOWDOWN with the
+          # T.Limit reference (field 196 reads 0) and GPU_MAX with the hardware-
+          # slowdown point (field 194 reads -2), the reverse of NVML's descriptions
+          # of the two; the mock maps these keys to those calls as is. No memory
+          # sensor and no target temperature: the tray reports N/A for both.
+          # ---------------------------------------------------------------------------
+          thermal:
+            temperature_gpu_c: 34           # GetTemperature on GPU 0, idle (liquid cooled)
+            shutdown_threshold_c: 93        # reference_c - shutdown_c
+            slowdown_threshold_c: 88        # reference_c
+            max_operating_c: 90             # reference_c - slowdown_c
+            tlimit:
+              reference_c: 88               # GetTemperatureThreshold(SLOWDOWN)
+              shutdown_c: -5                # field 193, SHUTDOWN_TLIMIT
+              slowdown_c: -2                # field 194, SLOWDOWN_TLIMIT
+              max_operating_c: 0            # field 196, GPU_MAX_TLIMIT; stated, else the engine derives 88 - 90
+
+          # ---------------------------------------------------------------------------
+          # Fan configuration (N/A - liquid cooled)
+          # ---------------------------------------------------------------------------
+          fan:
+            count: 0                        # Liquid cooled, no fans
+            speed_percent: "N/A"
+            target_speed_percent: "N/A"
+
+          # ---------------------------------------------------------------------------
+          # Clock speeds (MHz)
+          # ---------------------------------------------------------------------------
+          clocks:
+            graphics_current: 120           # idle
+            graphics_max: 2424
+            graphics_app: 2424
+            graphics_app_default: 2424
+            sm_current: 120
+            sm_max: 2424
+            memory_current: 4752            # HBM4
+            memory_max: 4752
+            memory_app: 4752
+            memory_app_default: 4752
+            video_current: 744
+            video_max: 2412
+            offsets:                        # Get{Gpc,Mem}ClkMinMaxVfOffset; no offset applied
+              graphics:
+                min_mhz: -1000
+                max_mhz: 0
+                offset_mhz: 0
+              memory:
+                min_mhz: 0
+                max_mhz: 0
+                offset_mhz: 0
+            adaptive_clocking: "enabled"    # GetAdaptiveClockInfoStatus = 1
+
+          # ---------------------------------------------------------------------------
+          # Clocks throttle reasons
+          # ---------------------------------------------------------------------------
+          clocks_throttle_reasons:
+            gpu_idle: true
+            applications_clocks_setting: false
+            sw_power_cap: false
+            hw_slowdown: false
+            hw_thermal_slowdown: false
+            hw_power_brake_slowdown: false
+            sync_boost: false
+            sw_thermal_slowdown: false
+            display_clocks_setting: false
+
+          # ---------------------------------------------------------------------------
+          # Supported clocks (nvidia-smi -q -d SUPPORTED_CLOCKS), copied from the
+          # captured tray; every GPU reports the same table, highest first.
+          # ---------------------------------------------------------------------------
+          supported_clocks:
+            memory_clocks:
+              - freq_mhz: 4752
+                graphics_clocks: [
+                  2424, 2412, 2400, 2388, 2376, 2364, 2352, 2340, 2328, 2316, 2304, 2292,
+                  2280, 2268, 2256, 2244, 2232, 2220, 2208, 2196, 2184, 2172, 2160, 2148,
+                  2136, 2124, 2112, 2100, 2088, 2076, 2064, 2052, 2040, 2028, 2016, 2004,
+                  1992, 1980, 1968, 1956, 1944, 1932, 1920, 1908, 1896, 1884, 1872, 1860,
+                  1848, 1836, 1824, 1812, 1800, 1788, 1776, 1764, 1752, 1740, 1728, 1716,
+                  1704, 1692, 1680, 1668, 1656, 1644, 1632, 1620, 1608, 1596, 1584, 1572,
+                  1560, 1548, 1536, 1524, 1512, 1500, 1488, 1476, 1464, 1452, 1440, 1428,
+                  1416, 1404, 1392, 1380, 1368, 1356, 1344, 1332, 1320, 1308, 1296, 1284,
+                  1272, 1260, 1248, 1236, 1224, 1212, 1200, 1188, 1176, 1164, 1152, 1140,
+                  1128, 1116, 1104, 1092, 1080, 1068, 1056, 1044, 1032, 1020, 1008, 996,
+                  984, 972, 960, 948, 936, 924, 912, 900, 888, 876, 864, 852,
+                  840, 828, 816, 804, 792, 780, 768, 756, 744, 732, 720, 708,
+                  696, 684, 672, 660, 648, 636, 624, 612, 600, 588, 576, 564,
+                  552, 540, 528, 516, 504, 492, 480, 468, 456, 444, 432, 420,
+                  408, 396, 384, 372, 360, 348, 336, 324, 312, 300, 288, 276,
+                  264, 252, 240, 228, 216, 204, 192, 180, 168, 156, 144, 132,
+                  120
+                ]
+              - freq_mhz: 3996
+                graphics_clocks: [
+                  2424, 2412, 2400, 2388, 2376, 2364, 2352, 2340, 2328, 2316, 2304, 2292,
+                  2280, 2268, 2256, 2244, 2232, 2220, 2208, 2196, 2184, 2172, 2160, 2148,
+                  2136, 2124, 2112, 2100, 2088, 2076, 2064, 2052, 2040, 2028, 2016, 2004,
+                  1992, 1980, 1968, 1956, 1944, 1932, 1920, 1908, 1896, 1884, 1872, 1860,
+                  1848, 1836, 1824, 1812, 1800, 1788, 1776, 1764, 1752, 1740, 1728, 1716,
+                  1704, 1692, 1680, 1668, 1656, 1644, 1632, 1620, 1608, 1596, 1584, 1572,
+                  1560, 1548, 1536, 1524, 1512, 1500, 1488, 1476, 1464, 1452, 1440, 1428,
+                  1416, 1404, 1392, 1380, 1368, 1356, 1344, 1332, 1320, 1308, 1296, 1284,
+                  1272, 1260, 1248, 1236, 1224, 1212, 1200, 1188, 1176, 1164, 1152, 1140,
+                  1128, 1116, 1104, 1092, 1080, 1068, 1056, 1044, 1032, 1020, 1008, 996,
+                  984, 972, 960, 948, 936, 924, 912, 900, 888, 876, 864, 852,
+                  840, 828, 816, 804, 792, 780, 768, 756, 744, 732, 720, 708,
+                  696, 684, 672, 660, 648, 636, 624, 612, 600, 588, 576, 564,
+                  552, 540, 528, 516, 504, 492, 480, 468, 456, 444, 432, 420,
+                  408, 396, 384, 372, 360, 348, 336, 324, 312, 300, 288, 276,
+                  264, 252, 240, 228, 216, 204, 192, 180, 168, 156, 144, 132,
+                  120
+                ]
+              - freq_mhz: 3186
+                graphics_clocks: [
+                  2424, 2412, 2400, 2388, 2376, 2364, 2352, 2340, 2328, 2316, 2304, 2292,
+                  2280, 2268, 2256, 2244, 2232, 2220, 2208, 2196, 2184, 2172, 2160, 2148,
+                  2136, 2124, 2112, 2100, 2088, 2076, 2064, 2052, 2040, 2028, 2016, 2004,
+                  1992, 1980, 1968, 1956, 1944, 1932, 1920, 1908, 1896, 1884, 1872, 1860,
+                  1848, 1836, 1824, 1812, 1800, 1788, 1776, 1764, 1752, 1740, 1728, 1716,
+                  1704, 1692, 1680, 1668, 1656, 1644, 1632, 1620, 1608, 1596, 1584, 1572,
+                  1560, 1548, 1536, 1524, 1512, 1500, 1488, 1476, 1464, 1452, 1440, 1428,
+                  1416, 1404, 1392, 1380, 1368, 1356, 1344, 1332, 1320, 1308, 1296, 1284,
+                  1272, 1260, 1248, 1236, 1224, 1212, 1200, 1188, 1176, 1164, 1152, 1140,
+                  1128, 1116, 1104, 1092, 1080, 1068, 1056, 1044, 1032, 1020, 1008, 996,
+                  984, 972, 960, 948, 936, 924, 912, 900, 888, 876, 864, 852,
+                  840, 828, 816, 804, 792, 780, 768, 756, 744, 732, 720, 708,
+                  696, 684, 672, 660, 648, 636, 624, 612, 600, 588, 576, 564,
+                  552, 540, 528, 516, 504, 492, 480, 468, 456, 444, 432, 420,
+                  408, 396, 384, 372, 360, 348, 336, 324, 312, 300, 288, 276,
+                  264, 252, 240, 228, 216, 204, 192, 180, 168, 156, 144, 132,
+                  120
+                ]
+
+          # ---------------------------------------------------------------------------
+          # Performance state
+          # ---------------------------------------------------------------------------
+          performance_state: "P0"
+
+          # ---------------------------------------------------------------------------
+          # Utilization (percentage, 0-100)
+          # ---------------------------------------------------------------------------
+          utilization:
+            gpu: 0
+            memory: 0
+            encoder: 0
+            decoder: 0
+            jpeg: 0
+            ofa: 0
+
+          # ---------------------------------------------------------------------------
+          # Dynamic utilization (#506)
+          #
+          # Live without any Helm overlay, so `utilization.gpu` -- and every
+          # DCGM_FI_PROF_* fraction derived from it -- is never a constant 0.
+          # The driver is elapsed time, NOT workload: these numbers move on a fully
+          # idle node and do not rise under load. gpu_min is deliberately > 0 so
+          # "utilization is reported" is a deterministic assertion, not a flaky one.
+          # ---------------------------------------------------------------------------
+          dynamic_metrics:
+            utilization:
+              pattern: "steady"
+              gpu_min: 10
+              gpu_max: 45
+              memory_min: 5
+              memory_max: 25
+
+          # ---------------------------------------------------------------------------
+          # Encoder/Decoder statistics
+          # ---------------------------------------------------------------------------
+          encoder_stats:
+            session_count: 0
+            average_fps: 0
+            average_latency_us: 0
+
+          fbc_stats:
+            session_count: 0
+            average_fps: 0
+            average_latency_us: 0
+
+          # ---------------------------------------------------------------------------
+          # ECC configuration
+          # ---------------------------------------------------------------------------
+          ecc:
+            mode_current: "enabled"
+            mode_pending: "enabled"
+            default_mode: "enabled"
+            errors:
+              volatile:
+                single_bit:
+                  device_memory: 0
+                  l1_cache: 0
+                  l2_cache: 0
+                  register_file: 0
+                  total: 0
+                double_bit:
+                  device_memory: 0
+                  l1_cache: 0
+                  l2_cache: 0
+                  register_file: 0
+                  total: 0
+              aggregate:
+                single_bit:
+                  device_memory: 0
+                  l1_cache: 0
+                  l2_cache: 0
+                  register_file: 0
+                  total: 0
+                double_bit:
+                  device_memory: 0
+                  l1_cache: 0
+                  l2_cache: 0
+                  register_file: 0
+                  total: 0
+            sram:                           # GetSramEccErrorStatus
+              volatile:
+                correctable: 0
+                uncorrectable_parity: 0
+                uncorrectable_secded: 0
+              aggregate:
+                correctable: 0
+                uncorrectable_parity: 0
+                uncorrectable_secded: 0
+              uncorrectable_sources:
+                l2: 0
+                sm: 0
+                microcontroller: 0
+                pcie: 0
+                other: 0
+              threshold_exceeded: false
+
+          # No retired_pages block: the tray retires no pages (it remaps rows), and
+          # reports page retirement N/A.
+
+          # ---------------------------------------------------------------------------
+          # Remapped rows
+          # ---------------------------------------------------------------------------
+          remapped_rows:
+            correctable: 0
+            uncorrectable: 0
+            pending: false
+            failure_occurred: false
+            # Bank remap availability: every bank still holds its full complement of
+            # spare rows, as the idle tray reports.
+            availability_histogram:
+              max: 12096
+              high: 0
+              partial: 0
+              low: 0
+              none: 0
+
+          # ---------------------------------------------------------------------------
+          # Display configuration
+          # ---------------------------------------------------------------------------
+          display:
+            mode: "enabled"                 # NVML reports the display mode on, inactive
+            active: "disabled"
+
+          # ---------------------------------------------------------------------------
+          # Persistence mode
+          # ---------------------------------------------------------------------------
+          persistence_mode: "enabled"
+
+          # ---------------------------------------------------------------------------
+          # Compute mode
+          # ---------------------------------------------------------------------------
+          compute_mode: "default"
+
+          # ---------------------------------------------------------------------------
+          # Addressing mode: how the GPU reaches system memory (hmm, ats or none)
+          # ---------------------------------------------------------------------------
+          addressing_mode: "ats"           # Vera CPU: translated over NVLink-C2C
+          egm: true                        # Extended GPU Memory, enabled on the captured tray
+
+          # ---------------------------------------------------------------------------
+          # MIG - capable and disabled. The profile table is a sibling file
+          # (profiles/mig/vrnvl72.yaml in the chart).
+          # ---------------------------------------------------------------------------
+          mig:
+            mode_current: "disabled"
+            mode_pending: "disabled"
+            max_gpu_instances: 7
+
+          # No gpu_operation_mode block: the tray reports GOM N/A.
+
+          # ---------------------------------------------------------------------------
+          # Driver model (Windows only)
+          # ---------------------------------------------------------------------------
+          driver_model:
+            current: "N/A"
+            pending: "N/A"
+
+          # ---------------------------------------------------------------------------
+          # Accounting mode
+          # ---------------------------------------------------------------------------
+          accounting:
+            mode: "disabled"
+            buffer_size: 4000
+
+          # ---------------------------------------------------------------------------
+          # Virtualization
+          # ---------------------------------------------------------------------------
+          virtualization:
+            mode: "none"
+            host_vgpu_mode: "N/A"
+
+          # ---------------------------------------------------------------------------
+          # GSP Firmware
+          # ---------------------------------------------------------------------------
+          gsp_firmware:
+            mode: "enabled"
+            version: "615.71.09"
+
+          # ---------------------------------------------------------------------------
+          # Rubin features
+          # ---------------------------------------------------------------------------
+          features:
+            transformer_engine: true        # 3rd gen Transformer Engine
+            fp4_support: true               # NVFP4
+            fp8_support: true
+            nvlink_c2c: true                # NVLink-C2C to the Vera CPU, 1.8 TB/s
+
+          # ---------------------------------------------------------------------------
+          # Host CPU pairing (Vera Rubin superchip)
+          # ---------------------------------------------------------------------------
+          cpu:
+            type: "vera"                    # NVLink-C2C attached Vera, not a PCIe host
+            cores: 88                       # host-lscpu.txt: 88 cores per socket, 2 sockets
+            memory_gb: 712                  # host-numactl.txt: node 0 (the first Vera) 729051 MiB = 712 GiB; node 1 732098 MiB
+            coherent_memory: true           # NVLink-C2C coherent memory
+
+          # ---------------------------------------------------------------------------
+          # Processes (empty at idle)
+          # ---------------------------------------------------------------------------
+          processes: []
+
+        # =============================================================================
+        # Device-specific overrides
+        #
+        # Four GPUs: one compute tray presents two Vera Rubin superchips (2 Vera CPUs,
+        # 4 Rubin GPUs) to one OS domain, and the rack's 72 GPUs are 18 such trays.
+        # The two GPUs of a superchip share a board serial. Each GPU sits behind its
+        # own root port in a non-zero PCI domain: 0002 on the first Vera's NUMA node,
+        # 000a on the second's. Minor numbers follow the device index on the captured
+        # tray; a second tray reported a different order, so consumers must read them
+        # from the driver.
+        # =============================================================================
+        devices:
+          - index: 0
+            uuid: "GPU-72000000-0000-0000-0000-000000000000"
+            serial: "1650000000001"         # superchip board serial, shared with GPU 1
+            pci:
+              bus_id: "0002:81:00.0"
+            minor_number: 0
+            grace_cpu_pair: 0               # paired with Vera CPU 0
+            platform:
+              module_id: 1                  # ID of this GPU within the node
+
+          - index: 1
+            uuid: "GPU-72000000-0000-0000-0000-000000000001"
+            serial: "1650000000001"
+            pci:
+              bus_id: "0002:C1:00.0"
+            minor_number: 1
+            grace_cpu_pair: 0
+            platform:
+              module_id: 2
+
+          - index: 2
+            uuid: "GPU-72000000-0000-0000-0000-000000000002"
+            serial: "1650000000002"         # second superchip, shared with GPU 3
+            pci:
+              bus_id: "000A:81:00.0"
+            minor_number: 2
+            grace_cpu_pair: 1
+            platform:
+              module_id: 3
+
+          - index: 3
+            uuid: "GPU-72000000-0000-0000-0000-000000000003"
+            serial: "1650000000002"
+            pci:
+              bus_id: "000A:E1:00.0"
+            minor_number: 3
+            grace_cpu_pair: 1
+            platform:
+              module_id: 4
+
+        # =============================================================================
+        # NVLink topology - NVLink 6: 36 links per GPU at 41 GB/s each, all through
+        # the switch trays, so `nvidia-smi topo -m` shows NV36 between every pair.
+        # =============================================================================
+        nvlink:
+          version: 6
+          links_per_gpu: 36
+          bandwidth_per_link_mbps: 41000
+          c2c_enabled: true                 # NVLink-C2C to the Vera CPU
+          multi_node: true                  # NVLink spans nodes, so IMEX and ComputeDomains apply
+          # The per-device NVML calls answer; nvidia-smi -gBwMode is not recognised.
+          # Modes above 4 have no name in the bundled nvidia-smi, so the engine warns
+          # about them; it answers them as listed.
+          bw_mode:
+            scope: device
+            supported: [0, 4, 8, 12, 16, 20, 24, 28, 32, 36] # GetNvlinkSupportedBwModes
+          # Switches live in their own switch trays, so they have no PCI identity on
+          # the compute tray; see the gb300 profile.
+          switches:
+            - bdf: "0000:01:00.0"
+              uuid: "NVSwitch-VR-0000-0000-0000-000000000000"
+            - bdf: "0000:02:00.0"
+              uuid: "NVSwitch-VR-0000-0000-0000-000000000001"
+            - bdf: "0000:03:00.0"
+              uuid: "NVSwitch-VR-0000-0000-0000-000000000002"
+            - bdf: "0000:04:00.0"
+              uuid: "NVSwitch-VR-0000-0000-0000-000000000003"
+
+        # =============================================================================
+        # Scale-out network - 12 RDMA devices per tray, all RoCE: 8 ConnectX-9 ports
+        # at 200 Gb/s and 4 BlueField-4 ports at 400 Gb/s. A profile has one NIC
+        # type, so all 12 are modelled as ConnectX-9.
+        # =============================================================================
+        infiniband:
+          enabled: true
+          hca_type: "MT4133"                # ConnectX-9
+          fw_version: "82.48.4222"
+          hw_rev: "0"                       # sysfs hw_rev, as ibstat prints it (ibv_devinfo shows 0x0)
+          board_id: "MT_0000001658"
+          link_layer: "Ethernet"
+          rate_gbps: 200
+          port_state: "ACTIVE"
+          phys_state: "LinkUp"
+          hcas_per_gpu: 3
+          guid_prefix: "9b88c2:0301:ce"
+          node_desc_template: "{node_name} mlx5_{idx}"
+
+        # =============================================================================
+        # PCIe topology: every GPU has its own host bridge, two per Vera NUMA node.
+        # =============================================================================
+        pcie_topology:
+          root_complexes:
+            - id: "pci0002:80"
+              numa_node: 0
+              devices:
+                - "0002:81:00.0"
+            - id: "pci0002:c0"
+              numa_node: 0
+              devices:
+                - "0002:C1:00.0"
+            - id: "pci000a:80"
+              numa_node: 1
+              devices:
+                - "000A:81:00.0"
+            - id: "pci000a:e0"
+              numa_node: 1
+              devices:
+                - "000A:E1:00.0"
     kind: ConfigMap
     metadata:
       labels:

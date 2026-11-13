@@ -25,14 +25,48 @@ outlive a reconcile.
 
 | Simulator | Stages                                                                                                                                                   |
 |---|----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `gpudriver` | Character devices, the mock NVML library, `nvidia-smi`, procfs entries, the engine config, and a bind mount of the driver tree at `/run/nvidia/driver`, the path GPU Operator expects |
+| `gpudriver` | Character devices, the mock NVML library, [`nvidia-smi`](#which-nvidia-smi-a-node-runs), procfs entries, the engine config, and a bind mount of the driver tree at `/run/nvidia/driver`, the path GPU Operator expects |
 | `pcibus` | A fake `/sys/bus/pci/devices` tree, the `libmockfs.so` shim, and the NFD feature file that lets Node Feature Discovery label the node                  |
-| `cri` | Two CDI specs that containerd uses to inject mock GPUs into workload containers, and the [container runtime setup](#container-runtime-setup) that registers the `nvidia` handler |
-| `imex` | IMEX channel character devices, a `/proc/devices` overlay, and the capability file the DRA compute-domain plugin reads                                   |
-| `nvlink` | The ComputeDomain topology document, which gives the node its NVLink fabric identity                                                                     |
+| `cri` | Two CDI specs that containerd uses to inject mock GPUs into workload containers, and the [container runtime setup](#container-runtime-setup) that registers the `nvidia` handler. While IMEX is staged, the GPU spec also mounts `nvidia-imex` and `nvidia-imex-ctl`, as the NVIDIA Container Toolkit does on a real GB200 or GB300 node, with `nvidia-imex.real` beside Mokka's `nvidia-imex` shim |
+| `imex` | On multi-node NVLink profiles: IMEX channel character devices, a `/proc/devices` overlay, and the capability file the DRA compute-domain plugin reads, plus `nvidia-imex` and `nvidia-imex-ctl` from a pinned archive: delivered by the chart's `imex.binaries.image`, or downloaded from NVIDIA into a node cache while the `IMEXDownload` [feature gate](../feature-gates.md) is on. A node without the archive stays ready and stages no IMEX, as a real node without the IMEX package |
+| `nvlink` | The ComputeDomain topology document, which gives the node its NVLink fabric identity. Staged in the overlay for NRI-injected containers and beside the driver tree's `config.yaml`, where the mock library finds it in a process that mounts only the driver root, such as the DRA driver's kubelet plugin |
 | `fabricmanager` | A stand-in for `nv-fabricmanager`, which on a real NVSwitch platform must register GPUs before they are usable                                           |
 | `ib` | A fake `/sys/class/infiniband` tree, the IB shims and CLI tools, and the `mock-ib` daemon serving UMAD and verbs                                         |
 | `kernellog` | Announces injected Xids on the node's kernel log, the way a driver's printk does                                                                         |
+
+### Which nvidia-smi a node runs
+
+A real node's `nvidia-smi` comes with its driver, and a binary from another
+branch misreads a driver's answers: NVML numbered some field values
+differently, and from 615 it addresses 36 NVLinks per GPU where 580 addressed
+18. The image therefore ships one `nvidia-smi` per driver branch, 580.65.06
+and 615.71.09, and `gpudriver` stages one by the profile's
+`system.driver_version` (or the chart's `driverVersion`):
+
+- Within the driver's branch, the newest binary not newer than the driver, or
+  the branch's oldest when every one is newer: a binary of another branch can
+  address a different number of NVLinks.
+- A driver with no binary of its own branch gets the newest of an older
+  branch, never a newer one: NVML serves callers built for older drivers only.
+
+Running `nvidia-smi` in the node daemon's pod runs that same staged copy.
+
+| Profile driver | `nvidia-smi` |
+|---|---|
+| 615 and later | 615.71.09 |
+| 580 to 614 | 580.65.06 |
+| before 580 | 580.65.06, the oldest bundled |
+
+One pairing is still off: a driver from 580.95 to 614 numbers the clock-event
+counter fields the newer way, which the 580.65.06 binary cannot read, so it
+shows them as `N/A`. No shipped profile uses such a driver.
+
+The binaries come from NVIDIA's CUDA repository (580) and Canonical's Ubuntu
+archive (615, repackaged from NVIDIA's driver installer), pinned in
+`deployments/nvml-mock/Dockerfile`. The 615 package is checked against its
+pinned checksum, so any source will do: Launchpad, the Ubuntu archive, or one
+added to the `NVIDIA_SMI_615_URLS` build argument. `make nvidia-smi-smoke` runs each of them
+against the mock NVML without a cluster.
 
 ## The reconcile lifecycle
 
@@ -106,7 +140,7 @@ arrives too.
 node whose kernel reports none: a profile on NFS, or a host at its inotify
 watch limit.
 
-A control-plane source is stubbed for [MEP-0001](https://github.com/NVIDIA/k8s-test-infra/tree/main/enhancements/meps/0001-mokka-control-plane),
+A control-plane source is stubbed for [MEP-0001](../../enhancements/meps/0001-mokka-control-plane/README.md),
 which would let a cluster-wide component drive node state instead of a
 ConfigMap. It is not implemented; the file source is the only path in use.
 

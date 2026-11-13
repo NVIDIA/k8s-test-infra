@@ -2,7 +2,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Scenario 3 of docs/guides/compute-domain/run.sh, as a Tilt trigger. The pods are
+# Scenario 2 of docs/guides/compute-domain/run.sh, as a Tilt trigger. The pods are
 # evicted after the upgrade so the mock NVML engine re-reads MOCK_TOPOLOGY_CONFIG
 # at its next process start.
 #
@@ -12,28 +12,31 @@
 set -euo pipefail
 
 RELEASE_NAME="nvml-mock"
+# compute_domain.tiltfile installs the release here.
+NAMESPACE="${NAMESPACE:-mokka}"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 REBIND_TOPO="local/compute-domain/rebind.topology.yaml"
 NEW_UUID="00000000-0000-0000-0000-0000000000ff"
 
 printf '==> helm upgrade --reuse-values -f %s\n' "${REBIND_TOPO}"
 helm upgrade "${RELEASE_NAME}" "${CHART_PATH}" \
+  --namespace "${NAMESPACE}" \
   --reuse-values \
   -f "${REBIND_TOPO}" \
   --wait --timeout 180s >/dev/null
 printf '    upgraded\n'
 
 printf '==> evicting pods so mock NVML re-reads MOCK_TOPOLOGY_CONFIG\n'
-kubectl delete pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
+kubectl delete pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${RELEASE_NAME}" \
   --ignore-not-found >/dev/null
-kubectl rollout status "daemonset/${RELEASE_NAME}" --timeout=180s >/dev/null
+kubectl rollout status -n "${NAMESPACE}" "daemonset/${RELEASE_NAME}" --timeout=180s >/dev/null
 printf '    rolled out\n'
 
 pod_on_node() {
   local node=$1
   for _ in $(seq 1 30); do
     local name
-    name=$(kubectl get pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
+    name=$(kubectl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${RELEASE_NAME}" \
       --field-selector="spec.nodeName=${node},status.phase=Running" \
       -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
     if [[ -n "${name}" ]]; then
@@ -53,7 +56,7 @@ assert_clique() {
     return 1
   fi
   local out
-  out=$(kubectl exec "${pod}" -- check-fabric 2>&1 || true)
+  out=$(kubectl exec -n "${NAMESPACE}" "${pod}" -- check-fabric 2>&1 || true)
   if ! printf '%s\n' "${out}" | grep -q "cliqueId    : ${expected_clique}"; then
     printf 'FAIL: %s expected cliqueId %s\n' "${node}" "${expected_clique}" >&2
     return 1
@@ -70,6 +73,6 @@ assert_clique worker-1 99 "${NEW_UUID}"
 assert_clique worker-2 99 "${NEW_UUID}"
 assert_clique worker-3 99 "${NEW_UUID}"
 
-printf '\n==> Scenario 3 passed: all workers rebound to clique 99 with new UUID.\n'
+printf '\n==> Scenario 2 passed: all workers rebound to clique 99 with new UUID.\n'
 printf '    check-fabric (Scenario 1) fails until nvml-mock is re-applied from Tilt,\n'
 printf '    which restores the original topology.\n'

@@ -12,7 +12,7 @@ import (
 )
 
 // TestDiscoverDevicesSkipsChannelDirectory pins a defect that predates IMEX
-// channel injection. imex.mockChannels (#541) mknods the channel nodes into a
+// channel injection. The node agent (#541) mknods the channel nodes into a
 // nvidia-caps-imex-channels DIRECTORY inside the same device root the plugin
 // scans, and that directory name matches the "nvidia" prefix filter. Injecting
 // a directory as a LinuxDevice is not a device node, so the runtime cannot

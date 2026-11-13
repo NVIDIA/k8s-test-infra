@@ -41,7 +41,7 @@ import (
 // KnownProfiles is the full set of chart profiles shipped in the repo. The
 // required CI matrix is a subset chosen by the workflow input; this list is
 // only used by All() and the cross-check unit test.
-var KnownProfiles = []string{"a100", "h100", "b200", "gb200", "gb300", "l40s", "t4"}
+var KnownProfiles = []string{"a100", "h100", "b200", "gb200", "gb300", "l40s", "t4", "vrnvl72"}
 
 // rawProfile decodes only the fields the harness needs from a chart profile
 // YAML. sigs.k8s.io/yaml maps via JSON tags, so the tags are the snake_case
@@ -51,6 +51,7 @@ type rawProfile struct {
 		Name           string `json:"name"`
 		Architecture   string `json:"architecture"`
 		AddressingMode string `json:"addressing_mode"`
+		EGM            bool   `json:"egm"`
 		Fabric         *struct {
 			State string `json:"state"`
 		} `json:"fabric"`
@@ -58,16 +59,18 @@ type rawProfile struct {
 			TotalBytes int64 `json:"total_bytes"`
 		} `json:"memory"`
 		Thermal *struct {
-			ShutdownThresholdC int `json:"shutdown_threshold_c"`
-			SlowdownThresholdC int `json:"slowdown_threshold_c"`
-			MaxOperatingC      int `json:"max_operating_c"`
+			ShutdownThresholdC int        `json:"shutdown_threshold_c"`
+			SlowdownThresholdC int        `json:"slowdown_threshold_c"`
+			MaxOperatingC      int        `json:"max_operating_c"`
+			TLimit             *rawTLimit `json:"tlimit"`
 		} `json:"thermal"`
 		Utilization *struct {
 			JPEG int `json:"jpeg"`
 			OFA  int `json:"ofa"`
 		} `json:"utilization"`
 		PCIe *struct {
-			MaxLinkGen int `json:"max_link_gen"`
+			MaxLinkGen     int `json:"max_link_gen"`
+			HostMaxLinkGen int `json:"host_max_link_gen"`
 		} `json:"pcie"`
 		Clocks *struct {
 			GraphicsMax        int `json:"graphics_max"`
@@ -89,6 +92,11 @@ type rawProfile struct {
 				} `json:"supported"`
 				Requested []int `json:"requested"`
 			} `json:"workload_power_profiles"`
+			Smoothing *struct {
+				Supported     *bool  `json:"supported"`
+				State         string `json:"state"`
+				ActiveProfile int    `json:"active_profile"`
+			} `json:"smoothing"`
 		} `json:"power"`
 		Platform     *rawPlatform `json:"platform"`
 		RemappedRows *struct {
@@ -110,6 +118,7 @@ type rawProfile struct {
 	NVLink struct {
 		LinksPerGPU int  `json:"links_per_gpu"`
 		C2CEnabled  bool `json:"c2c_enabled"`
+		MultiNode   bool `json:"multi_node"`
 		BwMode      struct {
 			Scope string `json:"scope"`
 		} `json:"bw_mode"`
@@ -139,6 +148,7 @@ type rawProfile struct {
 	} `json:"pcie_topology"`
 	System struct {
 		DriverVersion string `json:"driver_version"`
+		ProductName   string `json:"product_name"`
 	} `json:"system"`
 }
 
@@ -151,6 +161,7 @@ type rawPlatform struct {
 	HostID              int    `json:"host_id"`
 	PeerType            string `json:"peer_type"`
 	ModuleID            int    `json:"module_id"`
+	GPUFabricGUID       string `json:"gpu_fabric_guid"`
 }
 
 // PlatformIdentity is the platform identity a profile configures — where its
@@ -164,6 +175,9 @@ type PlatformIdentity struct {
 	HostID              int
 	PeerType            string
 	ModuleIDs           []int
+	// FabricGUIDIsPDI is set when device_defaults declares gpu_fabric_guid:
+	// "pdi". Fixed per-device GUIDs are not read: no shipped profile uses them.
+	FabricGUIDIsPDI bool
 }
 
 // Profile is the typed, validated view of a chart GPU profile.
@@ -172,6 +186,9 @@ type Profile struct {
 	Name string
 	// DisplayName is device_defaults.name, e.g. "NVIDIA A100-SXM4-40GB".
 	DisplayName string
+	// ProductName is system.product_name, the DMI product name, empty when
+	// the profile names no system.
+	ProductName string
 
 	gpuCount    int
 	ibEnabled   bool
@@ -184,6 +201,7 @@ type Profile struct {
 	nvlinkBwScope  string
 	pciBridges     int
 	c2cEnabled     bool
+	multiNode      bool
 	fabricAuto     bool
 	hasFabric      bool
 	pciRoots       int
@@ -195,9 +213,11 @@ type Profile struct {
 	shutdownThresholdC int
 	slowdownThresholdC int
 	maxOperatingC      int
+	tlimit             *TLimit
 	jpegUtilizationPct int
 	ofaUtilizationPct  int
 	maxPCIeLinkGen     int
+	hostMaxPCIeLinkGen int
 	graphicsMaxMHz     int
 	appDefaultMemMHz   int
 	appDefaultGfxMHz   int
@@ -209,11 +229,16 @@ type Profile struct {
 	hasPlatform bool
 
 	addressingMode string
+	egm            bool
 
 	driverVersion             string
 	workloadProfiles          []WorkloadPowerProfile
 	workloadProfilesRequested []int
 	workloadProfilesDeclared  bool
+
+	smoothingSupported     *bool
+	smoothingEnabled       bool
+	smoothingActiveProfile int
 
 	migMaxInstances int
 }
@@ -244,6 +269,16 @@ const bytesPerMiB = 1024 * 1024
 // becomes "NVIDIA-GB200".
 func (p Profile) GFDProductName() string {
 	return strings.ReplaceAll(p.DisplayName, " ", "-")
+}
+
+// GFDMachine is what GPU Feature Discovery publishes as nvidia.com/gpu.machine:
+// the system's product name, or the GPU's where the profile names no system,
+// with spaces turned into dashes.
+func (p Profile) GFDMachine() string {
+	if p.ProductName == "" {
+		return p.GFDProductName()
+	}
+	return strings.ReplaceAll(p.ProductName, " ", "-")
 }
 
 // MemoryMiB is per-device memory in MiB, matching what GFD publishes as
@@ -284,6 +319,7 @@ func Load(profilesDir, name string) (Profile, error) {
 	p := Profile{
 		Name:        name,
 		DisplayName: raw.DeviceDefaults.Name,
+		ProductName: raw.System.ProductName,
 		gpuCount:    len(raw.Devices),
 		ibEnabled:   raw.Infiniband.Enabled,
 		hcasPerGPU:  raw.Infiniband.HCAsPerGPU,
@@ -292,10 +328,12 @@ func Load(profilesDir, name string) (Profile, error) {
 		hasSwitches: len(raw.NVLink.Switches) > 0,
 		pciBridges:  pcieVisibleSwitches(raw),
 		c2cEnabled:  raw.NVLink.C2CEnabled,
+		multiNode:   raw.NVLink.MultiNode,
 		memoryBytes: raw.DeviceDefaults.Memory.TotalBytes,
 		arch:        parsedArch,
 
 		addressingMode: strings.TrimSpace(raw.DeviceDefaults.AddressingMode),
+		egm:            raw.DeviceDefaults.EGM,
 		driverVersion:  strings.TrimSpace(raw.System.DriverVersion),
 	}
 	p.nvlinkFirmware = nvlinkFirmwareRows(raw)
@@ -309,8 +347,9 @@ func Load(profilesDir, name string) (Profile, error) {
 	}
 	p.pciAddrs, p.gpuNUMA = pciLocality(raw)
 	// An IB-enabled profile that forgot hcas_per_gpu would silently expect 0
-	// HCAs; the shipped profiles all set 1. Default to 1 when enabled but
-	// unset so a missing key does not weaken the assertion.
+	// HCAs; every shipped profile sets it explicitly (1, or 3 on vrnvl72).
+	// Default to 1 when enabled but unset so a missing key does not weaken
+	// the assertion.
 	if p.ibEnabled && p.hcasPerGPU == 0 {
 		p.hcasPerGPU = 1
 	}
@@ -365,6 +404,7 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 		p.shutdownThresholdC = t.ShutdownThresholdC
 		p.slowdownThresholdC = t.SlowdownThresholdC
 		p.maxOperatingC = t.MaxOperatingC
+		p.tlimit = completeTLimit(t.TLimit)
 	}
 	if u := raw.DeviceDefaults.Utilization; u != nil {
 		p.jpegUtilizationPct = u.JPEG
@@ -372,9 +412,11 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	}
 	if pcie := raw.DeviceDefaults.PCIe; pcie != nil {
 		p.maxPCIeLinkGen = pcie.MaxLinkGen
+		p.hostMaxPCIeLinkGen = pcie.HostMaxLinkGen
 	}
 	p.applyClocks(raw)
 	p.applyWorkloadPowerProfiles(raw)
+	p.applyPowerSmoothing(raw)
 	if r := raw.DeviceDefaults.RemappedRows; r != nil && r.AvailabilityHistogram != nil {
 		p.rowRemapHistogram = true
 		p.rowRemapBanks = r.AvailabilityHistogram.Max
@@ -395,6 +437,7 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 			HostID:              pl.HostID,
 			PeerType:            pl.PeerType,
 			ModuleIDs:           deviceModuleIDs(raw, pl.ModuleID),
+			FabricGUIDIsPDI:     strings.EqualFold(strings.TrimSpace(pl.GPUFabricGUID), "pdi"),
 		}
 	}
 }
@@ -471,9 +514,9 @@ func pcieVisibleSwitches(raw rawProfile) int {
 // their switches on the node's PCIe bus, so `lspci` lists them beside the GPUs.
 //
 // Zero for every other profile, and two different reasons produce it. b200/l40s/
-// t4 declare no NVSwitches at all. gb200/gb300 declare them for NVLink topology
-// but give them no PCI identity, because on NVL72 the switches are in their own
-// trays and the compute tray never enumerates them — which makes those profiles
+// t4 declare no NVSwitches at all. gb200/gb300/vrnvl72 declare them for NVLink
+// topology but give them no PCI identity, because on these racks the switches
+// are in their own trays and the compute tray never enumerates them — which makes those profiles
 // the negative control that keeps this from being satisfiable by "any switch".
 func (p Profile) ExpectedPCIBridges() int { return p.pciBridges }
 
@@ -507,7 +550,8 @@ func (p Profile) ExpectedNetdevs() int {
 func (p Profile) MIGCapable() bool { return p.migMaxInstances > 0 }
 
 // ExpectedHCAs is the number of InfiniBand HCAs the profile should expose:
-// one per GPU when IB is enabled, otherwise 0 (l40s/t4 negative control).
+// hcas_per_gpu per GPU when IB is enabled, otherwise 0 (l40s/t4 negative
+// control). Most profiles pair one HCA with each GPU; vrnvl72 pairs three.
 func (p Profile) ExpectedHCAs() int {
 	if !p.ibEnabled {
 		return 0
@@ -541,7 +585,7 @@ func (p Profile) ExpectedPCIRoots() int { return p.pciRoots }
 func (p Profile) FabricMgr() bool { return p.hasSwitches || p.fabricAuto }
 
 // HasFabric reports whether the profile declares a device_defaults.fabric block
-// (cluster_uuid / clique_id). Only these profiles (h100, gb200, gb300) expose
+// (cluster_uuid / clique_id). Only these profiles (h100, gb200, gb300, vrnvl72) expose
 // ComputeDomain fabric identity via nvmlDeviceGetGpuFabricInfo, so the mock's
 // check-fabric consumer succeeds and the topology overlay has something to
 // rewrite. This is DISTINCT from FabricMgr: an NVSwitch profile like a100 runs
@@ -550,14 +594,21 @@ func (p Profile) FabricMgr() bool { return p.hasSwitches || p.fabricAuto }
 func (p Profile) HasFabric() bool { return p.hasFabric }
 
 // C2CEnabled reports whether the profile declares an NVLink-C2C link to the
-// host CPU (nvlink.c2c_enabled). True only on the Grace-Blackwell profiles;
+// host CPU (nvlink.c2c_enabled). True only on the superchip profiles, where a
+// CPU sits on the other end of the link: Grace on gb200/gb300, Vera on vrnvl72.
 // nvidia-smi -q renders it as "GPU C2C Mode : Enabled" there and N/A
 // elsewhere. Absent key means false, i.e. N/A.
 func (p Profile) C2CEnabled() bool { return p.c2cEnabled }
 
+// MultiNodeNVLink reports whether the board's NVLink domain spans nodes
+// (nvlink.multi_node), which is what makes the node agent stage the IMEX
+// surface. gb200 and gb300 set it today. HasFabric is also true on h100, whose
+// NVLink stays on one baseboard, so it cannot stand in for this.
+func (p Profile) MultiNodeNVLink() bool { return p.multiNode }
+
 // PlatformIdentity returns the platform identity the profile configures and
-// whether it declares one at all. Only the rack-scale profiles (gb200, gb300)
-// do: NVML answers nvmlDeviceGetPlatformInfo for a board whose platform can
+// whether it declares one at all. Only the rack-scale profiles (gb200, gb300,
+// vrnvl72) do: NVML answers nvmlDeviceGetPlatformInfo for a board whose platform can
 // report a physical location, and nvidia-smi renders N/A for every other one, so
 // the absent case is the negative control that keeps the populated case from
 // being satisfiable by constants.
@@ -578,6 +629,65 @@ func (p Profile) SlowdownThresholdC() int { return p.slowdownThresholdC }
 // MaxOperatingC is thermal.max_operating_c from the profile.
 func (p Profile) MaxOperatingC() int { return p.maxOperatingC }
 
+// rawTLimit is thermal.tlimit as written; a distance may be left out.
+type rawTLimit struct {
+	ReferenceC    int  `json:"reference_c"`
+	ShutdownC     *int `json:"shutdown_c"`
+	SlowdownC     *int `json:"slowdown_c"`
+	MaxOperatingC *int `json:"max_operating_c"`
+}
+
+// completeTLimit returns the block when it states the reference and every
+// distance, nil otherwise.
+func completeTLimit(l *rawTLimit) *TLimit {
+	if l == nil || l.ReferenceC == 0 || l.ShutdownC == nil || l.SlowdownC == nil || l.MaxOperatingC == nil {
+		return nil
+	}
+	return &TLimit{
+		ReferenceC:    l.ReferenceC,
+		ShutdownC:     *l.ShutdownC,
+		SlowdownC:     *l.SlowdownC,
+		MaxOperatingC: *l.MaxOperatingC,
+	}
+}
+
+// TLimit is the T.Limit view a profile states under thermal.tlimit: the
+// reference the margin is measured to and the signed distances nvidia-smi
+// prints as the T.Limit rows.
+type TLimit struct {
+	ReferenceC    int
+	ShutdownC     int
+	SlowdownC     int
+	MaxOperatingC int
+}
+
+// TLimit returns thermal.tlimit and whether the profile states all of it.
+func (p Profile) TLimit() (TLimit, bool) {
+	if p.tlimit == nil {
+		return TLimit{}, false
+	}
+	return *p.tlimit, true
+}
+
+// TLimitReferenceC is the temperature the mock measures the T.Limit margin to:
+// thermal.tlimit.reference_c when the profile states the block, else the
+// slowdown threshold, then the shutdown and max operating ones, as the engine
+// derives it. False for a board without the T.Limit view.
+func (p Profile) TLimitReferenceC() (int, bool) {
+	if !p.ReportsTLimitTemp() {
+		return 0, false
+	}
+	if p.tlimit != nil {
+		return p.tlimit.ReferenceC, true
+	}
+	for _, c := range []int{p.slowdownThresholdC, p.shutdownThresholdC, p.maxOperatingC} {
+		if c != 0 {
+			return c, true
+		}
+	}
+	return 0, false
+}
+
 // JPEGUtilizationPct is utilization.jpeg from the profile, the percentage
 // nvidia-smi -q -x must report in jpeg_util.
 func (p Profile) JPEGUtilizationPct() int { return p.jpegUtilizationPct }
@@ -591,6 +701,10 @@ func (p Profile) OFAUtilizationPct() int { return p.ofaUtilizationPct }
 // Ranges from 3 (t4) to 6 (Blackwell), so asserting against it pins the value
 // to config rather than a hardcoded constant.
 func (p Profile) MaxPCIeLinkGen() int { return p.maxPCIeLinkGen }
+
+// HostMaxPCIeLinkGen is the configured host-side maximum. Zero means absent,
+// which nvidia-smi must render as N/A.
+func (p Profile) HostMaxPCIeLinkGen() int { return p.hostMaxPCIeLinkGen }
 
 // GraphicsMaxClockMHz is device_defaults.clocks.graphics_max, the boost maximum
 // nvidia-smi renders in Max Clocks. The mock reports the same value as the
@@ -688,6 +802,40 @@ func (p Profile) SupportsWorkloadPowerProfiles() bool {
 	return p.workloadProfilesDeclared && p.DriverMajor() >= workloadPowerProfileMinDriver
 }
 
+// applyPowerSmoothing decodes power.smoothing. Absent, the board keeps the
+// architecture default and starts disabled on preset 0.
+func (p *Profile) applyPowerSmoothing(raw rawProfile) {
+	pw := raw.DeviceDefaults.Power
+	if pw == nil || pw.Smoothing == nil {
+		return
+	}
+	p.smoothingSupported = pw.Smoothing.Supported
+	p.smoothingEnabled = pw.Smoothing.State == "enabled"
+	p.smoothingActiveProfile = pw.Smoothing.ActiveProfile
+}
+
+// powerSmoothingMinDriver is the driver that introduced the
+// nvmlDevicePowerSmoothing* setters, matching the mock's version registry.
+const powerSmoothingMinDriver = 570
+
+// SupportsPowerSmoothing reports whether `nvidia-smi -q` should render a
+// populated Power Smoothing block and `nvidia-smi power-smoothing` should
+// accept writes. The feature is Blackwell and later unless the profile's
+// power.smoothing.supported says otherwise, and needs a 570-or-newer driver.
+func (p Profile) SupportsPowerSmoothing() bool {
+	supported := p.arch.AtLeast(gpuarch.Blackwell)
+	if p.smoothingSupported != nil {
+		supported = *p.smoothingSupported
+	}
+	return supported && p.DriverMajor() >= powerSmoothingMinDriver
+}
+
+// PowerSmoothingEnabled is power.smoothing.state == "enabled".
+func (p Profile) PowerSmoothingEnabled() bool { return p.smoothingEnabled }
+
+// PowerSmoothingActiveProfile is power.smoothing.active_profile.
+func (p Profile) PowerSmoothingActiveProfile() int { return p.smoothingActiveProfile }
+
 // IndependentWorkloadProfilePair returns two advertised profiles that do not
 // conflict with each other, so requesting both leaves both enforced. Used to
 // tell a cleared profile from its neighbour: clearing one must leave the other.
@@ -744,6 +892,10 @@ const (
 // "ats", "none"), or "" when the profile declares none.
 func (p Profile) AddressingMode() string { return p.addressingMode }
 
+// EGM is device_defaults.egm: whether the profile's host has Extended GPU
+// Memory turned on.
+func (p Profile) EGM() bool { return p.egm }
+
 // ReportsCapabilities reports whether the profile's driver answers the
 // capabilities query, which nvidia-smi renders as the EGM row.
 func (p Profile) ReportsCapabilities() bool { return p.DriverMajor() >= capabilitiesMinDriver }
@@ -752,6 +904,18 @@ func (p Profile) ReportsCapabilities() bool { return p.DriverMajor() >= capabili
 // addressing mode and PDI queries.
 func (p Profile) ReportsAddressingModeAndPDI() bool {
 	return p.DriverMajor() >= addressingModePDIMinDriver
+}
+
+// applicationsClocksDeprecatedDriver is the first driver whose nvidia-smi
+// reports applications clocks as deprecated: -ac and -rac only print the
+// notice, and nvidia-smi -q shows it in place of the clocks, as the real 615
+// tray does.
+const applicationsClocksDeprecatedDriver = 615
+
+// ApplicationsClocksDeprecated reports whether the profile's driver has
+// deprecated applications clocks.
+func (p Profile) ApplicationsClocksDeprecated() bool {
+	return p.DriverMajor() >= applicationsClocksDeprecatedDriver
 }
 
 // DriverMajor is the major component of system.driver_version, or 0 when the

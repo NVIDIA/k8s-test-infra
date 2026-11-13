@@ -45,9 +45,10 @@ var functionRegistry = map[string]FunctionVersion{
 
 	// 510.x additions
 	"nvmlDeviceGetMemoryInfo_v2":               {Added: "510.0"},
-	"nvmlDeviceGetComputeRunningProcesses_v3":  {Added: "510.0"},
-	"nvmlDeviceGetGraphicsRunningProcesses_v3": {Added: "510.0"},
-	"nvmlDeviceGetGspFirmwareMode":             {Added: "510.0"},
+	"nvmlDeviceGetComputeRunningProcesses_v3":    {Added: "510.0"},
+	"nvmlDeviceGetGraphicsRunningProcesses_v3":   {Added: "510.0"},
+	"nvmlDeviceGetMPSComputeRunningProcesses_v3": {Added: "510.0"},
+	"nvmlDeviceGetGspFirmwareMode":               {Added: "510.0"},
 
 	// 515.x additions. The fan family arrived in three driver branches, and
 	// the split is worth keeping: a consumer built against a 570 header and
@@ -73,6 +74,7 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlGpmSampleAlloc":        {Added: "535.0"},
 	"nvmlGpmSampleFree":         {Added: "535.0"},
 	"nvmlGpmSampleGet":          {Added: "535.0"},
+	"nvmlGpmMigSampleGet":       {Added: "535.0"},
 	"nvmlGpmMetricsGet":         {Added: "535.0"},
 
 	// 555.x additions
@@ -81,6 +83,8 @@ var functionRegistry = map[string]FunctionVersion{
 
 	// 560.x additions
 	"nvmlDeviceGetPlatformInfo": {Added: "560.0"},
+	// Absent from libnvidia-ml.so.550.54.14, present from 560.28.03.
+	"nvmlSystemGetDriverBranch": {Added: "560.0"},
 
 	// 565.x additions. The cooler descriptors came a branch later than the
 	// rest of the fan family.
@@ -99,7 +103,14 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceWorkloadPowerProfileClearRequestedProfiles": {Added: "570.0"},
 	"nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1":      {Added: "570.0"},
 
+	// Power smoothing is the same split: Blackwell in the profile, 570 here.
+	"nvmlDevicePowerSmoothingSetState":                 {Added: "570.0"},
+	"nvmlDevicePowerSmoothingActivatePresetProfile":    {Added: "570.0"},
+	"nvmlDevicePowerSmoothingUpdatePresetProfileParam": {Added: "570.0"},
+
 	// 580.x / NVML 13.0 additions
+	"nvmlDeviceGetPowerMizerMode_v1":          {Added: "580.0"},
+	"nvmlDeviceSetPowerMizerMode_v1":          {Added: "580.0"},
 	"nvmlDeviceGetVgpuSchedulerLog_v2":        {Added: "580.0"},
 	"nvmlDeviceGetVgpuSchedulerState_v2":      {Added: "580.0"},
 	"nvmlDeviceSetVgpuSchedulerState_v2":      {Added: "580.0"},
@@ -125,6 +136,33 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceReadWritePRM_v1":     {Added: "580.0"},
 	"nvmlDeviceReadPRMCounters_v1":  {Added: "590.0"},
 	"nvmlDeviceGetBBXTimeData_v1":   {Added: "600.0"},
+
+	// Process detail, per-process utilization and the v2 accounting stats,
+	// dated the same way as the block above. AccountingStats_v2 is newer than
+	// the r595 header, as BBXTimeData_v1 is.
+	"nvmlDeviceGetRunningProcessDetailList": {Added: "535.0"},
+	"nvmlDeviceGetProcessesUtilizationInfo": {Added: "550.0"},
+	"nvmlDeviceGetAccountingStats_v2":       {Added: "600.0"},
+
+	// The system event set: absent from libnvidia-ml.so.570.86.15, present
+	// from 580.65.06. A consumer configured on an r570 profile therefore
+	// falls back to the per-device event set, as it must on that driver.
+	"nvmlSystemEventSetCreate": {Added: "580.0"},
+	"nvmlSystemEventSetFree":   {Added: "580.0"},
+	"nvmlSystemEventSetWait":   {Added: "580.0"},
+	"nvmlSystemRegisterEvents": {Added: "580.0"},
+
+	// The per-GPU hostname pair landed mid-branch: absent from
+	// libnvidia-ml.so.580.65.06, present from 580.95.05. The minor component
+	// matters here, which is why this entry is not rounded to 580.0.
+	"nvmlDeviceGetHostname_v1": {Added: "580.95"},
+	"nvmlDeviceSetHostname_v1": {Added: "580.95"},
+
+	// CPER is declared by the NVML 13.0 header go-nvml v0.13.3-1 ships, but no
+	// released driver exports it — checked every libnvidia-ml.so from 550.54.14
+	// through 580.178.04. r590 is the first branch that can carry it, so that
+	// is the gate; a profile must declare a 590+ driver to read CPER records.
+	"nvmlSystemGetCPER_v1": {Added: "590.0"},
 
 	// Topology functions (available since early NVML)
 	"nvmlDeviceGetTopologyCommonAncestor": {Added: "331.0"},
@@ -169,6 +207,11 @@ var functionRegistry = map[string]FunctionVersion{
 	// Power functions (331.x+)
 	"nvmlDeviceGetEnforcedPowerLimit":  {Added: "331.0"},
 	"nvmlDeviceGetPowerManagementMode": {Added: "331.0"},
+
+	// HIC / HWBC enumeration predates every driver we can still download; it
+	// is present in libnvidia-ml.so.550.54.14 and has been since the S-class
+	// enclosures it describes were current.
+	"nvmlSystemGetHicVersion": {Added: "331.0"},
 }
 
 // GetFunctionRegistry returns a copy of the function version registry.
@@ -192,6 +235,18 @@ func FunctionAvailable(funcName, driverVersion string) bool {
 	}
 	if entry.Removed != "" && CompareDriverVersions(driverVersion, entry.Removed) >= 0 {
 		return false
+	}
+	return true
+}
+
+// FieldAvailable reports whether the given driver version knows a field id.
+// Power smoothing arrived in 570 as a unit, the field ids that read it with the
+// setters that write it, so a driver without the setters reports none of the
+// fields rather than a feature nothing can control. Other ids default to
+// available, as unknown functions do.
+func FieldAvailable(fieldID uint32, driverVersion string) bool {
+	if isPowerSmoothingField(fieldID) {
+		return FunctionAvailable("nvmlDevicePowerSmoothingSetState", driverVersion)
 	}
 	return true
 }

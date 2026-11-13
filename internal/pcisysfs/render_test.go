@@ -5,6 +5,7 @@ package pcisysfs
 
 import (
 	"encoding/binary"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -517,4 +518,101 @@ func TestRender_RejectsANameThatEscapesOutput(t *testing.T) {
 				"the render escaped OverlayRoot")
 		})
 	}
+}
+
+// gfdVGPUHostDriver is a test copy of how GPU Feature Discovery reads a vGPU
+// guest's host driver from PCI config space
+// (NVIDIA/k8s-device-plugin internal/vgpu: GetVendorSpecificCapability,
+// IsVGPUDevice, GetInfo). Parsing with the consumer's own walk is what makes
+// the render's bytes mean something.
+func gfdVGPUHostDriver(cfg []byte) (version, branch string, err error) {
+	if len(cfg) < 256 {
+		return "", "", errors.New("incomplete config space")
+	}
+	if cfg[0x06]&0x10 == 0 {
+		return "", "", errors.New("no capability list")
+	}
+	capability := gfdVendorSpecificCapability(cfg)
+	if len(capability) < 5 || capability[3] != 'V' || capability[4] != 'F' {
+		return "", "", errors.New("no vGPU capability")
+	}
+	return gfdDriverRecord(capability)
+}
+
+// gfdVendorSpecificCapability returns the first vendor-specific capability in
+// the list, or nil when the list has none or is malformed.
+func gfdVendorSpecificCapability(cfg []byte) []byte {
+	var visited [256]byte
+	for pos := cfg[0x34]; pos != 0; {
+		if int(pos)+3 > len(cfg) || visited[pos] != 0 || cfg[pos] == 0xff {
+			return nil
+		}
+		id, next, length := cfg[pos], cfg[pos+1], cfg[pos+2]
+		if id == 0x09 {
+			if int(pos)+int(length) > len(cfg) {
+				return nil
+			}
+			return cfg[pos : int(pos)+int(length)]
+		}
+		visited[pos]++
+		pos = next
+	}
+	return nil
+}
+
+// gfdDriverRecord walks the vGPU capability's records to the host driver one.
+func gfdDriverRecord(capability []byte) (version, branch string, err error) {
+	pos := 5
+	for {
+		if pos >= len(capability) {
+			return "", "", errors.New("no driver version record")
+		}
+		if capability[pos] == 0 {
+			break
+		}
+		if len(capability)-pos < 2 || int(capability[pos+1]) < 2 || int(capability[pos+1]) > len(capability)-pos {
+			return "", "", errors.New("bad record")
+		}
+		pos += int(capability[pos+1])
+	}
+	if len(capability)-pos < 2 || int(capability[pos+1]) < 22 || int(capability[pos+1]) > len(capability)-pos {
+		return "", "", errors.New("bad driver record")
+	}
+	payload := capability[pos+2:]
+	return strings.Trim(string(payload[0:10]), "\x00"), strings.Trim(string(payload[10:20]), "\x00"), nil
+}
+
+func renderOneGPU(t *testing.T, id PCI) []byte {
+	t.Helper()
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{{ID: "pci0000:00", Devices: []string{id.BusID}}}}
+	require.NoError(t, Render(Options{Topology: topo, Identities: map[string]PCI{strings.ToLower(id.BusID): id}, OverlayRoot: dir}))
+	cfg, err := os.ReadFile(filepath.Join(dir, "sys/devices/pci0000:00", strings.ToLower(id.BusID), "config"))
+	require.NoError(t, err)
+	return cfg
+}
+
+func TestRender_VGPUGuestCapabilityParsesAsGFDReadsIt(t *testing.T) {
+	t.Parallel()
+	cfg := renderOneGPU(t, PCI{
+		BusID: "0000:07:00.0", DeviceID: 0x20B010DE, SubsystemID: 0x134F10DE,
+		VGPUHostDriver: &VGPUHostDriver{Version: "550.163.01", Branch: "r550_00"},
+	})
+	version, branch, err := gfdVGPUHostDriver(cfg)
+	require.NoError(t, err)
+	require.Equal(t, "550.163.01", version)
+	require.Equal(t, "r550_00", branch)
+	require.Equal(t, uint16(0x20b0), binary.LittleEndian.Uint16(cfg[0x02:]), "identity unchanged")
+}
+
+// A GPU that is not a vGPU guest must not grow a capability list: GFD would
+// label the node nvidia.com/vgpu.present.
+func TestRender_NoVGPUCapabilityByDefault(t *testing.T) {
+	t.Parallel()
+	cfg := renderOneGPU(t, PCI{BusID: "0000:07:00.0", DeviceID: 0x20B010DE})
+	require.Zero(t, cfg[0x06], "status")
+	require.Zero(t, cfg[0x34], "capability pointer")
+	require.Equal(t, make([]byte, 0x100-0x40), cfg[0x40:], "device-specific region")
+	_, _, err := gfdVGPUHostDriver(cfg)
+	require.Error(t, err)
 }

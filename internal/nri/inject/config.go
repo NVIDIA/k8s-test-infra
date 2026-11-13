@@ -6,13 +6,14 @@ package inject
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/imex"
 )
 
 const (
 	// imexChannelRelPath is where the node agent's imex simulator mknods the
-	// mock IMEX channel nodes, resolved relative to the host overlay path. It
-	// must track that simulator and the imex.mockChannels chart surface.
-	imexChannelRelPath = "driver/dev/nvidia-caps-imex-channels"
+	// mock IMEX channel nodes, resolved relative to the host overlay path.
+	imexChannelRelPath = imex.ChannelsDir
 	// imexChannelContainerDir is the fixed kernel location the channels must
 	// appear at inside the container. Consumers (nvidia-imex, the DRA driver's
 	// compute-domain plugin) hard-code this path.
@@ -66,7 +67,7 @@ type Config struct {
 	// IMEX channels — a separate opt-in from the GPU one, because a channel is
 	// a fabric capability rather than a GPU: a ComputeDomain workload may want
 	// channels without the mock device tree, and vice versa. The node agent
-	// stages the nodes when imex.mockChannels.enabled is set; this package only
+	// stages the nodes on multi-node NVLink profiles; this package only
 	// consumes them.
 	ImexChannelAnnotation string
 	ImexChannelHostPath   string

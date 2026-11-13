@@ -43,10 +43,27 @@ func Inventory(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.P
 	gomega.Expect(problems).To(gomega.BeEmpty(), "nvidia-smi inventory wrong:\n%s",
 		strings.Join(problems, "\n"))
 
+	ginkgo.By("nvidia-smi -q -x reports architecture " + ArchitectureName(p.Architecture()))
+	problems = ArchitectureProblems(out, p.Architecture())
+	gomega.Expect(problems).To(gomega.BeEmpty(), "nvidia-smi architecture wrong:\n%s",
+		strings.Join(problems, "\n"))
+
 	ginkgo.By("nvidia-smi -q -x reports no phantom processes")
 	problems = PhantomProcessProblems(out)
 	gomega.Expect(problems).To(gomega.BeEmpty(), "phantom processes:\n%s",
 		strings.Join(problems, "\n"))
+}
+
+// Branch asserts the pod runs the nvidia-smi of the profile's driver branch, the
+// binary the node agent stages for it.
+func Branch(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi comes from driver branch %d", p.DriverMajor()))
+	res, err := k.Exec(ctx, pod, "nvidia-smi")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvidia-smi exited with error: %s", res.Combined())
+	problems := BranchProblems(res.Stdout, p.DriverMajor())
+	gomega.Expect(problems).To(gomega.BeEmpty(), "%s\n%s", strings.Join(problems, "\n"), res.Stdout)
 }
 
 // JpgOfaUtilization asserts nvidia-smi -q -x reports the given JPEG and OFA
@@ -62,15 +79,21 @@ func JpgOfaUtilization(ctx context.Context, k *kube.Client, pod kube.PodRef, wan
 }
 
 // PCIeIdentity asserts nvidia-smi -q -x reports per-GPU PCIe identity values a
-// real GPU could produce: the link, device and host maxima all at the profile's
-// configured generation rather than N/A or Gen0, and a non-zero board ID that is
-// unique across the node. See issue #638.
+// real GPU could produce: the link and device maxima at the profile's
+// configured generation, the independent host maximum (or N/A when
+// host_max_link_gen is absent), and a non-zero board ID that is unique across
+// the node. See issue #638.
 func PCIeIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
 	ginkgo.GinkgoHelper()
 
-	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x PCIe identity on %s (Gen%d, %d GPUs)",
-		p.Name, p.MaxPCIeLinkGen(), p.ExpectedGPUs()))
-	problems := PCIeIdentityProblems(query(ctx, k, pod), p.ExpectedGPUs(), p.MaxPCIeLinkGen())
+	hostMax := p.HostMaxPCIeLinkGen()
+	hostLabel := fmt.Sprintf("Gen%d", hostMax)
+	if hostMax == 0 {
+		hostLabel = "N/A"
+	}
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x PCIe identity on %s (device Gen%d, host %s, %d GPUs)",
+		p.Name, p.MaxPCIeLinkGen(), hostLabel, p.ExpectedGPUs()))
+	problems := PCIeIdentityProblems(query(ctx, k, pod), p.ExpectedGPUs(), p.MaxPCIeLinkGen(), hostMax)
 	gomega.Expect(problems).To(gomega.BeEmpty(),
 		"PCIe identity wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
 }
@@ -171,6 +194,13 @@ func TemperatureThresholds(ctx context.Context, k *kube.Client, pod kube.PodRef,
 	gomega.Expect(problems).To(gomega.BeEmpty(),
 		"temperature threshold presentation wrong for profile %s:\n%s",
 		p.Name, strings.Join(problems, "\n"))
+
+	if tl, ok := p.TLimit(); ok && p.ReportsTLimitTemp() {
+		ginkgo.By(fmt.Sprintf("nvidia-smi -q -x T.Limit rows on %s match thermal.tlimit", p.Name))
+		problems = TLimitValueProblems(query(ctx, k, pod), tl.ShutdownC, tl.SlowdownC, tl.MaxOperatingC)
+		gomega.Expect(problems).To(gomega.BeEmpty(),
+			"T.Limit rows wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+	}
 }
 
 // C2CMode asserts nvidia-smi -q -x reports the C2C state the profile declares:
@@ -204,6 +234,7 @@ func PlatformIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p pr
 			HostID:              identity.HostID,
 			PeerType:            identity.PeerType,
 			ModuleIDs:           identity.ModuleIDs,
+			FabricGUIDIsPDI:     identity.FabricGUIDIsPDI,
 		}
 	}
 
@@ -215,7 +246,7 @@ func PlatformIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p pr
 
 // DeviceIdentity asserts nvidia-smi -q -x renders the Addressing Mode, PDI and
 // EGM rows the profile's driver and host call for: the configured addressing
-// mode and a PDI distinct per GPU from 580, EGM disabled from 560, and the
+// mode and a PDI distinct per GPU from 580, EGM as the profile sets it from 560, and the
 // rendering of a missing symbol before each. All three read N/A while the
 // getters were generated stubs. See issue #1042.
 func DeviceIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
@@ -228,6 +259,9 @@ func DeviceIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p prof
 	}
 	if p.ReportsCapabilities() {
 		want.EGM = egmDisabled
+		if p.EGM() {
+			want.EGM = egmEnabled
+		}
 	}
 
 	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x identity rows on %s (driver %d.x, addressing_mode %q)",
@@ -509,6 +543,46 @@ func unadvertisedProfileID(p profile.Profile) (int, bool) {
 	return 0, false
 }
 
+// PowerSmoothing asserts the Power Smoothing block of `nvidia-smi -q -x`
+// follows the profile: populated with the configured state on a board that
+// models the feature, N/A everywhere else.
+func PowerSmoothing(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	want := PowerSmoothingExpectation{
+		Supported:     p.SupportsPowerSmoothing(),
+		Enabled:       p.PowerSmoothingEnabled(),
+		ActiveProfile: p.PowerSmoothingActiveProfile(),
+	}
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x power_smoothing on %s (supported %v, %s, driver %d.x)",
+		p.Name, want.Supported, p.Architecture(), p.DriverMajor()))
+	problems := PowerSmoothingProblems(query(ctx, k, pod), want)
+	gomega.Expect(problems).To(gomega.BeEmpty(),
+		"Power Smoothing wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+}
+
+// HICInfo asserts `nvidia-smi -q -u -x` answers the unit query and reports
+// exactly want, the node's host interface cards. Pass nil for a node that
+// configures none, which is every profile the chart ships.
+//
+// This is the only nvidia-smi surface that renders nvmlSystemGetHicVersion,
+// and reaching it also proves nvmlUnitGetCount answered: nvidia-smi bails
+// before printing the HIC block if the unit count fails.
+func HICInfo(ctx context.Context, k *kube.Client, pod kube.PodRef, want []HIC) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -u -x reports %d HIC(s)", len(want)))
+	out := unitQuery(ctx, k, pod)
+
+	problems := UnitQueryProblems(out)
+	gomega.Expect(problems).To(gomega.BeEmpty(), "unit query failed:\n%s",
+		strings.Join(problems, "\n"))
+
+	problems = HICProblems(out, want)
+	gomega.Expect(problems).To(gomega.BeEmpty(), "HIC info wrong:\n%s",
+		strings.Join(problems, "\n"))
+}
+
 // query execs `nvidia-smi -q -x` and asserts it succeeded, returning stdout.
 func query(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
 	ginkgo.GinkgoHelper()
@@ -517,6 +591,18 @@ func query(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 		"nvidia-smi -q -x exited with error: %s", res.Combined())
 	return res.Stdout
+}
+
+// unitQuery execs `nvidia-smi -q -u -x`. The combined output is returned
+// because nvidia-smi writes its unit-count failure to stderr and still exits
+// 0, so UnitQueryProblems has to be able to see it.
+func unitQuery(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
+	ginkgo.GinkgoHelper()
+
+	res, err := k.ExecQuiet(ctx, pod, "nvidia-smi", "-q", "-u", "-x")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+		"nvidia-smi -q -u -x exited with error: %s", res.Combined())
+	return res.Combined()
 }
 
 // SnapshotFromPod execs `nvidia-smi -q -x` in pod and decodes it. It returns an

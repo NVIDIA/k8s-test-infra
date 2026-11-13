@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  helm: the NRI plugin container no longer fails to start with `error reading from server: EOF` while the node agent restarts containerd on a new node; NRI now starts after that restart.
+time: 2026-11-12T21:19:32Z

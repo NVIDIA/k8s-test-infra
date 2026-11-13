@@ -21,6 +21,13 @@ configs pin, so `worker-0` is `mokka-worker`:
 docker exec mokka-worker journalctl -k | grep 'NVRM: Xid'
 ```
 
+## Compute-domain scenario
+
+With `--dra`, the DRA driver runs ComputeDomains with its upstream images. The
+node agent stages IMEX for them, from an `imex.binaries.image` set in
+`local/nvml-mock.values.local.yaml` or, while the `IMEXDownload` feature gate is
+on, a download from NVIDIA. Tilt installs the driver once every node has IMEX.
+
 ## Consumers
 
 Notes the Local Development page does not carry.
@@ -38,9 +45,7 @@ kubectl get pods -n gpu-operator -o wide                                # FGO, o
 
 ### topograph
 
-`--topograph` writes `network.topology.nvidia.com/{accelerator,tier-0,tier-1,...}`
-labels on every node, derived from the clique labels of the compute-domain cluster.
-Topology-aware schedulers (KAI, Kueue TAS) consume them. `--dra` is optional.
+See [topograph/README.md](topograph/README.md).
 
 ### Observability
 

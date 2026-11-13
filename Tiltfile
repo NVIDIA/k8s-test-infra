@@ -20,9 +20,8 @@ load('./local/nvml_mock.tiltfile',
      'install_single',
      'install_fleet')
 load('./local/compute-domain/compute_domain.tiltfile',
-     compute_domain_build_images='build_images',
-     compute_domain_install='install',
-     compute_domain_daemon_image='DAEMON_IMAGE')
+     compute_domain_build_image='build_image',
+     compute_domain_install='install')
 load('./local/gpu-operator/gpu_operator.tiltfile', gpu_operator_install='install')
 load('./local/dra/dra.tiltfile', dra_install='install')
 load('./local/fgo/fgo.tiltfile', fgo_install='install')
@@ -39,7 +38,7 @@ load('./local/slinky/slinky.tiltfile',
      slinky_upsert_timeout_s='UPSERT_TIMEOUT_S')
 
 config.define_string('gpu-profile', args=False,
-    usage='GPU profile to simulate (used unless --multi-gpu-profile is set): a100 | h100 | b200 | gb200 | gb300 | l40s | t4. Defaults to the chart\'s gpu.profile.')
+    usage='GPU profile to simulate (used unless --multi-gpu-profile is set): a100 | h100 | b200 | gb200 | gb300 | l40s | t4 | vrnvl72. Defaults to the chart\'s gpu.profile.')
 config.define_string('k8s-context', args=False,
     usage='kubectl context to deploy into (must be a local cluster)')
 # Boolean toggles use config.define_bool so `--multi-gpu-profile --gpu-operator
@@ -56,7 +55,7 @@ config.define_bool('dra', args=False,
 config.define_bool('fgo', args=False,
     usage='Also deploy Run:ai Fake GPU Operator: nvml-mock backs the integration worker pool and FGO simulates the scale pool.')
 config.define_bool('topograph', args=False,
-    usage='Also deploy NVIDIA topograph. Implies --compute-domain (topograph reads the static nvidia.com/gpu.clique labels). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
+    usage='Also deploy topograph (github.com/dsx-ai-factory/topograph). Implies --compute-domain (topograph reads the NVLink cliques the mock reports through nvidia-smi). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
 config.define_bool('observability', args=False,
     usage='Also deploy kube-prometheus-stack, a Grafana dashboard and two manual fault-injection triggers (inject-thermal, inject-xid) that assert the fault reaches Prometheus. Implies --gpu-operator (dcgm-exporter is one of its operands). Grafana on http://localhost:3000/d/mokka-gpu (admin/mokka).')
 config.define_bool('dynamo', args=False,
@@ -84,8 +83,9 @@ with_dynamo         = cfg.get('dynamo', False)
 with_slinky         = cfg.get('slinky', False)
 with_control_plane  = cfg.get('control-plane', False)
 
-# --topograph needs cliques, which only the compute-domain cluster has. It reads
-# the static clique labels directly, so the DRA driver is not implied.
+# --topograph needs cliques, which only the compute-domain cluster has. It asks
+# the mock for them through nvidia-smi, so neither the DRA driver nor the GPU
+# Operator is implied.
 if with_topograph:
     with_compute_domain = True
 
@@ -114,9 +114,6 @@ if with_fgo and with_compute_domain:
 
 if with_slinky and with_dynamo:
     fail('--slinky is mutually exclusive with --dynamo (slurmd claims every mock GPU)')
-
-if nvmlmock_image and with_compute_domain:
-    fail('--nvmlmock-image is not supported with --compute-domain (scenario builds its own layered images)')
 
 # Empty unless --gpu-profile is passed: the chart owns the default profile, and a
 # --set would also beat every values file, consumer overlays included.
@@ -158,8 +155,12 @@ if with_control_plane:
     install_control_plane_crds()
 
 if with_compute_domain:
-    compute_domain_build_images(with_dra)
-    nvml_mock_releases = compute_domain_install(active_consumers, control_plane=with_control_plane)
+    compute_domain_build_image(nvmlmock_image=nvmlmock_image)
+    nvml_mock_releases = compute_domain_install(
+        active_consumers,
+        nvmlmock_image=nvmlmock_image,
+        control_plane=with_control_plane,
+    )
 elif multi_gpu_profile:
     build_nvml_mock_image(nvmlmock_image=nvmlmock_image)
     nvml_mock_releases = install_fleet(
@@ -180,7 +181,8 @@ if active_consumers:
     helm_repo('nvidia', 'https://helm.ngc.nvidia.com/nvidia', labels=active_consumers)
 
 if with_topograph:
-    helm_repo('topograph-repo', 'https://dsx-ai-factory.github.io/topograph', labels=['topograph'])
+    # Topograph's release channel; its dsx-ai-factory.github.io index has no 1.1.0.
+    helm_repo('topograph-repo', 'https://helm.ngc.nvidia.com/nvidia/topograph', labels=['topograph'])
 
 if with_observability:
     helm_repo('prometheus-community', 'https://prometheus-community.github.io/helm-charts',
@@ -218,23 +220,13 @@ if with_gpu_operator:
     )
 
 if with_dra:
-    # image_deps is what makes Tilt build the daemon image: a docker_build that
-    # nothing references is pruned.
+    # --compute-domain layers ComputeDomains and the node agent's /proc/devices
+    # substitute on top; the driver keeps its upstream images.
     dra_extra_values = []
-    dra_image_deps   = []
-    dra_image_keys   = []
-
     if with_compute_domain:
         dra_extra_values.append('local/compute-domain/dra-driver.values.yaml')
-        dra_image_deps.append(compute_domain_daemon_image)
-        dra_image_keys.append(('image.repository', 'image.tag'))
 
-    dra_install(
-      nvml_mock_releases,
-      extra_values=dra_extra_values,
-      image_deps=dra_image_deps,
-      image_keys=dra_image_keys,
-    )
+    dra_install(nvml_mock_releases, extra_values=dra_extra_values)
 
 if with_fgo:
     fgo_install(nvml_mock_releases)

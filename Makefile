@@ -20,6 +20,16 @@ GO_SRC := $(shell find . -type f -name '*.go')
 GO_PKG_DIRS := cmd pkg tests
 
 BIN_DIR=$(PWD)/tmp/bin
+ADDLICENSE ?= $(BIN_DIR)/addlicense
+ADDLICENSE_VERSION ?= v1.2.0
+
+# Keep the check focused on source files. Generated manifests, documentation,
+# dependency metadata, and vendored code use their own licensing conventions.
+# The setup-dgxc-goproxy kit is vendored verbatim and digest-pinned.
+LICENSE_FILES = git ls-files -- '*.go' '*.sh' '*.tiltfile' 'Tiltfile' '*.real' \
+	'**/Makefile' 'Makefile' '**/Dockerfile' '**/Dockerfile.*' '*.Dockerfile' 'Dockerfile*' \
+	':(exclude)vendor' ':(exclude)licenses' ':(exclude)dist' ':(exclude)tmp' \
+	':(exclude).github/actions/setup-dgxc-goproxy'
 
 VERSION := 0.0.1
 
@@ -175,7 +185,7 @@ gen: tools ## Generate machine-controlled code
 	@go mod download $(GO_NVML_MOD)
 	@GO_NVML_DIR=$$(go list -m -f '{{.Dir}}' $(GO_NVML_MOD)) go generate ./pkg/gpu/mocknvml/bridge/...
 	@echo "Generating deepcopy for $(API_PKG_PATH).."
-	@$(BIN_DIR)/controller-gen object paths="$(API_PKG_PATH)"
+	@$(BIN_DIR)/controller-gen object:headerFile=hack/boilerplate.go.txt paths="$(API_PKG_PATH)"
 	@echo "Generating CRD manifests into $(CRDS_OUT).."
 	@mkdir -p $(CRDS_OUT)
 	@$(BIN_DIR)/controller-gen crd:allowDangerousTypes=true \
@@ -233,6 +243,10 @@ mokka-image: ## Build the main Mokka image (node daemon and mock libraries): mak
 		--build-arg GOLANG_VERSION=$(shell ./hack/golang-version.sh) \
 		--tag "$(MOKKA_IMAGE)" \
 		.
+
+.PHONY: nvidia-smi-smoke
+nvidia-smi-smoke: ## Run every nvidia-smi the image bundles against its mock NVML, no cluster: make nvidia-smi-smoke [MOKKA_IMAGE=repo:tag]
+	./hack/nvidia-smi-smoke.sh "$(MOKKA_IMAGE)"
 
 .PHONY: mokka-control-plane-publish mokka-control-plane-image-push
 .PHONY: mokka-control-plane-image-sign mokka-control-plane-image-sbom
@@ -457,6 +471,14 @@ mokka-control-plane-image-attest: ## Attest each Mokka control-plane child manif
 test: ## Run unit tests with race detection and coverage
 	@$(GO_CMD) test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
+.PHONY: license-fmt
+license-fmt: addlicense ## Add Apache-2.0 headers to tracked source files missing them.
+	@$(LICENSE_FILES) | xargs -r $(ADDLICENSE) -c "NVIDIA CORPORATION" -l apache -y 2026
+
+.PHONY: license-header-check
+license-header-check: addlicense ## Verify tracked source files contain license headers.
+	@$(LICENSE_FILES) | xargs -r $(ADDLICENSE) -check -c "NVIDIA CORPORATION" -l apache
+
 # internal/fsutil and internal/agent/gpudriver skip their bind-mount, mknod
 # and Stage tests outside root on Linux (skipUnlessRootLinux) — the `test`
 # target above always runs as the invoking user, so those never execute
@@ -466,13 +488,13 @@ test: ## Run unit tests with race detection and coverage
 # Go's module cache takes a lock file even to read from it — which is fine
 # on a CI runner thrown away at the end of the job, less so reused locally.
 .PHONY: test-privileged
-test-privileged: ## Run internal/fsutil and internal/agent/gpudriver as root in a privileged container, for the tests `test` always skips
+test-privileged: ## Run internal/fsutil, internal/agent/gpudriver and internal/agent/imex as root in a privileged container, for the tests `test` always skips
 	@docker run --rm --privileged \
 		-e GOPROXY=off \
 		-v "$(CURDIR)":/src -w /src \
 		-v "$(shell $(GO_CMD) env GOMODCACHE)":/go/pkg/mod \
 		golang:$(shell ./hack/golang-version.sh) \
-		go test -v ./internal/fsutil/... ./internal/agent/gpudriver/...
+		go test -v ./internal/fsutil/... ./internal/agent/gpudriver/... ./internal/agent/imex/...
 
 HELM_CHART_DIR      := deployments/nvml-mock/helm/nvml-mock
 CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds
@@ -519,6 +541,32 @@ test-mockfs: mockfs-shim ## Run mockfs integration tests
 test-nvidia-imex-shim: build ## Run nvidia-imex-shim integration tests
 	@$(GO_CMD) test -v ./shims/nvidia-imex-shim/...
 
+.PHONY: test-imex-archives
+test-imex-archives: ## Download the IMEX archives pinned in imex.lock.json and verify each stages
+	@MOKKA_IMEX_DOWNLOAD_TEST=1 $(GO_CMD) test -run '^TestPinnedOfficialArchives$$' -v ./internal/agent/imex
+
+# The IMEX binaries image carries the archive pinned in imex.lock.json, for the
+# chart's imex.binaries.image. Mokka does not publish it: load it into the
+# cluster (`kind load docker-image`) or push it to a private registry.
+# IMEX_ARCHIVE_DIR keeps the downloaded archives (empty: the user cache
+# directory); once it holds a verified copy, the build needs no network.
+IMEX_ARCHIVE_DIR ?=
+IMEX_BINARIES_ARCH ?= $(shell $(GO_CMD) env GOARCH)
+IMEX_VERSION = $(shell sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' internal/agent/imex/imex.lock.json)
+IMEX_BINARIES_IMAGE ?= mokka-imex:$(IMEX_VERSION)
+# Prints the image build context it lays out.
+IMEX_ARCHIVES = $(GO_CMD) run ./hack/tools/imex-archives -dir '$(IMEX_ARCHIVE_DIR)' -arch '$(IMEX_BINARIES_ARCH)'
+
+.PHONY: imex-archive
+imex-archive: ## Download and verify the pinned IMEX archive into IMEX_ARCHIVE_DIR, without building the image
+	@$(IMEX_ARCHIVES)
+
+.PHONY: imex-binaries-image
+imex-binaries-image: ## Build the IMEX binaries image for imex.binaries.image from the pinned NVIDIA archive (not published)
+	@context="$$($(IMEX_ARCHIVES))" && \
+	docker buildx build --load --platform 'linux/$(IMEX_BINARIES_ARCH)' --build-arg IMEX_VERSION='$(IMEX_VERSION)' \
+		-f deployments/imex-binaries/Dockerfile -t '$(IMEX_BINARIES_IMAGE)' "$$context"
+
 .PHONY: verify-greptile
 verify-greptile: ## Validate the .greptile review configuration
 	@bash hack/verify-greptile-config.sh
@@ -526,6 +574,13 @@ verify-greptile: ## Validate the .greptile review configuration
 .PHONY: actionlint
 actionlint: ## Validate GitHub Actions workflows
 	@./hack/actionlint.sh
+
+.PHONY: addlicense
+addlicense: $(ADDLICENSE) ## Download addlicense locally if necessary.
+
+$(ADDLICENSE):
+	@mkdir -p "$(BIN_DIR)"
+	@GOBIN="$(abspath $(BIN_DIR))" $(GO_CMD) install github.com/google/addlicense@$(ADDLICENSE_VERSION)
 
 REPOSITORY_AUTOMATION_DIR := .github/actions/repo-automation
 
@@ -602,6 +657,11 @@ changelog-release: changie ## Maintainers: fold unreleased fragments into CHANGE
 	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required, e.g. make changelog-release RELEASE_VERSION=0.5.0"; exit 1; }
 	@CHANGIE=$(CHANGIE) bash hack/changelog-fold.sh $(RELEASE_VERSION)
 
+.PHONY: verify-release
+verify-release: ## Maintainers: verify a published release's runs, images, charts and signatures: make verify-release RELEASE_VERSION=0.5.0
+	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required, e.g. make verify-release RELEASE_VERSION=0.5.0"; exit 1; }
+	@bash hack/verify-release.sh $(RELEASE_VERSION)
+
 .PHONY: helm-crds-tests
 helm-crds-tests: ## Lint + template-render the mokka-crds chart
 	helm lint $(CRDS_HELM_CHART_DIR)
@@ -619,7 +679,7 @@ test-e2e-framework:
 KIND_NODE_IMAGE   ?= kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 # Cluster profile (select via PROFILE=<name>):
 #   - PROFILE=default (default)  local/kind/default.kind.yaml        (1 CP + 2 workers labelled a100 / t4)
-#   - PROFILE=compute-domain     local/kind/compute-domain.kind.yaml (1 CP + 4 workers labelled clique 0 / 1)
+#   - PROFILE=compute-domain     local/kind/compute-domain.kind.yaml (1 CP + 4 workers in two cliques of two)
 # Consumer selection (--gpu-operator / --dra / --fgo / --multi-gpu-profile)
 # happens in the Tiltfile — the default cluster shape supports every consumer
 # scenario without a rebuild.
@@ -678,13 +738,17 @@ image-load:
 # scope with E2E_PROFILES / E2E_GINKGO_FLAGS. Examples:
 #   make e2e                       # gb200
 #   make e2e E2E_PROFILES=a100     # fast inner loop, single profile
-#   make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
+#   make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu"'
 #   make e2e-dra                   # DRA scenario
+#   make e2e-compute-domain        # ComputeDomains through the DRA driver (two-rack cluster)
 #   make e2e-gpu-operator          # GPU Operator scenario
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 #   make e2e-nri                   # NRI injection scenario
 #   make e2e-nfd                   # NFD label-provenance scenario
 #   make e2e-mig                   # MIG scenario, device plugin in migStrategy=single
+#   make e2e-vgpu                  # vGPU host and guest scenario
+# E2E_GINKGO_FLAGS replaces the default filter. Shared check labels span
+# scenarios; keep the exclusions above for a standalone subset.
 # CI builds the image once per run. Every leg loads it into Kind and sets
 # E2E_IMAGE to that ref. The reshaping scenarios set the DaemonSet to this ref.
 #
@@ -697,20 +761,26 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !gfd && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig
+E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
-.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig
+.PHONY: e2e e2e-dra e2e-compute-domain e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig e2e-vgpu
 
 # `set -o pipefail` is inline on purpose; do not drop it as redundant with
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
 # so on a developer machine this recipe otherwise returns tee's status and a
 # failed suite exits 0 — see issue #560 and tests/makefile/makefile_test.go.
 e2e: ## Run the Ginkgo e2e suite against E2E_CLUSTER_NAME/E2E_KUBE_CONTEXT (default mokka/kind-mokka); scope with E2E_PROFILES / E2E_GINKGO_FLAGS
-	set -o pipefail; $(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
+	set -o pipefail; $(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) --fail-on-empty $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
 
 e2e-dra: ## e2e — DRA scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra'
+
+# Needs the two-rack cluster, tests/e2e/kind-compute-domain-racks.yaml, with
+# `tilt ci -- --compute-domain --dra`. Set E2E_IMEX_BINARIES_IMAGE to keep the
+# node agent from downloading IMEX.
+e2e-compute-domain: ## e2e — ComputeDomains through the unmodified DRA driver
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra-compute-domain'
 
 e2e-gpu-operator: ## e2e — GPU Operator scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=gpu-operator'
@@ -738,6 +808,9 @@ e2e-nfd: ## e2e — NFD label-provenance scenario (pinned to a100)
 e2e-mig: ## e2e — MIG scenario with the device plugin in migStrategy=single
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=mig'
 
+e2e-vgpu: ## e2e — vGPU host and guest scenario
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=vgpu'
+
 ##@ Documentation
 
 # The docs site is MkDocs Material. CI calls these same targets so a failure
@@ -759,7 +832,7 @@ DOCS_PYTHON_VERSION ?= 3.12
 # works for someone who has mkdocs on PATH by other means.
 DOCS_PATH := PATH="$(DOCS_VENV)/bin:$$PATH"
 
-.PHONY: docs-deps docs-build docs-serve docs-check-exclusion docs managed-eks-terraform-check
+.PHONY: docs-deps docs-build docs-serve docs-test docs-check-exclusion docs managed-eks-terraform-check
 
 # Missing uv is a hard failure, not a pip fallback. A fallback would let CI and
 # a developer resolve different interpreters while both report success, which is
@@ -779,6 +852,9 @@ docs-deps: ## Install the pinned MkDocs toolchain into .venv-docs using uv
 	$(UV) pip install --python $(DOCS_VENV) -r requirements-docs.txt
 	@echo "MkDocs installed into $(DOCS_VENV); make docs picks it up with no activation."
 
+docs-test: ## Test virtual MEP publishing without network or a cluster
+	$(DOCS_PATH) python hack/test_mkdocs_meps.py
+
 docs-build: ## Build the documentation site (strict: broken links fail)
 	$(DOCS_PATH) $(MKDOCS) build --strict
 
@@ -792,17 +868,22 @@ docs-serve: ## Serve the documentation site locally on :8000
 docs-check-exclusion: ## Verify gitignored internal plans cannot reach the site
 	@set -eu; \
 	export PATH="$(DOCS_VENV)/bin:$$PATH"; \
-	mkdir -p docs/plans; \
-	printf '# Internal\n\nPAGES_EXCLUSION_CANARY\n' > docs/plans/_canary.md; \
-	trap 'rm -rf docs/plans/_canary.md "$(CURDIR)/tmp/canary-site"; rmdir docs/plans 2>/dev/null || true' EXIT; \
-	$(MKDOCS) build --strict --site-dir "$(CURDIR)/tmp/canary-site" >/dev/null; \
-	if grep -rq 'PAGES_EXCLUSION_CANARY' "$(CURDIR)/tmp/canary-site"/; then \
+	mkdir -p "$(CURDIR)/tmp"; \
+	canary=$$(mktemp -d "$(CURDIR)/tmp/docs-canary.XXXXXX"); \
+	trap 'rm -rf -- "$$canary"' EXIT; \
+	cp -R docs "$$canary/docs"; \
+	mkdir -p "$$canary/docs/plans" "$$canary/docs/superpowers"; \
+	printf '# Internal\n\nPAGES_EXCLUSION_CANARY\n' > "$$canary/docs/plans/_canary.md"; \
+	cp "$$canary/docs/plans/_canary.md" "$$canary/docs/superpowers/_canary.md"; \
+	printf 'INHERIT: %s/mkdocs.yml\ndocs_dir: %s/docs\nsite_dir: %s/site\nhooks: [%s/hack/mkdocs_meps.py]\nwatch: [%s/enhancements/meps]\n' "$(CURDIR)" "$$canary" "$$canary" "$(CURDIR)" "$(CURDIR)" > "$$canary/mkdocs.yml"; \
+	$(MKDOCS) build --strict --config-file "$$canary/mkdocs.yml" >/dev/null; \
+	if grep -rq 'PAGES_EXCLUSION_CANARY' "$$canary/site"/; then \
 		echo "ERROR: docs/plans/ leaked into the site; check exclude_docs in mkdocs.yml"; \
 		exit 1; \
 	fi; \
 	echo "exclude_docs verified: internal plans are not published"
 
-docs: docs-check-exclusion docs-build ## Verify exclusion then build the site
+docs: docs-test docs-check-exclusion docs-build ## Verify exclusion then build the site
 
 MANAGED_EKS_TERRAFORM_DIR := docs/guides/install/aws/eks/terraform
 TERRAFORM                 ?= terraform

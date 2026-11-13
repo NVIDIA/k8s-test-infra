@@ -25,6 +25,11 @@ containerd itself, so any cluster whose nodes run containerd 1.7 or later under
 systemd works; see the [Amazon EKS guide](guides/install/aws/eks/README.md) for
 a managed one.
 
+On the default `gb300` profile each node also downloads NVIDIA's IMEX archive
+from `developer.download.nvidia.com`, for DRA ComputeDomains. A node that cannot
+reach it keeps working without IMEX; add
+`--set featureGates.IMEXDownload=false` to skip the download.
+
 ## Verify
 
 ```bash
@@ -52,9 +57,9 @@ helm upgrade nvml-mock \
     --set gpu.profile=a100
 ```
 
-Seven profiles ship with the chart: `a100`, `b200`, `gb200`, `gb300`, `h100`,
-`l40s` and `t4`. [Configuration](configuration.md) covers what each one defines
-and how to change individual values.
+Eight profiles ship with the chart: `a100`, `b200`, `gb200`, `gb300`, `h100`,
+`l40s`, `t4` and `vrnvl72`. [Configuration](configuration.md) covers what each one
+defines and how to change individual values.
 
 ## Clean up
 

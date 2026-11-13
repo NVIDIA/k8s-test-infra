@@ -41,7 +41,7 @@ It also runs a suite of **bridge edge-case tests** (`bridge_tests.go`): NVML ret
 
 ## Configuration
 
-The integration test runs against a profile config fixture, `util-test-config.yaml`, via `MOCK_NVML_CONFIG` (set by the Makefile). It is an A100 profile plus one compute process carrying `sm_util`, so the per-process utilization path is exercised.
+The integration test runs against a profile config fixture, `util-test-config.yaml`, via `MOCK_NVML_CONFIG` (set by the Makefile). It is an A100 profile plus one compute process carrying `sm_util`, so the per-process utilization path is exercised. Device 5 declares `power.smoothing.supported`, so the power smoothing setters are driven on it while every other device refuses them.
 
 Without a config file, the mock library falls back to environment variables:
 
