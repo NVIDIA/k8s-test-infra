@@ -34,10 +34,10 @@ func ccGPU(id, total, used, free string) string {
 // Every hardware capture must pass, which is what makes the expectation
 // hardware-derived rather than chosen: the boards range from a Turing T4 that
 // cannot do CC at all to a GB300 tray, and all of them report 0 MiB.
-func TestConfComputeMemoryProblems_AcceptsEveryHardwareCapture(t *testing.T) {
+func TestCoCoMemoryProblems_AcceptsEveryHardwareCapture(t *testing.T) {
 	for _, file := range hardwareCaptures(t) {
 		t.Run(filepath.Base(file), func(t *testing.T) {
-			problems := ConfComputeMemoryProblems(loadHardwareCapture(t, filepath.Base(file)))
+			problems := CoCoMemoryProblems(loadHardwareCapture(t, filepath.Base(file)))
 			assert.Empty(t, problems, strings.Join(problems, "; "))
 		})
 	}
@@ -46,8 +46,8 @@ func TestConfComputeMemoryProblems_AcceptsEveryHardwareCapture(t *testing.T) {
 // The defect this exists to catch: N/A says the driver answered nothing, where
 // every real board reports 0 MiB. The mock captures were taken while both
 // getters were generated stubs, so they read that way.
-func TestConfComputeMemoryProblems_RejectsNotAvailableReadings(t *testing.T) {
-	problems := ConfComputeMemoryProblems(loadFixture(t, "qx-gb200-healthy.xml"))
+func TestCoCoMemoryProblems_RejectsNotAvailableReadings(t *testing.T) {
+	problems := CoCoMemoryProblems(loadFixture(t, "qx-gb200-healthy.xml"))
 	require.NotEmpty(t, problems)
 	joined := strings.Join(problems, "\n")
 	assert.Contains(t, joined, "N/A")
@@ -56,39 +56,39 @@ func TestConfComputeMemoryProblems_RejectsNotAvailableReadings(t *testing.T) {
 
 // CC mode is unmodelled, so a non-zero protected region cannot be reported —
 // this keeps the check from degenerating into "any number will do".
-func TestConfComputeMemoryProblems_RejectsNonZeroProtectedMemory(t *testing.T) {
+func TestCoCoMemoryProblems_RejectsNonZeroProtectedMemory(t *testing.T) {
 	out := xmlDocument(ccGPU("0000:07:00.0", "1024 MiB", "0 MiB", "1024 MiB"))
 
-	problems := ConfComputeMemoryProblems(out)
+	problems := CoCoMemoryProblems(out)
 	require.Len(t, problems, 2, "total and free both claim a protected region")
 	assert.Contains(t, strings.Join(problems, "\n"), "1024")
 }
 
 // Absent elements decode as empty bodies, which is a rename or a dropped block,
 // not a zero.
-func TestConfComputeMemoryProblems_ReportsMissingElements(t *testing.T) {
+func TestCoCoMemoryProblems_ReportsMissingElements(t *testing.T) {
 	out := xmlDocument(ccGPU("0000:07:00.0", "", "", ""))
 
-	problems := ConfComputeMemoryProblems(out)
+	problems := CoCoMemoryProblems(out)
 	require.Len(t, problems, 3)
 	assert.Contains(t, strings.Join(problems, "\n"), `= ""`)
 }
 
 // A getter answering for only the first device must fail, naming the GPU.
-func TestConfComputeMemoryProblems_ChecksEveryGPU(t *testing.T) {
+func TestCoCoMemoryProblems_ChecksEveryGPU(t *testing.T) {
 	out := xmlDocument(
 		ccGPU("0000:07:00.0", "0 MiB", "0 MiB", "0 MiB"),
 		ccGPU("0000:0F:00.0", "N/A", "0 MiB", "0 MiB"),
 	)
 
-	problems := ConfComputeMemoryProblems(out)
+	problems := CoCoMemoryProblems(out)
 	require.Len(t, problems, 1, "only the second GPU's total is N/A")
 	assert.Contains(t, problems[0], "0000:0F:00.0")
 }
 
 // The block sits beside <fb_memory_usage>, which repeats every child name, so a
 // check reading the wrong block would pass against the framebuffer's own zeros.
-func TestConfComputeMemoryProblems_DoesNotReadTheFramebufferBlock(t *testing.T) {
+func TestCoCoMemoryProblems_DoesNotReadTheFramebufferBlock(t *testing.T) {
 	out := xmlDocument(`
 	<gpu id="0000:07:00.0">
 		<product_name>NVIDIA GB300</product_name>
@@ -104,15 +104,15 @@ func TestConfComputeMemoryProblems_DoesNotReadTheFramebufferBlock(t *testing.T) 
 		</cc_protected_memory_usage>
 	</gpu>`)
 
-	problems := ConfComputeMemoryProblems(out)
+	problems := CoCoMemoryProblems(out)
 	require.Len(t, problems, 3, "the framebuffer's zeros must not satisfy the CC block")
 }
 
-func TestConfComputeMemoryProblems_RejectsTruncatedOutput(t *testing.T) {
+func TestCoCoMemoryProblems_RejectsTruncatedOutput(t *testing.T) {
 	full := xmlDocument(ccGPU("0000:07:00.0", "0 MiB", "0 MiB", "0 MiB"))
 	truncated := full[:strings.Index(full, "<cc_protected_memory_usage>")]
 
-	problems := ConfComputeMemoryProblems(truncated)
+	problems := CoCoMemoryProblems(truncated)
 	require.Len(t, problems, 1)
 	assert.Contains(t, problems[0], "parse nvidia-smi XML")
 }

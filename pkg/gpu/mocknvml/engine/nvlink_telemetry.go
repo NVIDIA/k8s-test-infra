@@ -11,7 +11,7 @@ import "github.com/NVIDIA/go-nvml/pkg/nvml"
 // counter, and to the per-link speed and data-link error fields. It reports the
 // counts through the NVLink5 counter fields (NVML_FI_DEV_NVLINK_COUNT_*), which
 // `nvidia-smi nvlink -e` reads and an NVLinkError injection raises. Older
-// drivers keep answering the getters, so the 580 profiles do not change.
+// drivers keep answering the getters.
 const nvlinkFieldTelemetryMinDriver = "615"
 
 // nvlinkTelemetryIsFieldsOnly reports whether the configured driver serves

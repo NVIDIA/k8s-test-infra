@@ -22,6 +22,10 @@ type YAMLConfig struct {
 	Devices        []DeviceOverride `json:"devices"`
 	NVLink         *NVLinkConfig    `json:"nvlink,omitempty"`
 
+	// ConfidentialCompute is the node-wide Confidential Computing state. CC is
+	// one switch per node on hardware, so it lives here rather than per device.
+	ConfidentialCompute *ConfidentialComputeConfig `json:"confidential_compute,omitempty"`
+
 	// PCIeTopology describes the root-complex / NUMA layout consumed by the
 	// pcibus simulator and the engine for NVLink topology, pairwise PCIe
 	// levels, and CPU/NUMA affinity. Optional; absent on PCIe-only profiles.
@@ -235,6 +239,17 @@ type DeviceConfig struct {
 	// the low-power field values report. Nil is the driver default, which is
 	// also what the reset sentinel restores.
 	NVLinkLowPowerThreshold *uint32 `json:"nvlink_low_power_threshold,omitempty"`
+
+	// CoCoGpusReady and CoCoAttackerAdvantage record the
+	// node-wide Confidential Compute writes. Only the `all:` bucket carries
+	// them, because the NVML setters take no device. Pointers so a recorded
+	// false or a value equal to the default still outranks the profile.
+	CoCoGpusReady *bool `json:"coco_gpus_ready,omitempty"`
+	// CoCoGpusRevoked records that the GPUs left the ready state on a
+	// driver that revokes CC work for good: until the driver reloads, which
+	// `nvml-mock-ctl reset` stands in for, no ready state can be set again.
+	CoCoGpusRevoked       *bool   `json:"coco_gpus_revoked,omitempty"`
+	CoCoAttackerAdvantage *uint64 `json:"coco_key_rotation_attacker_advantage,omitempty"`
 
 	// Platform describes where the board physically sits in a rack. When nil
 	// (default) nvmlDeviceGetPlatformInfo and nvmlDeviceGetModuleId report

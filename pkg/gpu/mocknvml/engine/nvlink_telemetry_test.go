@@ -134,20 +134,21 @@ func TestNVLinkTelemetry_MatchesTheRealTray(t *testing.T) {
 	require.Equal(t, 4*(200+80+16+12), compared)
 }
 
-// Drivers before 615 keep answering the getters and the legacy fields, so the
-// 580 profiles do not change; a 580 profile moved to a 615 driver loses them.
+// The shipped profiles pin a 615 driver, which serves NVLink telemetry through
+// field values only; a profile moved back to a pre-615 driver answers the
+// getters and the legacy fields again.
 func TestNVLinkTelemetry_TheDriverDecides(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		profile, driver string
 		want            nvml.Return
 	}{
-		{"a100", "", nvml.SUCCESS},
-		{"h100", "", nvml.SUCCESS},
-		{"b200", "", nvml.SUCCESS},
-		{"gb200", "", nvml.SUCCESS},
-		{"gb300", "", nvml.SUCCESS},
-		{"gb300", "615.71.09", nvml.ERROR_NOT_SUPPORTED},
+		{"a100", "", nvml.ERROR_NOT_SUPPORTED},
+		{"h100", "", nvml.ERROR_NOT_SUPPORTED},
+		{"b200", "", nvml.ERROR_NOT_SUPPORTED},
+		{"gb200", "", nvml.ERROR_NOT_SUPPORTED},
+		{"gb300", "", nvml.ERROR_NOT_SUPPORTED},
+		{"gb300", "580.65.06", nvml.SUCCESS},
 	} {
 		t.Run(tc.profile+"/"+tc.driver, func(t *testing.T) {
 			t.Parallel()

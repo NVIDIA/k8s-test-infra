@@ -186,10 +186,11 @@ func TestPowerProfileCurrent_RejectsUnexpectedlyEngaged(t *testing.T) {
 // --- Set / clear round trip ---
 
 // realRoundTripOutput is `nvidia-smi power-profiles -sr 6,13 -cr 6 -ge -i 0`
-// against the gb200 profile. nvidia-smi orders the write before the enforced
+// from nvidia-smi 615.71.10 against the gb200 profile. It confirms the set and
+// the clear with the same line, and orders both writes before the enforced
 // query, so the surviving profile is printed last.
-const realRoundTripOutput = `Successfully set the requested profiles.
-Successfully cleared the requested profiles.
+const realRoundTripOutput = `Successfully updated the requested profiles.
+Successfully updated the requested profiles.
 13. HPC
 `
 
@@ -212,8 +213,8 @@ func TestPowerProfileRoundTripAcrossGPUs(t *testing.T) {
 // reports success, and only the enforced read shows it.
 func TestPowerProfileRoundTripRejectsClearThatWipedEverything(t *testing.T) {
 	t.Parallel()
-	out := `Successfully set the requested profiles.
-Successfully cleared the requested profiles.
+	out := `Successfully updated the requested profiles.
+Successfully updated the requested profiles.
 No profiles are currently engaged.
 `
 	problems := PowerProfileRoundTripProblems(out, 0, 1, []int{13})
@@ -225,8 +226,8 @@ No profiles are currently engaged.
 // the cleared profile is still enforced.
 func TestPowerProfileRoundTripRejectsClearThatDidNothing(t *testing.T) {
 	t.Parallel()
-	out := `Successfully set the requested profiles.
-Successfully cleared the requested profiles.
+	out := `Successfully updated the requested profiles.
+Successfully updated the requested profiles.
 6. LLM Inference
 13. HPC
 `
@@ -238,10 +239,10 @@ Successfully cleared the requested profiles.
 func TestPowerProfileRoundTripRejectsMissingConfirmation(t *testing.T) {
 	t.Parallel()
 	// The set landed but the clear was never acknowledged.
-	out := "Successfully set the requested profiles.\n13. HPC\n"
+	out := "Successfully updated the requested profiles.\n13. HPC\n"
 	problems := PowerProfileRoundTripProblems(out, 0, 1, []int{13})
 	require.Len(t, problems, 1)
-	require.Contains(t, problems[0], "Successfully cleared the requested profiles.")
+	require.Contains(t, problems[0], "1 time(s), want 2")
 }
 
 func TestPowerProfileRoundTripRejectsFailure(t *testing.T) {
@@ -254,9 +255,10 @@ func TestPowerProfileRoundTripRejectsFailure(t *testing.T) {
 
 // --- Conflict arbitration ---
 
-// realArbitrationOutput is `nvidia-smi power-profiles -sr 0,5 -ge -i 0`, where
-// Max-P and Balanced conflict and Max-P has the higher priority.
-const realArbitrationOutput = `Successfully set the requested profiles.
+// realArbitrationOutput is `nvidia-smi power-profiles -sr 0,5 -ge -i 0` from
+// nvidia-smi 615.71.10, where Max-P and Balanced conflict and Max-P has the
+// higher priority.
+const realArbitrationOutput = `Successfully updated the requested profiles.
 0. Max-P
 `
 
@@ -270,7 +272,7 @@ func TestPowerProfileArbitrationAcceptsRealOutput(t *testing.T) {
 // list both profiles.
 func TestPowerProfileArbitrationRejectsEchoedRequest(t *testing.T) {
 	t.Parallel()
-	out := "Successfully set the requested profiles.\n0. Max-P\n5. Balanced\n"
+	out := "Successfully updated the requested profiles.\n0. Max-P\n5. Balanced\n"
 	problems := PowerProfileArbitrationProblems(out, 0, 1, 0, 5)
 	require.Len(t, problems, 1)
 	require.Contains(t, problems[0], "want [0]")
@@ -278,7 +280,7 @@ func TestPowerProfileArbitrationRejectsEchoedRequest(t *testing.T) {
 
 func TestPowerProfileArbitrationRejectsWrongWinner(t *testing.T) {
 	t.Parallel()
-	out := "Successfully set the requested profiles.\n5. Balanced\n"
+	out := "Successfully updated the requested profiles.\n5. Balanced\n"
 	problems := PowerProfileArbitrationProblems(out, 0, 1, 0, 5)
 	require.Len(t, problems, 1)
 	require.Contains(t, problems[0], "enforced [5]")
@@ -295,7 +297,7 @@ func TestPowerProfileSetRejectedAcceptsRealOutput(t *testing.T) {
 func TestPowerProfileSetRejectedRejectsAcceptedWrite(t *testing.T) {
 	t.Parallel()
 	problems := PowerProfileSetRejectedProblems(
-		"Successfully set the requested profiles.", 0, 9)
+		"Successfully updated the requested profiles.", 0, 9)
 	require.Len(t, problems, 1)
 	require.Contains(t, problems[0], "want it refused")
 }

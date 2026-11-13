@@ -44,7 +44,7 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceGetGpuMaxPcieLinkGeneration": {Added: "470.0"},
 
 	// 510.x additions
-	"nvmlDeviceGetMemoryInfo_v2":               {Added: "510.0"},
+	"nvmlDeviceGetMemoryInfo_v2":                 {Added: "510.0"},
 	"nvmlDeviceGetComputeRunningProcesses_v3":    {Added: "510.0"},
 	"nvmlDeviceGetGraphicsRunningProcesses_v3":   {Added: "510.0"},
 	"nvmlDeviceGetMPSComputeRunningProcesses_v3": {Added: "510.0"},
@@ -67,6 +67,22 @@ var functionRegistry = map[string]FunctionVersion{
 	// 525.x additions. Confidential Compute arrived with Hopper CC.
 	"nvmlDeviceGetConfComputeMemSizeInfo":          {Added: "525.0"},
 	"nvmlDeviceGetConfComputeProtectedMemoryUsage": {Added: "525.0"},
+
+	// The rest of the Confidential Compute surface first appears in the NVML
+	// 12.2 header (driver 535); settings and key rotation in 12.4 (driver
+	// 550). Dated from go-nvml's nvml.h history, which carries every header
+	// from 12.1 on.
+	"nvmlSystemGetConfComputeCapabilities":         {Added: "535.0"},
+	"nvmlSystemGetConfComputeState":                {Added: "535.0"},
+	"nvmlSystemGetConfComputeGpusReadyState":       {Added: "535.0"},
+	"nvmlSystemSetConfComputeGpusReadyState":       {Added: "535.0"},
+	"nvmlDeviceGetConfComputeGpuCertificate":       {Added: "535.0"},
+	"nvmlDeviceGetConfComputeGpuAttestationReport": {Added: "535.0"},
+	"nvmlDeviceSetConfComputeUnprotectedMemSize":   {Added: "535.0"},
+
+	"nvmlSystemGetConfComputeSettings":                 {Added: "550.0"},
+	"nvmlSystemGetConfComputeKeyRotationThresholdInfo": {Added: "550.0"},
+	"nvmlSystemSetConfComputeKeyRotationThresholdInfo": {Added: "550.0"},
 
 	// 535.x additions. GPM (GPU Performance Monitoring) — DCGM's profiling
 	// path on Hopper+ (DCGM_FI_PROF_*).

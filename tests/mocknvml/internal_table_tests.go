@@ -57,6 +57,11 @@ static unsigned int mockCallSlotScalar(void* table, unsigned int slot, void* a0,
     return mockCallSlot(table, slot, a0, (void*)a1, a2, NULL);
 }
 
+// mockCallSlotIndex makes a call whose first argument is an index by value.
+static unsigned int mockCallSlotIndex(void* table, unsigned int slot, uintptr_t a0, void* a1) {
+    return mockCallSlot(table, slot, (void*)a0, a1, NULL, NULL);
+}
+
 // mockDeviceHandle asks the table for device index's handle, the value every
 // other per-device slot expects as its first argument. The out array is two
 // pointers wide so a handle struct larger than one pointer still fits.
@@ -90,7 +95,12 @@ const (
 	slotProcessListLast     = 215
 	slotHostMaxPcieLinkGen  = 230
 	slotSetPersistenceMode  = 251
-	exportTableSlots        = 256
+	slotExcludedCount       = 270
+	slotExcludedInfo        = 271
+	// slot580TableEnd is one past the last slot of the 580.65.06 table. Later
+	// slots belong to a newer nvidia-smi and decline what they do not
+	// implement (see the bridge's export table tests).
+	slot580TableEnd = 256
 )
 
 // Process-entry layout written by the internal process-list call, documented on
@@ -137,6 +147,7 @@ func testInternalExportTable() []testResult {
 	results = append(results, testInternalHostMaxPcieLinkGen(table, handle)...)
 	results = append(results, testInternalGpuReset(table, handle)...)
 	results = append(results, testInternalSetPersistenceMode(table, handle)...)
+	results = append(results, testInternalExcludedDevices(table)...)
 	results = append(results, testInternalOtherSlotsDoNotWrite(table, handle)...)
 	return results
 }
@@ -378,6 +389,8 @@ func hasDedicatedTest(slot int) bool {
 		return true
 	case slot == slotSetPersistenceMode:
 		return true
+	case slot == slotExcludedCount, slot == slotExcludedInfo:
+		return true
 	default:
 		return false
 	}
@@ -395,7 +408,7 @@ func testInternalOtherSlotsDoNotWrite(table, handle unsafe.Pointer) []testResult
 	defer C.free(guard)
 	want := bytes.Repeat([]byte{guardFill}, guardSize)
 
-	for slot := 1; slot < exportTableSlots; slot++ {
+	for slot := 1; slot < slot580TableEnd; slot++ {
 		if hasDedicatedTest(slot) {
 			continue
 		}
@@ -445,3 +458,54 @@ func readProcessEntries(buf unsafe.Pointer, count int) []processEntry {
 	}
 	return entries
 }
+
+// testInternalExcludedDevices checks the two slots nvidia-smi 615 asks for the
+// GPUs on the bus that NVML does not list, before `--gpu-reset` reports what it
+// reset. Slot 270 fills {version, count}; slot 271 fills
+// {version, nvmlPciInfo_t} for entry arg0. Leaving the count unwritten had
+// nvidia-smi walk its uninitialised 65535 and print as many "Unlisted GPU ...
+// was successfully reset" lines. The count must agree with the public
+// excluded-device API, and the version must be left as the caller stamped it.
+func testInternalExcludedDevices(table unsafe.Pointer) []testResult {
+	const name = "internal/unlisted_gpus"
+
+	want, ret := nvml.GetExcludedDeviceCount()
+	if ret != nvml.SUCCESS {
+		return []testResult{{name, false, "GetExcludedDeviceCount: " + nvml.ErrorString(ret)}}
+	}
+
+	countStruct := (*[2]C.uint)(C.malloc(8))
+	defer C.free(unsafe.Pointer(countStruct))
+	countStruct[0], countStruct[1] = unlistedCountVersion, 65535
+	if ret := C.mockCallSlot(table, C.uint(slotExcludedCount), unsafe.Pointer(countStruct), nil, nil, nil); ret != 0 {
+		return []testResult{{name, false, fmt.Sprintf("slot %d returned %d, want NVML_SUCCESS", slotExcludedCount, ret)}}
+	}
+	if countStruct[0] != unlistedCountVersion || int(countStruct[1]) != want {
+		return []testResult{{name, false, fmt.Sprintf("slot %d left {version 0x%x, count %d}, want {0x%x, %d}",
+			slotExcludedCount, countStruct[0], countStruct[1], unlistedCountVersion, want)}}
+	}
+
+	countStruct[0] = 0
+	if ret := nvml.Return(C.mockCallSlot(table, C.uint(slotExcludedCount), unsafe.Pointer(countStruct), nil, nil, nil)); ret != nvml.ERROR_ARGUMENT_VERSION_MISMATCH {
+		return []testResult{{name, false, fmt.Sprintf("slot %d with version 0 returned %v, want ERROR_ARGUMENT_VERSION_MISMATCH",
+			slotExcludedCount, nvml.ErrorString(ret))}}
+	}
+
+	info := (*C.uint)(C.malloc(unlistedInfoSize))
+	defer C.free(unsafe.Pointer(info))
+	*info = unlistedInfoVersion
+	ret = nvml.Return(C.mockCallSlotIndex(table, C.uint(slotExcludedInfo), C.uintptr_t(want), unsafe.Pointer(info)))
+	if ret != nvml.ERROR_INVALID_ARGUMENT {
+		return []testResult{{name, false, fmt.Sprintf("slot %d at index %d (one past the end) returned %v, want ERROR_INVALID_ARGUMENT",
+			slotExcludedInfo, want, nvml.ErrorString(ret))}}
+	}
+	return []testResult{{name, true, fmt.Sprintf("%d unlisted", want)}}
+}
+
+// Version tags of the two unlisted-GPU structs, as nvidia-smi 615 stamps them:
+// size in the low bits, version 1 in the top byte.
+const (
+	unlistedCountVersion = 0x1000008
+	unlistedInfoVersion  = 0x1000048
+	unlistedInfoSize     = 0x48
+)

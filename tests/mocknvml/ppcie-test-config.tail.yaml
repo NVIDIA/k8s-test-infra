@@ -1,0 +1,6 @@
+
+# Appended to the shipped H100 profile so Protected PCIe is checked separately
+# from CC, which cannot run alongside it.
+confidential_compute:
+  mode: "off"
+  multi_gpu_mode: protected_pcie

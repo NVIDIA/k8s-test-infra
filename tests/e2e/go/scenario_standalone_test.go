@@ -199,7 +199,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				// say whether any memory is protected. Every real board answers
 				// 0 MiB there, CC-capable or not, so the expectation is the same
 				// on every selected profile rather than derived from it.
-				nvidiasmi.ConfComputeMemory(ctx, h.Kube, pod)
+				nvidiasmi.CoCoMemory(ctx, h.Kube, pod)
 			})
 
 			It("reports no S-class units via nvidia-smi -q -u", Label("nvidia-smi"), func(ctx SpecContext) {
@@ -385,7 +385,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					assertRuntimeClocksCommand(ctx, h, pod)
 				})
 
-				It("sets and resets applications clocks via nvidia-smi -ac/-rac", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+				It("reports applications clocks as deprecated through nvidia-smi -ac/-rac", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
 					assertApplicationsClocksViaNvidiaSmi(ctx, h, pod, p)
 				})
 
