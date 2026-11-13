@@ -38,6 +38,11 @@ device_defaults:
     cluster_uuid: "00000000-0000-0000-0000-000000000001" # placeholder, scrubbed in the capture: GetGpuFabricInfo.ClusterUuid = [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1]
     clique_id: 65534                # GetGpuFabricInfo.CliqueId
     state: "completed"              # GetGpuFabricInfo.State = 3
+    cliques:                        # GetGpuFabricInfo_v4.Cliques[:NumCliques], the types whose id is not clique_id
+      - type: "unicast_logical_endpoint"
+        id: 32766
+      - type: "multicast_logical_endpoint"
+        id: 32766
   platform:
     chassis_serial_number: "1820000000001" # placeholder, scrubbed in the capture: GetPlatformInfo.ChassisSerialNumber
     slot_number: 4                  # GetPlatformInfo.SlotNumber

@@ -1261,6 +1261,57 @@ Fabric health can also be degraded and restored at runtime with
 [`nvml-mock-ctl fabric-health`](nvml-mock-ctl.md#fabric-health--degrade-nvlink-fabric-health),
 without restarting the consumer.
 
+## Fabric Cliques
+
+`nvmlDeviceGetGpuFabricInfo_v4` replaces the single clique ID of the earlier
+fabric structs with a list of cliques, one per fabric operation type. The mock
+builds the list from the profile's `architecture`, and every clique in it
+carries `clique_id`. A consumer therefore reads the same clique from the v4
+struct as from `nvmlDeviceGetGpuFabricInfoV`.
+
+The call exists from driver `615`. On an older driver it answers
+`FUNCTION_NOT_FOUND`, because that driver's library has no such symbol, and a
+consumer falls back to `nvmlDeviceGetGpuFabricInfoV`. Of the shipped profiles
+only `vrnvl72` declares a `615` driver; run another one with
+`driverVersion: 615.71.09` to read its cliques.
+
+| Clique type | Reported on | `cliques:` type |
+| ----------- | ----------- | --------------- |
+| Unicast Pointer | every GPU with a `fabric:` block | none: always `clique_id` |
+| Multicast Pointer | Hopper and newer | `multicast_pointer` |
+| Unicast Logical Endpoint | Blackwell and newer | `unicast_logical_endpoint` |
+| Multicast Logical Endpoint | Blackwell and newer | `multicast_logical_endpoint` |
+
+List a type under `cliques` when its ID differs from `clique_id`. A Vera Rubin
+NVL72 tray reports its logical-endpoint cliques under another ID than its
+pointer cliques, and the `vrnvl72` profile reproduces that:
+
+```yaml
+device_defaults:
+  fabric:
+    clique_id: 65534
+    cliques:
+      - type: unicast_logical_endpoint
+        id: 32766
+      - type: multicast_logical_endpoint
+        id: 32766
+```
+
+The entries of a type replace its default. A type can be listed several times,
+and on an architecture that does not report it by default. The library reports
+the cliques sorted by type and then by ID, as NVML does.
+
+A GPU reports at most 64 cliques. That count includes the unicast-pointer clique
+and the default of every type `cliques` leaves out, and a profile that exceeds
+it is rejected. So is a profile that lists `unicast_pointer`, because that
+clique is the one `clique_id` sets for every struct version.
+
+When the chart's `topology` values place the node in a clique, every type
+reports that clique and `cliques` is ignored.
+
+`nvidia-smi -q` from a 615 driver renders the list under `Fabric` → `Cliques`;
+the 580 binary does not know the block.
+
 ## Available GPU Profiles
 
 Standalone configuration files are provided for each supported GPU model:

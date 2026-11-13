@@ -23,7 +23,7 @@ package main
 */
 import "C"
 
-// 110 stub functions for unimplemented NVML functions.
+// 109 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceGetInfo_v1
@@ -79,11 +79,6 @@ func nvmlDeviceGetDriverModel_v1(device C.nvmlDevice_t, current *C.nvmlDriverMod
 //export nvmlDeviceGetDriverModel_v2
 func nvmlDeviceGetDriverModel_v2(device C.nvmlDevice_t, current *C.nvmlDriverModel_t, pending *C.nvmlDriverModel_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetDriverModel_v2")
-}
-
-//export nvmlDeviceGetGpuFabricInfo_v4
-func nvmlDeviceGetGpuFabricInfo_v4(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpuFabricInfo_v4_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGpuFabricInfo_v4")
 }
 
 //export nvmlDeviceGetGpuInstancePossiblePlacements_v1

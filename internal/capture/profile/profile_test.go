@@ -298,6 +298,87 @@ func TestUnsupportedGetterIsNotedNotInvented(t *testing.T) {
 	require.Contains(t, profile, "# target_speed_percent: left out, GetTargetFanSpeed(0) = not recorded")
 }
 
+// fabricV4 is a GetGpuFabricInfo_v4 answer: the cliques, then the unused
+// entries of the fixed-size array the driver leaves zeroed.
+func fabricV4(cliques ...map[string]any) map[string]any {
+	entries := make([]any, 0, len(cliques)+2)
+	for _, c := range cliques {
+		entries = append(entries, c)
+	}
+	entries = append(entries, clique(0, 0), clique(0, 0))
+	return ok(map[string]any{"Cliques": entries, "NumCliques": len(cliques)})
+}
+
+func clique(typ, id int) map[string]any { return map[string]any{"Type": typ, "Id": id} }
+
+func TestFabricCliquesListTheTypesThatLeaveTheCliqueID(t *testing.T) {
+	t.Parallel()
+	pointerClique := ok(map[string]any{"CliqueId": 65534})
+	cases := map[string]struct {
+		gpus []map[string]any
+		want []string
+		not  []string
+	}{
+		// What a Vera Rubin NVL72 tray reports.
+		"logical-endpoint cliques with their own id": {
+			gpus: []map[string]any{{
+				"GetGpuFabricInfo":    pointerClique,
+				"GetGpuFabricInfo_v4": fabricV4(clique(0, 65534), clique(1, 65534), clique(2, 32766), clique(3, 32766)),
+			}},
+			want: []string{
+				"cliques: # GetGpuFabricInfo_v4.Cliques[:NumCliques], the types whose id is not clique_id",
+				"- type: \"unicast_logical_endpoint\"\n id: 32766",
+				"- type: \"multicast_logical_endpoint\"\n id: 32766",
+			},
+			not: []string{"multicast_pointer", "unicast_pointer"},
+		},
+		// The engine gives every type clique_id, so there is nothing to say.
+		"every type follows clique_id": {
+			gpus: []map[string]any{{
+				"GetGpuFabricInfo":    pointerClique,
+				"GetGpuFabricInfo_v4": fabricV4(clique(0, 65534), clique(1, 65534)),
+			}},
+			not: []string{"cliques"},
+		},
+		// One entry of the type leaves clique_id, so the list replaces the
+		// engine's default and has to name the entry that does not, too.
+		"a type with several cliques is listed whole": {
+			gpus: []map[string]any{{
+				"GetGpuFabricInfo":    pointerClique,
+				"GetGpuFabricInfo_v4": fabricV4(clique(0, 65534), clique(1, 7), clique(1, 65534)),
+			}},
+			want: []string{"- type: \"multicast_pointer\"\n id: 7\n - type: \"multicast_pointer\"\n id: 65534"},
+		},
+		"a driver older than the call": {
+			gpus: []map[string]any{{
+				"GetGpuFabricInfo":    pointerClique,
+				"GetGpuFabricInfo_v4": failed("ERROR_FUNCTION_NOT_FOUND"),
+			}},
+			want: []string{"# cliques: left out, GetGpuFabricInfo_v4 = ERROR_FUNCTION_NOT_FOUND"},
+		},
+		"GPUs that disagree": {
+			gpus: []map[string]any{
+				{"GetGpuFabricInfo": pointerClique, "GetGpuFabricInfo_v4": fabricV4(clique(0, 65534), clique(2, 1))},
+				{"GetGpuFabricInfo": pointerClique, "GetGpuFabricInfo_v4": fabricV4(clique(0, 65534), clique(2, 2))},
+			},
+			want: []string{"# cliques: left out, the GPUs report different cliques"},
+			not:  []string{"unicast_logical_endpoint"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, profile := generateFrom(t, writeCapture(t, tc.gpus, nil), nil)
+			for _, want := range tc.want {
+				require.Contains(t, profile, want)
+			}
+			for _, not := range tc.not {
+				require.NotContains(t, profile, not)
+			}
+		})
+	}
+}
+
 const baseYAML = `
 device_defaults:
   pci:

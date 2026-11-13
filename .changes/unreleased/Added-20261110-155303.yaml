@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  nvml-mock: on a `615` or newer driver, `nvmlDeviceGetGpuFabricInfo_v4` reports the GPU fabric with one clique per type instead of `NOT_SUPPORTED`; set IDs that differ from `clique_id` with `fabric.cliques`, see [Fabric Cliques](docs/configuration.md#fabric-cliques).
+time: 2026-11-10T14:53:03Z
+custom:
+  Issue: "1203"

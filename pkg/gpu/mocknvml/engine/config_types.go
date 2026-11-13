@@ -1137,7 +1137,8 @@ type XidErrorConfig struct {
 }
 
 // FabricConfig models the per-GPU NVLink fabric attributes that
-// nvmlDeviceGetGpuFabricInfo / nvmlDeviceGetGpuFabricInfoV expose for
+// nvmlDeviceGetGpuFabricInfo / nvmlDeviceGetGpuFabricInfoV /
+// nvmlDeviceGetGpuFabricInfo_v4 expose for
 // fabric-attached GPUs (Hopper+ / GB200 / GB300). All GPUs on the same
 // physical node share the same fabric config — the NVLink domain is a
 // node-level property.
@@ -1160,6 +1161,11 @@ type FabricConfig struct {
 	ClusterUUID string `json:"cluster_uuid,omitempty"`
 	// CliqueID is the clique within the cluster this GPU belongs to.
 	CliqueID uint32 `json:"clique_id,omitzero"`
+	// Cliques sets the per-type cliques nvmlDeviceGetGpuFabricInfo_v4
+	// reports where they differ from CliqueID, which every type the
+	// architecture reports follows by default. Entries of a type replace
+	// that type's default. The unicast-pointer clique is always CliqueID.
+	Cliques []FabricCliqueConfig `json:"cliques,omitempty"`
 	// State is the GPU registration state with the fabric manager.
 	// Defaults to "completed" (the healthy steady-state value). The
 	// special value "auto" couples the state to the fake fabricmanager's
@@ -1180,6 +1186,14 @@ type FabricConfig struct {
 	// A raw 0 means "the driver reported no health at all", which
 	// nvidia-smi renders as N/A for the whole Health block.
 	HealthMask *uint32 `json:"health_mask,omitempty"`
+}
+
+// FabricCliqueConfig is one clique of FabricConfig.Cliques.
+type FabricCliqueConfig struct {
+	// Type is "multicast_pointer", "unicast_logical_endpoint" or
+	// "multicast_logical_endpoint".
+	Type string `json:"type"`
+	ID   uint32 `json:"id"`
 }
 
 // FabricHealthConfig models the individual NVLink fabric health conditions
