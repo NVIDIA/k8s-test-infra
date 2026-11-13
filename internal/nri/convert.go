@@ -109,8 +109,25 @@ func adjustmentToNRI(adjustment inject.Adjustment) *api.ContainerAdjustment {
 	for _, name := range adjustment.CDIDevices {
 		result.AddCDIDevice(&api.CDIDevice{Name: name})
 	}
+	if notify := adjustment.SeccompNotify; notify != nil {
+		result.SetLinuxSeccompPolicy(seccompNotifyPolicy(notify))
+	}
 
 	return result
+}
+
+// seccompNotifyPolicy allows every syscall and notifies the named ones. It
+// replaces the container's policy, which a privileged container lacks anyway.
+func seccompNotifyPolicy(notify *inject.SeccompNotify) *api.LinuxSeccomp {
+	return &api.LinuxSeccomp{
+		DefaultAction:    "SCMP_ACT_ALLOW",
+		ListenerPath:     notify.ListenerPath,
+		ListenerMetadata: notify.Metadata,
+		Syscalls: []*api.LinuxSyscall{{
+			Names:  append([]string(nil), notify.Syscalls...),
+			Action: "SCMP_ACT_NOTIFY",
+		}},
+	}
 }
 
 // linuxDevice reads the device numbers containerd needs to recreate the node
