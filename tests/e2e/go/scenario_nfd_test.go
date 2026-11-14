@@ -26,9 +26,7 @@ const (
 	nfdRelease   = "nfd"
 	nfdChart     = "nfd/node-feature-discovery"
 	nfdRepoURL   = "https://kubernetes-sigs.github.io/node-feature-discovery/charts"
-	// Pinned to the version in go.mod. Every upstream behaviour this test
-	// relies on (local-source featureFilesDir, label namespacing) was read
-	// from this tag.
+	// Keep NFD pinned so upstream changes are tested deliberately.
 	nfdVersion = "0.19.0"
 
 	// The label under test. NFD's local source turns a features.d line
@@ -128,12 +126,13 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 	})
 })
 
-// installNFD installs the pinned NFD chart and waits for it. NFD's local source
-// is what turns the node agent's feature file into node labels.
-func installNFD(ctx context.Context, h *harness.Harness) {
+// installNFD installs the pinned NFD chart. Optional values select the
+// components required by a scenario.
+func installNFD(ctx context.Context, h *harness.Harness, valuesFiles ...string) {
 	GinkgoHelper()
 	Expect(h.Helm.RepoAdd(ctx, "nfd", nfdRepoURL)).To(Succeed(), "add NFD Helm repo")
 	Expect(h.Helm.UpgradeInstall(ctx, helm.Release{
+		ValuesFiles:     valuesFiles,
 		Name:            nfdRelease,
 		Chart:           nfdChart,
 		Version:         nfdVersion,
