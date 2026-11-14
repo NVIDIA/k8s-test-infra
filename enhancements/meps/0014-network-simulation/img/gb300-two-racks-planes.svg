@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1020" height="528" viewBox="0 0 1020 528" role="img" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+<title>Two GB300 NVL72 racks on a two-plane rail-optimised fabric</title>
+<desc>Two GB300 NVL72 racks, each one NVLink domain. NIC k of every tray belongs to rail k; a coloured line per rail runs through the trays. Each rail links to leaf k in plane 0 and to leaf k in plane 1. Each plane is an independent fabric with four leaves and two spines, and every leaf connects to both spines, which carry traffic between rails. Each leaf is labelled with its rail, and a legend maps each colour to its rail: a rail is a logical grouping of corresponding NICs and their network connectivity, not a separate physical device.</desc>
+<rect x="0.5" y="0.5" width="1019" height="527" rx="12" fill="#FFFFFF" stroke="#E5E3DA" stroke-width="1"/>
+<g transform="translate(0,-26)">
+<rect x="30" y="40" width="450" height="140" rx="12" fill="#FAFAF7" stroke="#888780" stroke-width="0.75"/>
+<text x="46" y="72" font-size="14" fill="#2C2C2A" font-weight="600">Plane 0</text>
+<rect x="540" y="40" width="450" height="140" rx="12" fill="#FAFAF7" stroke="#888780" stroke-width="0.75"/>
+<text x="556" y="72" font-size="14" fill="#2C2C2A" font-weight="600">Plane 1</text>
+<rect x="30" y="270" width="450" height="202" rx="12" fill="#FAFAF7" stroke="#B4B2A9" stroke-width="0.75"/>
+<rect x="540" y="270" width="450" height="202" rx="12" fill="#FAFAF7" stroke="#B4B2A9" stroke-width="0.75"/>
+<line x1="165" y1="128" x2="209" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="165" y1="128" x2="385" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="253" y1="128" x2="209" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="253" y1="128" x2="385" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="341" y1="128" x2="209" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="341" y1="128" x2="385" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="429" y1="128" x2="209" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="429" y1="128" x2="385" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="675" y1="128" x2="719" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="675" y1="128" x2="895" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="763" y1="128" x2="719" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="763" y1="128" x2="895" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="851" y1="128" x2="719" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="851" y1="128" x2="895" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="939" y1="128" x2="719" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="939" y1="128" x2="895" y2="84" stroke="#888780" stroke-width="1" stroke-linecap="round"/>
+<line x1="153" y1="270" x2="153" y2="388" stroke="#378ADD" stroke-width="2" stroke-linecap="round"/>
+<line x1="153" y1="270" x2="153" y2="168" stroke="#378ADD" stroke-width="2" stroke-linecap="round"/>
+<line x1="153" y1="270" x2="663" y2="168" stroke="#378ADD" stroke-width="2" stroke-linecap="round"/>
+<line x1="241" y1="270" x2="241" y2="388" stroke="#1D9E75" stroke-width="2" stroke-linecap="round"/>
+<line x1="241" y1="270" x2="241" y2="168" stroke="#1D9E75" stroke-width="2" stroke-linecap="round"/>
+<line x1="241" y1="270" x2="751" y2="168" stroke="#1D9E75" stroke-width="2" stroke-linecap="round"/>
+<line x1="329" y1="270" x2="329" y2="388" stroke="#BA7517" stroke-width="2" stroke-linecap="round"/>
+<line x1="329" y1="270" x2="329" y2="168" stroke="#BA7517" stroke-width="2" stroke-linecap="round"/>
+<line x1="329" y1="270" x2="839" y2="168" stroke="#BA7517" stroke-width="2" stroke-linecap="round"/>
+<line x1="417" y1="270" x2="417" y2="388" stroke="#D4537E" stroke-width="2" stroke-linecap="round"/>
+<line x1="417" y1="270" x2="417" y2="168" stroke="#D4537E" stroke-width="2" stroke-linecap="round"/>
+<line x1="417" y1="270" x2="927" y2="168" stroke="#D4537E" stroke-width="2" stroke-linecap="round"/>
+<line x1="687" y1="270" x2="687" y2="388" stroke="#378ADD" stroke-width="2" stroke-linecap="round"/>
+<line x1="687" y1="270" x2="177" y2="168" stroke="#378ADD" stroke-width="2" stroke-linecap="round"/>
+<line x1="687" y1="270" x2="687" y2="168" stroke="#378ADD" stroke-width="2" stroke-linecap="round"/>
+<line x1="775" y1="270" x2="775" y2="388" stroke="#1D9E75" stroke-width="2" stroke-linecap="round"/>
+<line x1="775" y1="270" x2="265" y2="168" stroke="#1D9E75" stroke-width="2" stroke-linecap="round"/>
+<line x1="775" y1="270" x2="775" y2="168" stroke="#1D9E75" stroke-width="2" stroke-linecap="round"/>
+<line x1="863" y1="270" x2="863" y2="388" stroke="#BA7517" stroke-width="2" stroke-linecap="round"/>
+<line x1="863" y1="270" x2="353" y2="168" stroke="#BA7517" stroke-width="2" stroke-linecap="round"/>
+<line x1="863" y1="270" x2="863" y2="168" stroke="#BA7517" stroke-width="2" stroke-linecap="round"/>
+<line x1="951" y1="270" x2="951" y2="388" stroke="#D4537E" stroke-width="2" stroke-linecap="round"/>
+<line x1="951" y1="270" x2="441" y2="168" stroke="#D4537E" stroke-width="2" stroke-linecap="round"/>
+<line x1="951" y1="270" x2="951" y2="168" stroke="#D4537E" stroke-width="2" stroke-linecap="round"/>
+<rect x="134" y="52" width="150" height="32" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1.25"/>
+<text x="209" y="73" font-size="13" fill="#2C2C2A" font-weight="600" text-anchor="middle">Spine 0</text>
+<rect x="310" y="52" width="150" height="32" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1.25"/>
+<text x="385" y="73" font-size="13" fill="#2C2C2A" font-weight="600" text-anchor="middle">Spine 1</text>
+<rect x="127" y="128" width="76" height="40" rx="8" fill="#E6F1FB" stroke="#378ADD" stroke-width="1.5"/>
+<text x="165" y="146" font-size="13" fill="#0C447C" font-weight="600" text-anchor="middle">Leaf 0</text>
+<text x="165" y="160" font-size="11" fill="#0C447C" text-anchor="middle">Rail 0</text>
+<rect x="215" y="128" width="76" height="40" rx="8" fill="#E1F5EE" stroke="#1D9E75" stroke-width="1.5"/>
+<text x="253" y="146" font-size="13" fill="#085041" font-weight="600" text-anchor="middle">Leaf 1</text>
+<text x="253" y="160" font-size="11" fill="#085041" text-anchor="middle">Rail 1</text>
+<rect x="303" y="128" width="76" height="40" rx="8" fill="#FAEEDA" stroke="#BA7517" stroke-width="1.5"/>
+<text x="341" y="146" font-size="13" fill="#633806" font-weight="600" text-anchor="middle">Leaf 2</text>
+<text x="341" y="160" font-size="11" fill="#633806" text-anchor="middle">Rail 2</text>
+<rect x="391" y="128" width="76" height="40" rx="8" fill="#FBEAF0" stroke="#D4537E" stroke-width="1.5"/>
+<text x="429" y="146" font-size="13" fill="#72243E" font-weight="600" text-anchor="middle">Leaf 3</text>
+<text x="429" y="160" font-size="11" fill="#72243E" text-anchor="middle">Rail 3</text>
+<rect x="644" y="52" width="150" height="32" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1.25"/>
+<text x="719" y="73" font-size="13" fill="#2C2C2A" font-weight="600" text-anchor="middle">Spine 0</text>
+<rect x="820" y="52" width="150" height="32" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="1.25"/>
+<text x="895" y="73" font-size="13" fill="#2C2C2A" font-weight="600" text-anchor="middle">Spine 1</text>
+<rect x="637" y="128" width="76" height="40" rx="8" fill="#E6F1FB" stroke="#378ADD" stroke-width="1.5"/>
+<text x="675" y="146" font-size="13" fill="#0C447C" font-weight="600" text-anchor="middle">Leaf 0</text>
+<text x="675" y="160" font-size="11" fill="#0C447C" text-anchor="middle">Rail 0</text>
+<rect x="725" y="128" width="76" height="40" rx="8" fill="#E1F5EE" stroke="#1D9E75" stroke-width="1.5"/>
+<text x="763" y="146" font-size="13" fill="#085041" font-weight="600" text-anchor="middle">Leaf 1</text>
+<text x="763" y="160" font-size="11" fill="#085041" text-anchor="middle">Rail 1</text>
+<rect x="813" y="128" width="76" height="40" rx="8" fill="#FAEEDA" stroke="#BA7517" stroke-width="1.5"/>
+<text x="851" y="146" font-size="13" fill="#633806" font-weight="600" text-anchor="middle">Leaf 2</text>
+<text x="851" y="160" font-size="11" fill="#633806" text-anchor="middle">Rail 2</text>
+<rect x="901" y="128" width="76" height="40" rx="8" fill="#FBEAF0" stroke="#D4537E" stroke-width="1.5"/>
+<text x="939" y="146" font-size="13" fill="#72243E" font-weight="600" text-anchor="middle">Leaf 3</text>
+<text x="939" y="160" font-size="11" fill="#72243E" text-anchor="middle">Rail 3</text>
+<rect x="42" y="282" width="426" height="28" rx="6" fill="#FFFFFF" stroke="#B4B2A9" stroke-width="0.75"/>
+<text x="54" y="301" font-size="12" fill="#2C2C2A">Tray 1</text>
+<rect x="128" y="286" width="50" height="20" rx="4" fill="#378ADD" stroke="#378ADD" stroke-width="0.75"/>
+<text x="153" y="300" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 0</text>
+<rect x="216" y="286" width="50" height="20" rx="4" fill="#1D9E75" stroke="#1D9E75" stroke-width="0.75"/>
+<text x="241" y="300" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 1</text>
+<rect x="304" y="286" width="50" height="20" rx="4" fill="#BA7517" stroke="#BA7517" stroke-width="0.75"/>
+<text x="329" y="300" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 2</text>
+<rect x="392" y="286" width="50" height="20" rx="4" fill="#D4537E" stroke="#D4537E" stroke-width="0.75"/>
+<text x="417" y="300" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 3</text>
+<rect x="42" y="318" width="426" height="28" rx="6" fill="#FFFFFF" stroke="#B4B2A9" stroke-width="0.75"/>
+<text x="54" y="337" font-size="12" fill="#2C2C2A">Tray 2</text>
+<rect x="128" y="322" width="50" height="20" rx="4" fill="#378ADD" stroke="#378ADD" stroke-width="0.75"/>
+<text x="153" y="336" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 0</text>
+<rect x="216" y="322" width="50" height="20" rx="4" fill="#1D9E75" stroke="#1D9E75" stroke-width="0.75"/>
+<text x="241" y="336" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 1</text>
+<rect x="304" y="322" width="50" height="20" rx="4" fill="#BA7517" stroke="#BA7517" stroke-width="0.75"/>
+<text x="329" y="336" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 2</text>
+<rect x="392" y="322" width="50" height="20" rx="4" fill="#D4537E" stroke="#D4537E" stroke-width="0.75"/>
+<text x="417" y="336" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 3</text>
+<rect x="42" y="374" width="426" height="28" rx="6" fill="#FFFFFF" stroke="#B4B2A9" stroke-width="0.75"/>
+<text x="54" y="393" font-size="12" fill="#2C2C2A">Tray 18</text>
+<rect x="128" y="378" width="50" height="20" rx="4" fill="#378ADD" stroke="#378ADD" stroke-width="0.75"/>
+<text x="153" y="392" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 0</text>
+<rect x="216" y="378" width="50" height="20" rx="4" fill="#1D9E75" stroke="#1D9E75" stroke-width="0.75"/>
+<text x="241" y="392" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 1</text>
+<rect x="304" y="378" width="50" height="20" rx="4" fill="#BA7517" stroke="#BA7517" stroke-width="0.75"/>
+<text x="329" y="392" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 2</text>
+<rect x="392" y="378" width="50" height="20" rx="4" fill="#D4537E" stroke="#D4537E" stroke-width="0.75"/>
+<text x="417" y="392" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 3</text>
+<text x="82" y="360" font-size="12" fill="#5F5E5A" text-anchor="middle">…</text>
+<rect x="42" y="414" width="426" height="46" rx="6" fill="#F1EFE8" stroke="#B4B2A9" stroke-width="0.75"/>
+<text x="255" y="433" font-size="13" fill="#2C2C2A" font-weight="600" text-anchor="middle">Rack 0 · one NVLink domain</text>
+<text x="255" y="450" font-size="12" fill="#5F5E5A" text-anchor="middle">9 NVLink switch trays join its 72 GPUs (scale-up)</text>
+<rect x="552" y="282" width="426" height="28" rx="6" fill="#FFFFFF" stroke="#B4B2A9" stroke-width="0.75"/>
+<text x="564" y="301" font-size="12" fill="#2C2C2A">Tray 1</text>
+<rect x="662" y="286" width="50" height="20" rx="4" fill="#378ADD" stroke="#378ADD" stroke-width="0.75"/>
+<text x="687" y="300" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 0</text>
+<rect x="750" y="286" width="50" height="20" rx="4" fill="#1D9E75" stroke="#1D9E75" stroke-width="0.75"/>
+<text x="775" y="300" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 1</text>
+<rect x="838" y="286" width="50" height="20" rx="4" fill="#BA7517" stroke="#BA7517" stroke-width="0.75"/>
+<text x="863" y="300" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 2</text>
+<rect x="926" y="286" width="50" height="20" rx="4" fill="#D4537E" stroke="#D4537E" stroke-width="0.75"/>
+<text x="951" y="300" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 3</text>
+<rect x="552" y="318" width="426" height="28" rx="6" fill="#FFFFFF" stroke="#B4B2A9" stroke-width="0.75"/>
+<text x="564" y="337" font-size="12" fill="#2C2C2A">Tray 2</text>
+<rect x="662" y="322" width="50" height="20" rx="4" fill="#378ADD" stroke="#378ADD" stroke-width="0.75"/>
+<text x="687" y="336" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 0</text>
+<rect x="750" y="322" width="50" height="20" rx="4" fill="#1D9E75" stroke="#1D9E75" stroke-width="0.75"/>
+<text x="775" y="336" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 1</text>
+<rect x="838" y="322" width="50" height="20" rx="4" fill="#BA7517" stroke="#BA7517" stroke-width="0.75"/>
+<text x="863" y="336" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 2</text>
+<rect x="926" y="322" width="50" height="20" rx="4" fill="#D4537E" stroke="#D4537E" stroke-width="0.75"/>
+<text x="951" y="336" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 3</text>
+<rect x="552" y="374" width="426" height="28" rx="6" fill="#FFFFFF" stroke="#B4B2A9" stroke-width="0.75"/>
+<text x="564" y="393" font-size="12" fill="#2C2C2A">Tray 18</text>
+<rect x="662" y="378" width="50" height="20" rx="4" fill="#378ADD" stroke="#378ADD" stroke-width="0.75"/>
+<text x="687" y="392" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 0</text>
+<rect x="750" y="378" width="50" height="20" rx="4" fill="#1D9E75" stroke="#1D9E75" stroke-width="0.75"/>
+<text x="775" y="392" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 1</text>
+<rect x="838" y="378" width="50" height="20" rx="4" fill="#BA7517" stroke="#BA7517" stroke-width="0.75"/>
+<text x="863" y="392" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 2</text>
+<rect x="926" y="378" width="50" height="20" rx="4" fill="#D4537E" stroke="#D4537E" stroke-width="0.75"/>
+<text x="951" y="392" font-size="11" fill="#FFFFFF" font-weight="700" text-anchor="middle">NIC 3</text>
+<text x="592" y="360" font-size="12" fill="#5F5E5A" text-anchor="middle">…</text>
+<rect x="552" y="414" width="426" height="46" rx="6" fill="#F1EFE8" stroke="#B4B2A9" stroke-width="0.75"/>
+<text x="765" y="433" font-size="13" fill="#2C2C2A" font-weight="600" text-anchor="middle">Rack 1 · one NVLink domain</text>
+<text x="765" y="450" font-size="12" fill="#5F5E5A" text-anchor="middle">9 NVLink switch trays join its 72 GPUs (scale-up)</text>
+</g>
+<!-- Legend: rails -->
+<line x1="42" y1="468" x2="62" y2="468" stroke="#378ADD" stroke-width="3" stroke-linecap="round"/>
+<text x="70" y="472" font-size="12" fill="#2C2C2A"><tspan font-weight="600">Rail 0</tspan> = NIC 0 across trays → Leaf 0 switches</text>
+<line x1="348" y1="468" x2="368" y2="468" stroke="#1D9E75" stroke-width="3" stroke-linecap="round"/>
+<text x="376" y="472" font-size="12" fill="#2C2C2A"><tspan font-weight="600">Rail 1</tspan> = NIC 1 across trays → Leaf 1 switches</text>
+<line x1="42" y1="488" x2="62" y2="488" stroke="#BA7517" stroke-width="3" stroke-linecap="round"/>
+<text x="70" y="492" font-size="12" fill="#2C2C2A"><tspan font-weight="600">Rail 2</tspan> = NIC 2 across trays → Leaf 2 switches</text>
+<line x1="348" y1="488" x2="368" y2="488" stroke="#D4537E" stroke-width="3" stroke-linecap="round"/>
+<text x="376" y="492" font-size="12" fill="#2C2C2A"><tspan font-weight="600">Rail 3</tspan> = NIC 3 across trays → Leaf 3 switches</text>
+<text x="42" y="514" font-size="12" fill="#5F5E5A">A rail is a logical grouping of corresponding NICs and their network connectivity, not a separate physical device.</text>
+</svg>

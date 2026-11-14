@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1020" height="500" viewBox="0 0 1020 500" role="img" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+<title>OBSERVE workflows on Mokka</title>
+<desc>A test injects NIC and port faults, firmware upgrades, and switch and link failures. Device health monitoring: node_exporter and NVSentinel's NIC health monitor read port state, counters and firmware. Failure detection and remediation: NVSentinel detects a fault, also through driver lines in the kernel log on a host of its own, and cordons and drains the node; Kubernetes controllers such as the scheduler, Kueue and JobSet then recover the workload on a healthy node. Fabric topology changes: a leaf-port failure takes a NIC's link down, while a spine failure leads Mokka to publish a new topology revision and request a Topograph refresh; Topograph updates scheduler-visible topology if needed.</desc>
+<defs>
+<marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#378ADD" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#639922" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<marker id="arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#BA7517" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<marker id="arrow-grey" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+</defs>
+<rect x="0.5" y="0.5" width="1019" height="499" rx="12" fill="#FFFFFF" stroke="#E5E3DA"/>
+<!-- Response band first, so the arrows into it stay on top -->
+<rect x="8" y="372" width="1004" height="90" rx="14" fill="#F8F7F3" stroke="#D3D1C7" stroke-width="0.75"/>
+<text font-size="14" font-weight="600" fill="#2C2C2A" x="22" y="386" dominant-baseline="central">Cluster response</text>
+
+<!-- The test that injects faults -->
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="16" y="10" width="988" height="40" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="32" y="30" dominant-baseline="central">Test</text>
+<text font-size="12" fill="#5F5E5A" x="72" y="30" dominant-baseline="central">injects NIC and port faults and firmware upgrades with nvml-mock-ctl; switch and link failures</text>
+
+<!-- What Mokka presents, one segment per path -->
+<rect x="8" y="60" width="1004" height="108" rx="14" fill="none" stroke="#B4B2A9" stroke-width="0.75" stroke-dasharray="4 4"/>
+<text font-size="14" font-weight="600" fill="#2C2C2A" x="22" y="78" dominant-baseline="central">Mokka simulated cluster</text>
+<g>
+<rect fill="#E6F1FB" stroke="#378ADD" x="16" y="96" width="320" height="62" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#0C447C" x="176" y="113" text-anchor="middle" dominant-baseline="central">Device health monitoring</text>
+<text font-size="12" fill="#0C447C" x="176" y="132" text-anchor="middle" dominant-baseline="central">port state · error counters · firmware</text>
+<text font-size="12" fill="#0C447C" x="176" y="148" text-anchor="middle" dominant-baseline="central">network-interface statistics</text>
+</g>
+<g>
+<rect fill="#EAF3DE" stroke="#639922" x="350" y="96" width="320" height="62" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#27500A" x="510" y="113" text-anchor="middle" dominant-baseline="central">Failure detection and remediation</text>
+<text font-size="12" fill="#27500A" x="510" y="132" text-anchor="middle" dominant-baseline="central">injected NIC and port faults</text>
+<text font-size="12" fill="#27500A" x="510" y="148" text-anchor="middle" dominant-baseline="central">driver lines in the kernel log</text>
+</g>
+<g>
+<rect fill="#FAEEDA" stroke="#BA7517" x="684" y="96" width="320" height="62" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#633806" x="844" y="113" text-anchor="middle" dominant-baseline="central">Fabric topology changes</text>
+<text font-size="12" fill="#633806" x="844" y="132" text-anchor="middle" dominant-baseline="central">leaf port: a NIC's link goes down</text>
+<text font-size="12" fill="#633806" x="844" y="148" text-anchor="middle" dominant-baseline="central">spine: Mokka publishes a new revision</text>
+</g>
+<line x1="510" y1="50" x2="510" y2="94" stroke="#639922" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<line x1="844" y1="50" x2="844" y2="94" stroke="#BA7517" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+
+<!-- Path 1: device health monitoring -->
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="80" y="192" width="160" height="52" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="160" y="211" text-anchor="middle" dominant-baseline="central">node_exporter</text>
+<text font-size="12" fill="#5F5E5A" x="160" y="229" text-anchor="middle" dominant-baseline="central">for Prometheus</text>
+<line x1="160" y1="158" x2="160" y2="190" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<line x1="160" y1="244" x2="160" y2="398" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<path d="M300 158 L300 218 L364 218" fill="none" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+
+<!-- Path 2: failure detection and remediation -->
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="366" y="192" width="288" height="52" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="510" y="211" text-anchor="middle" dominant-baseline="central">NVSentinel</text>
+<text font-size="12" fill="#5F5E5A" x="510" y="229" text-anchor="middle" dominant-baseline="central">NIC health and syslog monitors</text>
+<line x1="510" y1="158" x2="510" y2="190" stroke="#639922" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<line x1="510" y1="244" x2="510" y2="258" stroke="#639922" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<rect fill="#F1EFE8" stroke="#B4B2A9" x="420" y="260" width="180" height="24" rx="12" stroke-width="0.75"/>
+<text font-size="12" fill="#2C2C2A" x="510" y="272" text-anchor="middle" dominant-baseline="central">node cordoned and drained</text>
+<line x1="510" y1="284" x2="510" y2="294" stroke="#639922" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="410" y="296" width="200" height="46" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="510" y="312" text-anchor="middle" dominant-baseline="central">Kubernetes controllers</text>
+<text font-size="12" fill="#5F5E5A" x="510" y="329" text-anchor="middle" dominant-baseline="central">scheduler · Kueue · JobSet</text>
+<line x1="510" y1="342" x2="510" y2="398" stroke="#639922" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<text font-size="12" fill="#27500A" x="518" y="362">recover the workload</text>
+
+<!-- Path 3: fabric topology changes -->
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="724" y="192" width="240" height="52" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="844" y="211" text-anchor="middle" dominant-baseline="central">Topograph</text>
+<text font-size="12" fill="#5F5E5A" x="844" y="229" text-anchor="middle" dominant-baseline="central">refresh requested by Mokka</text>
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="724" y="286" width="240" height="52" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="844" y="305" text-anchor="middle" dominant-baseline="central">Schedulers</text>
+<text font-size="12" fill="#5F5E5A" x="844" y="323" text-anchor="middle" dominant-baseline="central">kube-scheduler · Kueue · Slurm</text>
+<line x1="844" y1="158" x2="844" y2="190" stroke="#BA7517" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+<line x1="844" y1="244" x2="844" y2="284" stroke="#BA7517" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+<text font-size="12" fill="#633806" x="836" y="268" text-anchor="end">updates topology if needed</text>
+<line x1="844" y1="338" x2="844" y2="398" stroke="#BA7517" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+
+<!-- Outcomes -->
+<rect fill="#FFFFFF" stroke="#378ADD" x="36" y="400" width="280" height="48" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#0C447C" x="176" y="418" text-anchor="middle" dominant-baseline="central">Metrics and alerts</text>
+<text font-size="12" fill="#0C447C" x="176" y="435" text-anchor="middle" dominant-baseline="central">Prometheus</text>
+<rect fill="#FFFFFF" stroke="#639922" x="370" y="400" width="280" height="48" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#27500A" x="510" y="418" text-anchor="middle" dominant-baseline="central">Workload recovered</text>
+<text font-size="12" fill="#27500A" x="510" y="435" text-anchor="middle" dominant-baseline="central">to a healthy node</text>
+<rect fill="#FFFFFF" stroke="#BA7517" x="704" y="400" width="280" height="48" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#633806" x="844" y="418" text-anchor="middle" dominant-baseline="central">Placement on the current fabric</text>
+<text font-size="12" fill="#633806" x="844" y="435" text-anchor="middle" dominant-baseline="central">from updated topology</text>
+
+<!-- Legend -->
+<text font-size="12" fill="#5F5E5A" x="24" y="486">Kernel-log tests need a host of their own, because a host's containers share one kernel log</text>
+</svg>
