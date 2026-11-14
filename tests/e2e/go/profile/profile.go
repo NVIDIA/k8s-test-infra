@@ -69,8 +69,10 @@ type rawProfile struct {
 			OFA  int `json:"ofa"`
 		} `json:"utilization"`
 		PCIe *struct {
-			MaxLinkGen     int `json:"max_link_gen"`
-			HostMaxLinkGen int `json:"host_max_link_gen"`
+			MaxLinkGen       int `json:"max_link_gen"`
+			MaxDeviceLinkGen int `json:"max_device_link_gen"`
+			CurrentLinkGen   int `json:"current_link_gen"`
+			HostMaxLinkGen   int `json:"host_max_link_gen"`
 		} `json:"pcie"`
 		Clocks *struct {
 			GraphicsMax        int `json:"graphics_max"`
@@ -209,21 +211,23 @@ type Profile struct {
 	gpuNUMA        []int
 	memoryBytes    int64
 
-	arch               gpuarch.Arch
-	shutdownThresholdC int
-	slowdownThresholdC int
-	maxOperatingC      int
-	tlimit             *TLimit
-	jpegUtilizationPct int
-	ofaUtilizationPct  int
-	maxPCIeLinkGen     int
-	hostMaxPCIeLinkGen int
-	graphicsMaxMHz     int
-	appDefaultMemMHz   int
-	appDefaultGfxMHz   int
-	supportedClocks    []SupportedMemoryClock
-	rowRemapHistogram  bool
-	rowRemapBanks      int
+	arch                 gpuarch.Arch
+	shutdownThresholdC   int
+	slowdownThresholdC   int
+	maxOperatingC        int
+	tlimit               *TLimit
+	jpegUtilizationPct   int
+	ofaUtilizationPct    int
+	maxPCIeLinkGen       int
+	maxPCIeDeviceLinkGen int
+	currentPCIeLinkGen   int
+	graphicsMaxMHz       int
+	appDefaultMemMHz     int
+	appDefaultGfxMHz     int
+	supportedClocks      []SupportedMemoryClock
+	rowRemapHistogram    bool
+	rowRemapBanks        int
+	hostMaxPCIeLinkGen   int
 
 	platform    PlatformIdentity
 	hasPlatform bool
@@ -412,6 +416,11 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	}
 	if pcie := raw.DeviceDefaults.PCIe; pcie != nil {
 		p.maxPCIeLinkGen = pcie.MaxLinkGen
+		p.maxPCIeDeviceLinkGen = pcie.MaxDeviceLinkGen
+		if p.maxPCIeDeviceLinkGen == 0 {
+			p.maxPCIeDeviceLinkGen = pcie.MaxLinkGen
+		}
+		p.currentPCIeLinkGen = pcie.CurrentLinkGen
 		p.hostMaxPCIeLinkGen = pcie.HostMaxLinkGen
 	}
 	p.applyClocks(raw)
@@ -696,11 +705,16 @@ func (p Profile) JPEGUtilizationPct() int { return p.jpegUtilizationPct }
 // nvidia-smi -q -x must report in ofa_util.
 func (p Profile) OFAUtilizationPct() int { return p.ofaUtilizationPct }
 
-// MaxPCIeLinkGen is device_defaults.pcie.max_link_gen from the profile — the
-// PCIe generation nvidia-smi must report for the "Max" and "Device Max" rows.
-// Ranges from 3 (t4) to 6 (Blackwell), so asserting against it pins the value
-// to config rather than a hardcoded constant.
+// MaxPCIeLinkGen is device_defaults.pcie.max_link_gen, the generation nvidia-smi
+// reports for the negotiated "Max" row.
 func (p Profile) MaxPCIeLinkGen() int { return p.maxPCIeLinkGen }
+
+// MaxPCIeDeviceLinkGen is device_defaults.pcie.max_device_link_gen. When a
+// profile omits the field, it defaults to MaxPCIeLinkGen for compatibility.
+func (p Profile) MaxPCIeDeviceLinkGen() int { return p.maxPCIeDeviceLinkGen }
+
+// CurrentPCIeLinkGen is device_defaults.pcie.current_link_gen.
+func (p Profile) CurrentPCIeLinkGen() int { return p.currentPCIeLinkGen }
 
 // HostMaxPCIeLinkGen is the configured host-side maximum. Zero means absent,
 // which nvidia-smi must render as N/A.
