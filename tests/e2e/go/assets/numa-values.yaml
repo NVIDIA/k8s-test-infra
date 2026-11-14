@@ -10,7 +10,6 @@ nodeAgent:
     enabled: false
   numa:
     enabled: true
-    configureKubelet: true
     topologyManagerPolicy: single-numa-node
     cpuManagerPolicy: static
     memoryManagerPolicy: static

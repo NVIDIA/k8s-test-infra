@@ -155,7 +155,7 @@ tests that must not be scoped by `E2E_PROFILES`.
 | Multi-node fleet | `make e2e-multi-node` | `multi-node` | A heterogeneous fleet works: separate A100 and T4 releases on different workers, correct per-node mock files and IB behaviour, and a GPU workload scheduled across them |
 | Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | Node Resource Interface (NRI) injection follows the allocation rules: a pod with no Mokka-specific spec sees exactly its device-plugin allocation, a `devices`-annotated pod with no GPU request sees every GPU, and a pod that asks for neither is left untouched |
 | NFD label provenance | `make e2e-nfd` | `nfd`, `nfd-provenance` | Node Feature Discovery (NFD) derives `feature.node.kubernetes.io/pci-10de.present` from the feature file the mock writes — and that the mock does not write the label itself. Pinned to `a100`, because the label is vendor-only and identical across profiles |
-| NUMA topology and allocation | `make e2e-numa` | `numa` | Real NFD topology updater publishes two-zone NRTs with CPU, memory, and four GPUs per zone; a Guaranteed workload consumes all three resources in one zone, deletion restores availability, and a five-GPU request is rejected. Uses the A100 fixture |
+| NUMA topology and allocation | `make e2e-numa` | `numa` | Real NFD publishes CPU, memory, and GPU resources. Checks allocation, release, cross-zone rejection, and a live two-to-one-to-two zone update. Uses the A100 fixture |
 | Container runtime setup | `make e2e` | `container-runtime` | The node daemon registers the `nvidia` handler with containerd on stock `kindest/node` as the default: a pod with `NVIDIA_VISIBLE_DEVICES` sees the node's mock GPUs, with or without `runtimeClassName: nvidia`, replacing the node pod sets the runtime up again, and a node that loses its node pod loses the handler |
 | MIG | `make e2e-mig` | `mig`, `mig-nvml`, `mig-caps`, `mig-device-plugin`, `mig-allocation`, `mig-runtime` | A MIG-capable board partitioned through `gpu.mig` enumerates its partitions through `nvidia-smi`, stages a capability node for each, and the upstream device plugin in `migStrategy=single` publishes and allocates one `nvidia.com/gpu` per partition; runtime repartitioning through `nvidia-smi mig` is followed. Profiles that cannot partition skip |
 | vGPU host and guest | `make e2e-vgpu` | `vgpu`, `vgpu-host`, `vgpu-guest` | Pinned to `a100`, and needs the GPU Operator rolled out (`tilt up -- --gpu-operator`). A vGPU host lists its configured instances under `nvidia-smi vgpu`; a guest reports a licensed vGPU in `nvidia-smi -q`, and the operator's GFD labels the node `nvidia.com/vgpu.*` from the PCI capability the node agent writes |
@@ -424,6 +424,18 @@ pod requests five GPUs, which fit on the worker but require both zones. Kubelet
 must reject it with `TopologyAffinityError`, and NRT availability must stay
 unchanged.
 
+The last check changes the live profile ConfigMap from two zones to one, then
+back to two. The GPU IDs and PCI addresses stay the same. No Helm upgrade or
+Mokka pod restart is used. The check requires the host NUMA files and applied
+layout marker to match each new plan on every worker. It also checks that the
+Mokka pod UID and node-agent restart count stay unchanged.
+
+The device plugin and NFD updater are restarted after each layout change because
+they cache hardware topology. With one zone, the same five-GPU request must run,
+and NFD must report the exact CPU, memory, and GPU allocation through the real
+PodResources socket. After the two-zone layout is restored, kubelet must reject
+that request again. Cleanup restores the original profile if the check fails.
+
 ```bash
 make e2e-numa E2E_IMAGE=nvml-mock:e2e
 ```
@@ -432,4 +444,4 @@ The NFD release and test workload are removed after the ordered scenario. The
 Mokka release remains installed with NUMA simulation enabled; use a disposable
 cluster or explicitly disable NUMA before removing Mokka. Failure diagnostics
 include NRTs, reporter and device-plugin logs, kubelet journals, and checkpoints.
-This scenario does not cover node reboot or restoration of kubelet policy.
+This scenario does not cover node reboot or disabling NUMA simulation.

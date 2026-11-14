@@ -45,24 +45,36 @@ type NUMAExpectation struct {
 	CPUs        int64
 	MemoryBytes int64
 	GPUsPerZone int64
+	Zones       int // Zero selects the original two-zone fixture.
+}
+
+func (w NUMAExpectation) zoneCount() int {
+	if w.Zones == 0 {
+		return 2
+	}
+	return w.Zones
 }
 
 var numaResourceNames = []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory, "nvidia.com/gpu"}
 
-// NUMATopologyProblems checks the two-zone A100 fixture and its host capacity.
+// NUMATopologyProblems checks the expected zones and original host capacity.
 func NUMATopologyProblems(nrt NodeResourceTopology, want NUMAExpectation) []string {
 	var problems []string
 	if nrt.Metadata.Name != want.Node {
 		problems = append(problems, fmt.Sprintf("NRT name %q, want %q", nrt.Metadata.Name, want.Node))
 	}
-	if len(nrt.Zones) != 2 {
-		problems = append(problems, fmt.Sprintf("got %d zones, want 2", len(nrt.Zones)))
+	if len(nrt.Zones) != want.zoneCount() {
+		problems = append(problems, fmt.Sprintf("got %d zones, want %d", len(nrt.Zones), want.zoneCount()))
 	}
 	problems = append(problems, topologyAttributeProblems(nrt)...)
 	seen := map[string]bool{}
+	valid := map[string]bool{}
+	for i := range want.zoneCount() {
+		valid[fmt.Sprintf("node-%d", i)] = true
+	}
 	var cpus, memory int64
 	for _, zone := range nrt.Zones {
-		if seen[zone.Name] || (zone.Name != "node-0" && zone.Name != "node-1") {
+		if seen[zone.Name] || !valid[zone.Name] {
 			problems = append(problems, "unexpected or duplicate zone "+zone.Name)
 		}
 		seen[zone.Name] = true
@@ -111,9 +123,12 @@ func numaZoneProblems(zone NUMAResourceZone, want NUMAExpectation) []string {
 	}
 	memory := resources[corev1.ResourceMemory]
 	kb := want.MemoryBytes / 1024
-	perZone := kb / 2
-	if zone.Name == "node-0" {
-		perZone += kb % 2
+	count := int64(want.zoneCount())
+	perZone := kb / count
+	for i := int64(0); i < kb%count; i++ {
+		if zone.Name == fmt.Sprintf("node-%d", i) {
+			perZone++
+		}
 	}
 	if memory.Capacity.Value() != perZone*1024 {
 		problems = append(problems, "incorrect memory split on "+zone.Name)

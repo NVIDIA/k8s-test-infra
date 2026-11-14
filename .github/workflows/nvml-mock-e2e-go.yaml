@@ -805,7 +805,7 @@ jobs:
       - name: Assert the proxy is actually in front
         run: ./hack/check-goproxy.sh
 
-      - name: Run NUMA topology and allocation E2E (${{ matrix.gpu-profile }})
+      - name: Run NUMA topology, allocation, and live update E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
           E2E_KUBE_CONTEXT: kind-mokka

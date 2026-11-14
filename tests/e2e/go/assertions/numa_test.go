@@ -79,3 +79,17 @@ func TestNUMAAllocationRequiresOneMatchingZone(t *testing.T) {
 	require.NotEmpty(t, NUMAAvailabilityProblems(before, allocated))
 	require.Empty(t, NUMAAvailabilityProblems(before, nrtFixture(t)))
 }
+
+func TestNUMATopologyChecksSingleZoneAfterReconfiguration(t *testing.T) {
+	t.Parallel()
+	want := NUMAExpectation{Node: "worker-0", CPUs: 4, MemoryBytes: 2 << 30, GPUsPerZone: 8, Zones: 1}
+	nrt := nrtFixture(t)
+	nrt.Zones = nrt.Zones[:1]
+	nrt.Zones[0].Resources[0].Capacity = resource.MustParse("4")
+	nrt.Zones[0].Resources[1].Capacity = resource.MustParse("2Gi")
+	nrt.Zones[0].Resources[2] = NUMAResource{Name: "nvidia.com/gpu", Capacity: resource.MustParse("8"), Allocatable: resource.MustParse("8"), Available: resource.MustParse("8")}
+	require.Empty(t, NUMATopologyProblems(nrt, want))
+	require.NotEmpty(t, NUMATopologyProblems(nrtFixture(t), want), "a stale two-zone report must fail")
+	nrt.Zones[0].Name = "node-1"
+	require.NotEmpty(t, NUMATopologyProblems(nrt, want), "the removed zone must not remain")
+}

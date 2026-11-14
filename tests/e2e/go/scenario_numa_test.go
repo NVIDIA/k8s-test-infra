@@ -118,6 +118,10 @@ var _ = Describe("NUMA topology through the real NFD updater", Label("numa"), Or
 			return assertions.NUMAAvailabilityProblems(before, nrt)
 		})
 	})
+
+	It("reconciles a live two-to-one-to-two zone change and updates kubelet admission", func(ctx SpecContext) {
+		checkNUMALiveReconfiguration(ctx, h, workers, expected)
+	})
 })
 
 func numaWorkload(name, node string, gpus int) []byte {
