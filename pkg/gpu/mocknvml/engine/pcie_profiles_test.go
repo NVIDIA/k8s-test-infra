@@ -63,10 +63,9 @@ func readCapturedPCIeGen(t *testing.T, sku string) capturedPCIeGen {
 // TestProfilePCIeLinkGenMatchesHardwareCapture holds every shipped profile's
 // PCIe link generations, in both copies, to the board it models.
 //
-// Each key answers two rows of `nvidia-smi -q`: max_link_gen both Max and
-// Device Max, current_link_gen both Current and Device Current. So each key is
-// checked against both rows. `b200` had claimed Gen6 on all four where the
-// captured board reports Gen5.
+// The link maximum, GPU capability and current link generation are independent
+// profile values. Older profiles omit max_device_link_gen and retain the link
+// maximum as their device capability. GB200 needs Gen5 / Gen6 / Gen5.
 func TestProfilePCIeLinkGenMatchesHardwareCapture(t *testing.T) {
 	t.Parallel()
 
@@ -77,14 +76,6 @@ func TestProfilePCIeLinkGenMatchesHardwareCapture(t *testing.T) {
 			t.Run(src.label+"/"+sku, func(t *testing.T) {
 				t.Parallel()
 
-				if sku == "gb200" {
-					// The GB200 capture trains its link at Gen5 under a Gen6
-					// Device Max. One key answers both rows, so no value of
-					// max_link_gen reproduces the board until Device Max has a
-					// key of its own.
-					t.Skip("gb200 capture reports Max below Device Max, which one max_link_gen key cannot answer")
-				}
-
 				want := readCapturedPCIeGen(t, sku)
 
 				cfg, err := LoadYAMLConfig(path)
@@ -94,8 +85,12 @@ func TestProfilePCIeLinkGenMatchesHardwareCapture(t *testing.T) {
 
 				require.Equal(t, want.max, pcie.MaxLinkGen,
 					"%s pcie.max_link_gen must be the captured Max", path)
-				require.Equal(t, want.deviceMax, pcie.MaxLinkGen,
-					"%s pcie.max_link_gen also answers Device Max", path)
+				deviceMax := pcie.MaxDeviceLinkGen
+				if deviceMax == 0 {
+					deviceMax = pcie.MaxLinkGen
+				}
+				require.Equal(t, want.deviceMax, deviceMax,
+					"%s configured device maximum must be the captured Device Max", path)
 				require.Equal(t, want.current, pcie.CurrentLinkGen,
 					"%s pcie.current_link_gen must be the captured Current", path)
 				require.Equal(t, want.deviceCurrent, pcie.CurrentLinkGen,

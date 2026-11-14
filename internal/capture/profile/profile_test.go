@@ -5,10 +5,12 @@ package profile
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,8 +18,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/urfave/cli/v3"
 	"sigs.k8s.io/yaml"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/cmdline"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
@@ -586,32 +590,39 @@ func TestHostParsers(t *testing.T) {
 	require.Equal(t, []string{"<inactive>"}, speeds[1])
 }
 
+// runCLI runs `mokka-capture profile` with args and returns its exit code.
+func runCLI(args []string, stdout, stderr io.Writer) int {
+	root := &cli.Command{Name: "mokka-capture", Commands: []*cli.Command{Command()}}
+	return cmdline.Run(context.Background(), root, append([]string{"profile"}, args...), stdout, stderr)
+}
+
 func TestRun(t *testing.T) {
 	t.Parallel()
 	var stderr bytes.Buffer
-	require.Equal(t, 2, Run(nil, &bytes.Buffer{}, &stderr))
-	require.Contains(t, stderr.String(), "usage: mokka-capture profile")
-	require.Equal(t, 1, Run([]string{t.TempDir()}, &bytes.Buffer{}, &bytes.Buffer{}), "a directory without a dump")
+	require.Equal(t, 2, runCLI(nil, &bytes.Buffer{}, &stderr))
+	require.Contains(t, stderr.String(), "mokka-capture profile [options] <capture node directory>")
+	require.Equal(t, 2, runCLI([]string{"a", "b"}, &bytes.Buffer{}, &bytes.Buffer{}), "a second directory")
+	require.Equal(t, 1, runCLI([]string{t.TempDir()}, &bytes.Buffer{}, &bytes.Buffer{}), "a directory without a dump")
 
 	capture := goldens[0].capture
 	var stdout bytes.Buffer
 	stderr.Reset()
-	require.Equal(t, 0, Run([]string{capture}, &stdout, &stderr))
+	require.Equal(t, 0, runCLI([]string{capture}, &stdout, &stderr))
 	require.Contains(t, stdout.String(), "version: \"1.0\"")
 	require.Contains(t, stderr.String(), "pass -o to write the table")
 
 	out := filepath.Join(t.TempDir(), "mock-nvml-config-x.yaml")
-	require.Equal(t, 0, Run([]string{"-o", out, capture}, &bytes.Buffer{}, &bytes.Buffer{}))
+	require.Equal(t, 0, runCLI([]string{"-o", out, capture}, &bytes.Buffer{}, &bytes.Buffer{}))
 	require.FileExists(t, out)
 	require.FileExists(t, filepath.Join(filepath.Dir(out), "mock-nvml-config-x.mig.yaml"))
 
 	stdout.Reset()
-	require.Equal(t, 0, Run([]string{"-explain", capture}, &stdout, &bytes.Buffer{}))
+	require.Equal(t, 0, runCLI([]string{"-explain", capture}, &stdout, &bytes.Buffer{}))
 	require.Regexp(t, `device_defaults\.thermal\.max_operating_c\s+90\s+from the T\.Limit reference and offsets\s+tlimit\.reference_c - tlimit\.slowdown_c = 88 - \(-2\); GetTemperatureThreshold\(3\) reads 90 on every GPU`, stdout.String())
 
 	stderr.Reset()
 	gb300 := "../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb300.yaml"
-	require.Equal(t, 1, Run([]string{"-base", gb300, capture}, &bytes.Buffer{}, &stderr), "a base of another GPU")
+	require.Equal(t, 1, runCLI([]string{"-base", gb300, capture}, &bytes.Buffer{}, &stderr), "a base of another GPU")
 	require.Contains(t, stderr.String(), "is a profile of PCI device 0x31C210DE, but GPU 0 of the capture is 0x304110DE")
 }
 
@@ -624,7 +635,7 @@ func TestRunRemovesAStaleMIGTable(t *testing.T) {
 	stale := migSibling(out)
 	require.NoError(t, os.WriteFile(stale, []byte("version: 1\n"), 0o644))
 	var stderr bytes.Buffer
-	require.Equal(t, 0, Run([]string{"-o", out, dir}, &bytes.Buffer{}, &stderr))
+	require.Equal(t, 0, runCLI([]string{"-o", out, dir}, &bytes.Buffer{}, &stderr))
 	require.FileExists(t, out)
 	require.NoFileExists(t, stale)
 	require.Contains(t, stderr.String(), "removed "+stale)

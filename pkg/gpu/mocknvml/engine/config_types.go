@@ -363,6 +363,7 @@ type PCIeConfig struct {
 	// MaxDeviceLinkGen is the GPU's own capability. Zero keeps older profiles
 	// compatible by falling back to MaxLinkGen.
 	MaxDeviceLinkGen int    `json:"max_device_link_gen,omitzero"`
+	HostMaxLinkGen   int    `json:"host_max_link_gen,omitzero"`
 	CurrentLinkGen   int    `json:"current_link_gen,omitzero"`
 	MaxLinkWidth     int    `json:"max_link_width,omitzero"`
 	CurrentLinkWidth int    `json:"current_link_width,omitzero"`

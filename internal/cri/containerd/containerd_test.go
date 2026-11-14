@@ -34,6 +34,10 @@ type node struct {
 	ctkErr  error
 	calls   [][]string
 	sysErr  error
+	// afterConfigure, when set, runs once nvidia-ctk has written the file.
+	afterConfigure func()
+	// sysCtxErrs records each systemctl call's context error.
+	sysCtxErrs []error
 }
 
 func newNode(t *testing.T, opts ...func(*cri.RuntimeOptions)) *node {
@@ -69,11 +73,16 @@ func (n *node) configure(_ context.Context, args ...string) error {
 		}
 	}
 
+	if n.afterConfigure != nil {
+		n.afterConfigure()
+	}
+
 	return nil
 }
 
-func (n *node) systemctl(_ context.Context, args ...string) error {
+func (n *node) systemctl(ctx context.Context, args ...string) error {
 	n.calls = append(n.calls, args)
+	n.sysCtxErrs = append(n.sysCtxErrs, ctx.Err())
 
 	return n.sysErr
 }
@@ -193,6 +202,20 @@ func TestSetupRestartsOnItsFirstPass(t *testing.T) {
 	require.NoError(t, n.rt.Setup(t.Context()))
 
 	require.Len(t, n.calls, 1, "a pod killed before its restart left a file containerd never loaded")
+}
+
+// TestSetupRestartHonoursCancellation keeps the restart interruptible: the
+// agent's shutdown cancels ctx, and teardown must still fit in the pod's grace
+// period when containerd is slow to come back.
+func TestSetupRestartHonoursCancellation(t *testing.T) {
+	n := newNode(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	n.afterConfigure = cancel
+
+	require.NoError(t, n.rt.Setup(ctx))
+
+	require.Equal(t, [][]string{{"restart", "containerd"}}, n.calls)
+	require.Equal(t, []error{context.Canceled}, n.sysCtxErrs, "the restart must carry the caller's cancellation")
 }
 
 func TestSetupWithoutRestarts(t *testing.T) {

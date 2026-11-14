@@ -140,10 +140,12 @@ topology:
       cliques:
         - id: 0
           nodes: [worker-2, worker-3]
+featureGates:
+  IMEXDownload: false # (3)!
 EOF
 
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --version 0.5.0 \
+  --version 0.6.0 \
   --namespace mokka --create-namespace \
   -f mokka-values.yaml \
   --wait --timeout 300s
@@ -152,6 +154,9 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 1. A GB200 profile reports NVLink fabric identity through
    `nvmlDeviceGetGpuFabricInfo`.
 2. Every worker appears in exactly one clique, by node name.
+3. Topograph needs no IMEX. Left on, each node downloads the IMEX archive
+   after it is ready and restages when the download lands; a pod created
+   during that restage gets no mock driver.
 
 ## Step 3 — Give each worker an `nvidia-smi` pod
 

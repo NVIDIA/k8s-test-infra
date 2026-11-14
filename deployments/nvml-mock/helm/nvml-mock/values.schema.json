@@ -325,7 +325,7 @@
         "nriStartupTimeoutSeconds": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum seconds the node-agent /stagedz startup probe may fail while its first Stage wave completes before Kubernetes restarts it, when NRI uses native sidecars."
+          "description": "Maximum seconds the node-agent /startedz startup probe may fail while its first Stage and Apply waves complete before Kubernetes restarts it, when NRI uses native sidecars."
         },
         "kernelLog": {
           "type": "object",

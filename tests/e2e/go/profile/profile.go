@@ -72,6 +72,7 @@ type rawProfile struct {
 			MaxLinkGen       int `json:"max_link_gen"`
 			MaxDeviceLinkGen int `json:"max_device_link_gen"`
 			CurrentLinkGen   int `json:"current_link_gen"`
+			HostMaxLinkGen   int `json:"host_max_link_gen"`
 		} `json:"pcie"`
 		Clocks *struct {
 			GraphicsMax        int `json:"graphics_max"`
@@ -226,6 +227,7 @@ type Profile struct {
 	supportedClocks      []SupportedMemoryClock
 	rowRemapHistogram    bool
 	rowRemapBanks        int
+	hostMaxPCIeLinkGen   int
 
 	platform    PlatformIdentity
 	hasPlatform bool
@@ -419,6 +421,7 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 			p.maxPCIeDeviceLinkGen = pcie.MaxLinkGen
 		}
 		p.currentPCIeLinkGen = pcie.CurrentLinkGen
+		p.hostMaxPCIeLinkGen = pcie.HostMaxLinkGen
 	}
 	p.applyClocks(raw)
 	p.applyWorkloadPowerProfiles(raw)
@@ -712,6 +715,10 @@ func (p Profile) MaxPCIeDeviceLinkGen() int { return p.maxPCIeDeviceLinkGen }
 
 // CurrentPCIeLinkGen is device_defaults.pcie.current_link_gen.
 func (p Profile) CurrentPCIeLinkGen() int { return p.currentPCIeLinkGen }
+
+// HostMaxPCIeLinkGen is the configured host-side maximum. Zero means absent,
+// which nvidia-smi must render as N/A.
+func (p Profile) HostMaxPCIeLinkGen() int { return p.hostMaxPCIeLinkGen }
 
 // GraphicsMaxClockMHz is device_defaults.clocks.graphics_max, the boost maximum
 // nvidia-smi renders in Max Clocks. The mock reports the same value as the

@@ -594,15 +594,17 @@ func (d *ConfigurableDevice) GetBAR1MemoryInfo() (nvml.BAR1Memory, nvml.Return) 
 // memoryInfo resolves device memory from the effective config so a runtime
 // config override of memory.{total,free,used}_bytes is observed without a
 // restart, matching how the process and thermal getters already read d.cfg().
-// The values are reported verbatim: overriding used_bytes alone does not
-// recompute free_bytes, because free_bytes is an explicit profile field and
-// silently deriving it would make that field dead. Falls back to the
+// It returns the v2 view, with reserved memory apart from used, from a single
+// config read, so the v1 and v2 getters derive their replies from one
+// consistent snapshot. Fields come from the profile as written: overriding
+// used_bytes alone does not recompute free_bytes, because free_bytes is an
+// explicit profile field and silently deriving it would make that field dead. Falls back to the
 // construction-time struct when the device was built without a memory block
 // (legacy/default mode), where d.MemoryInfo carries the base mock's values.
 //
 // It refreshes first, which makes it the entry point for callers that do not
 // hold migState.mu; callers that do hold it must use effectiveMemoryInfo.
-func (d *ConfigurableDevice) memoryInfo() nvml.Memory {
+func (d *ConfigurableDevice) memoryInfo() nvml.Memory_v2 {
 	d.refresh()
 	return d.effectiveMemoryInfo()
 }
@@ -616,20 +618,22 @@ func (d *ConfigurableDevice) memoryInfo() nvml.Memory {
 // declared-layout path it is deliberately the construction-time one, because a
 // declared layout answers for the config it was handed rather than for the
 // document on disk.
-func (d *ConfigurableDevice) effectiveMemoryInfo() nvml.Memory {
-	// A MIG device reports its slice, not the board it was carved from.
+func (d *ConfigurableDevice) effectiveMemoryInfo() nvml.Memory_v2 {
+	// A MIG device reports its slice, not the board it was carved from, and
+	// reserves nothing of it.
 	if d.mig != nil {
 		total := d.mig.attrs.MemorySizeMB * oneMiB
-		return nvml.Memory{Total: total, Free: total}
+		return nvml.Memory_v2{Total: total, Free: total}
 	}
 	if c := d.effective.Load(); c.Memory != nil {
-		return nvml.Memory{
-			Total: c.Memory.TotalBytes,
-			Free:  c.Memory.FreeBytes,
-			Used:  c.Memory.UsedBytes,
+		return nvml.Memory_v2{
+			Total:    c.Memory.TotalBytes,
+			Reserved: c.Memory.ReservedBytes,
+			Free:     c.Memory.FreeBytes,
+			Used:     c.Memory.UsedBytes,
 		}
 	}
-	return d.MemoryInfo
+	return nvml.Memory_v2{Total: d.MemoryInfo.Total, Free: d.MemoryInfo.Free, Used: d.MemoryInfo.Used}
 }
 
 // GetMemoryInfo returns GPU memory information
@@ -637,7 +641,12 @@ func (d *ConfigurableDevice) GetMemoryInfo() (nvml.Memory, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return nvml.Memory{}, ret
 	}
-	mem := d.memoryInfo()
+	m := d.memoryInfo()
+	// nvmlMemory_t has no reserved field: NVML counts the memory the driver
+	// reserves as used, so free + used is the total. The profile's used_bytes
+	// is the allocated memory alone, as GetMemoryInfo_v2 reports it next to
+	// reserved_bytes.
+	mem := nvml.Memory{Total: m.Total, Free: m.Free, Used: m.Used + m.Reserved}
 	debugLog("[NVML] nvmlDeviceGetMemoryInfo -> total=%d used=%d\n", mem.Total, mem.Used)
 	return mem, nvml.SUCCESS
 }
@@ -647,18 +656,8 @@ func (d *ConfigurableDevice) GetMemoryInfo_v2() (nvml.Memory_v2, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return nvml.Memory_v2{}, ret
 	}
-	base := d.memoryInfo()
-	mem := nvml.Memory_v2{
-		Version:  nvmlStructVersion(unsafe.Sizeof(nvml.Memory_v2{}), 2),
-		Total:    base.Total,
-		Reserved: 0,
-		Free:     base.Free,
-		Used:     base.Used,
-	}
-	// If we have config with reserved bytes, use it
-	if c := d.cfg(); c.Memory != nil {
-		mem.Reserved = c.Memory.ReservedBytes
-	}
+	mem := d.memoryInfo()
+	mem.Version = nvmlStructVersion(unsafe.Sizeof(nvml.Memory_v2{}), 2)
 	debugLog("[NVML] nvmlDeviceGetMemoryInfo_v2 -> total=%d reserved=%d used=%d\n", mem.Total, mem.Reserved, mem.Used)
 	return mem, nvml.SUCCESS
 }
@@ -1437,17 +1436,14 @@ func (d *ConfigurableDevice) GetGpuMaxPcieLinkGeneration() (int, nvml.Return) {
 //
 // This is deliberately not a Get* NVML method: no public NVML API exposes a
 // host-side maximum, and nvidia-smi instead reads it through a slot of the
-// internal export table (see the bridge's internal.go). The mock models a host
-// that supports the configured link maximum, so the host maximum is max_link_gen.
-// The GPU's device maximum can be higher; the negotiated link maximum still
-// cannot exceed either endpoint's capability.
+// internal export table (see the bridge's internal.go). Only a profile with
+// host_max_link_gen configured reports a number; an absent value is unsupported.
 //
-// Returns 0 when the profile configures no PCIe block, which the bridge treats
-// as "unknown" and leaves the reading untouched.
+// Returns 0 when no host maximum is configured, which the bridge reports as N/A.
 func (d *ConfigurableDevice) HostMaxPcieLinkGeneration() int {
 	gen := 0
 	if c := d.cfg(); c.PCIe != nil {
-		gen = c.PCIe.MaxLinkGen
+		gen = c.PCIe.HostMaxLinkGen
 	}
 	debugLog("[NVML] hostMaxPcieLinkGeneration -> %d\n", gen)
 	return gen

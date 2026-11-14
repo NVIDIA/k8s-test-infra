@@ -15,6 +15,12 @@ package main
 #include <stdlib.h>
 #include <string.h>
 
+typedef struct {
+    unsigned int before;
+    unsigned int value;
+    unsigned int after;
+} mockScalarOutput;
+
 typedef unsigned int (*mockSlotFn)(void*, void*, void*, void*);
 
 // mockExportTable returns the internal export table for the GUID nvidia-smi
@@ -72,8 +78,13 @@ import "C"
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"time"
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -134,7 +145,8 @@ func testInternalExportTable() []testResult {
 	results = append(results, testResult{"internal/device_handle", true, ""})
 
 	results = append(results, testInternalProcessList(table, handle)...)
-	results = append(results, testInternalHostMaxPcieLinkGen(table, handle)...)
+	results = append(results, testInternalHostMaxPcieLinkGen(table, handle))
+	results = append(results, testInternalHostMaxPcieLinkGenProfiles()...)
 	results = append(results, testInternalGpuReset(table, handle)...)
 	results = append(results, testInternalSetPersistenceMode(table, handle)...)
 	results = append(results, testInternalOtherSlotsDoNotWrite(table, handle)...)
@@ -187,44 +199,139 @@ func testInternalSetPersistenceMode(table, handle unsafe.Pointer) []testResult {
 }
 
 // testInternalHostMaxPcieLinkGen checks the slot behind nvidia-smi's "Host Max"
-// PCIe generation row. It is a scalar getter rather than a list count, so unlike
-// every other slot outside the process-list range it has to write a real value:
-// leaving the caller's reading at zero is what made every profile report an
-// impossible Gen0 next to a Gen4 device maximum (issue #638). The guard buffer
-// still has to come back untouched, because the fault this surface is prone to is
-// writing through a third argument the caller never passed.
-func testInternalHostMaxPcieLinkGen(table, handle unsafe.Pointer) []testResult {
+// PCIe generation row. The integration fixture explicitly configures a Gen4
+// host maximum. A missing host maximum returns NOT_SUPPORTED without touching
+// the output; the fresh-process cases below cover that and an independent host
+// generation. Neither path may write past the scalar or through arg2, which is
+// a stale register value when the caller supplies only two arguments.
+func testInternalHostMaxPcieLinkGen(table, handle unsafe.Pointer) testResult {
 	const name = "internal/host_max_pcie_link_gen"
-	var results []testResult
 	if os.Getenv("MOCK_NVML_CONFIG") == "" {
-		return results
+		return skippedResult(name, "needs MOCK_NVML_CONFIG for the explicit host maximum")
 	}
+	return checkInternalHostMaxPcieLinkGen(table, handle, name, wantMaxPcieLinkGen, nvml.SUCCESS)
+}
 
+func checkInternalHostMaxPcieLinkGen(table, handle unsafe.Pointer, name string, wantGen uint32, wantRet nvml.Return) testResult {
 	const guardSize = 2 * procEntrySize
 	guard := C.malloc(guardSize)
 	if guard == nil {
-		return append(results, testResult{name, false, "malloc failed"})
+		return testResult{name, false, "malloc failed"}
 	}
 	defer C.free(guard)
 	C.memset(guard, guardFill, guardSize)
 	want := bytes.Repeat([]byte{guardFill}, guardSize)
 
-	gen := C.uint(65535)
-	ret := C.mockCallSlot(table, C.uint(slotHostMaxPcieLinkGen), handle, unsafe.Pointer(&gen), guard, nil)
+	const sentinel = 0xA5A5A5A5
+	output := C.mockScalarOutput{before: sentinel, value: 65535, after: sentinel}
+	ret := C.mockCallSlot(table, C.uint(slotHostMaxPcieLinkGen), handle, unsafe.Pointer(&output.value), guard, nil)
 
 	switch {
-	case ret != 0:
-		return append(results, testResult{name, false,
-			fmt.Sprintf("slot %d returned %d, want NVML_SUCCESS", slotHostMaxPcieLinkGen, ret)})
+	case nvml.Return(ret) != wantRet:
+		return testResult{name, false,
+			fmt.Sprintf("slot %d returned %d, want %v", slotHostMaxPcieLinkGen, ret, wantRet)}
+	case output.before != sentinel || output.after != sentinel:
+		return testResult{name, false, "slot 230 overwrote a sentinel adjacent to the scalar output"}
 	case !bytes.Equal(C.GoBytes(guard, C.int(guardSize)), want):
-		return append(results, testResult{name, false,
-			fmt.Sprintf("slot %d wrote into a buffer it was never given", slotHostMaxPcieLinkGen)})
-	case gen != wantMaxPcieLinkGen:
-		return append(results, testResult{name, false,
-			fmt.Sprintf("slot %d reported Gen%d, want the configured Gen%d: nvidia-smi renders "+
-				"this as the Host Max PCIe generation", slotHostMaxPcieLinkGen, gen, wantMaxPcieLinkGen)})
+		return testResult{name, false,
+			fmt.Sprintf("slot %d wrote into a buffer it was never given", slotHostMaxPcieLinkGen)}
+	case uint32(output.value) != wantGen:
+		return testResult{name, false,
+			fmt.Sprintf("slot %d wrote %d, want %d", slotHostMaxPcieLinkGen, output.value, wantGen)}
 	}
-	return append(results, testResult{name, true, ""})
+	return testResult{name, true, ""}
+}
+
+const hostMaxCaseArg = "--host-max-pcie-case="
+
+// The loaded shared library owns a process-global engine. Changing its config
+// environment after Init cannot exercise another profile, so each case starts
+// this binary again and runs only the host-max probe against a small fixture.
+func testInternalHostMaxPcieLinkGenProfiles() []testResult {
+	return []testResult{
+		testInternalHostMaxPcieLinkGenProfile("unsupported", ""),
+		testInternalHostMaxPcieLinkGenProfile("independent", "    host_max_link_gen: 3\n"),
+	}
+}
+
+func testInternalHostMaxPcieLinkGenProfile(caseName, hostSetting string) testResult {
+	name := "internal/host_max_pcie_link_gen/" + caseName
+	dir, err := os.MkdirTemp("", "mocknvml-host-max-")
+	if err != nil {
+		return testResult{name, false, err.Error()}
+	}
+	defer func() {
+		if err := os.RemoveAll(dir); err != nil {
+			fmt.Fprintf(os.Stderr, "remove host-max fixture: %v\n", err)
+		}
+	}()
+	config := "version: \"1.0\"\nsystem:\n  driver_version: \"580.65.06\"\n" +
+		"device_defaults:\n  pcie:\n    max_link_gen: 4\n" + hostSetting +
+		"devices:\n  - index: 0\n    uuid: GPU-host-max-abi\n"
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		return testResult{name, false, err.Error()}
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return testResult{name, false, err.Error()}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, executable, hostMaxCaseArg+caseName)
+	cmd.Env = append(os.Environ(), "MOCK_NVML_CONFIG="+configPath,
+		"MOCK_NVML_OVERRIDES="+filepath.Join(dir, "overrides.yaml"))
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return testResult{name, false, fmt.Sprintf("fresh-process probe: %v\n%s", err, output)}
+	}
+	return testResult{name, true, ""}
+}
+
+// runInternalHostMaxPcieLinkGenCase runs only after main initializes NVML in
+// the child. Expected values are fixed here, independently of the YAML writer.
+func runInternalHostMaxPcieLinkGenCase(caseName string) error {
+	var wantGen uint32
+	var wantRet nvml.Return
+	switch caseName {
+	case "unsupported":
+		wantGen, wantRet = 65535, nvml.ERROR_NOT_SUPPORTED
+	case "independent":
+		wantGen, wantRet = 3, nvml.SUCCESS
+	default:
+		return fmt.Errorf("unknown host-max case %q", caseName)
+	}
+	if err := checkHostMaxPcieFixture(); err != nil {
+		return err
+	}
+	table := C.mockExportTable()
+	if table == nil {
+		return errors.New("nvmlInternalGetExportTable returned no table")
+	}
+	handle := C.mockDeviceHandle(table, C.uint(slotDeviceHandleByIndex), 0)
+	if handle == nil {
+		return errors.New("internal device lookup returned no handle")
+	}
+	result := checkInternalHostMaxPcieLinkGen(table, handle, caseName, wantGen, wantRet)
+	if !result.passed {
+		return errors.New(result.detail)
+	}
+	return nil
+}
+
+// checkHostMaxPcieFixture rejects a missing or misloaded child fixture before
+// probing the slot, and keeps the device maximum fixed independently of it.
+func checkHostMaxPcieFixture() error {
+	device, ret := nvml.DeviceGetHandleByIndex(0)
+	if ret != nvml.SUCCESS {
+		return fmt.Errorf("DeviceGetHandleByIndex: %v", ret)
+	}
+	if uuid, ret := device.GetUUID(); ret != nvml.SUCCESS || uuid != "GPU-host-max-abi" {
+		return fmt.Errorf("fixture UUID = %q (%v), want GPU-host-max-abi", uuid, ret)
+	}
+	if gen, ret := device.GetGpuMaxPcieLinkGeneration(); ret != nvml.SUCCESS || gen != 4 {
+		return fmt.Errorf("device maximum = %d (%v), want Gen4", gen, ret)
+	}
+	return nil
 }
 
 // testInternalGpuReset checks the two slots behind `nvidia-smi --gpu-reset`
