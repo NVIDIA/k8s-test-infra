@@ -103,10 +103,7 @@ kwok-scale-matrix:
 		KWOK_NODE_COUNT=$$count KWOK_CLUSTER_NAME=mokka-controller-kwok-$$count ./tests/kwok/run.sh || exit; \
 	done
 
-# Code generators and govulncheck are pinned in hack/codegen/go.mod rather than
-# installed with `go install pkg@version`: its go.sum verifies them, so building
-# them needs no checksum-database lookup through the Go proxy.
-CODEGEN_MOD := hack/codegen
+CONTROLLER_GEN_VERSION ?= v0.20.1
 # CI installs this exact version too (see .github/workflows/golang.yaml), so a
 # new golangci-lint release cannot fail the check job on code nobody changed.
 GOLANGCI_LINT_VERSION ?= v2.14.0
@@ -121,16 +118,15 @@ tools: ## Install static checkers & other binaries
 	@mkdir -p $(GOBIN)
 	@ \
 	$(BIN_DIR)/golangci-lint version 2>/dev/null | grep -q " $(GOLANGCI_LINT_VERSION:v%=%) " || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) $(GOLANGCI_LINT_VERSION) & \
-	test -x $(BIN_DIR)/govulncheck || go -C $(CODEGEN_MOD) install golang.org/x/vuln/cmd/govulncheck & \
-	test -x $(BIN_DIR)/controller-gen || go -C $(CODEGEN_MOD) install sigs.k8s.io/controller-tools/cmd/controller-gen & \
+	test -x $(BIN_DIR)/govulncheck || go install golang.org/x/vuln/cmd/govulncheck@latest & \
+	test -x $(BIN_DIR)/controller-gen || go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION) & \
 	wait
 
 .PHONY: lint
 lint: tools gen-check ## Lint the source code
 	@echo "🧹 Tidying go.mod.."
 	@go mod tidy
-	@go -C $(CODEGEN_MOD) mod tidy
-	@git diff --exit-code -- go.mod go.sum $(CODEGEN_MOD)/go.mod $(CODEGEN_MOD)/go.sum || { \
+	@git diff --exit-code -- go.mod go.sum || { \
 		echo "ERROR: go.mod / go.sum are out of sync. Run 'make lint-fix' and commit the result."; \
 		exit 1; }
 	@echo "🧹 Checking that no vendor directory has reappeared.."
@@ -160,7 +156,6 @@ lint: tools gen-check ## Lint the source code
 lint-fix: tools gen ## Same checks as `lint`, but auto-fix what can be fixed; report the rest
 	@echo "🔧 Tidying go.mod.."
 	@go mod tidy
-	@go -C $(CODEGEN_MOD) mod tidy
 	@echo "🔧 golangci-lint --fix.."
 	@$(BIN_DIR)/golangci-lint run --fix ./...
 	@echo "🧹 Vetting.."
@@ -172,8 +167,7 @@ lint-fix: tools gen ## Same checks as `lint`, but auto-fix what can be fixed; re
 deps-verify: ## Re-download every module into a throwaway cache and re-verify it against go.sum
 	@echo "🛡️ Verifying modules against go.sum.."
 	@cache=$$(mktemp -d); \
-	GOMODCACHE="$$cache" GOFLAGS=-mod=readonly go mod download && \
-	GOMODCACHE="$$cache" GOFLAGS=-mod=readonly go -C $(CODEGEN_MOD) mod download; \
+	GOMODCACHE="$$cache" GOFLAGS=-mod=readonly go mod download; \
 	status=$$?; \
 	GOMODCACHE="$$cache" go clean -modcache >/dev/null 2>&1 || true; \
 	exit $$status
@@ -253,6 +247,10 @@ mokka-image: ## Build the main Mokka image (node daemon and mock libraries): mak
 		--build-arg GOLANG_VERSION=$(shell ./hack/golang-version.sh) \
 		--tag "$(MOKKA_IMAGE)" \
 		.
+
+.PHONY: nvidia-smi-smoke
+nvidia-smi-smoke: ## Run every nvidia-smi the image bundles against its mock NVML, no cluster: make nvidia-smi-smoke [MOKKA_IMAGE=repo:tag]
+	./hack/nvidia-smi-smoke.sh "$(MOKKA_IMAGE)"
 
 .PHONY: mokka-control-plane-publish mokka-control-plane-image-push
 .PHONY: mokka-control-plane-image-sign mokka-control-plane-image-sbom
@@ -744,7 +742,7 @@ image-load:
 # scope with E2E_PROFILES / E2E_GINKGO_FLAGS. Examples:
 #   make e2e                       # gb200
 #   make e2e E2E_PROFILES=a100     # fast inner loop, single profile
-#   make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
+#   make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu"'
 #   make e2e-dra                   # DRA scenario
 #   make e2e-compute-domain        # ComputeDomains through the DRA driver (two-rack cluster)
 #   make e2e-gpu-operator          # GPU Operator scenario
@@ -753,6 +751,8 @@ image-load:
 #   make e2e-nfd                   # NFD label-provenance scenario
 #   make e2e-mig                   # MIG scenario, device plugin in migStrategy=single
 #   make e2e-vgpu                  # vGPU host and guest scenario
+# E2E_GINKGO_FLAGS replaces the default filter. Shared check labels span
+# scenarios; keep the exclusions above for a standalone subset.
 # CI builds the image once per run. Every leg loads it into Kind and sets
 # E2E_IMAGE to that ref. The reshaping scenarios set the DaemonSet to this ref.
 #
@@ -775,7 +775,7 @@ E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 # so on a developer machine this recipe otherwise returns tee's status and a
 # failed suite exits 0 — see issue #560 and tests/makefile/makefile_test.go.
 e2e: ## Run the Ginkgo e2e suite against E2E_CLUSTER_NAME/E2E_KUBE_CONTEXT (default mokka/kind-mokka); scope with E2E_PROFILES / E2E_GINKGO_FLAGS
-	set -o pipefail; $(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
+	set -o pipefail; $(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) --fail-on-empty $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
 
 e2e-dra: ## e2e — DRA scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra'

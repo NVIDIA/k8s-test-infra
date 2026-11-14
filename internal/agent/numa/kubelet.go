@@ -16,22 +16,29 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/cpulist"
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
+	"github.com/NVIDIA/k8s-test-infra/internal/kubelet"
 )
 
 func (s *Simulator) stageKubeletConfig(numaTopology *agent.NUMATopology) error {
-	if !s.opts.ConfigureKubelet {
-		return nil
+	body, err := s.renderKubeletConfig(numaTopology)
+	if err != nil {
+		return err
 	}
+	return fsutil.Write(s.host.RootPath("numa/kubelet-config.yaml"), body, 0600)
+}
+
+// renderKubeletConfig validates settings without changing the active setup.
+func (s *Simulator) renderKubeletConfig(numaTopology *agent.NUMATopology) ([]byte, error) {
 	original, err := os.ReadFile(s.host.RunPath("mokka/numa/original/kubelet-config.yaml"))
 	if os.IsNotExist(err) {
 		original, err = os.ReadFile(s.host.HostPath("/var/lib/kubelet/config.yaml"))
 	}
 	if err != nil {
-		return fmt.Errorf("read original kubelet config: %w", err)
+		return nil, fmt.Errorf("read original kubelet config: %w", err)
 	}
-	document, err := decodeKubeletConfig(original)
+	document, err := kubelet.DecodeConfig(original)
 	if err != nil {
-		return fmt.Errorf("decode kubelet config: %w", err)
+		return nil, fmt.Errorf("decode kubelet config: %w", err)
 	}
 	config := &document.Settings
 	config.TopologyManagerPolicy = s.opts.Policy
@@ -39,13 +46,13 @@ func (s *Simulator) stageKubeletConfig(numaTopology *agent.NUMATopology) error {
 	config.CPUManagerPolicy = s.opts.CPUManagerPolicy
 	config.MemoryManagerPolicy = kubeletMemoryPolicy(s.opts.MemoryManagerPolicy)
 	if err := s.configureManagers(config, numaTopology); err != nil {
-		return err
+		return nil, err
 	}
 	body, err := document.Bytes()
 	if err != nil {
-		return fmt.Errorf("encode kubelet config: %w", err)
+		return nil, fmt.Errorf("encode kubelet config: %w", err)
 	}
-	return fsutil.Write(s.host.RootPath("numa/kubelet-config.yaml"), body, 0600)
+	return body, nil
 }
 
 // Kubelet requires "None"/"Static"; Mokka settings use lowercase.
@@ -56,7 +63,7 @@ func kubeletMemoryPolicy(policy string) string {
 	return "None"
 }
 
-func (s *Simulator) configureManagers(config *kubeletSettings, numaTopology *agent.NUMATopology) error {
+func (s *Simulator) configureManagers(config *kubelet.Settings, numaTopology *agent.NUMATopology) error {
 	if err := s.configureCPU(config, numaTopology); err != nil {
 		return err
 	}
@@ -90,7 +97,7 @@ func (s *Simulator) reservedCPUs(numaTopology *agent.NUMATopology) (string, erro
 	return cpulist.Format(ids), nil
 }
 
-func (s *Simulator) configureMemory(config *kubeletSettings, numaTopology *agent.NUMATopology) error {
+func (s *Simulator) configureMemory(config *kubelet.Settings, numaTopology *agent.NUMATopology) error {
 	reserved, err := resource.ParseQuantity(s.opts.SystemReservedMemory)
 	if err != nil || reserved.Sign() <= 0 {
 		return fmt.Errorf("system reserved memory must be a positive quantity: %q", s.opts.SystemReservedMemory)
@@ -131,7 +138,7 @@ func memoryQuantity(value string) (int64, error) {
 	return quantity.Value(), nil
 }
 
-func memoryEviction(config *kubeletSettings, capacity int64) (int64, error) {
+func memoryEviction(config *kubelet.Settings, capacity int64) (int64, error) {
 	threshold, ok := config.EvictionHard["memory.available"]
 	if !ok && (len(config.EvictionHard) == 0 || config.MergeDefaultEvictionSettings) {
 		threshold = "100Mi"
@@ -152,8 +159,8 @@ func memoryEviction(config *kubeletSettings, capacity int64) (int64, error) {
 	return int64(float64(capacity) * float64(float32(percent)/100)), nil
 }
 
-func memoryReservations(numaTopology *agent.NUMATopology, total int64) ([]memoryReservation, error) {
-	reservations := make([]memoryReservation, 0, len(numaTopology.Zones))
+func memoryReservations(numaTopology *agent.NUMATopology, total int64) ([]kubelet.MemoryReservation, error) {
+	reservations := make([]kubelet.MemoryReservation, 0, len(numaTopology.Zones))
 	for i, zone := range numaTopology.Zones {
 		amount := total / int64(len(numaTopology.Zones))
 		if int64(i) < total%int64(len(numaTopology.Zones)) {
@@ -162,7 +169,7 @@ func memoryReservations(numaTopology *agent.NUMATopology, total int64) ([]memory
 		if amount >= int64(zone.MemoryKB)*1024 {
 			return nil, fmt.Errorf("memory reservation exceeds zone %d capacity", zone.ID)
 		}
-		reservations = append(reservations, memoryReservation{
+		reservations = append(reservations, kubelet.MemoryReservation{
 			NUMANode: zone.ID,
 			Limits:   map[string]string{"memory": resource.NewQuantity(amount, resource.BinarySI).String()},
 		})
@@ -170,7 +177,7 @@ func memoryReservations(numaTopology *agent.NUMATopology, total int64) ([]memory
 	return reservations, nil
 }
 
-func (s *Simulator) configureCPU(config *kubeletSettings, numaTopology *agent.NUMATopology) error {
+func (s *Simulator) configureCPU(config *kubelet.Settings, numaTopology *agent.NUMATopology) error {
 	if s.opts.CPUManagerPolicy != "static" {
 		return nil
 	}
@@ -185,7 +192,7 @@ func (s *Simulator) configureCPU(config *kubeletSettings, numaTopology *agent.NU
 	return nil
 }
 
-func (s *Simulator) configureSharedCPU(config *kubeletSettings, numaTopology *agent.NUMATopology) error {
+func (s *Simulator) configureSharedCPU(config *kubelet.Settings, numaTopology *agent.NUMATopology) error {
 	quantity, err := resource.ParseQuantity(s.opts.SystemReservedCPU)
 	if err != nil || quantity.Sign() <= 0 {
 		return fmt.Errorf("system reserved CPU must be positive: %q", s.opts.SystemReservedCPU)

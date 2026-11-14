@@ -51,7 +51,7 @@ imex.binaries has none. */}}
 {{- if and $numa.enabled (eq ($numa.memoryManagerPolicy | default "none") "static") (not .Values.nri.enabled) }}
 {{- fail "static simulated Memory Manager requires nri.enabled" }}
 {{- end }}
-{{- $numaHost := or ($numa.enabled | default false) ($numa.configureKubelet | default false) }}
+{{- $numaHost := $numa.enabled | default false }}
 {{- /* A surge pod would set the runtime up next to the old pod, whose revert
 then removes the setup. Kubernetes reads 0 and "0%" alike as no surge. */}}
 {{- $maxSurge := dig "rollingUpdate" "maxSurge" 0 (.Values.updateStrategy | default dict) | toString | trimSuffix "%" | float64 }}
@@ -174,9 +174,6 @@ spec:
             - --host-root=/host
             {{- if $numa.enabled }}
             - --numa-simulation
-            {{- end }}
-            {{- if $numa.configureKubelet }}
-            - --numa-configure-kubelet
             {{- end }}
             {{- if $numaHost }}
             - --numa-topology-manager-policy={{ $numa.topologyManagerPolicy | default "single-numa-node" }}

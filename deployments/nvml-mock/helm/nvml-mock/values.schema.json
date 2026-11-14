@@ -307,11 +307,8 @@
             "enabled": {
               "type": "boolean"
             },
-            "configureKubelet": {
-              "type": "boolean"
-            },
             "topologyManagerPolicy": {
-              "description": "Selects how kubelet aligns resources across NUMA zones. Used only when configureKubelet is true. For example, single-numa-node requires resources for each container to align within one zone.",
+              "description": "Selects how kubelet aligns resources across NUMA zones. Used when NUMA simulation is enabled. For example, single-numa-node requires resources for each container to align within one zone.",
               "type": "string",
               "enum": [
                 "none",

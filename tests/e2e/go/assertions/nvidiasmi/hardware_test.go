@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/gpuarch"
 )
 
 func hardwareCaptures(t *testing.T) []string {
@@ -275,6 +277,22 @@ func TestHardwareCapturesAreScrubbed(t *testing.T) {
 						id.element)
 				}
 			}
+		})
+	}
+}
+
+// ArchitectureName must print every generation the way a real nvidia-smi does,
+// so the architecture check passes on each real node's own output.
+func TestHardwareCapturesArchitectureName(t *testing.T) {
+	for _, file := range hardwareCaptures(t) {
+		t.Run(filepath.Base(file), func(t *testing.T) {
+			raw, err := os.ReadFile(file)
+			require.NoError(t, err)
+			m := regexp.MustCompile(`<product_architecture>([^<]*)</product_architecture>`).FindStringSubmatch(string(raw))
+			require.NotNil(t, m)
+			arch, ok := gpuarch.Parse(strings.ReplaceAll(m[1], " ", "_"))
+			require.True(t, ok, "unknown architecture %q", m[1])
+			require.Empty(t, ArchitectureProblems(string(raw), arch))
 		})
 	}
 }

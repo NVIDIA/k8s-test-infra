@@ -27,6 +27,9 @@ const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const MAX_CANDIDATES = 100;
 const MAX_FILES = 1000;
 const MAX_REVIEWS = 1000;
+// Bounds the per-PR failure reason so a full candidate scan stays within MAX_SUMMARY_BYTES.
+const MAX_REASON_LENGTH = 200;
+const MAX_LISTED_FAILURES = 5;
 const ZERO_OID = "0".repeat(40);
 const SUCCESS_SUMMARY = "Repository merge policy passed.";
 const TRUSTED_WORKFLOWS = Object.freeze(new Map([
@@ -904,6 +907,13 @@ async function reconcile({ github, config, repository, number, dryRun, policyRev
   return applyPermissive({ github, config, repository, evaluation, dryRun, policyRevision });
 }
 
+// The run fails closed either way; the reason only explains which check stopped it.
+function failureReason(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  const reason = message === "" ? "unknown error" : message;
+  return reason.length > MAX_REASON_LENGTH ? `${reason.slice(0, MAX_REASON_LENGTH - 1)}…` : reason;
+}
+
 async function runMergeEvaluate({
   event,
   eventName,
@@ -923,25 +933,32 @@ async function runMergeEvaluate({
   const repository = eventRepository(event);
   const candidates = await candidatesFor({ event, eventName, github, repository, prNumber });
   const pullRequests = [];
-  let failed = false;
+  const failures = [];
   for (const number of candidates) {
     try {
       pullRequests.push(await reconcile({ github, config, repository, number, dryRun, policyRevision, labelsOnly }));
-    } catch {
-      failed = true;
+    } catch (error) {
+      const reason = failureReason(error);
+      failures.push(`#${number}: ${reason}`);
       // The fail-closed plan assumes no hold and would remove do-not-merge/hold.
-      pullRequests.push(labelsOnly
-        ? { number, failClosed: false }
-        : await failClosed({ github, config, repository, number, dryRun }));
+      pullRequests.push({
+        ...(labelsOnly
+          ? { number, failClosed: false }
+          : await failClosed({ github, config, repository, number, dryRun })),
+        reason,
+      });
     }
   }
+  const failed = failures.length > 0;
   const summary = {
     status: failed ? "failed" : (dryRun ? "planned" : "complete"),
     candidates,
     pullRequests,
   };
   if (failed) {
-    const error = new Error("pull request evaluation failed closed");
+    const listed = failures.slice(0, MAX_LISTED_FAILURES).join("; ");
+    const more = failures.length > MAX_LISTED_FAILURES ? `; and ${failures.length - MAX_LISTED_FAILURES} more` : "";
+    const error = new Error(`pull request evaluation failed closed: ${listed}${more}`);
     error.summary = summary;
     throw error;
   }

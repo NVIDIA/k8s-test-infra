@@ -2,7 +2,7 @@
 
 Prepares Mokka-owned kubelet state before the node starts kubelet. The node
 agent installs this helper and its systemd service when
-[`nodeAgent.numa.configureKubelet`](../helm-chart.md#numa-filesystem-simulation)
+[`nodeAgent.numa.enabled`](../helm-chart.md#numa-filesystem-simulation)
 is enabled. Systemd runs it on node boot; normal NUMA setup and restoration run
 in the privileged DaemonSet pod.
 
@@ -25,14 +25,16 @@ The node agent stages the statically linked executable at
 
 ## Boot reset
 
-The helper reads `/var/lib/nvml-mock/kubelet/boot-reset.json`. If NUMA reset is
-registered, it removes `cpu_manager_state` and `memory_manager_state` from
+The node agent registers boot cleanup with an empty marker file at
+`/var/lib/nvml-mock/kubelet/boot-reset.enabled`. If this file exists, the helper
+removes `cpu_manager_state` and `memory_manager_state` from
 `/var/lib/kubelet` before kubelet starts. It records completion in
 `/run/mokka/kubelet-reset.done`, so later kubelet restarts in the same node boot
-keep their allocation state. A missing reset plan makes the command a no-op.
+keep their allocation state. Without the registration marker, the helper leaves
+kubelet state unchanged.
 
-The helper returns an error if the plan cannot be read or checkpoint cleanup
-fails. Failed cleanup leaves completion unmarked so a later attempt can retry.
+The helper returns an error if the marker cannot be inspected or checkpoint
+cleanup fails. Failed cleanup leaves completion unmarked so a later attempt can retry.
 
 For the mount lifecycle and disable procedure, see
 [NUMA filesystem simulation](../helm-chart.md#numa-filesystem-simulation).

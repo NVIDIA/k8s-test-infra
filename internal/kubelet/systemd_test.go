@@ -16,7 +16,7 @@ func TestRemoveBootResetReloadsBeforeStoppingDependency(t *testing.T) {
 	t.Parallel()
 	h := host.New(t.TempDir())
 	require.NoError(t, fsutil.Write(h.HostPath(HelperPath), []byte("helper"), 0700))
-	require.NoError(t, InstallBootReset(t.Context(), h, BootResetPlan{NUMA: true}, func(context.Context, ...string) error { return nil }))
+	require.NoError(t, InstallBootReset(t.Context(), h, func(context.Context, ...string) error { return nil }))
 	var calls [][]string
 	require.NoError(t, RemoveBootReset(t.Context(), h, func(_ context.Context, args ...string) error {
 		require.NoFileExists(t, h.EtcPath(dropinPath))
@@ -24,5 +24,5 @@ func TestRemoveBootResetReloadsBeforeStoppingDependency(t *testing.T) {
 		return nil
 	}))
 	require.Equal(t, [][]string{{"daemon-reload"}, {"stop", serviceName}, {"daemon-reload"}}, calls)
-	require.NoFileExists(t, h.RootPath(planPath))
+	require.NoFileExists(t, h.RootPath(enabledPath))
 }

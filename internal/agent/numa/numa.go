@@ -26,30 +26,22 @@ const name = "numa"
 
 const helperSource = "/usr/local/bin/mokka-kubelet-helper"
 
-// After a failed Apply, the retry delay starts at applyRetryFirst and doubles
+// After a failed host transition, the retry delay starts at applyRetryFirst and doubles
 // up to applyRetryLimit.
 const (
 	applyRetryFirst = 5 * time.Second
 	applyRetryLimit = 5 * time.Minute
 )
 
-// HostRunner applies or restores NUMA setup through propagated host volumes.
-type HostRunner interface {
-	Run(context.Context, HostAction, bool) error
-}
-
-// Options controls the node filesystem and optional kubelet configuration.
+// Options controls the node filesystem and kubelet configuration.
 type Options struct {
 	Enabled              bool
-	ConfigureKubelet     bool
 	Policy               string
 	CPUManagerPolicy     string
 	ReservedCPUs         string
 	MemoryManagerPolicy  string
 	SystemReservedMemory string
 	SystemReservedCPU    string
-	// Runner defaults to the privileged pod runner.
-	Runner HostRunner
 }
 
 // Simulator reapplies the node NUMA view after boot and restores it on disable.
@@ -58,11 +50,11 @@ type Simulator struct {
 	opts         Options
 	ready        atomic.Bool
 	desired      string
-	runner       HostRunner
+	setup        *hostSetup
 	helperSource string
 
-	// Only Apply uses the retry fields, and the agent never runs two Apply
-	// calls at once.
+	// PrepareStage and Apply use the retry fields; the agent serializes
+	// reconcile passes.
 	requeue    chan struct{}
 	retryFirst time.Duration
 	retryDelay time.Duration
@@ -71,27 +63,27 @@ type Simulator struct {
 
 // New constructs a simulator without changing the node.
 func New(h *host.Host, opts Options) (*Simulator, error) {
+	return newSimulator(h, opts, hostOperations{})
+}
+
+func newSimulator(h *host.Host, opts Options, ops hostOperations) (*Simulator, error) {
 	opts = opts.withDefaults()
 	if err := opts.validate(); err != nil {
 		return nil, err
-	}
-	if opts.Runner == nil {
-		opts.Runner = NewPodRunner(h)
 	}
 	sim := &Simulator{
 		host:         h,
 		opts:         opts,
 		helperSource: helperSource,
-		runner:       opts.Runner,
+		setup:        newHostSetup(h, ops),
 		requeue:      make(chan struct{}, 1),
 		retryFirst:   applyRetryFirst,
 	}
 	return sim, nil
 }
 
-// Requeue fires after a failed Apply. The agent runs Apply again only when the
-// State changes, but a host failure is often brief, and a failed restore can
-// leave kubelet stopped.
+// Requeue retries a failed host transition without waiting for a new State.
+// A host failure is often brief, and a failed restore can leave kubelet stopped.
 func (s *Simulator) Requeue() <-chan struct{} { return s.requeue }
 
 // Name identifies this simulator in health reports.
@@ -140,7 +132,7 @@ func (s *Simulator) matchApplied() (bool, error) {
 		return false, err
 	}
 	if len(previous) > 0 && strings.TrimSpace(string(previous)) != s.desired {
-		return false, errors.New("NUMA topology or policy changed on an active node; disable NUMA simulation to restore the node before applying the new layout")
+		return false, errors.New("NUMA topology or policy changed on an active node; restore the node in PrepareStage before staging the new layout")
 	}
 	return len(previous) > 0, nil
 }
@@ -153,7 +145,7 @@ func (s *Simulator) Apply(ctx context.Context, _ *agent.State) error {
 	return err
 }
 
-// scheduleRetry requeues after a failed Apply, doubling the delay each time,
+// scheduleRetry requeues after a failed host transition, doubling the delay each time,
 // and resets the delay after a success.
 func (s *Simulator) scheduleRetry(err error) {
 	if s.retryTimer != nil {
@@ -167,7 +159,7 @@ func (s *Simulator) scheduleRetry(err error) {
 	if s.retryDelay == 0 {
 		s.retryDelay = s.retryFirst
 	}
-	zap.L().Warn("NUMA apply failed; retrying", zap.String("simulator", name), zap.Duration("retry_in", s.retryDelay))
+	zap.L().Warn("NUMA reconciliation failed; retrying", zap.String("simulator", name), zap.Duration("retry_in", s.retryDelay))
 	s.retryTimer = time.AfterFunc(s.retryDelay, func() {
 		select {
 		case s.requeue <- struct{}{}:
@@ -192,21 +184,21 @@ func (s *Simulator) apply(ctx context.Context) error {
 			return nil
 		}
 	}
-	action := ActionApply
-	if !s.opts.Enabled {
-		action = ActionRestore
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+	action := "apply"
+	if s.opts.Enabled {
+		err = s.setup.apply(ctx)
+	} else {
+		action = "restore"
+		err = s.setup.restore(ctx)
 	}
-	err = s.runHost(ctx, action)
 	if err != nil {
 		return fmt.Errorf("%s node NUMA filesystem: %w", action, err)
 	}
 	s.ready.Store(true)
-	zap.L().Info("node NUMA simulation reconciled", zap.String("simulator", name), zap.String("action", string(action)), zap.String("policy", s.opts.Policy))
+	zap.L().Info("node NUMA simulation reconciled", zap.String("simulator", name), zap.String("action", action), zap.String("policy", s.opts.Policy))
 	return nil
-}
-
-func (s *Simulator) runHost(ctx context.Context, action HostAction) error {
-	return s.runner.Run(ctx, action, s.opts.ConfigureKubelet)
 }
 
 func (s *Simulator) stageHelper() error {
@@ -220,6 +212,7 @@ func (s *Simulator) Revoke(context.Context) error { return nil }
 func (s *Simulator) Discard(context.Context) error { return nil }
 
 var _ agent.Simulator = (*Simulator)(nil)
+var _ agent.StagePreparer = (*Simulator)(nil)
 var _ agent.Applier = (*Simulator)(nil)
 var _ agent.Requeuer = (*Simulator)(nil)
 
@@ -259,9 +252,6 @@ func (opts Options) validateManagers() error {
 	if !opts.Enabled {
 		return nil
 	}
-	if !opts.ConfigureKubelet && (opts.CPUManagerPolicy == "static" || opts.MemoryManagerPolicy == "static") {
-		return errors.New("static resource managers require configureKubelet")
-	}
 	if opts.MemoryManagerPolicy == "static" && opts.CPUManagerPolicy != "static" {
 		return errors.New("static Memory Manager requires static CPU Manager")
 	}
@@ -269,7 +259,8 @@ func (opts Options) validateManagers() error {
 }
 
 func (s *Simulator) configurationKey(topology []byte) string {
-	key := fmt.Sprintf("%x:%t:%s:%s:%s:%s:%s", sha256.Sum256(topology), s.opts.ConfigureKubelet, s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs, kubeletMemoryPolicy(s.opts.MemoryManagerPolicy), s.opts.SystemReservedMemory)
+	// Retain the managed-layout key so existing complete setups keep allocations.
+	key := fmt.Sprintf("%x:true:%s:%s:%s:%s:%s", sha256.Sum256(topology), s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs, kubeletMemoryPolicy(s.opts.MemoryManagerPolicy), s.opts.SystemReservedMemory)
 	if s.opts.SystemReservedCPU != "" {
 		key += ":system-cpu=" + s.opts.SystemReservedCPU
 	}

@@ -20,6 +20,13 @@ type Simulator interface {
 	Ready() bool
 }
 
+// StagePreparer is an optional host transition that must finish before any
+// simulator stages files. Calls run in order under the staging lock.
+// State enrichment remains read-only; this step may restore previous host state.
+type StagePreparer interface {
+	PrepareStage(ctx context.Context, state *State) error
+}
+
 // Applier is implemented by simulators whose staged artifacts something outside
 // the node acts on (containerd, NFD, the GPU Operator validator).
 // Only gpudriver, pcibus, and cri implement this interface.

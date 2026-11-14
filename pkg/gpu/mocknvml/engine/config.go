@@ -349,6 +349,10 @@ func validateYAMLConfig(config *YAMLConfig) error {
 		return err
 	}
 
+	if err := validateDeviceIdentifiers(config); err != nil {
+		return err
+	}
+
 	if err := validateMIGConfigs(config); err != nil {
 		return err
 	}
@@ -1011,6 +1015,71 @@ func validateDeviceUUIDs(config *YAMLConfig) error {
 	return nil
 }
 
+// validateDeviceIdentifiers rejects a PDI or fabric GUID that two devices would
+// report. Consumers key on both: an NVLink fabric manager tells GPUs apart by
+// fabric GUID, and inventory tools by PDI. The easy way to get there is a value
+// set in device_defaults, which every device inherits; the subtle one is a
+// fixed GUID on one GPU that equals the PDI another reports through "pdi".
+//
+// Values are compared as the devices will report them, wherever that is known
+// at load: a fixed PDI, or one derived from a declared UUID, and the GUID that
+// resolves from either. A device that declares no UUID takes the base mock's,
+// chosen at startup, so its derived PDI cannot take part.
+func validateDeviceIdentifiers(config *YAMLConfig) error {
+	if config == nil {
+		return nil
+	}
+	merged := &Config{YAMLConfig: config}
+	pdiOwner := map[uint64]int{}
+	guidOwner := map[uint64]int{}
+	claim := func(owners map[uint64]int, field string, value uint64, index int) error {
+		if other, dup := owners[value]; dup {
+			return fmt.Errorf("duplicate %s %s (devices %d and %d)", field, formatHexID(value), other, index)
+		}
+		owners[value] = index
+		return nil
+	}
+	for _, index := range deviceIndices(config) {
+		dev := merged.GetDeviceConfig(index)
+		pdi, pdiKnown := knownPDI(dev, merged.GetDeviceUUID(index))
+		if pdiKnown {
+			if err := claim(pdiOwner, "pdi", pdi, index); err != nil {
+				return err
+			}
+		}
+		if guid, ok := knownFabricGUID(dev, pdi, pdiKnown); ok {
+			if err := claim(guidOwner, "platform.gpu_fabric_guid", guid, index); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// knownFabricGUID is the fabric GUID a device sets, when its value is known at
+// load: always for a fixed one, and for "pdi" only when the PDI is.
+func knownFabricGUID(dev *DeviceConfig, pdi uint64, pdiKnown bool) (uint64, bool) {
+	if dev.Platform == nil || dev.Platform.GPUFabricGUID == nil {
+		return 0, false
+	}
+	guid := dev.Platform.GPUFabricGUID
+	if guid.FromPDI && !pdiKnown {
+		return 0, false
+	}
+	return guid.resolve(pdi), true
+}
+
+// knownPDI is the PDI a device will report, when that is known at load.
+func knownPDI(dev *DeviceConfig, uuid string) (uint64, bool) {
+	switch {
+	case dev.PDI != nil:
+		return uint64(*dev.PDI), true
+	case uuid != "":
+		return pdiFromUUID(uuid), true
+	}
+	return 0, false
+}
+
 // deviceIndices lists every device the config brings into being: those the
 // count covers, plus any the overrides declare beyond it.
 func deviceIndices(config *YAMLConfig) []int {
@@ -1073,6 +1142,9 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.VBIOSVersion != "" {
 		base.VBIOSVersion = override.VBIOSVersion
 	}
+	if override.PDI != nil {
+		base.PDI = override.PDI
+	}
 	if override.Hostname != "" {
 		base.Hostname = override.Hostname
 	}
@@ -1084,6 +1156,11 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	}
 	if override.AddressingMode != "" {
 		base.AddressingMode = override.AddressingMode
+	}
+	// A bool override can only turn EGM on: false is indistinguishable from
+	// an omitted key, so a device inherits the default unless it sets true.
+	if override.EGM {
+		base.EGM = true
 	}
 	if override.PCI != nil {
 		if base.PCI == nil {
@@ -1231,6 +1308,9 @@ func mergePlatformOverride(base *DeviceConfig, override *PlatformConfig) {
 	}
 	if override.ModuleID != 0 {
 		base.Platform.ModuleID = override.ModuleID
+	}
+	if override.GPUFabricGUID != nil {
+		base.Platform.GPUFabricGUID = override.GPUFabricGUID
 	}
 }
 

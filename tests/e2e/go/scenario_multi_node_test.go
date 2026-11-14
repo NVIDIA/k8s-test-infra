@@ -65,7 +65,7 @@ var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
 		deployDevicePlugin(ctx, h, workers[0].Name, a100.ExpectedGPUs())
 	})
 
-	It("validates mock files and InfiniBand behavior on both workers", func(ctx SpecContext) {
+	It("validates mock files and InfiniBand behavior on both workers", Label("mockfiles", "ib"), func(ctx SpecContext) {
 		assertions.DevicePluginMockFiles(ctx, h.Kube, a100Pod, a100.ExpectedGPUs())
 		assertions.DevicePluginMockFiles(ctx, h.Kube, t4Pod, t4.ExpectedGPUs())
 		assertions.IBStat(ctx, h.Kube, a100Pod, a100)
@@ -75,11 +75,11 @@ var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
 	// The A100 worker's count is already established in BeforeAll, so the
 	// assertion that carries weight here is the T4 worker reporting its own,
 	// different count off the same DaemonSet.
-	It("registers the T4 worker's own allocatable GPU count", func(ctx SpecContext) {
+	It("registers the T4 worker's own allocatable GPU count", Label("device-plugin"), func(ctx SpecContext) {
 		assertions.WaitAllocatableGPU(ctx, h.Kube, workers[1].Name, t4.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
 	})
 
-	It("schedules a GPU workload on the heterogeneous fleet", func(ctx SpecContext) {
+	It("schedules a GPU workload on the heterogeneous fleet", Label("multi-node-scheduling"), func(ctx SpecContext) {
 		manifest := multiNodeSchedulingManifest()
 		Expect(h.Kube.Delete(ctx, manifest)).To(Succeed(), "delete previous multi-node scheduling pod")
 		Expect(h.Kube.Apply(ctx, manifest)).To(Succeed(), "apply multi-node scheduling pod")
