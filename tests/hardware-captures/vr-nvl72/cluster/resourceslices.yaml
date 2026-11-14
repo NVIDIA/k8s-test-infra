@@ -1,0 +1,75 @@
+apiVersion: v1
+items:
+- apiVersion: resource.k8s.io/v1
+  kind: ResourceSlice
+  metadata:
+    creationTimestamp: "2026-11-03T17:17:35Z"
+    generateName: node-a-compute-domain.nvidia.com-
+    generation: 1
+    name: node-a-compute-domain.nvidia.colvqx6
+    ownerReferences:
+    - apiVersion: v1
+      controller: true
+      kind: Node
+      name: node-a
+      uid: 00000019-0000-0000-0000-000000000019
+    resourceVersion: "157871"
+    uid: 0000001a-0000-0000-0000-00000000001a
+  spec:
+    devices:
+    - attributes:
+        id:
+          int: 0
+        type:
+          string: channel
+      name: channel-0
+    - attributes:
+        id:
+          int: 0
+        type:
+          string: daemon
+      name: daemon-0
+    driver: compute-domain.nvidia.com
+    nodeName: node-a
+    pool:
+      generation: 1
+      name: node-a
+      resourceSliceCount: 1
+- apiVersion: resource.k8s.io/v1
+  kind: ResourceSlice
+  metadata:
+    creationTimestamp: "2026-11-03T17:39:47Z"
+    generateName: node-b-compute-domain.nvidia.com-
+    generation: 1
+    name: node-b-compute-domain.nvidia.cowxhwh
+    ownerReferences:
+    - apiVersion: v1
+      controller: true
+      kind: Node
+      name: node-b
+      uid: 0000001b-0000-0000-0000-00000000001b
+    resourceVersion: "161023"
+    uid: 0000001c-0000-0000-0000-00000000001c
+  spec:
+    devices:
+    - attributes:
+        id:
+          int: 0
+        type:
+          string: channel
+      name: channel-0
+    - attributes:
+        id:
+          int: 0
+        type:
+          string: daemon
+      name: daemon-0
+    driver: compute-domain.nvidia.com
+    nodeName: node-b
+    pool:
+      generation: 1
+      name: node-b
+      resourceSliceCount: 1
+kind: List
+metadata:
+  resourceVersion: ""

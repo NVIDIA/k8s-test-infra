@@ -75,7 +75,7 @@ func TestWriteEngineConfig_WritesBothLocations(t *testing.T) {
 func TestWriteEngineConfig_LimitsCPUAffinityToTheHostsCPUs(t *testing.T) {
 	t.Parallel()
 
-	stagedAffinity := func(t *testing.T, online string) []string {
+	stagedAffinity := func(t *testing.T, online string, layout *agent.NUMATopology) []string {
 		t.Helper()
 		h := testHost(t)
 		if online != "" {
@@ -86,6 +86,7 @@ func TestWriteEngineConfig_LimitsCPUAffinityToTheHostsCPUs(t *testing.T) {
 		data, err := os.ReadFile(filepath.Join("..", "..", "..", "pkg", "gpu", "mocknvml", "configs", "mock-nvml-config-gb300.yaml"))
 		require.NoError(t, err)
 		state := &agent.State{Devices: []agent.DeviceSpec{{Index: 0}}, ConfigRaw: data}
+		state.NodeShape.NUMA = layout
 
 		require.NoError(t, writeEngineConfig(t.Context(), h, state))
 
@@ -100,11 +101,14 @@ func TestWriteEngineConfig_LimitsCPUAffinityToTheHostsCPUs(t *testing.T) {
 		return got
 	}
 
-	require.Equal(t, []string{"0-13", "0-13"}, stagedAffinity(t, "0-13"),
+	require.Equal(t, []string{"0-13", "0-13"}, stagedAffinity(t, "0-13", nil),
 		"no NUMA 1 CPU exists, so every CPU is local")
-	require.Equal(t, []string{"0-63", "64-99"}, stagedAffinity(t, "0-99"))
-	require.Equal(t, []string{"", ""}, stagedAffinity(t, ""),
+	require.Equal(t, []string{"0-63", "64-99"}, stagedAffinity(t, "0-99", nil))
+	require.Equal(t, []string{"", ""}, stagedAffinity(t, "", nil),
 		"unknown host CPUs leave the profile's synthesized set to the engine")
+	layout := &agent.NUMATopology{Zones: []agent.NUMAZone{{ID: 0, CPUs: []int{0, 1, 4, 5}}, {ID: 1, CPUs: []int{2, 3, 6, 7}}}}
+	require.Equal(t, []string{"0-1,4-5", "2-3,6-7"}, stagedAffinity(t, "", layout),
+		"the NUMA layout decides, so NVML agrees with the zones kubelet sees")
 }
 
 func TestWriteEngineConfig_EmptyConfigRawErrors(t *testing.T) {

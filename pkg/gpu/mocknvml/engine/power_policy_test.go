@@ -31,12 +31,12 @@ func TestGetPowerSource_LostGPUReportsLost(t *testing.T) {
 	require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret)
 }
 
-func allPowerMizerModes() uint32 {
-	return 1<<nvml.POWER_MIZER_MODE_ADAPTIVE |
-		1<<nvml.POWER_MIZER_MODE_PREFER_MAXIMUM_PERFORMANCE |
-		1<<nvml.POWER_MIZER_MODE_AUTO |
-		1<<nvml.POWER_MIZER_MODE_PREFER_CONSISTENT_PERFORMANCE
-}
+// everyPowerMizerMode spells out the four NVML mode bits rather than reusing
+// the engine's constant, so a change to that constant shows up here.
+const everyPowerMizerMode uint32 = 1<<nvml.POWER_MIZER_MODE_ADAPTIVE |
+	1<<nvml.POWER_MIZER_MODE_PREFER_MAXIMUM_PERFORMANCE |
+	1<<nvml.POWER_MIZER_MODE_AUTO |
+	1<<nvml.POWER_MIZER_MODE_PREFER_CONSISTENT_PERFORMANCE
 
 // A board that declares nothing is driver controlled, which is AUTO.
 func TestGetPowerMizerMode_DefaultsToAuto(t *testing.T) {
@@ -46,7 +46,7 @@ func TestGetPowerMizerMode_DefaultsToAuto(t *testing.T) {
 	modes, ret := dev.GetPowerMizerMode_v1()
 	require.Equal(t, nvml.SUCCESS, ret)
 	require.Equal(t, uint32(nvml.POWER_MIZER_MODE_AUTO), modes.CurrentMode)
-	require.Equal(t, allPowerMizerModes(), modes.SupportedPowerMizerModes)
+	require.Equal(t, everyPowerMizerMode, modes.SupportedPowerMizerModes)
 }
 
 func TestGetPowerMizerMode_ReadsConfiguredMode(t *testing.T) {
@@ -104,4 +104,75 @@ func TestPowerMizerSetter_DeclinesWithoutAWriter(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "hopper"})
 	require.Equal(t, nvml.ERROR_NO_PERMISSION,
 		dev.SetPowerMizerMode_v1(&nvml.DevicePowerMizerModes_v1{Mode: nvml.POWER_MIZER_MODE_AUTO}))
+}
+
+// threeModeBoard lists every mode but prefer_consistent_performance, as the
+// VR NVL72 tray does.
+func threeModeBoard(t *testing.T) *ConfigurableDevice {
+	t.Helper()
+	return newTestDeviceWithConfig(t, &DeviceConfig{
+		Architecture: "rubin",
+		Power: &PowerConfig{SupportedPowerMizerModes: []string{
+			"adaptive", "prefer_maximum_performance", "auto",
+		}},
+	})
+}
+
+func TestGetPowerMizerMode_ReportsProfileSupportedModes(t *testing.T) {
+	t.Parallel()
+	modes, ret := threeModeBoard(t).GetPowerMizerMode_v1()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, uint32(7), modes.SupportedPowerMizerModes)
+}
+
+// A list that names no NVML mode would leave the board accepting nothing, so
+// it falls back to every mode, the same as leaving the key out; a name NVML
+// does not define is skipped.
+func TestGetPowerMizerMode_SupportedModesFallBack(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		power *PowerConfig
+		want  uint32
+	}{
+		{"no power block", nil, everyPowerMizerMode},
+		{"empty list", &PowerConfig{SupportedPowerMizerModes: []string{}}, everyPowerMizerMode},
+		{"only unknown names", &PowerConfig{SupportedPowerMizerModes: []string{"turbo"}}, everyPowerMizerMode},
+		{"unknown name skipped", &PowerConfig{SupportedPowerMizerModes: []string{"turbo", "auto"}},
+			1 << nvml.POWER_MIZER_MODE_AUTO},
+	} {
+		dev := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "hopper", Power: tc.power})
+		modes, ret := dev.GetPowerMizerMode_v1()
+		require.Equal(t, nvml.SUCCESS, ret, tc.name)
+		require.Equal(t, tc.want, modes.SupportedPowerMizerModes, tc.name)
+	}
+}
+
+// A mode NVML defines but the board does not list is refused like an
+// undefined one, and the current mode stays put.
+func TestSetPowerMizerMode_RejectsModeTheBoardDoesNotList(t *testing.T) {
+	persistSetterWrites(t)
+	dev := threeModeBoard(t)
+
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, dev.SetPowerMizerMode_v1(
+		&nvml.DevicePowerMizerModes_v1{Mode: nvml.POWER_MIZER_MODE_PREFER_CONSISTENT_PERFORMANCE}))
+	modes, ret := dev.GetPowerMizerMode_v1()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, uint32(nvml.POWER_MIZER_MODE_AUTO), modes.CurrentMode, "a refused write must not land")
+
+	require.Equal(t, nvml.SUCCESS, dev.SetPowerMizerMode_v1(
+		&nvml.DevicePowerMizerModes_v1{Mode: nvml.POWER_MIZER_MODE_PREFER_MAXIMUM_PERFORMANCE}))
+	modes, ret = dev.GetPowerMizerMode_v1()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, uint32(nvml.POWER_MIZER_MODE_PREFER_MAXIMUM_PERFORMANCE), modes.CurrentMode)
+	require.Equal(t, uint32(7), modes.SupportedPowerMizerModes, "a runtime write keeps the profile's list")
+}
+
+// The real VR NVL72 tray answers SupportedPowerMizerModes = 7.
+func TestVRNVL72Profile_SupportedPowerMizerModesMatchCapture(t *testing.T) {
+	t.Parallel()
+	modes, ret := shippedProfileDevice(t, "vrnvl72", "").GetPowerMizerMode_v1()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, uint32(nvml.POWER_MIZER_MODE_ADAPTIVE), modes.CurrentMode)
+	require.Equal(t, uint32(7), modes.SupportedPowerMizerModes)
 }

@@ -12,11 +12,11 @@ imagePullSecrets: []
 
 gpu:
   # -- GPU profile and per-device simulation settings.
-  profile: gb300          # any *.yaml basename under profiles/ (e.g. a100, h100, b200, gb200, gb300, l40s, t4)
+  profile: gb300          # any *.yaml basename under profiles/ (e.g. a100, h100, b200, gb200, gb300, l40s, t4, vrnvl72)
   # Number of GPUs to expose. Empty (default) derives the count from the
-  # selected profile's `devices:` list (t4 and the Grace-Blackwell trays
-  # gb200/gb300 -> 4, the 8-GPU baseboards -> 8), so the profile is the single
-  # source of truth. Set to a positive integer to force a smaller/larger slice;
+  # selected profile's `devices:` list (t4 and the superchip trays
+  # gb200/gb300/vrnvl72 -> 4, the 8-GPU baseboards -> 8), so the profile is the
+  # single source of truth. Set to a positive integer to force a smaller/larger slice;
   # The node agent caps it to the profile's device count at runtime.
   # -- Number of simulated GPUs; empty derives the count from the selected profile.
   count: ""
@@ -29,8 +29,9 @@ gpu:
   # Per-field resolution, highest priority last:
   #   chart baseline  <  GPU profile default  <  user override (below / --set)
   # Leave a field unset to inherit. Profiles set a power base that fits their
-  # TDP envelope (t4 ~65W, b200/gb200 ~600W, gb300 ~800W; others use the 250W
-  # baseline) so it isn't force-clamped to a bound.
+  # TDP envelope (t4 ~65W, b200/gb200 ~600W, gb300 ~800W, vrnvl72 ~420W, its
+  # idle draw; others use the 250W baseline) so it isn't force-clamped to a
+  # bound.
   dynamicMetrics:
     # -- Enable time-varying synthetic temperature, power, and utilization values.
     enabled: false
@@ -264,6 +265,23 @@ nodeAgent:
       path: /readyz
       # -- Readiness probe endpoint port name or number.
       port: health
+
+  # NUMA filesystem simulation and kubelet setup. The GPU profile supplies the zones.
+  numa:
+    # -- Publish NUMA topology, configure policies, and restart kubelet. Requires Linux and systemd.
+    enabled: false
+    # -- Kubelet Topology Manager policy to configure when NUMA simulation is enabled.
+    topologyManagerPolicy: single-numa-node
+    # -- CPU allocation policy (none or static). Static allocation uses real online CPU IDs.
+    cpuManagerPolicy: none
+    # -- Reserved CPU list for static CPU Manager; empty reserves the first zone's first CPU.
+    reservedCPUs: ""
+    # -- Memory policy (none or static). Static allocation tracks simulated groups; NRI maps bindings to kernel-allowed nodes.
+    memoryManagerPolicy: none
+    # -- System memory reservation for Static Memory Manager; per-zone reservations also include kubelet/eviction reservations.
+    systemReservedMemory: 256Mi
+    # -- Optional fractional system CPU reservation, such as 100m. Mutually exclusive with reservedCPUs.
+    systemReservedCPU: ""
 
 # Allocation-aware GPU memory (#506). When enabled, a sidecar in the nvml-mock
 # DaemonSet polls the kubelet pod-resources API and mirrors each pod's
@@ -516,9 +534,8 @@ infiniband:
     # authentication. This NetworkPolicy restricts inbound
     # access to that port to peer nvml-mock pods (the only legitimate
     # clients), limiting the blast radius on clusters whose CNI enforces
-    # NetworkPolicy. NOTE: Kind's default CNI (kindnet) ENFORCES
-    # NetworkPolicy on current releases, so this allow-list is load-bearing
-    # there; it also matters on Calico/Cilium.
+    # NetworkPolicy, including Kind's default kindnet since v0.24.0,
+    # Calico, and Cilium. See docs/helm-chart.md#cross-node-ibping.
     networkPolicy:
       # -- Restrict mock InfiniBand traffic to peer nvml-mock pods. Rendered only at the `full` tier, the only one that listens on the port.
       enabled: true

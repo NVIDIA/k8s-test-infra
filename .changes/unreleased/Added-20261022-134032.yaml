@@ -1,6 +1,0 @@
-kind: Added
-body: |-
-  nvml-mock: per-process accounting reports a record for each configured process and each declared `accounting.terminated` entry, and enabling, disabling or clearing it through NVML holds node-wide. See Accounting in the configuration reference.
-time: 2026-10-22T11:40:32Z
-custom:
-  Issue: "1038"

@@ -54,6 +54,7 @@ name, which is what the device plugin's `migStrategy=single` requires:
 | `b200` | `1g.23gb` | 7 |
 | `gb200` | `1g.23gb` | 7 |
 | `gb300` | `1g.35gb` | 7 |
+| `vrnvl72` | `1g.35gb` | 7 |
 
 `l40s` and `t4` cannot partition. The chart refuses MIG on them, and NVML
 answers `NVML_ERROR_NOT_SUPPORTED` exactly as it does on that hardware.

@@ -1,6 +1,0 @@
-kind: Added
-body: |-
-  nvml-mock: system event sets, the CPER error log, the driver branch, the HIC version and the per-device hostname are implemented; marking a GPU lost with `nvml-mock-ctl` reports a driver unbind, and recovering it reports a bind.
-time: 2026-10-13T07:17:32Z
-custom:
-  Issue: "1041"

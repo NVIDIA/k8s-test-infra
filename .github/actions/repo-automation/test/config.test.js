@@ -184,7 +184,7 @@ test("declares the required CI that merge-ci.js hard-coded at 809294d", () => {
       },
       {
         path: ".github/workflows/helm.yaml",
-        files: ["deployments/nvml-mock/helm/**", "deployments/mokka-crds/helm/**"],
+        files: [".github/workflows/helm.yaml", "deployments/nvml-mock/helm/**", "deployments/mokka-crds/helm/**"],
       },
       {
         path: ".github/workflows/dependency-integrity.yaml",

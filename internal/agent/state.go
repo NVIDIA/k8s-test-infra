@@ -12,7 +12,8 @@ import (
 )
 
 // State is the compiled desired simulation state the agent reconciles toward.
-// It maps 1:1 to what MEP-0001's Control Plane will emit.
+// It maps 1:1 to what MEP-0001's Control Plane will emit, except for the
+// fields an Enricher fills from this node.
 type State struct {
 	Generation int64
 	Node       NodeMeta
@@ -23,7 +24,7 @@ type State struct {
 	Fabric     FabricState
 	IMEX       IMEXState
 	MIG        MIGState
-	// ConfigRaw holds the raw YAML profile bytes so nvml can write the
+	// ConfigRaw holds the raw YAML profile bytes so gpudriver can write the
 	// engine config without re-deriving it from the narrower State fields.
 	// TODO(https://github.com/NVIDIA/k8s-test-infra/issues/717): replace with Profile/Runtime *config.YAMLConfig split — Profile carries
 	// the static hardware model, Runtime carries operational overrides (GPU_COUNT,
@@ -35,7 +36,7 @@ type State struct {
 	// per-node view for the agent to compile.
 	TopologyRaw []byte
 	// MIGProfilesRaw holds the board's MIG partition table verbatim, empty on
-	// a board that has none. It is carried so nvml can stage it beside
+	// a board that has none. It is carried so gpudriver can stage it beside
 	// every config it writes: a consumer process resolves the table relative
 	// to the config it was given, and the device plugin is handed no
 	// environment that could name it anywhere else.
@@ -282,9 +283,27 @@ type SoftwareVersions struct {
 
 // NodeShape describes the simulated node's topology.
 type NodeShape struct {
-	NumGPUs  int
-	Topology PCIeTopology
-	Network  NetworkShape
+	// ProductName is the profile's system.product_name, empty when unset.
+	ProductName string
+	NumGPUs     int
+	Topology    PCIeTopology
+	Network     NetworkShape
+	// NUMA is set by the NUMA enricher, never by a source. It is nil when
+	// NUMA simulation is disabled or the layout could not be resolved.
+	NUMA *NUMATopology
+}
+
+// NUMATopology is the shared host-resolved layout. Simulators must treat it as
+// read-only; CPU IDs and memory amounts come from the node, not invented capacity.
+type NUMATopology struct {
+	Zones []NUMAZone `json:"zones"`
+}
+
+// NUMAZone describes one simulated zone using real online CPU IDs.
+type NUMAZone struct {
+	ID       int    `json:"id"`
+	CPUs     []int  `json:"cpus"`
+	MemoryKB uint64 `json:"memoryKB"`
 }
 
 // NetworkShape describes the simulated InfiniBand HCAs attached to the node.

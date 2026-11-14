@@ -1,0 +1,36 @@
+/sys/devices/system/node/node0: 0-87,176-263
+/sys/devices/system/node/node1: 88-175,264-351
+/sys/devices/system/node/node10: 
+/sys/devices/system/node/node11: 
+/sys/devices/system/node/node12: 
+/sys/devices/system/node/node13: 
+/sys/devices/system/node/node14: 
+/sys/devices/system/node/node15: 
+/sys/devices/system/node/node16: 
+/sys/devices/system/node/node17: 
+/sys/devices/system/node/node18: 
+/sys/devices/system/node/node19: 
+/sys/devices/system/node/node2: 
+/sys/devices/system/node/node20: 
+/sys/devices/system/node/node21: 
+/sys/devices/system/node/node22: 
+/sys/devices/system/node/node23: 
+/sys/devices/system/node/node24: 
+/sys/devices/system/node/node25: 
+/sys/devices/system/node/node26: 
+/sys/devices/system/node/node27: 
+/sys/devices/system/node/node28: 
+/sys/devices/system/node/node29: 
+/sys/devices/system/node/node3: 
+/sys/devices/system/node/node30: 
+/sys/devices/system/node/node31: 
+/sys/devices/system/node/node32: 
+/sys/devices/system/node/node33: 
+/sys/devices/system/node/node34: 
+/sys/devices/system/node/node35: 
+/sys/devices/system/node/node4: 
+/sys/devices/system/node/node5: 
+/sys/devices/system/node/node6: 
+/sys/devices/system/node/node7: 
+/sys/devices/system/node/node8: 
+/sys/devices/system/node/node9: 
