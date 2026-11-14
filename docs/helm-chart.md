@@ -1388,9 +1388,15 @@ kubelet starts with its original configuration and fresh CPU/memory manager
 state; the DaemonSet then reapplies simulation. Allocation state is not preserved
 across node reboot.
 
-Before uninstalling Mokka or changing an active topology or policy, upgrade with
-`nodeAgent.numa.enabled: false` and wait for restoration to finish. An active
-layout change is rejected. Failed restoration retains recovery files for a retry.
+When an active topology or policy changes, Mokka validates the new configuration,
+restores the original node setup, then stages and applies the new layout. This
+restarts kubelet and clears incompatible CPU and memory manager allocations.
+Existing workloads can fail and need to be recreated. An unchanged configuration
+keeps its mounts and allocations. Failed restoration retains recovery files for
+a retry and prevents all simulators from staging the new state.
+
+Before uninstalling Mokka, upgrade with `nodeAgent.numa.enabled: false` and wait
+for restoration to finish.
 
 For the mount and recovery lifecycle, see the
 [node daemon](components/node-daemon.md#numa-simulation) and

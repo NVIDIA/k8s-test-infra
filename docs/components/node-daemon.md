@@ -80,11 +80,12 @@ implements its staging, publication, and daemon interfaces.
 | Interface | Implemented by | Purpose |
 |---|---|---|
 | `Enricher` | the NUMA topology enricher, registered only with NUMA simulation enabled | `Enrich` reads the node, never changes it, and writes only the state fields it owns |
+| `StagePreparer` | `numa` | `PrepareStage` restores a changed host setup before any simulator stages files, under the staging lock |
 | `Simulator` | all simulators | `Stage` writes artifacts that are not yet externally visible. Idempotent, re-runs on every state change |
 | `Applier` | `numa`, `gpudriver`, `pcibus`, `cri` | `Apply` publishes artifacts that something *outside* the node acts on — containerd, NFD, the GPU Operator validator |
 | `Daemon` | `fabricmanager`, `ib`, `kernellog` | `Run` supervises a long-lived process; `Reload` delivers later state to it without a restart |
 
-Each state update runs through enrichment and three waves:
+Each state update runs through enrichment, host preparation, and three waves:
 
 ```mermaid
 flowchart LR
@@ -93,7 +94,10 @@ flowchart LR
     valid -->|yes| enrich[Enrich<br/>in order, once per state]
     enrich --> enriched{{All enriched?}}
     enriched -->|no| retry[Keep the last enriched state<br/>retry with backoff]
-    enriched -->|yes| stage[Stage<br/>all simulators, in parallel]
+    enriched -->|yes| prepare[PrepareStage<br/>in order, under the staging lock]
+    prepare --> prepared{{Prepared?}}
+    prepared -->|no| fail
+    prepared -->|yes| stage[Stage<br/>all simulators, in parallel]
     stage --> barrier{{All staged?}}
     barrier -->|no| fail[Report failing simulators<br/>no daemon starts, no Apply]
     barrier -->|yes| daemons[Supervise<br/>start once, or Reload]
@@ -113,6 +117,14 @@ With NUMA simulation enabled, the NUMA topology enricher reads the node's real
 CPUs and RAM and resolves one layout in `State.NodeShape.NUMA`. The NUMA
 simulator renders it, and `pcibus` and `gpudriver` publish each GPU's local CPUs
 from the same zones, so kubelet, the driver files, and NVML agree.
+
+If that layout or its kubelet policies change, `numa.PrepareStage` validates the
+new kubelet configuration and restores the original node setup before any
+simulator stages the replacement. This can interrupt existing workloads. The
+usual Stage and Apply waves then install the new layout. An unchanged layout
+keeps its mounts and allocations. A failed restore blocks staging and schedules
+a retry; recovery files remain available. Enrichment itself never changes the
+host.
 
 The split between `Stage` and `Apply` is the important part. Staging is private:
 files exist but nothing outside the node is looking at them yet. Publishing is

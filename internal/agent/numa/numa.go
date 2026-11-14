@@ -26,7 +26,7 @@ const name = "numa"
 
 const helperSource = "/usr/local/bin/mokka-kubelet-helper"
 
-// After a failed Apply, the retry delay starts at applyRetryFirst and doubles
+// After a failed host transition, the retry delay starts at applyRetryFirst and doubles
 // up to applyRetryLimit.
 const (
 	applyRetryFirst = 5 * time.Second
@@ -53,8 +53,8 @@ type Simulator struct {
 	setup        *hostSetup
 	helperSource string
 
-	// Only Apply uses the retry fields, and the agent never runs two Apply
-	// calls at once.
+	// PrepareStage and Apply use the retry fields; the agent serializes
+	// reconcile passes.
 	requeue    chan struct{}
 	retryFirst time.Duration
 	retryDelay time.Duration
@@ -82,9 +82,8 @@ func newSimulator(h *host.Host, opts Options, ops hostOperations) (*Simulator, e
 	return sim, nil
 }
 
-// Requeue fires after a failed Apply. The agent runs Apply again only when the
-// State changes, but a host failure is often brief, and a failed restore can
-// leave kubelet stopped.
+// Requeue retries a failed host transition without waiting for a new State.
+// A host failure is often brief, and a failed restore can leave kubelet stopped.
 func (s *Simulator) Requeue() <-chan struct{} { return s.requeue }
 
 // Name identifies this simulator in health reports.
@@ -133,7 +132,7 @@ func (s *Simulator) matchApplied() (bool, error) {
 		return false, err
 	}
 	if len(previous) > 0 && strings.TrimSpace(string(previous)) != s.desired {
-		return false, errors.New("NUMA topology or policy changed on an active node; disable NUMA simulation to restore the node before applying the new layout")
+		return false, errors.New("NUMA topology or policy changed on an active node; restore the node in PrepareStage before staging the new layout")
 	}
 	return len(previous) > 0, nil
 }
@@ -146,7 +145,7 @@ func (s *Simulator) Apply(ctx context.Context, _ *agent.State) error {
 	return err
 }
 
-// scheduleRetry requeues after a failed Apply, doubling the delay each time,
+// scheduleRetry requeues after a failed host transition, doubling the delay each time,
 // and resets the delay after a success.
 func (s *Simulator) scheduleRetry(err error) {
 	if s.retryTimer != nil {
@@ -160,7 +159,7 @@ func (s *Simulator) scheduleRetry(err error) {
 	if s.retryDelay == 0 {
 		s.retryDelay = s.retryFirst
 	}
-	zap.L().Warn("NUMA apply failed; retrying", zap.String("simulator", name), zap.Duration("retry_in", s.retryDelay))
+	zap.L().Warn("NUMA reconciliation failed; retrying", zap.String("simulator", name), zap.Duration("retry_in", s.retryDelay))
 	s.retryTimer = time.AfterFunc(s.retryDelay, func() {
 		select {
 		case s.requeue <- struct{}{}:
@@ -213,6 +212,7 @@ func (s *Simulator) Revoke(context.Context) error { return nil }
 func (s *Simulator) Discard(context.Context) error { return nil }
 
 var _ agent.Simulator = (*Simulator)(nil)
+var _ agent.StagePreparer = (*Simulator)(nil)
 var _ agent.Applier = (*Simulator)(nil)
 var _ agent.Requeuer = (*Simulator)(nil)
 
