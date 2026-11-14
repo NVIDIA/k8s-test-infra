@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1020" height="440" viewBox="0 0 1020 440" role="img" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+<title>GB300 compute tray: GPUs, NICs, planes and leaf switches</title>
+<desc>One GB300 compute tray is one node: two Grace CPUs, four GPUs and two ConnectX-8 boards with four 800 Gb/s InfiniBand ports, one next to each GPU. Port k serves rail k. Each port splits into four 200 Gb/s planes, and each plane goes to its own ASIC in the rail's Q3400 leaf switch. A BlueField-3 DPU carries storage and management traffic outside the compute fabric.</desc>
+<rect x="0.5" y="0.5" width="1019" height="439" rx="12" fill="#FFFFFF" stroke="#E5E3DA" stroke-width="1"/>
+<text x="12" y="28" font-size="13" fill="#2C2C2A" font-weight="600">GB300 compute tray: one Kubernetes node</text>
+<text x="690" y="28" font-size="13" fill="#2C2C2A" font-weight="600">InfiniBand leaf switches</text>
+<rect x="12" y="40" width="560" height="388" rx="10" fill="#FAFAF7" stroke="#B4B2A9" stroke-width="0.75"/>
+<line x1="450" y1="94" x2="704" y2="87" stroke="#378ADD" stroke-width="1.25" stroke-linecap="round"/>
+<line x1="450" y1="94" x2="704" y2="121" stroke="#378ADD" stroke-width="1.25" stroke-linecap="round"/>
+<line x1="450" y1="94" x2="704" y2="155" stroke="#378ADD" stroke-width="1.25" stroke-linecap="round"/>
+<line x1="450" y1="94" x2="704" y2="189" stroke="#378ADD" stroke-width="1.25" stroke-linecap="round"/>
+<line x1="450" y1="148" x2="690" y2="242" stroke="#1D9E75" stroke-width="3" stroke-linecap="round"/>
+<line x1="450" y1="234" x2="690" y2="294" stroke="#BA7517" stroke-width="3" stroke-linecap="round"/>
+<line x1="450" y1="288" x2="690" y2="346" stroke="#D4537E" stroke-width="3" stroke-linecap="round"/>
+<line x1="128" y1="94" x2="148" y2="94" stroke="#B4B2A9" stroke-width="1.0" stroke-linecap="round"/>
+<line x1="248" y1="94" x2="280" y2="94" stroke="#B4B2A9" stroke-width="1.0" stroke-linecap="round"/>
+<line x1="128" y1="148" x2="148" y2="148" stroke="#B4B2A9" stroke-width="1.0" stroke-linecap="round"/>
+<line x1="248" y1="148" x2="280" y2="148" stroke="#B4B2A9" stroke-width="1.0" stroke-linecap="round"/>
+<line x1="128" y1="234" x2="148" y2="234" stroke="#B4B2A9" stroke-width="1.0" stroke-linecap="round"/>
+<line x1="248" y1="234" x2="280" y2="234" stroke="#B4B2A9" stroke-width="1.0" stroke-linecap="round"/>
+<line x1="128" y1="288" x2="148" y2="288" stroke="#B4B2A9" stroke-width="1.0" stroke-linecap="round"/>
+<line x1="248" y1="288" x2="280" y2="288" stroke="#B4B2A9" stroke-width="1.0" stroke-linecap="round"/>
+<rect x="28" y="72" width="100" height="98" rx="8" fill="#FFFFFF" stroke="#B4B2A9" stroke-width="0.75"/>
+<text x="78" y="116" font-size="13" fill="#2C2C2A" font-weight="600" text-anchor="middle">Grace CPU 0</text>
+<text x="78" y="135" font-size="12" fill="#5F5E5A" text-anchor="middle">NUMA node 0</text>
+<rect x="28" y="212" width="100" height="98" rx="8" fill="#FFFFFF" stroke="#B4B2A9" stroke-width="0.75"/>
+<text x="78" y="256" font-size="13" fill="#2C2C2A" font-weight="600" text-anchor="middle">Grace CPU 1</text>
+<text x="78" y="275" font-size="12" fill="#5F5E5A" text-anchor="middle">NUMA node 1</text>
+<rect x="270" y="62" width="190" height="116" rx="10" fill="none" stroke="#888780" stroke-width="0.75" stroke-dasharray="4 3"/>
+<text x="270" y="192" font-size="11" fill="#5F5E5A">ConnectX-8 board 0</text>
+<rect x="270" y="202" width="190" height="116" rx="10" fill="none" stroke="#888780" stroke-width="0.75" stroke-dasharray="4 3"/>
+<text x="270" y="332" font-size="11" fill="#5F5E5A">ConnectX-8 board 1</text>
+<rect x="148" y="72" width="100" height="44" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.75"/>
+<text x="198" y="99" font-size="14" fill="#085041" font-weight="600" text-anchor="middle">GPU 0</text>
+<rect x="280" y="72" width="170" height="44" rx="8" fill="#FFFFFF" stroke="#378ADD" stroke-width="1.5"/>
+<text x="294" y="91" font-size="13" fill="#2C2C2A" font-weight="600">mlx5_0 · 800 Gb/s</text>
+<text x="294" y="108" font-size="12" fill="#378ADD" font-weight="600">port for rail 0</text>
+<rect x="148" y="126" width="100" height="44" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.75"/>
+<text x="198" y="153" font-size="14" fill="#085041" font-weight="600" text-anchor="middle">GPU 1</text>
+<rect x="280" y="126" width="170" height="44" rx="8" fill="#FFFFFF" stroke="#1D9E75" stroke-width="1.5"/>
+<text x="294" y="145" font-size="13" fill="#2C2C2A" font-weight="600">mlx5_1 · 800 Gb/s</text>
+<text x="294" y="162" font-size="12" fill="#1D9E75" font-weight="600">port for rail 1</text>
+<rect x="148" y="212" width="100" height="44" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.75"/>
+<text x="198" y="239" font-size="14" fill="#085041" font-weight="600" text-anchor="middle">GPU 2</text>
+<rect x="280" y="212" width="170" height="44" rx="8" fill="#FFFFFF" stroke="#BA7517" stroke-width="1.5"/>
+<text x="294" y="231" font-size="13" fill="#2C2C2A" font-weight="600">mlx5_2 · 800 Gb/s</text>
+<text x="294" y="248" font-size="12" fill="#BA7517" font-weight="600">port for rail 2</text>
+<rect x="148" y="266" width="100" height="44" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.75"/>
+<text x="198" y="293" font-size="14" fill="#085041" font-weight="600" text-anchor="middle">GPU 3</text>
+<rect x="280" y="266" width="170" height="44" rx="8" fill="#FFFFFF" stroke="#D4537E" stroke-width="1.5"/>
+<text x="294" y="285" font-size="13" fill="#2C2C2A" font-weight="600">mlx5_3 · 800 Gb/s</text>
+<text x="294" y="302" font-size="12" fill="#D4537E" font-weight="600">port for rail 3</text>
+<text x="470" y="80" font-size="12" fill="#0C447C">4 planes × 200 Gb/s</text>
+<rect x="28" y="352" width="422" height="40" rx="8" fill="#F1EFE8" stroke="#B4B2A9" stroke-width="0.75"/>
+<text x="40" y="368" font-size="12" fill="#2C2C2A" font-weight="600">BlueField-3 DPU: Ethernet for storage and management</text>
+<text x="40" y="384" font-size="12" fill="#5F5E5A">(not part of the compute fabric)</text>
+<text x="28" y="414" font-size="12" fill="#5F5E5A">GPUs also connect over NVLink to the rack's NVLink switches (scale-up).</text>
+<rect x="690" y="46" width="318" height="166" rx="10" fill="#FFFFFF" stroke="#378ADD" stroke-width="0.75"/>
+<text x="704" y="64" font-size="12" fill="#0C447C" font-weight="600">Rail 0 · one Q3400 leaf, one ASIC per plane</text>
+<rect x="704" y="74" width="290" height="26" rx="6" fill="#E6F1FB" stroke="#378ADD" stroke-width="0.75"/>
+<text x="716" y="91" font-size="12" fill="#0C447C">Leaf ASIC U1 · plane 0</text>
+<rect x="704" y="108" width="290" height="26" rx="6" fill="#E6F1FB" stroke="#378ADD" stroke-width="0.75"/>
+<text x="716" y="125" font-size="12" fill="#0C447C">Leaf ASIC U2 · plane 1</text>
+<rect x="704" y="142" width="290" height="26" rx="6" fill="#E6F1FB" stroke="#378ADD" stroke-width="0.75"/>
+<text x="716" y="159" font-size="12" fill="#0C447C">Leaf ASIC U3 · plane 2</text>
+<rect x="704" y="176" width="290" height="26" rx="6" fill="#E6F1FB" stroke="#378ADD" stroke-width="0.75"/>
+<text x="716" y="193" font-size="12" fill="#0C447C">Leaf ASIC U4 · plane 3</text>
+<rect x="690" y="222" width="318" height="40" rx="10" fill="#FFFFFF" stroke="#1D9E75" stroke-width="0.75"/>
+<text x="704" y="247" font-size="12" fill="#085041" font-weight="600">Rail 1 · one Q3400 leaf, four ASICs</text>
+<rect x="690" y="274" width="318" height="40" rx="10" fill="#FFFFFF" stroke="#BA7517" stroke-width="0.75"/>
+<text x="704" y="299" font-size="12" fill="#633806" font-weight="600">Rail 2 · one Q3400 leaf, four ASICs</text>
+<rect x="690" y="326" width="318" height="40" rx="10" fill="#FFFFFF" stroke="#D4537E" stroke-width="0.75"/>
+<text x="704" y="351" font-size="12" fill="#72243E" font-weight="600">Rail 3 · one Q3400 leaf, four ASICs</text>
+<text x="690" y="392" font-size="12" fill="#5F5E5A">Each leaf also connects up to the</text>
+<text x="690" y="408" font-size="12" fill="#5F5E5A">spine layer (Figure 1).</text>
+</svg>
