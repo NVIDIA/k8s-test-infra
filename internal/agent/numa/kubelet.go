@@ -20,16 +20,25 @@ import (
 )
 
 func (s *Simulator) stageKubeletConfig(numaTopology *agent.NUMATopology) error {
+	body, err := s.renderKubeletConfig(numaTopology)
+	if err != nil {
+		return err
+	}
+	return fsutil.Write(s.host.RootPath("numa/kubelet-config.yaml"), body, 0600)
+}
+
+// renderKubeletConfig validates settings without changing the active setup.
+func (s *Simulator) renderKubeletConfig(numaTopology *agent.NUMATopology) ([]byte, error) {
 	original, err := os.ReadFile(s.host.RunPath("mokka/numa/original/kubelet-config.yaml"))
 	if os.IsNotExist(err) {
 		original, err = os.ReadFile(s.host.HostPath("/var/lib/kubelet/config.yaml"))
 	}
 	if err != nil {
-		return fmt.Errorf("read original kubelet config: %w", err)
+		return nil, fmt.Errorf("read original kubelet config: %w", err)
 	}
 	document, err := kubelet.DecodeConfig(original)
 	if err != nil {
-		return fmt.Errorf("decode kubelet config: %w", err)
+		return nil, fmt.Errorf("decode kubelet config: %w", err)
 	}
 	config := &document.Settings
 	config.TopologyManagerPolicy = s.opts.Policy
@@ -37,13 +46,13 @@ func (s *Simulator) stageKubeletConfig(numaTopology *agent.NUMATopology) error {
 	config.CPUManagerPolicy = s.opts.CPUManagerPolicy
 	config.MemoryManagerPolicy = kubeletMemoryPolicy(s.opts.MemoryManagerPolicy)
 	if err := s.configureManagers(config, numaTopology); err != nil {
-		return err
+		return nil, err
 	}
 	body, err := document.Bytes()
 	if err != nil {
-		return fmt.Errorf("encode kubelet config: %w", err)
+		return nil, fmt.Errorf("encode kubelet config: %w", err)
 	}
-	return fsutil.Write(s.host.RootPath("numa/kubelet-config.yaml"), body, 0600)
+	return body, nil
 }
 
 // Kubelet requires "None"/"Static"; Mokka settings use lowercase.

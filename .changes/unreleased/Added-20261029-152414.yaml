@@ -1,6 +1,6 @@
 kind: Added
 body: |-
-  node-agent: add opt-in NUMA topology simulation for GPU, CPU, and memory allocation. Restore the original node setup when disabled and reapply simulation after reboot; memory locality is simulated through NRI.
+  node-agent: add opt-in NUMA topology simulation for GPU, CPU, and memory allocation. Reset and reapply changed layouts, restore the original setup when disabled, and reapply after reboot; memory locality is simulated through NRI.
 time: 2026-10-29T13:24:14Z
 custom:
   Issue: "1148"

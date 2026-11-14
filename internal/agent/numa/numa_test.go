@@ -134,7 +134,7 @@ func TestPersistentSetupIsNotRestartedOrRemovedOnPodTeardown(t *testing.T) {
 	require.FileExists(t, h.RunPath(appliedRel))
 	changed, err := newTestSimulator(h, Options{Enabled: true, Policy: "restricted"})
 	require.NoError(t, err)
-	require.ErrorContains(t, changed.Stage(t.Context(), testEnrichedState(t, changed.host)), "disable NUMA simulation")
+	require.ErrorContains(t, changed.Stage(t.Context(), testEnrichedState(t, changed.host)), "restore the node in PrepareStage")
 	disabled, err := newTestSimulator(h, Options{}, ops)
 	require.NoError(t, err)
 	require.NoError(t, disabled.Stage(t.Context(), nil))

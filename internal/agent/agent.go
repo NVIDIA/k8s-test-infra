@@ -218,7 +218,7 @@ func (a *Agent) requeues(ctx context.Context) <-chan struct{} {
 	return merged
 }
 
-// reconcile runs Stage in parallel against a source-built state, waits for the barrier,
+// reconcile prepares host transitions, runs Stage in parallel, waits for the barrier,
 // starts (or reloads) the daemons, then runs Apply on all appliers in parallel.
 //
 // Stage holds the staging lock while replacing the tree NRI injects,
@@ -281,6 +281,16 @@ func (a *Agent) withStagingLock(ctx context.Context, fn func() error) (err error
 // fails liveness, so kubelet restarts the agent into a fresh reconcile.
 func (a *Agent) stage(ctx context.Context, state *State) error {
 	a.staged.Store(false)
+	for _, sim := range a.simulators {
+		prep, ok := sim.(StagePreparer)
+		if !ok {
+			continue
+		}
+		if err := prep.PrepareStage(ctx, state); err != nil {
+			a.setLive(health.Unhealthy("prepare stage failed: %s", sim.Name()))
+			return fmt.Errorf("prepare stage %s: %w", sim.Name(), err)
+		}
+	}
 	// Stage wave: all simulators run concurrently and are fully isolated from
 	// each other — a failure never cancels sibling goroutines. All errors are
 	// collected; if any Stage failed the Apply wave is skipped entirely, because
