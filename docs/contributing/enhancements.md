@@ -64,6 +64,7 @@ history is preserved, not rewritten.
 | [MEP-0003](../../enhancements/meps/0003-node-agent/README.md) | The node daemon: one reconciler replacing a dozen CLIs |
 | [MEP-0006](../../enhancements/meps/0006-automatic-cdi-setup/README.md) | Automating the node's CDI setup from the node pod |
 | [MEP-0007](../../enhancements/meps/0007-vgpu-host-guest/README.md) | Simulating vGPU hosts and guests from the profile |
+| [MEP-0015](../../enhancements/meps/0015-network-topology-modeling/README.md) | Modeling network topology and generating it from fabric declarations |
 
 MEP-0003 also carries the project's most complete record of which contract
 surfaces are and are not simulated.
