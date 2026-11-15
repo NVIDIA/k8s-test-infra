@@ -653,7 +653,7 @@ The CRD validation adds the following rules for groups with `node.source: Mokka`
 - `node.template.maxPods` is at least 1 and defaults to 110, the kubelet's default.
 - The inventory name and the group ID have at most 56 characters together, so a Node name fits the 63-character limit of the `kubernetes.io/hostname` label.
 
-The provisioner runs one active replica under leader election and creates Nodes at a rate the Helm chart sets. It watches `SGPUInventory` and `SGPURackProfile` objects and the metadata of the Nodes it created. It reads no racks, shard Leases or rack state.
+The provisioner runs one active replica under leader election and creates Nodes at a rate the Helm chart sets. It watches `SGPUInventory` (much cheaper to watch than `SGPURacks`) and `SGPURackProfile` objects and the metadata of the Nodes it created. It reads no racks, shard Leases or rack state.
 
 #### KWOK Data Plane
 
@@ -769,19 +769,133 @@ kube-scheduler, and the DeviceClasses, CRDs and ComputeDomain controller of NVID
 | Give containers their devices and hold the workload until its daemon is ready                   | NVIDIA's kubelet plugins               | not simulated                                                            |
 | Unprepare: remove the Node label once no Pod on the Node holds the claim                        | NVIDIA's compute-domain kubelet plugin | **data plane**                                                           |
 
-**GPU devices.** In `DRA` mode, the slice holds the devices NVIDIA's GPU kubelet plugin would publish for the slot, so a claim written for GPU Nodes selects the same devices on KWOK Nodes. Each GPU is a device named `gpu-<minor>` with the plugin's attributes and capacity, such as its UUID, product name, architecture, CUDA compute capability, driver versions, memory, PCI bus ID, PCIe root and NUMA node, all from the [rack state](#rack-state). FGO [names its devices by UUID and adds a `model` attribute](#gpu-resourceslices), so the migration guide covers selectors that use them.
+**GPU devices.** In `DRA` mode, the slice holds the devices NVIDIA's GPU kubelet plugin would publish for the slot, so a claim written for GPU Nodes selects the same devices on KWOK Nodes. Each GPU is a device named `gpu-<minor>` with the plugin's attributes and capacity, such as its UUID, product name, architecture, CUDA compute capability, driver versions, memory, PCI bus ID, PCIe root and NUMA node, all from the [rack state](#rack-state). FGO [names its devices by UUID and adds a `model` attribute](#gpu-resourceslices), so the migration guide covers selectors that use them. For `kwok-node-17`, a Node of a `gb300-nvl72` rack, the data plane writes:
 
-**ComputeDomains.** NVIDIA's controller runs an [IMEX daemon](#computedomains) on every Node labeled for a domain and builds the domain's status from what the daemons report. On a KWOK Node, the data plane sets that label when a Pod with an allocated channel claim is bound to the Node, as the plugin does when it prepares the claim. KWOK runs the daemon Pod that follows and reports it Ready, but no daemon process runs, so the data plane makes the daemon's report: it labels the daemon Pod with the rack's clique ID and adds the Node to the domain's `ComputeDomainClique` with the daemon Pod's IP and the Node's slot index. NVIDIA's controller then lists the Node in `status.nodes` and marks the domain Ready once `numNodes` listed Nodes are Ready, as for GPU Nodes. When no Pod on the Node holds the channel claim any more, the data plane removes the label, the DaemonSet deletes the daemon Pod, and the controller drops the Node's entry. A rack is one clique and one replica serves it, so each Node's entry has a single writer.
+```yaml
+apiVersion: resource.k8s.io/v1
+kind: ResourceSlice
+metadata:
+  name: 0-gpu.nvidia.com-kwok-node-17-x7k2p # generated, as the plugin's slices are
+  ownerReferences:
+    - apiVersion: v1
+      kind: Node
+      name: kwok-node-17
+      uid: <Node UID>
+      controller: true
+spec:
+  driver: gpu.nvidia.com # configurable from mokka helm values, expecyed to be created by the DRA chart
+  nodeName: kwok-node-17
+  pool:
+    name: kwok-node-17
+    generation: 1
+    resourceSliceCount: 1
+  devices:
+    - name: gpu-0 # gpu-<minor>
+      attributes:
+        type: {string: gpu}
+        uuid: {string: GPU-<UUID>}
+        productName: {string: "NVIDIA GB300 NVL"}
+        brand: {string: Nvidia}
+        architecture: {string: Blackwell}
+        cudaComputeCapability: {version: 10.0.0}
+        driverVersion: {version: 580.65.6} # 580.65.06, as the plugin normalizes it to semver
+        cudaDriverVersion: {version: 13.0.0}
+        addressingMode: {string: ATS}
+        resource.kubernetes.io/pciBusID: {string: "0000:0a:00.0"}
+        resource.kubernetes.io/pcieRoot: {string: "pci0000:00"}
+        resource.kubernetes.io/numaNode: {int: 0}
+      capacity:
+        memory: {value: 278Gi}
+    # gpu-1 to gpu-3 carry the same attributes with their own UUIDs and PCI bus IDs
+    # (0000:0b:00.0, 0000:4a:00.0, 0000:4b:00.0); gpu-2 and gpu-3 sit under
+    # pci0000:40 on NUMA node 1, where the rack profile places them.
+```
+
+**ComputeDomains.** NVIDIA's controller runs an [IMEX daemon](#computedomains) on every Node labeled for a domain and builds the domain's status from what the daemons report. On a KWOK Node, the data plane sets that label when a Pod with an allocated channel claim is bound to the Node, as the plugin does when it prepares the claim. 
+
+KWOK runs the IMEX daemon Pod that gets scheduled to a virtual node and reports it Ready, but no real daemon process runs, so the data plane need to make the daemon's report: 
+- it labels the IMEX daemon Pod with the rack's clique ID 
+- and adds the Node to the domain's `ComputeDomainClique` with the daemon Pod's IP and the Node's slot index. 
+
+NVIDIA's controller then lists the Node in `status.nodes` and marks the domain Ready once `numNodes` listed Nodes are Ready, as for GPU Nodes. When no Pod on the Node holds the channel claim any more, the data plane removes the label, the DaemonSet deletes the daemon Pod, and the controller drops the Node's entry. A rack is one clique and one replica serves it, so each Node's entry has a single writer.
+
+With [`computeDomains` enabled](#kwok-installation), each Node of a rack with an NVLink fabric gets a ComputeDomain slice with the two devices NVIDIA's compute-domain kubelet plugin publishes: `channel-0`, which a workload's channel claim gets, and `daemon-0`, which the IMEX daemon Pod's claim gets. Neither has capacity, and the plugin leaves channels above 0 off the Node's slice. For `kwok-node-17`:
+
+```yaml
+apiVersion: resource.k8s.io/v1
+kind: ResourceSlice
+metadata:
+  name: 0-compute-domain.nvidia.com-kwok-node-17-m4q9z # generated, as the plugin's slices are
+  ownerReferences:
+    - apiVersion: v1
+      kind: Node
+      name: kwok-node-17
+      uid: <Node UID>
+      controller: true
+spec:
+  driver: compute-domain.nvidia.com
+  nodeName: kwok-node-17
+  pool:
+    name: kwok-node-17
+    generation: 1
+    resourceSliceCount: 1
+  devices:
+    - name: channel-0 # the compute-domain-default-channel.nvidia.com class selects it
+      attributes:
+        type: {string: channel}
+        id: {int: 0}
+    - name: daemon-0 # the compute-domain-daemon.nvidia.com class selects it
+      attributes:
+        type: {string: daemon}
+        id: {int: 0}
+```
 
 **Not simulated.** IMEX itself and the devices the plugins give containers. On a GPU Node, the plugin also keeps the workload's containers from starting until the Node's daemon is Ready, while KWOK runs the workload Pod at once, so tests can't observe that wait on KWOK Nodes.
 
 **What the cluster needs.** NVIDIA's DRA driver chart, with its default driver-managed IMEX and `ComputeDomainCliques` feature. `DRA` mode needs the chart's GPUs enabled, which brings the `gpu.nvidia.com` DeviceClass, and `computeDomains` needs its ComputeDomains enabled, which brings the CRDs, DeviceClasses and controller. The chart's kubelet plugin DaemonSet stays off KWOK Nodes through node affinity, as other DaemonSets do ([Risks and Mitigations](#risks-and-mitigations)), while the IMEX DaemonSets its controller creates are meant to run on them.
 
-**NVIDIA's contract.** The data plane follows what NVIDIA's node-side parts write: device names and attributes, the Node label, the daemon's clique label and `ComputeDomainClique`. Mokka's end-to-end suite [pins the DRA driver version](../../../tests/e2e/VERSION-MATRIX.md), 0.5.0 today, and will run its DRA and ComputeDomain scenarios on KWOK racks too, so a change in that contract fails a test before it reaches users.
+**NVIDIA's contract.** The data plane follows what NVIDIA's node-side parts write: device names and attributes, the Node label, the daemon's clique label and `ComputeDomainClique`. Mokka's end-to-end suite [pins the DRA driver version](../../../tests/e2e/VERSION-MATRIX.md) and will run its DRA and ComputeDomain scenarios on KWOK racks too, so a change in that contract fails a test before it reaches users.
 
 ##### NodeResourceTopology
 
 The data plane creates a `NodeResourceTopology` for each Node of its racks and keeps each zone's available GPUs current from the [allocations](#gpu-allocation), as NFD's topology updater does on a real Node. Zones and their capacity come from the GPUs' NUMA placement in the [rack state](#rack-state), so they match what NFD reports for a CPU Node with the same profile ([MEP0010](../0010-numa-aware-scheduling/README.md#numa-setup)).
+
+Each zone also lists an even share of the Node's allocatable CPUs and memory, as on a CPU Node with MEP0010's NUMA setup. Their availability stays at allocatable: KWOK runs no CPU or Memory Manager, so no Pod holds exclusive CPUs or memory. For `kwok-node-17`, a `gb300-nvl72` Node with 72 CPUs and 480Gi, while `train-0` from [GPU Allocation](#gpu-allocation) holds the two GPUs of zone 0:
+
+```yaml
+apiVersion: topology.node.k8s.io/v1alpha2
+kind: NodeResourceTopology
+metadata:
+  name: kwok-node-17
+  ownerReferences:
+    - apiVersion: v1
+      kind: Node
+      name: kwok-node-17
+      uid: <Node UID>
+topologyPolicies: [SingleNUMANodeContainerLevel] # deprecated; older schedulers read it instead of the attributes
+attributes:
+  - {name: topologyManagerPolicy, value: single-numa-node}
+  - {name: topologyManagerScope, value: container}
+zones:
+  - name: node-0 # NUMA node 0: gpu-0 and gpu-1, under pci0000:00
+    type: Node
+    costs:
+      - {name: node-0, value: 10}
+      - {name: node-1, value: 21}
+    resources:
+      - {name: nvidia.com/gpu, capacity: 2, allocatable: 2, available: 0} # both held by train-0
+      - {name: cpu, capacity: 36, allocatable: 36, available: 36}
+      - {name: memory, capacity: 240Gi, allocatable: 240Gi, available: 240Gi}
+  - name: node-1 # NUMA node 1: gpu-2 and gpu-3, under pci0000:40
+    type: Node
+    costs:
+      - {name: node-0, value: 21}
+      - {name: node-1, value: 10}
+    resources:
+      - {name: nvidia.com/gpu, capacity: 2, allocatable: 2, available: 2}
+      - {name: cpu, capacity: 36, allocatable: 36, available: 36}
+      - {name: memory, capacity: 240Gi, allocatable: 240Gi, available: 240Gi}
+```
 
 ##### Rack State
 
@@ -855,7 +969,9 @@ The response has one entry per requested rack, in request order. Facts that ever
 }
 ```
 
-It's a `POST` because a request names up to 100 racks, more than fits in a URL, but it only reads. A rack's state is compiled from the delivery generation it names. For each rack, the data plane passes the generation it last saw on the rack as the minimum. A rack the replica can't serve at that generation yet, because its cache is behind, comes back `NotReady`, and a rack it doesn't know under that name and UID comes back `NotFound`, without failing the rest of the batch. Only a replica that isn't ready at all answers `503`, and the data plane retries the batch with backoff. This is [MEP0001's publication-floor check](../0001-mokka-control-plane/README.md#runtime-view-computation-and-delivery), applied per rack. Each Node entry names the Kubernetes Node bound to the slot and its assignment revision, and the data plane applies [the node daemon's ordering](../0001-mokka-control-plane/README.md#node-agent) to each Node: it accepts a Node's state only if the pair of assignment revision and rack delivery generation doesn't go backwards. The control plane includes a Node only once its projection is published, so the data plane never publishes GPUs for an unsettled binding. The endpoint is a batch form of the per-Node one the node daemon polls.
+It's a `POST` because a request names up to 100 racks, more than fits in a URL, but it only reads. 
+
+A rack's state is compiled from the delivery generation it names. For each rack, the data plane passes the generation it last saw on the rack as the minimum. A rack the replica can't serve at that generation yet, because its cache is behind, comes back `NotReady`, and a rack it doesn't know under that name and UID comes back `NotFound`, without failing the rest of the batch. Only a replica that isn't ready at all answers `503`, and the data plane retries the batch with backoff. This is [MEP0001's publication-floor check](../0001-mokka-control-plane/README.md#runtime-view-computation-and-delivery), applied per rack. Each Node entry names the Kubernetes Node bound to the slot and its assignment revision, and the data plane applies [the node daemon's ordering](../0001-mokka-control-plane/README.md#node-agent) to each Node: it accepts a Node's state only if the pair of assignment revision and rack delivery generation doesn't go backwards. The control plane includes a Node only once its projection is published, so the data plane never publishes GPUs for an unsettled binding. The endpoint is a batch form of the per-Node one the node daemon polls.
 
 Batching keeps both sides cheap:
 
