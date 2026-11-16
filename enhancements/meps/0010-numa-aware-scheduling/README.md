@@ -14,6 +14,7 @@ Authors: [Roman Hlushko](https://github.com/roma-glushko), [Jonathan Rosenboim](
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [NUMA Setup](#numa-setup)
+  - [Milestones](#milestones)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
 - [Decisions](#decisions)
@@ -248,6 +249,13 @@ Each step follows from these:
 
 In KWOK mode, KWOK virtual nodes have no kubelet or NFD.
 The [KWOK data plane](../0008-fgo-integration/README.md#noderesourcetopology) writes their NRT from the same layout, taking each GPU's NUMA node from the rack.
+
+### Milestones
+
+We propose two milestones, each ending with something users can run. CPU Nodes come first, since the KWOK data plane reuses their layout. [MEP0008's Milestones](../0008-fgo-integration/README.md#milestones) put them together with MEP0008's and MEP0009's in one plan.
+
+- **M1: NUMA setup on CPU Nodes.** The node daemon gives a Node its profile's [NUMA layout](#numa-setup), one zone for each NUMA node of the profile's PCIe root complexes with the host's CPUs and memory split across them, and configures the kubelet's NUMA-aware managers. Mokka's NRI plugin rewrites containers' memory binding, and the setup is opt-in. Done when the first two [user stories](#user-stories) pass on Kind.
+- **M2: NodeResourceTopology on KWOK Nodes.** The [KWOK data plane](../0008-fgo-integration/README.md#noderesourcetopology) writes each KWOK Node's NRT from M1's layout, taking each GPU's NUMA node from the rack. It ships with [MEP0008's M2](../0008-fgo-integration/README.md#milestones). Done when a KWOK rack group gets NRTs that match its CPU Nodes', as the third user story describes.
 
 ## Drawbacks
 

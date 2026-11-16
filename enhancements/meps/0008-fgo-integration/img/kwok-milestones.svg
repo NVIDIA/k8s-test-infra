@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 532" width="1000" height="532" role="img" aria-labelledby="title desc">
   <title id="title">KWOK integration milestones</title>
-  <desc id="desc">Four milestones. M1, GPUs on KWOK Nodes, needs MEP0001's compiled rack state and delivery generation, and leads to M2, FGO parity for Run:ai, which needs MEP0010's NUMA layout and MEP0009's M1, the shared metrics generator, and enables MEP0009's M3, workload telemetry on KWOK Nodes. M2 leads to M3, scale out. M4, the optional KWOK provisioner, needs only M1 and can run alongside M2 and M3.</desc>
+  <desc id="desc">Four milestones. M1, GPUs on KWOK Nodes, needs MEP0001's compiled rack state and delivery generation, and leads to M2, FGO parity for Run:ai, which needs MEP0010's M1, the NUMA layout, and MEP0009's M1, the shared metrics generator, and enables MEP0009's M3, workload telemetry on KWOK Nodes. M2 leads to M3, scale out. M4, the optional KWOK provisioner, needs only M1 and can run alongside M2 and M3.</desc>
   <style>
     .panel { fill: #ffffff; stroke: #d1d9e0; }
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
@@ -42,7 +42,7 @@
   <path class="wire" d="M174,64 V95" marker-end="url(#arrow)"/>
 
   <rect class="ext" x="350" y="20" width="300" height="44" rx="8"/>
-  <text class="item strong" x="366" y="38">MEP0010</text>
+  <text class="item strong" x="366" y="38">MEP0010 · M1</text>
   <text class="body" x="366" y="55">NUMA layout for NodeResourceTopology</text>
   <path class="wire" d="M500,64 V95" marker-end="url(#arrow)"/>
 

@@ -311,6 +311,8 @@ We propose three milestones, each ending with something users can run. The gener
 - **M2: Workload telemetry on CPU Nodes.** The allocation watcher becomes the [workload tracker](#cpu-nodes-workload-tracker), a CLI of its own deployed with the node daemon, under new Helm values and a new container name, with the old ones kept as deprecated aliases for a release. It reads its Node's Pods for the [telemetry annotations](#workload-aware-dynamic-metrics), takes the [binding](#pod-to-gpu-binding) from PodResources for device-plugin and DRA allocations alike, and writes the workload telemetry the NVML engine reads as layer 3. Done when the first two [user stories](#user-stories) pass with the device plugin and with NVIDIA's DRA driver.
 - **M3: Workload telemetry on KWOK Nodes.** The [KWOK data plane](#kwok-nodes-data-plane) runs M2's tracker in process, takes the binding from its allocation record and applies the workload telemetry to its [DCGM metrics](#dcgm-metrics). It needs [MEP0008's M2](../0008-fgo-integration/README.md#milestones), which brings DCGM metrics to KWOK Nodes. Done when the third user story's test runs unchanged on KWOK Nodes.
 
+[MEP0008's Milestones](../0008-fgo-integration/README.md#milestones) put these together with MEP0008's and MEP0010's in one plan.
+
 ## Drawbacks
 
 - **The workload tracker needs wider permissions.** Today the allocation watcher is an unprivileged container that reads only the kubelet's PodResources socket. The [workload tracker](#cpu-nodes-workload-tracker) also reads Pods from the Kubernetes API. RBAC can't limit a DaemonSet to the Pods of its own Node, so every Node's tracker can read every Pod in the cluster, plain-text environment variables included.
