@@ -1222,7 +1222,8 @@ The KWOK chart won't be included in the Mokka Helm chart. Clusters that use KWOK
 
 ### Milestones
 
-We propose four milestones, each ending with something users can run. The FGO migration comes first and scale second. The KWOK provisioner is optional and can run alongside both:
+We propose four milestones following the "make it work, make it right, make it scale" approach, each ending with something users can run. 
+The FGO migration comes first and scale second. The KWOK provisioner is optional and can run alongside both:
 
 ![Milestones](./img/kwok-milestones.svg)
 

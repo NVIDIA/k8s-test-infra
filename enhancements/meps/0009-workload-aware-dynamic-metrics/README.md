@@ -246,7 +246,7 @@ This might be a good place to talk about core concepts and how they relate.
 
 ### Workload-aware Dynamic Metrics
 
-As of today, Mokka's allocation watcher just sets 50% memory usage on each GPU allocated to a Pod.
+As of today, Mokka's allocation watcher just sets static 50% memory usage on each GPU allocated to a Pod.
 We should extend that to make it much more flexible, and FGO's approach is a good example to follow.
 
 > [!NOTE]
@@ -256,7 +256,7 @@ The general idea is to use:
 - On CPU nodes, the workload tracker, which extends the existing allocation watcher to fetch `Pod` metadata and `PodResources` from the kubelet (what we are doing today) and translate them into workload telemetry for the NVML engine.
 - On KWOK nodes, the KWOK data plane, which already allocates GPUs to Pods and watches them, turns the same Pod metadata into each GPU's workload telemetry in memory and generates the metrics on each scrape.
 
-The values of metrics like utilization, memory, etc. should be taken from the Pod annotations:
+The values of metrics like utilization, memory, etc. should be taken from the workload Pod annotations:
 
 | Annotation                              | Value                                                                                                             | Without it                                 |
 |-----------------------------------------|-------------------------------------------------------------------------------------------------------------------|--------------------------------------------|

@@ -1,6 +1,6 @@
 # MEP-0010: NUMA-aware Scheduling
 
-Author: [Roman Hlushko](https://github.com/roma-glushko)
+Authors: [Roman Hlushko](https://github.com/roma-glushko), [Jonathan Rosenboim](https://github.com/JRosenboimNVIDIA)
 
 <!-- toc -->
 - [Summary](#summary)
@@ -164,41 +164,7 @@ This might be a good place to talk about core concepts and how they relate.
 On a CPU Node, Mokka doesn't create the `NodeResourceTopology`.
 The node daemon gives the Node the NUMA layout of its GPU profile, and the real kubelet and NFD topology updater produce the NRT from it.
 
-```mermaid
-flowchart LR
-    subgraph kubelet["<b>kubelet</b> admission, per container"]
-        direction LR
-        cpu["CPU Manager<br/>hints only when static"]
-        mem["Memory Manager<br/>hints only when Static"]
-        dev["Device Manager<br/>NUMA node from<br/>device plugin"]
-        tm["<b>Topology Manager</b><br/><code>single-numa-node</code>"]
-        admit(["admit"])
-        reject(["reject"])
-
-        cpu --> tm
-        mem -->|"hints"| tm
-        dev --> tm
-        tm --> admit
-        tm --> reject
-    end
-
-    subgraph scheduler["<b>kube-scheduler</b>"]
-        filter["<code>NodeResourceTopologyMatch</code><br/>filters nodes by zone"]
-    end
-
-    nfd["<b><code>nfd-topology-updater</code></b><br/>reads PodResources,<br/>the NUMA tree and<br/>kubelet's config file"]
-    nrt["<b>NodeResourceTopology</b><br/>one zone per NUMA node,<br/>each with capacity and<br/>free cpu, memory, GPUs"]
-
-    scheduler ~~~ nrt
-    nrt ~~~ nfd
-    scheduler -->|"binds pod"| kubelet
-    kubelet -->|"PodResources API"| nfd
-    nfd -->|"publishes"| nrt
-    nrt -->|"read by the filter"| scheduler
-
-    classDef focus fill:#e0e7ff,stroke:#6366f1,stroke-width:2px,color:#000
-    class tm,nrt focus
-```
+![NUMA-aware scheduling on a CPU Node](./img/numa-setup.svg)
 
 [Jonathan Rosenboim](https://github.com/JRosenboimNVIDIA) has prototyped this idea in [#1147](https://github.com/NVIDIA/k8s-test-infra/pull/1147) and [#1148](https://github.com/NVIDIA/k8s-test-infra/pull/1148).
 
