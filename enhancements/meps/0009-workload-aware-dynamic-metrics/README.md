@@ -270,7 +270,7 @@ A KWOK Node has no kubelet, NVML engine or processes, so the [KWOK data plane](.
 
 ![Workload telemetry on KWOK Nodes](./img/workload-tracker-kwok.svg)
 
-- **Binding** comes from the [GPU allocation](../0008-fgo-integration/README.md#gpu-allocation) record the data plane writes on each Pod, for `nvidia.com/gpu` requests and DRA claims alike. The data plane knows a binding as soon as it writes the record, so nothing is polled.
+- **Binding** comes from the [GPU allocation](../0008-fgo-integration/README.md#gpu-allocation) record the data plane keeps for each rack, with a copy on each Pod, for `nvidia.com/gpu` requests and DRA claims alike. The data plane knows a binding as soon as it writes the record, so nothing is polled.
 - **Telemetry annotations** come from the [Pod watch](../0008-fgo-integration/README.md#separating-cpu-and-kwok-racks) the data plane already has, so it needs no new API access.
 - **Workload telemetry** stays in the replica's memory, since nothing outside the replica reads it. The replica recomputes a GPU's workload telemetry when a Pod on it is allocated, changes or goes away.
 - **Values** are computed on scrape, at most once per 10-second step, as [DCGM Metrics](#dcgm-metrics) describes. When a GPU has workload telemetry, `DCGM_FI_DEV_GPU_UTIL` follows it instead of the runtime view, `DCGM_FI_DEV_FB_USED` follows its memory share, and `DCGM_FI_DEV_FB_FREE` is the rest. A GPU without Pods keeps following the runtime view.

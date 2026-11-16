@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 776" width="1000" height="776" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 850" width="1000" height="850" role="img" aria-labelledby="title desc">
   <title id="title">FGO integration across Mokka</title>
-  <desc id="desc">How the FGO integration changes Mokka. The existing control plane gains a KWOK node type with Node sources, rack state for many racks per request, and rack shard labels from data plane Leases (MEP0008). On CPU Nodes, the node daemon also lays out the profile's NUMA zones in /sys, the kubelet and NFD then produce the NodeResourceTopology, and the NRI plugin rewrites memory binding (MEP0010). The allocation watcher becomes the workload tracker, which feeds workload telemetry to a new layer 3 of the NVML engine, whose generator counts from a shared epoch (MEP0009). The real NVIDIA components run on Mokka's NVML in place of FGO's mocks. KWOK Nodes are served by a new KWOK data plane, sharded by rack, which publishes nvidia.com/gpu or ResourceSlices, GFD and NFD labels, GPU allocations and NUMA zones on Pods, ComputeDomain reports and NodeResourceTopology (MEP0008), and DCGM metrics with workload telemetry from an in-process workload tracker (MEP0009). An optional KWOK provisioner creates Nodes, other Node sources keep working, and the KWOK controller runs Mokka's Pod stages (MEP0008). Consumers such as kube-scheduler, KAI, Prometheus, the Run:ai operator and NVIDIA's ComputeDomain controller stay unchanged. Teal marks what's new or changed, tagged with the MEP that proposes it.</desc>
+  <desc id="desc">How the FGO integration changes Mokka. The existing control plane gains a KWOK node type with Node sources, rack state for many racks per request, and rack shard labels from data plane Leases (MEP0008). It reads and writes the Kubernetes API, which holds SGPUInventories, SGPURacks, SGPURackAllocations, shard Leases, Nodes, Pods, ResourceSlices, NodeResourceTopologies and ComputeDomainCliques. On CPU Nodes, the node daemon also lays out the profile's NUMA zones in /sys, the kubelet and NFD then produce the NodeResourceTopology, and the NRI plugin rewrites memory binding (MEP0010). The allocation watcher becomes the workload tracker, which feeds workload telemetry to a new layer 3 of the NVML engine, whose generator counts from a shared epoch (MEP0009). The real NVIDIA components run on Mokka's NVML in place of FGO's mocks. CPU Nodes write Node capacity, labels and the NRT to the Kubernetes API. KWOK Nodes are served by a new KWOK data plane, sharded by rack, which gets rack state in batches from the control plane and writes nvidia.com/gpu or ResourceSlices, GFD and NFD labels, GPU and NUMA zone allocations in SGPURackAllocations with copies on Pods, ComputeDomain reports and NodeResourceTopology to the Kubernetes API (MEP0008), and serves DCGM metrics with workload telemetry from an in-process workload tracker (MEP0009). An optional KWOK provisioner creates Nodes, other Node sources keep working, and the KWOK controller runs Mokka's Pod stages (MEP0008). Consumers stay unchanged: kube-scheduler, KAI and NVIDIA's ComputeDomain controller read the Kubernetes API, and Prometheus and the Run:ai operator scrape the DCGM metrics. Teal marks what's new or changed, tagged with the MEP that proposes it.</desc>
   <style>
     .panel { fill: #ffffff; stroke: #d1d9e0; }
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
@@ -39,11 +39,11 @@
     }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
     <marker id="arrow-new" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path class="newhead" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="panel" x="0.5" y="0.5" width="999" height="775" rx="12"/>
+  <rect class="panel" x="0.5" y="0.5" width="999" height="849" rx="12"/>
 
   <!-- Control plane: existing functions on the left, changes on the right -->
   <rect class="box" x="100" y="24" width="800" height="128" rx="8"/>
@@ -59,116 +59,130 @@
   <circle class="chg" cx="502" cy="124" r="3.5"/><text class="c" x="512" y="128">rack shard labels from data plane Leases</text>
   <rect class="pill" x="844" y="117" width="40" height="14" rx="7"/><text class="ptext" x="864" y="127.5" text-anchor="middle">0008</text>
 
+  <!-- Kubernetes API -->
+  <rect class="ext" x="170" y="184" width="660" height="52" rx="8"/>
+  <text class="t" x="186" y="214">Kubernetes API</text>
+  <text class="b" x="320" y="206">SGPUInventories, SGPURacks, SGPURackAllocations, shard Leases,</text>
+  <text class="b" x="320" y="224">Nodes, Pods, ResourceSlices, NodeResourceTopologies, ComputeDomainCliques</text>
+
   <!-- CPU Nodes -->
-  <rect class="group" x="24" y="196" width="466" height="448" rx="10"/>
-  <text class="t" x="40" y="218">CPU Nodes</text>
-  <text class="b" x="40" y="234">a real kubelet, and the node daemon on each</text>
+  <rect class="group" x="24" y="268" width="466" height="448" rx="10"/>
+  <text class="t" x="40" y="290">CPU Nodes</text>
+  <text class="b" x="40" y="306">real kubelet</text>
 
-  <rect class="new" x="40" y="250" width="210" height="74" rx="8"/>
-  <text class="t" x="52" y="270">workload tracker</text>
-  <rect class="pill" x="198" y="261" width="40" height="14" rx="7"/><text class="ptext" x="218" y="271.5" text-anchor="middle">0009</text>
-  <text class="b" x="52" y="287">was the allocation watcher;</text>
-  <text class="b" x="52" y="303">reads Pod annotations too</text>
+  <rect class="box" x="40" y="322" width="210" height="74" rx="8"/>
+  <text class="t" x="52" y="342">node daemon</text>
+  <text class="b" x="52" y="359">applies the runtime view</text>
+  <circle class="chg" cx="56" cy="375" r="3.5"/><text class="c" x="66" y="379">NUMA layout in /sys</text>
+  <rect class="pill" x="198" y="368" width="40" height="14" rx="7"/><text class="ptext" x="218" y="378.5" text-anchor="middle">0010</text>
 
-  <rect class="box" x="264" y="250" width="210" height="74" rx="8"/>
-  <text class="t" x="276" y="270">node daemon</text>
-  <text class="b" x="276" y="287">applies the runtime view</text>
-  <circle class="chg" cx="280" cy="303" r="3.5"/><text class="c" x="290" y="307">NUMA layout in /sys</text>
-  <rect class="pill" x="422" y="296" width="40" height="14" rx="7"/><text class="ptext" x="442" y="306.5" text-anchor="middle">0010</text>
+  <rect class="new" x="264" y="322" width="210" height="74" rx="8"/>
+  <text class="t" x="276" y="342">workload tracker</text>
+  <rect class="pill" x="422" y="333" width="40" height="14" rx="7"/><text class="ptext" x="442" y="343.5" text-anchor="middle">0009</text>
+  <text class="b" x="276" y="359">was the allocation watcher;</text>
+  <text class="b" x="276" y="375">reads Pod annotations too</text>
 
-  <rect class="box" x="40" y="356" width="434" height="88" rx="8"/>
-  <text class="t" x="52" y="376">NVML engine</text>
-  <text class="b" x="52" y="392">in every NVML process</text>
-  <circle class="chg" cx="56" cy="410" r="3.5"/><text class="c" x="66" y="414">layer 3: workload telemetry</text>
-  <rect class="pill" x="422" y="403" width="40" height="14" rx="7"/><text class="ptext" x="442" y="413.5" text-anchor="middle">0009</text>
-  <circle class="chg" cx="56" cy="428" r="3.5"/><text class="c" x="66" y="432">one generator, counting from a shared epoch</text>
-  <rect class="pill" x="422" y="421" width="40" height="14" rx="7"/><text class="ptext" x="442" y="431.5" text-anchor="middle">0009</text>
+  <rect class="box" x="40" y="428" width="434" height="88" rx="8"/>
+  <text class="t" x="52" y="448">NVML engine</text>
+  <text class="b" x="52" y="464">in every NVML process</text>
+  <circle class="chg" cx="56" cy="482" r="3.5"/><text class="c" x="66" y="486">layer 3: workload telemetry</text>
+  <rect class="pill" x="422" y="475" width="40" height="14" rx="7"/><text class="ptext" x="442" y="485.5" text-anchor="middle">0009</text>
+  <circle class="chg" cx="56" cy="500" r="3.5"/><text class="c" x="66" y="504">one generator, counting from a shared epoch</text>
+  <rect class="pill" x="422" y="493" width="40" height="14" rx="7"/><text class="ptext" x="442" y="503.5" text-anchor="middle">0009</text>
 
-  <rect class="ext" x="40" y="476" width="210" height="90" rx="8"/>
-  <text class="t" x="52" y="496">real NVIDIA components</text>
-  <text class="b" x="52" y="513">device plugin, DRA driver,</text>
-  <text class="b" x="52" y="529">dcgm-exporter, nvidia-smi,</text>
-  <text class="b" x="52" y="545">in place of FGO's mocks</text>
+  <rect class="ext" x="40" y="548" width="210" height="90" rx="8"/>
+  <text class="t" x="52" y="568">real NVIDIA components</text>
+  <text class="b" x="52" y="585">device plugin, DRA driver,</text>
+  <text class="b" x="52" y="601">dcgm-exporter, nvidia-smi,</text>
+  <text class="b" x="52" y="617">in place of FGO's mocks</text>
 
-  <rect class="ext" x="264" y="476" width="210" height="90" rx="8"/>
-  <text class="t" x="276" y="496">kubelet and NFD</text>
-  <text class="b" x="276" y="513">real, read the NUMA layout</text>
-  <circle class="chg" cx="280" cy="533" r="3.5"/><text class="c" x="290" y="537">produce the NRT</text>
-  <rect class="pill" x="422" y="526" width="40" height="14" rx="7"/><text class="ptext" x="442" y="536.5" text-anchor="middle">0010</text>
+  <rect class="ext" x="264" y="548" width="210" height="90" rx="8"/>
+  <text class="t" x="276" y="568">kubelet and NFD</text>
+  <text class="b" x="276" y="585">real, read the NUMA layout</text>
+  <circle class="chg" cx="280" cy="605" r="3.5"/><text class="c" x="290" y="609">produce the NRT</text>
+  <rect class="pill" x="422" y="598" width="40" height="14" rx="7"/><text class="ptext" x="442" y="608.5" text-anchor="middle">0010</text>
 
-  <rect class="box" x="40" y="582" width="434" height="46" rx="8"/>
-  <text class="t" x="52" y="602">NRI plugin</text>
-  <text class="b" x="52" y="618">hooks container creation</text>
-  <circle class="chg" cx="230" cy="600" r="3.5"/><text class="c" x="240" y="604">rewrites memory binding</text>
-  <rect class="pill" x="422" y="593" width="40" height="14" rx="7"/><text class="ptext" x="442" y="603.5" text-anchor="middle">0010</text>
+  <rect class="box" x="40" y="654" width="434" height="46" rx="8"/>
+  <text class="t" x="52" y="674">NRI plugin</text>
+  <text class="b" x="52" y="690">hooks container creation</text>
+  <circle class="chg" cx="230" cy="672" r="3.5"/><text class="c" x="240" y="676">rewrites memory binding</text>
+  <rect class="pill" x="422" y="665" width="40" height="14" rx="7"/><text class="ptext" x="442" y="675.5" text-anchor="middle">0010</text>
 
   <!-- KWOK Nodes -->
-  <rect class="group" x="510" y="196" width="466" height="448" rx="10"/>
-  <text class="t" x="526" y="218">KWOK Nodes</text>
-  <text class="b" x="526" y="234">virtual: no kubelet, nothing runs on them</text>
+  <rect class="group" x="510" y="268" width="466" height="448" rx="10"/>
+  <text class="t" x="526" y="290">KWOK Nodes</text>
+  <text class="b" x="526" y="306">virtual: no kubelet, nothing runs on them</text>
 
-  <rect class="new" x="526" y="250" width="434" height="180" rx="8"/>
-  <text class="t" x="538" y="270">KWOK data plane</text>
-  <rect class="pill" x="908" y="261" width="40" height="14" rx="7"/><text class="ptext" x="928" y="271.5" text-anchor="middle">0008</text>
-  <text class="b" x="538" y="287">StatefulSet sharded by rack, doing each Node's work</text>
-  <circle class="chg" cx="542" cy="306" r="3.5"/><text class="c" x="552" y="310">nvidia.com/gpu or ResourceSlices</text>
-  <rect class="pill" x="908" y="299" width="40" height="14" rx="7"/><text class="ptext" x="928" y="309.5" text-anchor="middle">0008</text>
-  <circle class="chg" cx="542" cy="324" r="3.5"/><text class="c" x="552" y="328">GFD and NFD labels</text>
-  <rect class="pill" x="908" y="317" width="40" height="14" rx="7"/><text class="ptext" x="928" y="327.5" text-anchor="middle">0008</text>
-  <circle class="chg" cx="542" cy="342" r="3.5"/><text class="c" x="552" y="346">GPU allocation and NUMA zone on Pods</text>
-  <rect class="pill" x="908" y="335" width="40" height="14" rx="7"/><text class="ptext" x="928" y="345.5" text-anchor="middle">0008</text>
-  <circle class="chg" cx="542" cy="360" r="3.5"/><text class="c" x="552" y="364">ComputeDomain reports and cliques</text>
-  <rect class="pill" x="908" y="353" width="40" height="14" rx="7"/><text class="ptext" x="928" y="363.5" text-anchor="middle">0008</text>
-  <circle class="chg" cx="542" cy="378" r="3.5"/><text class="c" x="552" y="382">NodeResourceTopology from the NUMA layout</text>
+  <rect class="new" x="526" y="322" width="434" height="180" rx="8"/>
+  <text class="t" x="538" y="342">KWOK data plane</text>
+  <rect class="pill" x="908" y="333" width="40" height="14" rx="7"/><text class="ptext" x="928" y="343.5" text-anchor="middle">0008</text>
+  <text class="b" x="538" y="359">StatefulSet sharded by rack, doing each Node's work</text>
+  <circle class="chg" cx="542" cy="378" r="3.5"/><text class="c" x="552" y="382">nvidia.com/gpu or ResourceSlices</text>
   <rect class="pill" x="908" y="371" width="40" height="14" rx="7"/><text class="ptext" x="928" y="381.5" text-anchor="middle">0008</text>
-  <circle class="chg" cx="542" cy="396" r="3.5"/><text class="c" x="552" y="400">DCGM metrics with workload telemetry</text>
-  <rect class="pill" x="908" y="389" width="40" height="14" rx="7"/><text class="ptext" x="928" y="399.5" text-anchor="middle">0009</text>
-  <circle class="chg" cx="542" cy="414" r="3.5"/><text class="c" x="552" y="418">the workload tracker, in process</text>
-  <rect class="pill" x="908" y="407" width="40" height="14" rx="7"/><text class="ptext" x="928" y="417.5" text-anchor="middle">0009</text>
+  <circle class="chg" cx="542" cy="396" r="3.5"/><text class="c" x="552" y="400">GFD and NFD labels</text>
+  <rect class="pill" x="908" y="389" width="40" height="14" rx="7"/><text class="ptext" x="928" y="399.5" text-anchor="middle">0008</text>
+  <circle class="chg" cx="542" cy="414" r="3.5"/><text class="c" x="552" y="418">SGPURackAllocations, copied to Pods</text>
+  <rect class="pill" x="908" y="407" width="40" height="14" rx="7"/><text class="ptext" x="928" y="417.5" text-anchor="middle">0008</text>
+  <circle class="chg" cx="542" cy="432" r="3.5"/><text class="c" x="552" y="436">ComputeDomain reports and cliques</text>
+  <rect class="pill" x="908" y="425" width="40" height="14" rx="7"/><text class="ptext" x="928" y="435.5" text-anchor="middle">0008</text>
+  <circle class="chg" cx="542" cy="450" r="3.5"/><text class="c" x="552" y="454">NodeResourceTopology from the NUMA layout</text>
+  <rect class="pill" x="908" y="443" width="40" height="14" rx="7"/><text class="ptext" x="928" y="453.5" text-anchor="middle">0008</text>
+  <circle class="chg" cx="542" cy="468" r="3.5"/><text class="c" x="552" y="472">DCGM metrics with workload telemetry</text>
+  <rect class="pill" x="908" y="461" width="40" height="14" rx="7"/><text class="ptext" x="928" y="471.5" text-anchor="middle">0009</text>
+  <circle class="chg" cx="542" cy="486" r="3.5"/><text class="c" x="552" y="490">the workload tracker, in process</text>
+  <rect class="pill" x="908" y="479" width="40" height="14" rx="7"/><text class="ptext" x="928" y="489.5" text-anchor="middle">0009</text>
 
-  <rect class="new" x="526" y="456" width="210" height="74" rx="8"/>
-  <text class="t" x="538" y="476">KWOK provisioner</text>
-  <rect class="pill" x="684" y="467" width="40" height="14" rx="7"/><text class="ptext" x="704" y="477.5" text-anchor="middle">0008</text>
-  <text class="b" x="538" y="493">optional: creates the Nodes</text>
-  <text class="b" x="538" y="509">of node.source: Mokka groups</text>
+  <rect class="new" x="526" y="528" width="210" height="74" rx="8"/>
+  <text class="t" x="538" y="548">KWOK provisioner</text>
+  <rect class="pill" x="684" y="539" width="40" height="14" rx="7"/><text class="ptext" x="704" y="549.5" text-anchor="middle">0008</text>
+  <text class="b" x="538" y="565">optional: creates the Nodes</text>
+  <text class="b" x="538" y="581">of node.source: Mokka groups</text>
 
-  <rect class="ext" x="750" y="456" width="210" height="74" rx="8"/>
-  <text class="t" x="762" y="476">KWOK controller</text>
-  <text class="b" x="762" y="493">fakes Pod and Node status</text>
-  <circle class="chg" cx="766" cy="509" r="3.5"/><text class="c" x="776" y="513">Mokka's Pod stages</text>
-  <rect class="pill" x="908" y="502" width="40" height="14" rx="7"/><text class="ptext" x="928" y="512.5" text-anchor="middle">0008</text>
+  <rect class="ext" x="750" y="528" width="210" height="74" rx="8"/>
+  <text class="t" x="762" y="548">KWOK controller</text>
+  <text class="b" x="762" y="565">fakes Pod and Node status</text>
+  <circle class="chg" cx="766" cy="581" r="3.5"/><text class="c" x="776" y="585">Mokka's Pod stages</text>
+  <rect class="pill" x="908" y="574" width="40" height="14" rx="7"/><text class="ptext" x="928" y="584.5" text-anchor="middle">0008</text>
 
-  <rect class="ext" x="526" y="572" width="434" height="56" rx="8"/>
-  <text class="t" x="538" y="592">other Node sources</text>
-  <text class="b" x="538" y="610">kwokctl, CI harnesses, an autoscaler's KWOK provider</text>
+  <rect class="ext" x="526" y="644" width="434" height="56" rx="8"/>
+  <text class="t" x="538" y="664">other Node sources</text>
+  <text class="b" x="538" y="682">kwokctl, CI harnesses, an autoscaler's KWOK provider</text>
 
   <!-- Consumers -->
-  <rect class="ext" x="24" y="676" width="952" height="56" rx="8"/>
-  <text class="t" x="40" y="698">consumers, unchanged</text>
-  <text class="b" x="40" y="716">kube-scheduler, KAI, Prometheus, the Run:ai operator and NVIDIA's ComputeDomain controller read the same objects and metrics from both</text>
+  <rect class="ext" x="24" y="748" width="952" height="56" rx="8"/>
+  <text class="t" x="40" y="770">consumers, unchanged</text>
+  <text class="b" x="40" y="788">kube-scheduler, KAI and NVIDIA's ComputeDomain controller read the Kubernetes API; Prometheus and the Run:ai operator scrape DCGM metrics</text>
 
   <!-- Arrows, drawn last so no box covers their heads -->
-  <path class="wire" d="M369,152 V249" marker-end="url(#arrow)"/>
-  <text class="label" x="377" y="180">runtime view per Node</text>
-  <path class="newwire" d="M880,152 V249" marker-end="url(#arrow-new)"/>
-  <text class="label" x="872" y="180" text-anchor="end">rack state, in batches</text>
-  <path class="newwire" d="M145,324 V355" marker-end="url(#arrow-new)"/>
-  <text class="label" x="153" y="344">workload telemetry</text>
-  <path class="wire" d="M369,324 V355" marker-end="url(#arrow)"/>
-  <text class="label" x="377" y="344">runtime view</text>
-  <path class="wire" d="M145,476 V445" marker-end="url(#arrow)"/>
-  <text class="label" x="153" y="465">NVML calls</text>
-  <path class="wire" d="M257,644 V675" marker-end="url(#arrow)"/>
-  <path class="wire" d="M743,644 V675" marker-end="url(#arrow)"/>
-  <text class="label" x="500" y="664" text-anchor="middle">the same Kubernetes objects and DCGM metrics</text>
+  <path class="wire" d="M500,153 V183" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text class="label" x="508" y="172">racks, labels, Leases</text>
+  <path class="wire" d="M145,152 V321" marker-end="url(#arrow)"/>
+  <text class="label" x="153" y="256">runtime view per Node</text>
+  <path class="newwire" d="M880,152 V321" marker-end="url(#arrow-new)"/>
+  <text class="label" x="872" y="176" text-anchor="end">rack state, in batches</text>
+  <path class="wire" d="M330,268 V237" marker-end="url(#arrow)"/>
+  <text class="label" x="338" y="256">capacity, labels, NRT</text>
+  <path class="newwire" d="M800,322 V237" marker-end="url(#arrow-new)"/>
+  <text class="label" x="792" y="256" text-anchor="end">GPUs, labels, allocations, NRT, cliques</text>
+  <path class="wire" d="M500,237 V747" marker-end="url(#arrow)"/>
+  <path class="newwire" d="M369,396 V427" marker-end="url(#arrow-new)"/>
+  <text class="label" x="377" y="416">workload telemetry</text>
+  <path class="wire" d="M145,396 V427" marker-end="url(#arrow)"/>
+  <text class="label" x="153" y="416">runtime view</text>
+  <path class="wire" d="M145,548 V517" marker-end="url(#arrow)"/>
+  <text class="label" x="153" y="537">NVML calls</text>
+  <path class="wire" d="M257,716 V747" marker-end="url(#arrow)"/>
+  <text class="label" x="265" y="736">DCGM metrics</text>
+  <path class="wire" d="M743,716 V747" marker-end="url(#arrow)"/>
+  <text class="label" x="751" y="736">DCGM metrics</text>
 
   <!-- Legend -->
-  <rect class="box" x="24" y="746" width="16" height="12" rx="3"/>
-  <text class="label" x="48" y="756">existing Mokka</text>
-  <rect class="new" x="154" y="746" width="16" height="12" rx="3"/>
-  <text class="label" x="178" y="756">new or changed</text>
-  <rect class="ext" x="288" y="746" width="16" height="12" rx="3"/>
-  <text class="label" x="312" y="756">not Mokka</text>
-  <rect class="pill" x="400" y="745" width="40" height="14" rx="7"/><text class="ptext" x="420" y="755.5" text-anchor="middle">0009</text>
-  <text class="label" x="448" y="756">the MEP that proposes the change</text>
+  <rect class="box" x="24" y="818" width="16" height="12" rx="3"/>
+  <text class="label" x="48" y="828">existing Mokka</text>
+  <rect class="new" x="154" y="818" width="16" height="12" rx="3"/>
+  <text class="label" x="178" y="828">new or changed</text>
+  <rect class="ext" x="288" y="818" width="16" height="12" rx="3"/>
+  <text class="label" x="312" y="828">not Mokka</text>
+  <rect class="pill" x="400" y="817" width="40" height="14" rx="7"/><text class="ptext" x="420" y="827.5" text-anchor="middle">0009</text>
+  <text class="label" x="448" y="828">the MEP that proposes the change</text>
 </svg>
