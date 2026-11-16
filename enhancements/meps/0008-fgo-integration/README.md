@@ -334,6 +334,10 @@ Looking through the list of FGO features, there are three that Mokka should supp
 The [NVIDIA component mocks](#nvidia-ecosystem-integrations) should be replaced by
 Mokka and the real NVIDIA components on top of it.
 
+Together, the three MEPs change Mokka as below. Teal marks what's new or changed, and each change carries the number of the MEP that proposes it:
+
+![FGO integration across Mokka](./img/fgo-big-picture.svg)
+
 ### User Stories
 
 1. **A scheduler load test.** A scheduler team adds a [KWOK rack group](#kwok-integration) of 1,000 `gb300-nvl72` racks with `node.source: Mokka` to an inventory. The [KWOK provisioner](#kwok-provisioner) creates 18,000 Nodes, the control plane [binds each Node to a rack slot](#kwok-nodes), the [KWOK data plane](#kwok-data-plane) publishes its GPUs and labels, and the team runs its load test on a cluster with a few CPU Nodes and no GPUs.
@@ -344,7 +348,7 @@ Mokka and the real NVIDIA components on top of it.
 
 ### Risks and Mitigations
 
-- **Large inventories load the API server.** Each KWOK Node adds a projection patch from the control plane, and a status patch or a ResourceSlice, a label patch and an NRT from the [data plane](#kwok-data-plane). The [provisioner](#kwok-provisioner) adds the Node itself in groups that ask Mokka for their Nodes. Each GPU Pod adds an [allocation patch](#gpu-allocation) and an NRT update. KWOK mode is off by default, the provisioner creates Nodes at a limited rate, and Mokka writes only when slot counts, bindings or Pods change. Metrics stay in memory.
+- **Large inventories load the API server.** Each KWOK Node adds a projection patch from the control plane, and a status patch or a ResourceSlice, a label patch and an NRT from the [data plane](#kwok-data-plane). The [provisioner](#kwok-provisioner) adds the Node itself in groups that ask Mokka for their Nodes. Each GPU Pod, and each Guaranteed Pod while NodeResourceTopology is on, adds an [allocation patch](#gpu-allocation) and an NRT update. KWOK mode is off by default, the provisioner creates Nodes at a limited rate, and Mokka writes only when slot counts, bindings or Pods change. Metrics stay in memory.
 - **DaemonSets that tolerate every taint run on KWOK Nodes.** KWOK fakes their Pods, but each such DaemonSet adds a Pod object per KWOK Node. Mokka keeps its node daemon off them with [node affinity on `mokka.nvidia.com/node-type`](#separating-cpu-and-kwok-racks), and the GPU Operator's operands with [`nvidia.com/gpu.deploy.operands=false`](#kwok-nodes). Cluster admins add the same affinity to their own DaemonSets, such as CNI or log agents.
 - **DCGM metrics load Prometheus.** The example inventory's 72,000 GPUs serve 216,000 series. The `ServiceMonitor` is optional, and [`kwok.dataPlane.metrics.enabled: false`](#kwok-installation) leaves metrics out of tests that don't need them.
 - **Node sources set GPU keys themselves.** A Node template written for FGO may already carry `nvidia.com/gpu` capacity or `nvidia.com/gpu.*` labels. In `DRA` mode, that capacity would offer the Node's GPUs a second time, next to its ResourceSlice. The data plane doesn't force ownership of those keys: it [reports them as an Event on the Node](#publishing-the-gpus), and the migration guide tells sources to drop them.
@@ -701,7 +705,7 @@ The data plane removes what it published for a Node when the Node's binding is r
 
 There's no kubelet on a KWOK Node, so the data plane records on each Pod bound to the Nodes of its racks which GPUs it got. 
 
-In [`DevicePlugin` mode](#device-plugin-mode), it also picks them, as the kubelet's device manager would. 
+In [`DevicePlugin` mode](#device-plugin-mode), it also picks them, as the kubelet's device manager would under the `single-numa-node` policy the [NodeResourceTopology](#noderesourcetopology) advertises: all of a container's GPUs from one zone, and for a Guaranteed container, from a zone where its CPUs and memory also fit. 
 
 In [`DRA` mode](#dra-and-computedomains), the scheduler has already picked every GPU, for claims and `nvidia.com/gpu` requests alike, and the data plane copies its picks from the Pod's claims, including the claim the scheduler creates for `nvidia.com/gpu` requests, which the Pod's `status.extendedResourceClaimStatus` names:
 
@@ -713,17 +717,86 @@ metadata:
   namespace: team-a
   annotations:
     mokka.nvidia.com/gpu-allocation: '{"main":["GPU-<UUID>","GPU-<UUID>"]}' # GPU UUIDs per container
+    mokka.nvidia.com/numa-zone: '{"main":0}' # the zone of each Guaranteed container's CPUs and memory
 spec:
   nodeName: kwok-node-17
+  containers:
+    - name: main
+      resources:
+        limits: {cpu: "16", memory: 64Gi, nvidia.com/gpu: 2} # requests default to limits, so the Pod is Guaranteed
 ```
 
-The data plane builds two surfaces from the mokka.nvidia.com/gpu-allocation annotation: 
-- each NUMA zone's free GPUs in [NodeResourceTopology](#noderesourcetopology), 
+With [NodeResourceTopology](#noderesourcetopology) enabled, `mokka.nvidia.com/numa-zone` records the zone each Guaranteed container's CPUs and memory are charged to, as the kubelet's static CPU and Memory Managers would pin them.
+
+The data plane builds two surfaces from these annotations: 
+- each NUMA zone's free GPUs, CPUs and memory in [NodeResourceTopology](#noderesourcetopology), 
 - and the namespace, pod and container labels on [DCGM metrics](#dcgm-metrics). 
 
-The annotation has the same format in both modes, so neither surface depends on the mode. This mirrors a real Node, where one kubelet API, PodResources, reports both device plugin and DRA allocations.
+The annotations have the same format in both modes, so neither surface depends on the mode. This mirrors a real Node, where one kubelet API, PodResources, reports device plugin and DRA allocations, exclusive CPUs and memory.
 
-The annotation is stored on the Pod rather than in the replica's memory, so a replica that restarts or [takes over a rack](#rebalancing) reads the allocations back. Picking them again in DevicePlugin mode could move a running Pod: if Pod A got GPU 0 and Pod B got GPU 1, a fresh pick after A ends might give B GPU 0.
+The annotations are stored on the Pod rather than in the replica's memory, so a replica that restarts or [takes over a rack](#rebalancing) reads the allocations back. Picking again, GPUs in DevicePlugin mode or zones in either mode, could move a running Pod: if Pod A got GPU 0 and Pod B got GPU 1, a fresh pick after A ends might give B GPU 0.
+
+##### Pod Admission
+
+A real GPU Node's kubelet admits a Pod before running it: 
+- the device manager allocates its GPUs and, 
+- under `single-numa-node`, the Topology Manager checks that they fit one zone. 
+
+A Pod that fails admission ends up `Failed` and never runs. 
+
+KWOK's default Pod stages run every bound Pod on their own, so on a KWOK Node a GPU Pod could show Running before the data plane has allocated its GPUs, such as while a data plane replica restarts, and a test that reads its GPUs right after Running would race.
+
+Mokka's docs ship KWOK Pod stages (see [TODO](#todo)) that gate those Pods on the data plane instead:
+
+- **Which Pods.** Pods that request `nvidia.com/gpu` or have resource claims. A stage sees only the Pod, so it can't tell a claim for GPUs from a claim for another driver's devices.
+- **Running and Ready.** `mokka-pod-ready` moves such a Pod to Running and Ready only once the data plane has allocated its GPUs and, with NodeResourceTopology on, its zone. The data plane writes `mokka.nvidia.com/gpu-allocation` in the same patch as `mokka.nvidia.com/numa-zone`, so the stage checks one annotation, and writes it for every such Pod on its racks, empty if the Pod holds no GPU.
+- **Failed.** A Pod the data plane can't admit never matches `mokka-pod-ready`, so the data plane marks it `Failed` itself, with the reason and message a kubelet would give: `TopologyAffinityError` when no zone fits, or `UnexpectedAdmissionError` when too few GPUs are free. It waits until KWOK has created the Pod and set its Pod IP, since KWOK's `pod-create` stage sets `phase: Pending` on any Pod without one and would undo an earlier `Failed`.
+- **The rest stays KWOK's.** The docs ship KWOK's `pod-ready` with these Pods excluded, and KWOK's other Pod stages unchanged.
+
+`mokka-pod-ready` keeps the selector of KWOK's `pod-ready` and adds the gate and the data plane's annotation. Its delay and status template stay KWOK's:
+
+```yaml
+apiVersion: kwok.x-k8s.io/v1alpha1
+kind: Stage
+metadata:
+  name: mokka-pod-ready
+spec:
+  resourceRef:
+    apiGroup: v1
+    kind: Pod
+  selector:
+    matchExpressions:
+    # KWOK's pod-ready selector: a Pending, initialized Pod whose containers aren't running yet
+    - key: '.metadata.deletionTimestamp'
+      operator: 'DoesNotExist'
+    - key: '.status.phase'
+      operator: 'In'
+      values: ['Pending']
+    - key: '.status.conditions.[] | select( .type == "Initialized" ) | .status'
+      operator: 'In'
+      values: ['True']
+    - key: '.status.containerStatuses.[].state.running.startedAt'
+      operator: 'DoesNotExist'
+    # a gated Pod: it requests nvidia.com/gpu or has resource claims
+    - key: '(([(.spec.containers // [])[], (.spec.initContainers // [])[] | .resources.requests["nvidia.com/gpu"] // empty] | length) > 0) or (((.spec.resourceClaims // []) | length) > 0)'
+      operator: 'In'
+      values: ['true'] # KWOK compares a boolean result as "true" or "false"
+    # the data plane has allocated its GPUs and zone
+    - key: '.metadata.annotations["mokka.nvidia.com/gpu-allocation"]'
+      operator: 'Exists'
+  delay: # as in KWOK's pod-ready
+    durationMilliseconds: 1000
+    jitterDurationMilliseconds: 5000
+  next:
+    statusTemplate: '...' # KWOK's pod-ready template: Ready and ContainersReady, a running status per container, phase Running
+```
+
+
+The `pod-ready` the docs ship is KWOK's, with the gate's expression added and `values: ['false']`.
+
+KWOK has to use this `pod-ready` in place of its default one ([KWOK Installation](#kwok-installation)). Adding Mokka's stages next to the default isn't enough: when only one stage matches a Pod, KWOK runs it whatever its weight, so the default `pod-ready` would run a gated Pod before its allocation exists.
+
+The stages have two limits, which a change in KWOK itself could lift ([TD2](#todo)). A Pod whose claims are for another driver's devices waits forever on a KWOK Node that no data plane serves. And a Guaranteed Pod without GPUs or claims, which the stages don't gate, runs even when no zone fits it, and only gets an Event.
 
 ##### Device Plugin Mode
 
@@ -887,9 +960,16 @@ spec:
 
 ##### NodeResourceTopology
 
-The data plane creates a `NodeResourceTopology` for each Node of its racks and keeps each zone's available GPUs current from the [allocations](#gpu-allocation), as NFD's topology updater does on a real Node. Zones and their capacity come from the GPUs' NUMA placement in the [rack state](#rack-state), so they match what NFD reports for a CPU Node with the same profile ([MEP0010](../0010-numa-aware-scheduling/README.md#numa-setup)).
+The data plane creates a `NodeResourceTopology` for each Node of its racks and keeps each zone's available GPUs, CPUs and memory current from the [allocations](#gpu-allocation), as NFD's topology updater does on a real Node. Zones and their capacity come from the GPUs' NUMA placement in the [rack state](#rack-state), so they match what NFD reports for a CPU Node with the same profile ([MEP0010](../0010-numa-aware-scheduling/README.md#numa-setup)).
 
-Each zone also lists an even share of the Node's allocatable CPUs and memory, as on a CPU Node with MEP0010's NUMA setup. Their availability stays at allocatable: KWOK runs no CPU or Memory Manager, so no Pod holds exclusive CPUs or memory. For `kwok-node-17`, a `gb300-nvl72` Node with 72 CPUs and 480Gi, while `train-0` from [GPU Allocation](#gpu-allocation) holds the two GPUs of zone 0:
+Each zone also lists an even share of the Node's allocatable CPUs and memory, as on a CPU Node with MEP0010's NUMA setup. Their availability follows what the kubelet's static CPU and Memory Managers pin on such a Node, since that's what NFD subtracts there:
+
+- **Guaranteed containers are charged to one zone.** A Guaranteed container's memory, and its CPUs if it requests whole CPUs, come off one zone's availability and return when its Pod ends. Burstable and BestEffort Pods run in the shared pool and leave availability alone, as they do on a CPU Node.
+- **The zone follows the Topology Manager.** Under `single-numa-node`, a container's resources share one zone. In `DevicePlugin` mode, that's the zone of its GPUs, which the data plane [picks](#gpu-allocation) where its CPUs and memory also fit. A container without GPUs goes to the lowest-numbered zone where its CPUs and memory fit, and so does every container in `DRA` mode, since the Topology Manager takes no hints from DRA devices.
+- **The zone is recorded on the Pod**, in `mokka.nvidia.com/numa-zone` ([GPU Allocation](#gpu-allocation)), so a replica that restarts or takes over the rack reads it back.
+- **A container that fits no zone isn't charged.** On a CPU Node, the kubelet would reject its Pod with `TopologyAffinityError`. The data plane marks a Pod that [Mokka's Pod stages](#pod-admission) gate as `Failed` with that reason, as the kubelet would, and reports any other Pod's misfit as an Event.
+
+For `kwok-node-17`, a `gb300-nvl72` Node with 72 CPUs and 480Gi, while `train-0` from [GPU Allocation](#gpu-allocation), a Guaranteed Pod with 16 CPUs and 64Gi, holds the two GPUs of zone 0:
 
 ```yaml
 apiVersion: topology.node.k8s.io/v1alpha2
@@ -913,8 +993,8 @@ zones:
       - {name: node-1, value: 21}
     resources:
       - {name: nvidia.com/gpu, capacity: 2, allocatable: 2, available: 0} # both held by train-0
-      - {name: cpu, capacity: 36, allocatable: 36, available: 36}
-      - {name: memory, capacity: 240Gi, allocatable: 240Gi, available: 240Gi}
+      - {name: cpu, capacity: 36, allocatable: 36, available: 20} # 16 pinned to train-0
+      - {name: memory, capacity: 240Gi, allocatable: 240Gi, available: 176Gi} # 64Gi pinned to train-0
   - name: node-1 # NUMA node 1: gpu-2 and gpu-3, under pci0000:40
     type: Node
     costs:
@@ -1011,7 +1091,7 @@ This is [MEP0001's publication-floor check](../0001-mokka-control-plane/README.m
 
 Batching keeps both sides cheap:
 
-- **The data plane queues racks.** A rack whose generation in Kubernetes is ahead of the one applied joins a queue once, however many events arrive for it. The queue goes out as one request when it holds 100 racks or a second after its first rack arrived, with at most two requests in flight per replica. `NotReady` racks rejoin the queue with backoff while the replica keeps the values it applied last, and `NotFound` racks leave it. The Helm chart makes these limits configurable.
+- **The data plane queues racks.** A rack whose generation in Kubernetes is ahead of the one applied joins a queue once, however many events arrive for it. The queue goes out as one request when it holds 100 racks or a second after its first rack arrived, with at most two requests in flight per replica. `NotReady` racks rejoin the queue with backoff while the replica keeps the values it applied last. `NotFound` racks rejoin it too, since the control plane replica that answered may not have seen a new rack yet. A rack leaves the queue only when the data plane's own watch shows it gone: deleted, recreated under a new UID or moved to another shard. The Helm chart makes these limits configurable.
 - **Bursts turn into a few requests.** A replica that starts with 125 racks fetches them in two requests. A policy that selects all 1,000 racks of the example inventory costs each of eight replicas two requests, 16 in total instead of 1,000.
 - **The control plane shares work.** Any ready control plane replica serves batches, as it serves the node daemon's polls, so the load spreads across replicas. A replica looks up what racks share, such as their profile and the policies selecting their inventory or rack group, once per request, and answers `429` with `Retry-After` when it already serves its limit of concurrent batches.
 
@@ -1022,28 +1102,7 @@ The rack tells the data plane when to fetch. The control plane leader bumps a ra
 
 For each rack UID, the data plane keeps the generation it last applied and queues the rack for the next batch whenever the generation in Kubernetes is ahead. The check compares two numbers, so a missed watch event only delays a fetch, and after a restart a replica fetches each of its racks once, in batches. A rack recreated under the same name has a new UID and starts a new generation sequence, so it counts as a new rack.
 
-```mermaid
-sequenceDiagram
-    actor Admin
-    participant API as Kubernetes API
-    participant Leader as Control plane leader
-    participant Replica as Control plane replica
-    participant DP as KWOK data plane
-
-    Admin->>API: apply SGPURuntimePolicy
-    API-->>Leader: policy event
-    Leader->>API: accept policy, bump status.delivery of affected racks to 13
-    API-->>DP: rack event, generation 13
-    DP->>DP: queue the rack with the others whose generation moved
-    DP->>Replica: POST /v1alpha1/racks/state:batchGet, the rack at minimum 13
-    alt replica is at generation 13 or later
-        Replica-->>DP: the rack's compiled state
-        DP->>DP: apply it, remember generation 13
-    else replica is behind
-        Replica-->>DP: the rack is NotReady
-        DP->>DP: queue it again with backoff, keep serving generation 12
-    end
-```
+![Fetching a rack's state after a policy change](./img/rack-state-fetch.svg)
 
 Values that change on their own never trigger a fetch. The state carries settings, such as a `Bursty` utilization pattern and its range, and [DCGM Metrics](#dcgm-metrics) describes how the data plane turns them into values.
 
@@ -1128,7 +1187,7 @@ The old owner keeps the Nodes' GPUs because the binding hasn't changed, and the 
 The scheme accepts three limits:
 
 - **Overlap on join.** Until the old owner's watch delivers the relabel, both replicas may act on the rack. The data plane writes an allocation only if the Pod has none, with the Pod's `resourceVersion` as a precondition: the first write wins. NodeResourceTopology is recomputed from the allocations, so it converges. DRA and ComputeDomains converge as well as both replicas use the same profile information to submit them. Two Pods bound in that window could still be recorded on one GPU, and the new owner reassigns the later one. A leaving replica stops serving before it deletes its Lease, so a leave can't overlap.
-- **Gaps on restart.** While a replica restarts, new Pods on its racks wait for an allocation, their NodeResourceTopology goes stale, and their GPUs have no metrics, as on a real Node whose kubelet, topology updater or dcgm-exporter restarts.
+- **Gaps on restart.** While a replica restarts, new GPU Pods on its racks stay Pending until they get an allocation ([Pod Admission](#pod-admission)), their NodeResourceTopology goes stale, and their GPUs have no metrics, as on a real Node whose kubelet, topology updater or dcgm-exporter restarts.
 - **No empty replicas.** A replica without racks serves no DCGM series. The chart defaults to one replica, and an autoscaler's maximum should stay well below the number of racks.
 
 #### Separating CPU and KWOK Racks
@@ -1211,6 +1270,8 @@ A replica checks at startup that the cluster serves the APIs its GPU mode and ea
 Cluster admins are expected to install KWOK before enabling Mokka's KWOK functionality, and the docs will say so.
 The KWOK chart won't be included in the Mokka Helm chart. Clusters that use KWOK already run its controller, set up for `kwokctl`, a CI harness or an autoscaler's KWOK provider with their own version and Stages, and a second controller would manage the same Nodes. NVIDIA's DRA driver and NFD stay out of the chart too: users install them the same way for CPU racks, and the CRDs they bring, such as `ComputeDomain` and `NodeResourceTopology`, have to match the driver and NFD releases that use them. If one is missing, the startup check above keeps the data plane unready and logs the API it needs. The docs also give a [KWOK Node template](#kwok-nodes) with Mokka's two labels and a `kwokctl` command that creates Nodes from it, for groups whose Nodes come from elsewhere.
 
+KWOK also has to run [Mokka's Pod stages](#pod-admission). The docs give them as two `Stage` manifests, `mokka-pod-ready` and a `pod-ready` that replaces KWOK's default one, so the KWOK controller needs its `Stage` resources enabled, as `kwokctl create cluster --enable-crds=Stage` does.
+
 #### KAI Use Cases
 
 | Consumer                | Required resources or behavior                                                                                                                                                                                                                       | How Mokka Can Help?                                                                                                                                                                                                                                                                                                              |
@@ -1237,7 +1298,7 @@ The FGO migration comes first and scale second. The KWOK provisioner is optional
 ## Drawbacks
 
 - **Complexity.** KWOK integration greatly expands Mokka's footprint and surface.
-- **Components need wider permissions.** The [data plane](#kwok-data-plane) needs permission to patch any Pod to record its [GPU allocation](#gpu-allocation), and to patch Nodes, Node status and ResourceSlices to [publish their GPUs](#publishing-the-gpus). In `DRA` mode or with `computeDomains`, it also reads every ResourceClaim, and with `computeDomains` it labels Nodes and IMEX daemon Pods and writes [`ComputeDomainClique` objects](#dra-and-computedomains) in the DRA driver's namespace. The control plane needs to watch [Leases](#shard-leases) in its namespace.
+- **Components need wider permissions.** The [data plane](#kwok-data-plane) needs permission to patch any Pod to record its [GPU allocation](#gpu-allocation), and its status to [fail it](#pod-admission) when it can't admit it, and to patch Nodes, Node status and ResourceSlices to [publish their GPUs](#publishing-the-gpus). In `DRA` mode or with `computeDomains`, it also reads every ResourceClaim, and with `computeDomains` it labels Nodes and IMEX daemon Pods and writes [`ComputeDomainClique` objects](#dra-and-computedomains) in the DRA driver's namespace. The control plane needs to watch [Leases](#shard-leases) in its namespace.
 - **The provisioner can delete any Node.** It needs permission to create and delete Nodes, and RBAC can't limit `delete` to Nodes with a label, so only its code keeps it to [the Nodes it created](#kwok-provisioner). It's off by default, and on Kubernetes 1.30 and later a ValidatingAdmissionPolicy can enforce the limit.
 
 ## Alternatives
@@ -1262,11 +1323,12 @@ The main decisions this MEP makes, numbered for review. Each links to the sectio
 | D3  | Bind KWOK Nodes from any source, such as `kwokctl`, a CI harness or an autoscaler, and create Nodes only for groups that ask with `node.source: Mokka`, through an optional provisioner | Mokka creating the Nodes of every KWOK group                                         | Harnesses and autoscalers keep creating Nodes as they do with FGO, and Mokka can't tell a free slot a harness will fill from one it won't                                                                     | [KWOK Nodes](#kwok-nodes), [KWOK Provisioner](#kwok-provisioner), [Alternatives](#alternatives)        |
 | D4  | Add a KWOK data plane, separate from the control plane, that publishes what a GPU Node's daemons would, from the rack state the control plane compiles for the node daemon              | the control plane publishing the GPUs, or the data plane compiling rack state itself | Its load grows with Nodes, Pods and scrapes rather than inventories, so it scales on its own, a Pod burst can't stall binding, and one component decides what a GPU Node looks like                           | [KWOK Components](#kwok-components), [Rack State](#rack-state), [Alternatives](#alternatives)          |
 | D5  | Publish every KWOK Node's GPUs in one mode for the whole install: `DevicePlugin`, as `nvidia.com/gpu` capacity, or `DRA`, as a ResourceSlice                                            | publishing both for the same GPUs                                                    | The scheduler counts `nvidia.com/gpu` and DRA devices separately, so a Node with both would hand out each GPU twice                                                                                           | [Publishing the GPUs](#publishing-the-gpus)                                                            |
-| D6  | Record which GPUs each container holds in the `mokka.nvidia.com/gpu-allocation` annotation on its Pod, in both modes                                                                    | keeping allocations in the data plane's memory                                       | A replica that restarts or takes over a rack reads them back without moving running Pods, and NodeResourceTopology and DCGM metrics get the same record in both modes                                         | [GPU Allocation](#gpu-allocation)                                                                      |
+| D6  | Record on each Pod which GPUs its containers hold, in the `mokka.nvidia.com/gpu-allocation` annotation, and the NUMA zone of each Guaranteed container's CPUs and memory, in both modes | keeping allocations in the data plane's memory                                       | A replica that restarts or takes over a rack reads them back without moving running Pods, and NodeResourceTopology and DCGM metrics get the same record in both modes                                         | [GPU Allocation](#gpu-allocation)                                                                      |
 | D7  | In `DRA` mode and for ComputeDomains, stand in only for what NVIDIA's DRA driver does on the Node, and publish the devices it would: `gpu-<minor>` GPUs with NVIDIA's attributes        | Mokka's own ComputeDomain controller and FGO's UUID-named devices                    | NVIDIA's controller, DeviceClasses and kube-scheduler run unchanged, and a claim written for GPU Nodes selects the same devices on KWOK Nodes                                                                 | [DRA and ComputeDomains](#dra-and-computedomains), [Alternatives](#alternatives)                       |
 | D8  | Shard the data plane by rack, with the control plane assigning each rack to one replica and learning the replicas from their Leases                                                     | replicas picking their own racks from `spec.replicas`                                | Each Node gets one writer without leader election, the API shows which replica serves a rack, and an autoscaler can resize the data plane without telling the control plane                                   | [Sharding](#sharding), [Alternatives](#alternatives)                                                   |
 | D9  | Keep KWOK out of Mokka's Helm chart, so cluster admins install it themselves                                                                                                            | including KWOK's chart as a subchart                                                 | Clusters that use KWOK already run its controller, set up for `kwokctl`, a CI harness or an autoscaler's KWOK provider with their own version and Stages, and a second controller would manage the same Nodes | [KWOK Installation](#kwok-installation)                                                                |
 | D10 | Keep NVIDIA's DRA driver and NFD out of Mokka's Helm chart, along with the DeviceClasses and CRDs they bring                                                                            | including their charts, or just their CRDs, as subcharts                             | Users install them the same way for CPU racks, each CRD has to match the driver or NFD release that uses it, and the data plane's startup check reports any API that's missing                                | [KWOK Installation](#kwok-installation)                                                                |
+| D11 | Make GPU Pods on KWOK Nodes Running and Ready only once the data plane has allocated their GPUs and zone, with a KWOK Pod stage Mokka's docs ship                                       | a mutating webhook, or KWOK's default stages running them regardless                 | Tests see a GPU Pod Ready only once it holds its GPUs and zone, as on a GPU Node, and a Pod the data plane can't admit ends up Failed, as a kubelet would leave it                                            | [Pod Admission](#pod-admission), [KWOK Installation](#kwok-installation)                               |
 
 ## Open Questions
 
@@ -1276,6 +1338,8 @@ Questions this MEP leaves open, numbered for review:
 
 - **Q2. A GPU mode per rack group.** [`gpuPublishing`](#publishing-the-gpus) applies to every KWOK Node, so one install can't run KAI's fraction checks, which need `DevicePlugin`, next to its DRA checks, which need `DRA` ([KAI Use Cases](#kai-use-cases)). Whole-GPU checks run in either mode: from Kubernetes 1.36 and KAI 0.17, KAI serves `nvidia.com/gpu` requests from ResourceSlices on Nodes without `nvidia.com/gpu` capacity. A rack group could override the chart's mode, as node pools on a real cluster run different NVIDIA components.
 
+
 ## TODO
 
 - **TD1. Networking devices in FGO tests**. TODO: investigate whether KAI tests require networking devices.
+- **TD2. Gating Pod stages in KWOK itself.** [Pod Admission](#pod-admission) replaces KWOK's default `pod-ready`, since KWOK runs a lone matching stage whatever its weight, and its stages see only the Pod, not its Node or what its claims are for. A KWOK feature that lets one stage hold another back, such as stage priorities, and selectors that can see a Pod's Node, would let Mokka add its stages without replacing KWOK's, gate only Pods on its own Nodes, and gate Guaranteed Pods without GPUs too, so the data plane can fail those that fit no zone before they run. Explore it with the KWOK maintainers, next to their DRA simulations ([kubernetes-sigs/kwok#1731](https://github.com/kubernetes-sigs/kwok/pull/1731)).
