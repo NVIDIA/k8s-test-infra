@@ -1193,12 +1193,12 @@ spec:
 
 A replica:
 
-- **joins** once its caches sync. It creates its Lease, or renews the one its previous incarnation left, since the name is the same.
-- **renews** every 10 seconds. If it can't renew for 20 seconds, it stops serving, since the control plane may already be moving its racks.
+- **joins** once its caches sync. It creates its Lease, or renews the one its previous incarnation left if the control plane hasn't deleted it yet, since the name is the same.
+- **renews** every 10 seconds. If it can't renew for 20 seconds, it stops serving, since the control plane may already be moving its racks. If it finds its Lease deleted, it creates a new one and joins again.
 
-The control plane watches Leases with the `mokka.nvidia.com/shard-ring=kwok-data-plane` label. For each one, it notes on its own clock when it last saw `renewTime` change and schedules a check one `leaseDurationSeconds` later, since a dead replica sends no events. A Lease is live if it has a holder and a renewal was seen within its duration, and the live Leases are the shards. A new Lease, a deleted one or an expired timer triggers a rebalance, batched over a couple of seconds; renewals only reset timers. The control plane deletes Leases that stay expired for several durations. The Helm chart makes the durations configurable.
+The control plane watches Leases with the `mokka.nvidia.com/shard-ring=kwok-data-plane` label. For each one, it notes on its own clock when it last saw `renewTime` change and schedules a check one `leaseDurationSeconds` later, since a dead replica sends no events. A Lease is live if it has a holder and a renewal was seen within its duration, and the live Leases are the shards. When a check finds no renewal, the control plane deletes the Lease, with the `resourceVersion` it last saw as a precondition, so it can't delete a Lease renewed in the meantime. A new Lease or a deleted one triggers a rebalance, batched over a couple of seconds; renewals only reset timers. So a replica that comes back after its Lease expired creates a new one, joins like any new replica and wins back its former racks. The Helm chart makes the durations configurable.
 
-Every control plane replica watches the shard Leases, so a standby takes over with a warm view, but only the leader computes owners and writes rack labels. Timing renewals on its own clock, as client-go's leader election does, keeps clock skew between Nodes from expiring a live shard. A new leader starts with fresh timers, so it never drops a shard early, and it computes the same labels, so a failover moves no racks.
+Every control plane replica watches the shard Leases, so a standby takes over with a warm view, but only the leader computes owners, writes rack labels and deletes expired Leases. Timing renewals on its own clock, as client-go's leader election does, keeps clock skew between Nodes from expiring a live shard. A new leader starts with fresh timers, so it never drops a shard early. Racks leave a shard only once its Lease is deleted, so a new leader sees the same shards as the old one, computes the same labels, and a failover moves no racks.
 
 ##### Rebalancing
 
@@ -1224,8 +1224,9 @@ The old owner keeps the Nodes' GPUs because the binding hasn't changed, and the 
 |---------------------------------|--------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------|
 | An autoscaler adds a replica    | The new Pod creates its Lease once its caches sync                                               | Adds the shard and relabels the racks it now wins                               |
 | An autoscaler removes a replica | The Pod finds its ordinal at or above `spec.replicas` and deletes its Lease                      | Relabels the shard's racks at once, while the Pod finishes its grace period     |
-| A rolling update or eviction    | The Pod's ordinal is below `spec.replicas`, so it keeps its Lease, and its replacement renews it | Nothing: the racks wait for the replica                                         |
-| A crash or a lost Node          | Renewals stop                                                                                    | Drops the shard 30 seconds after the last renewal it saw and relabels its racks |
+| A rolling update or eviction    | The Pod's ordinal is below `spec.replicas`, so it keeps its Lease, and its replacement renews it | Nothing if the replacement is back within 30 seconds: the racks wait for it     |
+| A crash or a lost Node          | Renewals stop                                                                                    | Deletes the Lease 30 seconds after its last renewal and relabels its racks      |
+| A replica returns after expiry  | Its Lease is gone, so it creates a new one                                                       | Adds the shard and relabels the racks it wins back                              |
 | A control plane failover        | Unchanged                                                                                        | The new leader computes the same labels                                         |
 
 The scheme accepts three limits:
@@ -1344,7 +1345,7 @@ The FGO migration comes first and scale second. The KWOK provisioner is optional
 ## Drawbacks
 
 - **Complexity.** KWOK integration greatly expands Mokka's footprint and surface.
-- **Components need wider permissions.** The [data plane](#kwok-data-plane) needs permission to write [`SGPURackAllocations`](#gpu-allocation), to patch any Pod to copy its allocation and its status to [fail it](#pod-admission) when it can't admit it, and to patch Nodes, Node status and ResourceSlices to [publish their GPUs](#publishing-the-gpus). In `DRA` mode or with `computeDomains`, it also reads every ResourceClaim, and with `computeDomains` it labels Nodes and IMEX daemon Pods and writes [`ComputeDomainClique` objects](#dra-and-computedomains) in the DRA driver's namespace. The control plane needs to watch [Leases](#shard-leases) in its namespace.
+- **Components need wider permissions.** The [data plane](#kwok-data-plane) needs permission to write [`SGPURackAllocations`](#gpu-allocation), to patch any Pod to copy its allocation and its status to [fail it](#pod-admission) when it can't admit it, and to patch Nodes, Node status and ResourceSlices to [publish their GPUs](#publishing-the-gpus). In `DRA` mode or with `computeDomains`, it also reads every ResourceClaim, and with `computeDomains` it labels Nodes and IMEX daemon Pods and writes [`ComputeDomainClique` objects](#dra-and-computedomains) in the DRA driver's namespace. The control plane needs to watch and delete [Leases](#shard-leases) in its namespace.
 - **Releases wait for the data plane.** A KWOK Node's release, and with it a rack's or an inventory's deletion, waits while no data plane replica runs. Turning `kwok.enabled` off first leaves the data plane's fields on KWOK Nodes, so the docs say to delete KWOK inventories before turning it off, as they already say for the control plane.
 - **The provisioner can delete any Node.** It needs permission to create and delete Nodes, and RBAC can't limit `delete` to Nodes with a label, so only its code keeps it to [the Nodes it created](#kwok-provisioner). It's off by default, and on Kubernetes 1.30 and later a ValidatingAdmissionPolicy can enforce the limit.
 
