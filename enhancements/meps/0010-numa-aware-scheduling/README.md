@@ -16,6 +16,7 @@ Authors: [Roman Hlushko](https://github.com/roma-glushko), [Jonathan Rosenboim](
   - [NUMA Setup](#numa-setup)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+- [Decisions](#decisions)
 <!-- /toc -->
 
 ## Summary
@@ -219,27 +220,7 @@ The NUMA trees look like this for a two-zone profile with GPU 0 in zone 0, on a 
 
 The kubelet and NFD each read the layout only once, when they start, so the order matters:
 
-```mermaid
-sequenceDiagram
-    participant D as Mokka node daemon
-    participant S as NUMA topology
-    participant K as kubelet
-    participant P as device plugin
-    participant N as nfd-topology-updater
-    participant R as NodeResourceTopology
-
-    D->>S: publish the profile's zones
-    D->>K: configure NUMA-aware managers and restart
-    K->>S: read the zones once, at startup
-    P->>K: register the GPUs with their NUMA nodes
-    N->>S: read the zones and memory once, at startup
-    N->>K: read allocatable resources once, at startup
-    N->>R: create
-    loop on every pod change
-        N->>K: list pod resources
-        N->>R: update zone availability
-    end
-```
+![Startup order of the NUMA setup](./img/numa-startup-order.svg)
 
 So a NUMA layout change means restarting the kubelet, and any NUMA layout or GPU change means restarting NFD.
 
@@ -279,3 +260,17 @@ What other approaches did you consider, and why did you rule them out? These do
 not need to be as detailed as the proposal, but should include enough
 information to express the idea and why it was not acceptable.
 -->
+
+## Decisions
+
+The main decisions this MEP makes, numbered for review. Each links to the sections that explain it and the smaller choices that follow from it.
+
+| ID | Decision                                                                                                                                                          | Rather than                                                                        | Why                                                                                                                                                         | See                                                                                                                 |
+|----|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------|
+| D1 | On CPU Nodes, give the Node its GPU profile's NUMA layout and configure the kubelet's NUMA-aware managers, so the real kubelet and NFD produce the NRT            | fabricating the NRT, as FGO does from a pool's `numa` block                        | The kubelet admits and places Pods by the same zones the NRT shows, so a placement a real Node would reject fails here too                                  | [Background](#background), [NUMA Setup](#numa-setup)                                                                |
+| D2 | Make one zone for each NUMA node of the profile's PCIe root complexes, and split the host's real CPUs and memory across the zones                                 | sizing zones independently of the host, as FGO's `cpuPerZone` and `memPerZone` do  | The real kubelet hands out the host's own CPUs and memory, so zones can only regroup what the host has                                                      | [NUMA Setup](#numa-setup), [Non-Goals](#non-goals)                                                                  |
+| D3 | Mount the NUMA topology read-only into the Node's own mount namespace, where the kubelet reads it directly and NFD through its hostPath mount of `/sys`           | —                                                                                  | The kubelet and the NRT see the same zones, and the layout doesn't leak to other Kind Nodes on the same kernel                                              | [NUMA Setup](#numa-setup)                                                                                           |
+| D4 | Rewrite containers' memory binding to the kernel's real memory nodes with Mokka's NRI plugin, and refuse NUMA setup while the plugin is off                       | —                                                                                  | The static Memory Manager binds containers to the memory of zones the kernel doesn't have, and such containers fail to start                                | [NUMA Setup](#numa-setup), [Risks and Mitigations](#risks-and-mitigations)                                          |
+| D5 | Make NUMA setup opt-in and meant for disposable test Nodes, such as Kind Nodes                                                                                    | —                                                                                  | It rewrites the kubelet's configuration, deletes its checkpoints and restarts the kubelet and NFD, and the restarted kubelet admits every running Pod again | [NUMA Setup](#numa-setup), [Drawbacks](#drawbacks)                                                                  |
+| D6 | Keep the setup when the node daemon restarts, and install a `systemd` unit that restores the kubelet's own configuration before the kubelet starts after a reboot | reverting it whenever the node daemon's Pod stops, like the rest of its Node state | Undoing the setup restarts the kubelet, and after a reboot the kubelet's configuration and checkpoints remain while the `/sys` mounts are gone              | [NUMA Setup](#numa-setup)                                                                                           |
+| D7 | On KWOK Nodes, have MEP0008's KWOK data plane write the NRT from the same layout, taking each GPU's NUMA node from the rack                                       | —                                                                                  | KWOK Nodes have no kubelet or NFD, and they get the same NRT as CPU Nodes with the same profile                                                             | [NUMA Setup](#numa-setup), [MEP0008's NodeResourceTopology](../0008-fgo-integration/README.md#noderesourcetopology) |
