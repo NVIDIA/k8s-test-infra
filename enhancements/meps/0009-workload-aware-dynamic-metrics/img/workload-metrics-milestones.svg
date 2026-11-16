@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 362" width="1000" height="362" role="img" aria-labelledby="title desc">
+  <title id="title">Workload-aware dynamic metrics milestones</title>
+  <desc id="desc">Three milestones. M1, a shared metrics generator, comes first, and MEP0008's M2 also needs it for DCGM metrics on KWOK Nodes. M1 leads to M2, workload telemetry on CPU Nodes, which leads to M3, workload telemetry on KWOK Nodes. M3 also needs MEP0008's M2.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .title { font-size: 14px; font-weight: 600; }
+    .item { font-size: 12.5px; }
+    .body { font-size: 12px; fill: #59636e; }
+    .done { font-size: 12px; fill: #59636e; }
+    .strong { font-weight: 600; fill: #1f2328; }
+    .label { font-size: 12px; fill: #59636e; }
+    .ms { fill: #ffffff; stroke: #1f2328; stroke-width: 1.5; }
+    .ext { fill: #ffffff; stroke: #59636e; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .rule { stroke: #d1d9e0; stroke-width: 1; }
+    .wire { fill: none; stroke: #59636e; stroke-width: 1.5; }
+    .head { fill: #59636e; }
+    .gen { fill: #bc4c00; } .trk { fill: #0a7782; } .dp { fill: #1a7f37; } .doc { fill: #59636e; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .body, .done, .label { fill: #9198a1; }
+      .strong { fill: #f0f6fc; }
+      .ms { fill: #0d1117; stroke: #f0f6fc; }
+      .ext { fill: #0d1117; stroke: #9198a1; }
+      .rule { stroke: #3d444d; }
+      .wire { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+      .gen { fill: #db6d28; } .trk { fill: #39c5cf; } .dp { fill: #3fb950; } .doc { fill: #9198a1; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="361" rx="12"/>
+
+  <!-- MEP0008's M2: needs M1, and comes before M3 -->
+  <path class="wire" d="M174,95 V42 H675" marker-end="url(#arrow)"/>
+  <text class="label" x="186" y="34">the KWOK data plane uses the generator</text>
+  <rect class="ext" x="676" y="20" width="300" height="44" rx="8"/>
+  <text class="item strong" x="692" y="38">MEP0008 · M2</text>
+  <text class="body" x="692" y="55">DCGM metrics on KWOK Nodes</text>
+  <path class="wire" d="M826,64 V95" marker-end="url(#arrow)"/>
+
+  <!-- M1 -->
+  <rect class="ms" x="24" y="96" width="300" height="208" rx="8"/>
+  <text class="title" x="40" y="122">M1 · A shared metrics generator</text>
+  <circle class="gen" cx="46" cy="144" r="4"/><text class="item" x="58" y="148">generator package without cgo</text>
+  <circle class="gen" cx="46" cy="163" r="4"/><text class="item" x="58" y="167">Steady, Bursty and Wave patterns</text>
+  <circle class="gen" cx="46" cy="182" r="4"/><text class="item" x="58" y="186">time from a shared epoch</text>
+  <circle class="gen" cx="46" cy="201" r="4"/><text class="item" x="58" y="205">NVML engine on the new package</text>
+  <line class="rule" x1="40" y1="256" x2="308" y2="256"/>
+  <text class="done" x="40" y="274"><tspan class="strong">Done when</tspan> a Bursty or Wave policy</text>
+  <text class="done" x="40" y="291">shapes utilization on CPU Nodes</text>
+
+  <!-- M2 -->
+  <rect class="ms" x="350" y="96" width="300" height="208" rx="8"/>
+  <text class="title" x="366" y="122">M2 · Workload telemetry on CPU Nodes</text>
+  <circle class="trk" cx="372" cy="144" r="4"/><text class="item" x="384" y="148">workload tracker CLI</text>
+  <circle class="trk" cx="372" cy="163" r="4"/><text class="item" x="384" y="167">telemetry annotations from Pods</text>
+  <circle class="trk" cx="372" cy="182" r="4"/><text class="item" x="384" y="186">device-plugin and DRA binding</text>
+  <circle class="gen" cx="372" cy="201" r="4"/><text class="item" x="384" y="205">layer 3 in the NVML engine</text>
+  <circle class="doc" cx="372" cy="220" r="4"/><text class="item" x="384" y="224">new Helm values, deprecated aliases</text>
+  <line class="rule" x1="366" y1="256" x2="634" y2="256"/>
+  <text class="done" x="366" y="274"><tspan class="strong">Done when</tspan> user stories 1 and 2 pass</text>
+  <text class="done" x="366" y="291">with the device plugin and DRA</text>
+
+  <!-- M3 -->
+  <rect class="ms" x="676" y="96" width="300" height="208" rx="8"/>
+  <text class="title" x="692" y="122">M3 · Workload telemetry on KWOK Nodes</text>
+  <circle class="dp" cx="698" cy="144" r="4"/><text class="item" x="710" y="148">tracker inside the data plane</text>
+  <circle class="dp" cx="698" cy="163" r="4"/><text class="item" x="710" y="167">binding from the allocation record</text>
+  <circle class="dp" cx="698" cy="182" r="4"/><text class="item" x="710" y="186">telemetry in its DCGM metrics</text>
+  <line class="rule" x1="692" y1="256" x2="960" y2="256"/>
+  <text class="done" x="692" y="274"><tspan class="strong">Done when</tspan> user story 3's test runs</text>
+  <text class="done" x="692" y="291">unchanged on KWOK Nodes</text>
+
+  <path class="wire" d="M324,200 H349" marker-end="url(#arrow)"/>
+  <path class="wire" d="M650,200 H675" marker-end="url(#arrow)"/>
+
+  <!-- Legend -->
+  <circle class="gen" cx="30" cy="338" r="4"/><text class="label" x="40" y="342">metrics generator and NVML engine</text>
+  <circle class="trk" cx="265" cy="338" r="4"/><text class="label" x="275" y="342">workload tracker</text>
+  <circle class="dp" cx="395" cy="338" r="4"/><text class="label" x="405" y="342">KWOK data plane</text>
+  <circle class="doc" cx="520" cy="338" r="4"/><text class="label" x="530" y="342">chart, docs and tests</text>
+  <rect class="ext" x="680" y="330" width="28" height="16" rx="4"/><text class="label" x="716" y="342">another MEP</text>
+  <path class="wire" d="M804,338 H838" marker-end="url(#arrow)"/><text class="label" x="846" y="342">comes first</text>
+</svg>

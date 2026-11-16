@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 532" width="1000" height="532" role="img" aria-labelledby="title desc">
   <title id="title">KWOK integration milestones</title>
-  <desc id="desc">Four milestones. M1, GPUs on KWOK Nodes, needs MEP0001's compiled rack state and delivery generation, and leads to M2, FGO parity for Run:ai, which needs MEP0010's NUMA layout and enables MEP0009's workload metrics on KWOK Nodes. M2 leads to M3, scale out. M4, the optional KWOK provisioner, needs only M1 and can run alongside M2 and M3.</desc>
+  <desc id="desc">Four milestones. M1, GPUs on KWOK Nodes, needs MEP0001's compiled rack state and delivery generation, and leads to M2, FGO parity for Run:ai, which needs MEP0010's NUMA layout and MEP0009's M1, the shared metrics generator, and enables MEP0009's M3, workload telemetry on KWOK Nodes. M2 leads to M3, scale out. M4, the optional KWOK provisioner, needs only M1 and can run alongside M2 and M3.</desc>
   <style>
     .panel { fill: #ffffff; stroke: #d1d9e0; }
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
@@ -46,12 +46,17 @@
   <text class="body" x="366" y="55">NUMA layout for NodeResourceTopology</text>
   <path class="wire" d="M500,64 V95" marker-end="url(#arrow)"/>
 
+  <rect class="ext" x="676" y="20" width="300" height="44" rx="8"/>
+  <text class="item strong" x="692" y="38">MEP0009 · M1</text>
+  <text class="body" x="692" y="55">shared metrics generator</text>
+  <path class="wire" d="M720,64 V80 H620 V95" marker-end="url(#arrow)"/>
+
   <!-- M1 -->
   <rect class="ms" x="24" y="96" width="300" height="208" rx="8"/>
   <text class="title" x="40" y="122">M1 · GPUs on KWOK Nodes</text>
   <circle class="cp" cx="46" cy="144" r="4"/><text class="item" x="58" y="148">node.type and KWOK placement</text>
   <circle class="cp" cx="46" cy="163" r="4"/><text class="item" x="58" y="167">batched rack state</text>
-  <circle class="cp" cx="46" cy="182" r="4"/><text class="item" x="58" y="186">rack shard labels from Leases</text>
+  <circle class="cp" cx="46" cy="182" r="4"/><text class="item" x="58" y="186">rack shard label, one replica</text>
   <circle class="dp" cx="46" cy="201" r="4"/><text class="item" x="58" y="205">nvidia.com/gpu, GFD and NFD labels</text>
   <circle class="dp" cx="46" cy="220" r="4"/><text class="item" x="58" y="224">GPU allocation on Pods</text>
   <circle class="doc" cx="46" cy="239" r="4"/><text class="item" x="58" y="243">kwok.enabled, Node template</text>
@@ -77,7 +82,7 @@
   <text class="title" x="692" y="122">M3 · Scale out</text>
   <circle class="cp" cx="698" cy="144" r="4"/><text class="item" x="710" y="148">rebalancing on join and leave</text>
   <circle class="dp" cx="698" cy="163" r="4"/><text class="item" x="710" y="167">several replicas, rack handover</text>
-  <circle class="dp" cx="698" cy="182" r="4"/><text class="item" x="710" y="186">Lease expiry and scale-down</text>
+  <circle class="dp" cx="698" cy="182" r="4"/><text class="item" x="710" y="186">shard Leases, expiry, scale-down</text>
   <circle class="doc" cx="698" cy="201" r="4"/><text class="item" x="710" y="205">replica autoscaling</text>
   <circle class="doc" cx="698" cy="220" r="4"/><text class="item" x="710" y="224">data plane scenarios in tests/kwok</text>
   <line class="rule" x1="692" y1="256" x2="960" y2="256"/>
@@ -104,8 +109,8 @@
   <!-- Enabled by M2 -->
   <path class="wire" d="M620,304 V320 H826 V335" marker-end="url(#arrow)"/>
   <rect class="ext" x="676" y="336" width="300" height="44" rx="8"/>
-  <text class="item strong" x="692" y="354">MEP0009</text>
-  <text class="body" x="692" y="371">workload metrics on KWOK Nodes</text>
+  <text class="item strong" x="692" y="354">MEP0009 · M3</text>
+  <text class="body" x="692" y="371">workload telemetry on KWOK Nodes</text>
 
   <!-- Legend -->
   <circle class="cp" cx="30" cy="511" r="4"/><text class="label" x="40" y="515">control plane</text>

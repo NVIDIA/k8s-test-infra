@@ -19,8 +19,10 @@ Author: [Roman Hlushko](https://github.com/roma-glushko)
     - [CPU Nodes: Workload Tracker](#cpu-nodes-workload-tracker)
     - [Pod-to-GPU Binding](#pod-to-gpu-binding)
     - [KWOK Nodes: Data Plane](#kwok-nodes-data-plane)
+  - [Milestones](#milestones)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+- [Open Questions](#open-questions)
 <!-- /toc -->
 
 ## Summary
@@ -274,195 +276,70 @@ Today the allocation watcher turns the kubelet's `PodResources` claims into memo
 The NVML engine has no layer for workload telemetry, and each NVML process runs the generator on its own clock.
 Red marks the parts the target shape changes:
 
-```mermaid
-flowchart LR
-    kubelet["<b>kubelet</b><br/>PodResources API"]
-
-    ctl["<b><code>nvml-mock-ctl set</code></b><br/>NVML set calls"]
-    watcher["<b>allocation watcher</b><br/>sidecar, unprivileged<br/><code>memory.used</code> = claims × 50 % usable"]
-    daemon["<b>node daemon</b><br/>applies the runtime view"]
-
-    overrides["<b><code>overrides.yaml</code></b><br/>3 writers, last one wins"]
-    config["<b><code>config.yaml</code></b><br/>defaults + policies"]
-
-    subgraph engine["<b>NVML engine</b>, in every NVML process"]
-        direction TB
-        l1["1 · fault state"]
-        l2["2 · overrides"]
-        l3["no workload telemetry"]
-        l4["4 · runtime view"]
-        rule["top layer with a value wins"]
-        l1 ~~~ l2 ~~~ l3 ~~~ l4 ~~~ rule
-    end
-
-    dcgm["<b>dcgm-exporter</b><br/>:9400, adds pod labels"]
-    smi["<b><code>nvidia-smi</code></b>"]
-    dp["<b>device plugin</b>"]
-
-    kubelet ~~~ ctl
-    kubelet ~~~ daemon
-    kubelet -->|"claims, every 2 s"| watcher
-    ctl -->|"sets"| overrides
-    watcher -->|"rewrites every 2 s"| overrides
-    daemon -->|"writes"| config
-    overrides -->|"layer 2"| engine
-    config -->|"layer 4"| engine
-    engine -->|"values, on every call"| dcgm & smi & dp
-    kubelet -.->|"pod labels, from the same PodResources API"| dcgm
-
-    classDef todayOnly fill:#f7e4e0,stroke:#ae3d2a,stroke-width:2px,color:#000
-    class overrides todayOnly
-    style l3 stroke-dasharray: 5 5
-    style rule fill:none,stroke:none
-    linkStyle 8 stroke:#ae3d2a,stroke-width:2px
-```
+![Allocation watcher today](./img/workload-tracker-today.svg)
 
 In the target shape, the workload tracker also reads this Node's Pods from the Kubernetes API. It turns binding and telemetry annotations into each GPU's workload telemetry and writes it to a file that only it writes. Like the runtime view's telemetry settings, it says how values move, such as utilization between 80 and 100 percent with half the memory used, not the values themselves. The engine reads that file as layer 3, between manual overrides and the runtime view. The generator counts time from a shared epoch, so every NVML process reports the same series. Teal marks what's new or changed:
 
-```mermaid
-flowchart LR
-    kubelet["<b>kubelet</b><br/>PodResources API"]
-    api["<b>Kubernetes API</b><br/>this Node's Pods"]
-
-    ctl["<b><code>nvml-mock-ctl set</code></b><br/>NVML set calls"]
-    tracker["<b>workload tracker</b><br/>sidecar, unprivileged<br/>binding +<br/>telemetry annotations<br/>→ workload telemetry"]
-    daemon["<b>node daemon</b><br/>applies the runtime view"]
-
-    overrides["<b><code>overrides.yaml</code></b><br/>kept until reset"]
-    telemetry["<b>workload telemetry file</b><br/>only the tracker writes"]
-    config["<b><code>config.yaml</code></b><br/>defaults + policies"]
-
-    subgraph engine["<b>NVML engine</b>, in every NVML process"]
-        direction TB
-        l1["1 · fault state"]
-        l2["2 · overrides"]
-        l3["3 · workload telemetry"]
-        l4["4 · runtime view"]
-        rule["top layer with a value wins"]
-        l1 ~~~ l2 ~~~ l3 ~~~ l4 ~~~ rule
-    end
-
-    dcgm["<b>dcgm-exporter</b><br/>:9400, adds pod labels"]
-    smi["<b><code>nvidia-smi</code></b>"]
-    dp["<b>device plugin</b>"]
-
-    kubelet ~~~ ctl
-    kubelet ~~~ daemon
-    kubelet -->|"claims, every 2 s"| tracker
-    api -->|"telemetry annotations"| tracker
-    ctl -->|"sets"| overrides
-    tracker -->|"writes"| telemetry
-    daemon -->|"writes"| config
-    overrides -->|"layer 2"| engine
-    telemetry -->|"layer 3"| engine
-    config -->|"layer 4"| engine
-    engine -->|"values, on every call"| dcgm & smi & dp
-    kubelet -.->|"pod labels, from the same PodResources API"| dcgm
-
-    classDef new fill:#ddf0f2,stroke:#0a7782,stroke-width:2px,color:#000
-    class api,telemetry,l3 new
-    style rule fill:none,stroke:none
-    linkStyle 7,9,12 stroke:#0a7782,stroke-width:2px
-```
+![Workload tracker target](./img/workload-tracker-target.svg)
 
 #### Pod-to-GPU Binding
 
-On a CPU Node, the workload tracker never decides which GPU a pod gets. It reads the decision back from the kubelet's PodResources API every 2 seconds. On a KWOK Node, the data plane's [allocation record](../0008-fgo-integration/README.md#gpu-allocation) gives the same binding. In the diagrams below, the shaded steps are the workload tracker's.
+On a CPU Node, the workload tracker never decides which GPU a pod gets. It reads the decision back from the kubelet's PodResources API every 2 seconds. On a KWOK Node, the data plane's [allocation record](../0008-fgo-integration/README.md#gpu-allocation) gives the same binding. In the diagrams below, teal marks the workload tracker's steps.
 
 With the device plugin, the scheduler only picks the Node, and the kubelet's device manager picks the device. Under the device plugin's default `deviceIDStrategy: uuid`, each device ID is a GPU UUID, which the plugin read from Mokka's NVML and Mokka took from the profile. So the tracker only has to match IDs to UUIDs:
 
-```mermaid
-sequenceDiagram
-    participant S as kube-scheduler<br/>picks the Node
-    participant K as kubelet<br/>device manager
-    participant P as NVIDIA device plugin<br/>real, on Mokka's NVML
-    participant N as NVML engine<br/>GPUs from the profile
-    participant T as workload tracker<br/>sidecar
-
-    P->>N: lists the GPUs through NVML
-    N-->>P: UUIDs from the profile
-    P->>K: advertises GPUs, ID = UUID
-    S->>K: binds the pod to this Node<br/>a GPU count, no device
-    Note over K: picks free device IDs,<br/>with Topology Manager hints,<br/>and checkpoints them
-    K->>P: Allocate(those IDs)
-    rect rgba(10, 119, 130, 0.12)
-        T->>K: PodResources List, every 2 s
-        K-->>T: pod, container → device IDs
-        Note over T: matches each ID to a UUID
-        T->>N: marks that GPU busy
-    end
-```
+![Pod-to-GPU binding with the device plugin](./img/gpu-binding-device-plugin.svg)
 
 With DRA, the scheduler picks the device as well as the Node and records it in the ResourceClaim. PodResources reports the device by driver, pool and name, by default from Kubernetes 1.34. The NVIDIA DRA driver names a GPU `gpu-<minor>`, using the minor number Mokka's NVML reports for it, so the tracker matches the number in the name to the GPU with that minor number. It needs no access to the DRA API. Today the allocation watcher reads only device-plugin devices, so reading DRA claims is new:
 
-```mermaid
-sequenceDiagram
-    participant S as kube-scheduler<br/>picks Node and device
-    participant A as kube-apiserver<br/>slices and claims
-    participant K as kubelet<br/>DRA manager
-    participant D as NVIDIA DRA driver<br/>real, on Mokka's NVML
-    participant N as NVML engine<br/>GPUs from the profile
-    participant T as workload tracker<br/>sidecar
-
-    D->>N: lists the GPUs through NVML
-    N-->>D: UUIDs and minor numbers
-    D->>A: publishes this Node's ResourceSlice:<br/>gpu-0 … gpu-3, named by minor number
-    A-->>S: the slices, the pod's claim
-    Note over S: picks a free device<br/>that fits the claim,<br/>such as gpu-2
-    S->>A: allocates gpu-2 in the claim
-    S->>A: binds the pod to this Node
-    A-->>K: the pod and its claim
-    K->>D: NodePrepareResources
-    D-->>K: a CDI device for the claim
-    rect rgba(10, 119, 130, 0.12)
-        T->>K: PodResources List, every 2 s
-        K-->>T: pod, container → driver, pool, gpu-2
-        Note over T: matches gpu-2 to the GPU<br/>with minor number 2
-        T->>N: marks that GPU busy
-    end
-```
+![Pod-to-GPU binding with DRA](./img/gpu-binding-dra.svg)
 
 #### KWOK Nodes: Data Plane
 
 A KWOK Node has no kubelet, NVML engine or processes, so the [KWOK data plane](../0008-fgo-integration/README.md#kwok-data-plane) replica that owns the rack does every step in memory. It runs the workload tracker in process instead of as a sidecar, with the same code as on CPU Nodes, so a Pod's telemetry annotations mean the same on both kinds of Node. Teal marks what workload awareness adds to the data plane:
 
-```mermaid
-flowchart LR
-    api["<b>Kubernetes API</b><br/>Pods on the replica's racks"]
-    cp["<b>control plane API</b><br/>runtime view per rack"]
-
-    subgraph dp["<b>KWOK data plane replica</b>, in memory"]
-        tracker["<b>workload tracker</b><br/>in process<br/>binding +<br/>telemetry annotations<br/>→ workload telemetry"]
-        view["<b>runtime view</b><br/>telemetry settings"]
-        subgraph metrics["<b>DCGM metrics</b>, on each scrape"]
-            direction TB
-            l3["3 · workload telemetry"]
-            l4["4 · runtime view"]
-            rule["top layer with a value wins"]
-            l3 ~~~ l4 ~~~ rule
-        end
-    end
-
-    prom["<b>Prometheus</b><br/>scrapes each replica on :9400"]
-
-    api -->|"allocation record,<br/>telemetry annotations"| tracker
-    cp -->|"fetched on a delivery<br/>generation bump"| view
-    tracker -->|"layer 3"| metrics
-    view -->|"layer 4"| metrics
-    metrics -->|"values, with pod labels"| prom
-
-    classDef new fill:#ddf0f2,stroke:#0a7782,stroke-width:2px,color:#000
-    class tracker,l3 new
-    style rule fill:none,stroke:none
-    linkStyle 2,4 stroke:#0a7782,stroke-width:2px
-```
+![Workload telemetry on KWOK Nodes](./img/workload-tracker-kwok.svg)
 
 - **Binding** comes from the [GPU allocation](../0008-fgo-integration/README.md#gpu-allocation) record the data plane writes on each Pod, for `nvidia.com/gpu` requests and DRA claims alike. The data plane knows a binding as soon as it writes the record, so nothing is polled.
 - **Telemetry annotations** come from the [Pod watch](../0008-fgo-integration/README.md#separating-cpu-and-kwok-racks) the data plane already has, so it needs no new API access.
 - **Workload telemetry** stays in the replica's memory, since nothing outside the replica reads it. The replica recomputes a GPU's workload telemetry when a Pod on it is allocated, changes or goes away.
-- **Values** are computed on scrape, at most once per 10-second step, as [DCGM Metrics](../0008-fgo-integration/README.md#dcgm-metrics) in MEP0008 describes. When a GPU has workload telemetry, `DCGM_FI_DEV_GPU_UTIL` follows it instead of the runtime view, `DCGM_FI_DEV_FB_USED` follows its memory share, and `DCGM_FI_DEV_FB_FREE` is the rest. A GPU without Pods keeps following the runtime view.
+- **Values** are computed on scrape, at most once per 10-second step, as [DCGM Metrics](#dcgm-metrics) describes. When a GPU has workload telemetry, `DCGM_FI_DEV_GPU_UTIL` follows it instead of the runtime view, `DCGM_FI_DEV_FB_USED` follows its memory share, and `DCGM_FI_DEV_FB_FREE` is the rest. A GPU without Pods keeps following the runtime view.
 - **Only layers 3 and 4 exist.** There's no NVML for `nvml-mock-ctl` to override, and fault injection in KWOK mode is a [non-goal of MEP0008](../0008-fgo-integration/README.md#non-goals).
 - **Workload telemetry and values aren't persisted.** Values depend only on telemetry settings and time, counted from an epoch every replica shares, such as the Unix epoch. A replica that restarts, or takes over a rack after a [reshard](../0008-fgo-integration/README.md#sharding), rebuilds the workload telemetry from the allocation records and continues the same series without a jump.
+
+##### DCGM Metrics
+
+The data plane serves DCGM metrics for the GPUs of its racks through a `Service` named `mokka-kwok-dcgm-exporter` on port `9400`. The Service keeps a DCGM exporter's name because consumers look for one, as the [Run:ai cluster operator](../0008-fgo-integration/README.md#kai-use-cases) does, so an inventory that mixes CPU and KWOK racks has two such Services ([Q2](#open-questions)). The metrics are the three fields that check needs:
+
+| Metric                 | Value                                                                   |
+|------------------------|-------------------------------------------------------------------------|
+| `DCGM_FI_DEV_GPU_UTIL` | GPU utilization in percent, generated from the GPU's telemetry settings |
+| `DCGM_FI_DEV_FB_USED`  | Frame buffer memory in use, in MiB                                      |
+| `DCGM_FI_DEV_FB_FREE`  | Frame buffer memory free, in MiB                                        |
+
+Each series carries the labels dcgm-exporter uses. `gpu`, `UUID`, `device`, `pci_bus_id` and `modelName` come from the [rack state](../0008-fgo-integration/README.md#rack-state), `Hostname` from the KWOK Node, and `namespace`, `pod` and `container` from the [GPU allocation](../0008-fgo-integration/README.md#gpu-allocation) while a Pod holds the GPU:
+
+```prometheus
+DCGM_FI_DEV_GPU_UTIL{gpu="0",UUID="GPU-<UUID>",device="nvidia0",pci_bus_id="00000008:01:00.0",modelName="NVIDIA GB300 NVL",Hostname="kwok-node-17",namespace="team-a",pod="train-0",container="main"} 87
+```
+
+`Hostname` is the GPU's KWOK Node name. On a GPU Node, all series from one dcgm-exporter instance share a `Hostname`, because the instance serves only that Node. The data plane serves many Nodes, so it keeps one value per Node by using the Node name. The chart's optional [`ServiceMonitor`](../0008-fgo-integration/README.md#kwok-installation) also sets `instance` from `Hostname`, which gives each KWOK Node its own `instance`, as with per-Node exporters.
+
+`DCGM_FI_DEV_GPU_UTIL` follows the GPU's telemetry settings from the [rack state](../0008-fgo-integration/README.md#rack-state). The settings say how the value moves, such as a `Bursty` pattern between 20 and 90 percent, and the data plane's metrics generator turns them into values, as the NVML engine does on CPU Nodes. Both use one generator package, so a policy produces the same series on both kinds of Node. Today the generator is internal to [`pkg/gpu/mocknvml/engine`](../../../pkg/gpu/mocknvml/engine), which uses cgo, and it implements `steady`, `idle`, `busy` and `burst` rather than the `Steady`, `Bursty` and `Wave` patterns the CRD defines. Moving it into its own package, with the CRD's patterns, is part of this work. Whether the generator is flexible and extensible enough to build on is an open question ([Q1](#open-questions)).
+
+`DCGM_FI_DEV_FB_USED` and `DCGM_FI_DEV_FB_FREE` split the GPU's memory and stay constant, as on CPU Nodes, where the NVML engine reports the profile's memory figures unchanged. The data plane generates values for every GPU, with or without a Pod, as the NVML engine does. On a GPU that Pods hold, workload telemetry replaces the utilization and memory values, as [KWOK Nodes: Data Plane](#kwok-nodes-data-plane) describes.
+
+The data plane computes values when it's scraped, at most once per 10-second step, configurable in the Helm chart, much as `dcgm-exporter` serves its last 30-second sample to every scrape. A replica keeps each series' labels and the frame-buffer lines rendered, since those change only when a Pod's allocation or workload telemetry does. The first scrape in a step computes `DCGM_FI_DEV_GPU_UTIL` for the replica's GPUs, compresses the response once and caches it for the rest of the step, and nothing runs while nobody scrapes. Compressing the text is the main cost: about 6 MB per replica with eight replicas, or 50 MB for one replica serving all 72,000 GPUs, so large inventories need more replicas.
+
+### Milestones
+
+We propose three milestones, each ending with something users can run. The generator comes first, since the NVML engine and the KWOK data plane both build on it, and CPU Nodes come before KWOK Nodes:
+
+![Milestones](./img/workload-metrics-milestones.svg)
+
+- **M1: A shared metrics generator.** The generator moves out of [`pkg/gpu/mocknvml/engine`](../../../pkg/gpu/mocknvml/engine) into a package of its own without cgo, with the CRD's `Steady`, `Bursty` and `Wave` patterns and time counted from a shared epoch, and the NVML engine switches to it. It settles [Q1](#open-questions) before anything else builds on the generator, and [MEP0008's M2](../0008-fgo-integration/README.md#milestones) needs it for the KWOK data plane's DCGM metrics. Done when a runtime policy's `Bursty` or `Wave` pattern shapes the utilization dcgm-exporter and `nvidia-smi` report on CPU Nodes.
+- **M2: Workload telemetry on CPU Nodes.** The allocation watcher becomes the [workload tracker](#cpu-nodes-workload-tracker), a CLI of its own deployed with the node daemon, under new Helm values and a new container name, with the old ones kept as deprecated aliases for a release. It reads its Node's Pods for the [telemetry annotations](#workload-aware-dynamic-metrics), takes the [binding](#pod-to-gpu-binding) from PodResources for device-plugin and DRA allocations alike, and writes the workload telemetry the NVML engine reads as layer 3. Done when the first two [user stories](#user-stories) pass with the device plugin and with NVIDIA's DRA driver.
+- **M3: Workload telemetry on KWOK Nodes.** The [KWOK data plane](#kwok-nodes-data-plane) runs M2's tracker in process, takes the binding from its allocation record and applies the workload telemetry to its [DCGM metrics](#dcgm-metrics). It needs [MEP0008's M2](../0008-fgo-integration/README.md#milestones), which brings DCGM metrics to KWOK Nodes. Done when the third user story's test runs unchanged on KWOK Nodes.
 
 ## Drawbacks
 
@@ -471,3 +348,11 @@ flowchart LR
 ## Alternatives
 
 **Look up the GPU's UUID in the Node's ResourceSlice.** With DRA, PodResources tells the workload tracker which device a Pod got by its name, such as `gpu-2`, not by its UUID, and [Pod-to-GPU Binding](#pod-to-gpu-binding) reads the minor number from that name. Instead, the tracker could find the device in the ResourceSlice that the NVIDIA DRA driver publishes for the Node and take its `uuid` attribute, as dcgm-exporter does with `--kubernetes-enable-dra`. That would keep working if a driver release stopped naming GPUs after their minor numbers, a change that would make the minor-number match pick the wrong GPU or none. The MEP doesn't use it because the tracker would then depend on the DRA API: it would watch ResourceSlices and need permission to read them, while the minor-number match needs only PodResources and Pods.
+
+## Open Questions
+
+Questions this MEP leaves open, numbered for review:
+
+- **Q1. The metrics generator.** Is the current way we simulate dynamic metrics flexible and extensible enough to build upon? The KWOK data plane shares the NVML engine's generator ([DCGM Metrics](#dcgm-metrics)).
+
+- **Q2. One DCGM exporter Service.** The [Run:ai cluster operator](../0008-fgo-integration/README.md#kai-use-cases) expects exactly one DCGM exporter Service. An inventory that mixes CPU and KWOK racks has two: the GPU Operator's for CPU Nodes and the KWOK data plane's `mokka-kwok-dcgm-exporter` for KWOK Nodes ([DCGM Metrics](#dcgm-metrics)).
