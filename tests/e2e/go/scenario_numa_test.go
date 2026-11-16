@@ -60,6 +60,9 @@ var _ = Describe("NUMA topology through the real NFD updater", Label("numa"), Or
 			waitNUMARestored(ctx, h, worker)
 			original[worker.Name], err = readNUMANodeSetup(ctx, worker)
 			Expect(err).NotTo(HaveOccurred())
+			for target, mount := range original[worker.Name].Mounts {
+				Expect(mount).NotTo(ContainSubstring("/var/lib/nvml-mock/numa"), "baseline must not retain a simulated mount at %s", target)
+			}
 		}
 		expected = numaNodeExpectations(ctx, h, workers)
 		installNvmlMock(ctx, h, loadProfile("a100"), string(assets.NUMAValues))
