@@ -574,11 +574,10 @@ spec:
         template: # only with source: Mokka
           labels:
             topology.kubernetes.io/zone: zone-a
-          taints:
-            - key: kwok.x-k8s.io/node # keeps regular pods off the virtual Nodes
-              value: fake
-              effect: NoSchedule
-          maxPods: 250 # the pod capacity a kubelet would report
+          # taints: left out, so the Nodes get KWOK's kwok.x-k8s.io/node=fake:NoSchedule
+          capacity: # what the profile doesn't define, as the Node's capacity and allocatable
+            pods: "250" # defaults to 110, the kubelet's default
+            ephemeral-storage: 1Ti # Pods that request it fit only Nodes that report it
       count: 100
       profileRef:
         name: gb300-nvl72
@@ -619,7 +618,7 @@ metadata:
       uid: <inventory UID>
       blockOwnerDeletion: false
 spec:
-  taints: # from node.template
+  taints: # node.template's default
     - key: kwok.x-k8s.io/node
       value: fake
       effect: NoSchedule
@@ -627,11 +626,13 @@ status:
   capacity:
     cpu: "144" # from the profile's node.host.cpu.cores
     memory: 960Gi # from the profile's node.host.memory.capacity
-    pods: "250" # from node.template.maxPods
-  allocatable:
+    pods: "250" # from node.template.capacity
+    ephemeral-storage: 1Ti # from node.template.capacity
+  allocatable: # the same as capacity, since no kubelet reserves any of it
     cpu: "144"
     memory: 960Gi
     pods: "250"
+    ephemeral-storage: 1Ti
   nodeInfo:
     architecture: arm64
     operatingSystem: linux
@@ -641,16 +642,17 @@ status:
 - **Counting.** It counts the Nodes it made for a group by their labels and owner, and creates more until there are as many as the group has slots. Nodes from other sources that match the same placement compete for the slots and show up as `pendingNodes`, as usual.
 - **Names.** A Node's name is the inventory, the group and a random suffix. The provisioner picks the suffix itself instead of using `generateName`, so `kubernetes.io/hostname` carries the name from the start. If the name is taken, it picks another. Names never point at a slot: the control plane picks the slot and can later bind the Node elsewhere.
 - **Nothing about slots or GPUs.** It never writes `nodeRef`, a projection key or a GPU key. Those come from the control plane and the data plane, as on any other KWOK Node.
-- **Shape.** CPU, memory and architecture come from the profile's [`node.host`](../0001-mokka-control-plane/README.md#sgpurackprofile), and pod capacity from `node.template.maxPods`, since there's no kubelet to report it. A group whose profile has no host CPU cores or memory gets no Nodes, and the provisioner reports why as an Event on the inventory.
+- **Shape.** CPU, memory and architecture come from the profile's [`node.host`](../0001-mokka-control-plane/README.md#sgpurackprofile), and the rest of the Node's capacity, such as `pods` and `ephemeral-storage`, from `node.template.capacity`, since there's no kubelet to report it. Allocatable equals capacity. A Pod that requests a resource the Node doesn't report, such as `ephemeral-storage` when the template leaves it out, doesn't fit on the Node. A group whose profile has no host CPU cores or memory gets no Nodes, and the provisioner reports why as an Event on the inventory.
 - **Replacement.** When a Node it created is deleted, it creates another, as a cloud's node group replaces a terminated instance, and the control plane binds the new Node to the free slot. A test that needs a host gone for good cordons it or marks it NotReady with a KWOK `Stage` instead.
 - **Changes.** The provisioner never updates a Node after creating it, so tests can change its labels, taints and conditions. A template change applies to Nodes created after it, and deleting a Node replaces it with one from the current template.
 - **Scale-down.** When a group has fewer slots, it deletes surplus Nodes that aren't bound, those without `mokka.nvidia.com/sgpu-assigned`, and waits for the control plane to release the rest. It deletes every Node of a group that leaves the inventory. When the inventory itself is deleted, the garbage collector deletes its Nodes through their owner reference.
 
-The CRD validation adds the following rules for groups with `node.source: Mokka`:
+The CRD validation adds the following rules and defaults for groups with `node.source: Mokka`:
 
 - `placement.nodeSelector` uses `matchLabels` only, so the provisioner can put those labels on its Nodes.
 - `node.template.labels` can't set a key that `placement` sets, or keys under `mokka.nvidia.com/`, `nvidia.com/` or `feature.node.kubernetes.io/`, which Mokka writes.
-- `node.template.maxPods` is at least 1 and defaults to 110, the kubelet's default.
+- `node.template.taints` defaults to KWOK's `kwok.x-k8s.io/node=fake:NoSchedule`, so only Pods that tolerate it land on the virtual Nodes and get faked Running. An explicit empty list leaves the Nodes untainted.
+- `node.template.capacity` can't set `cpu` or `memory`, which come from the profile, or keys under `nvidia.com/`, which the data plane publishes. Its `pods` is at least 1 and defaults to 110, the kubelet's default.
 - The inventory name and the group ID have at most 56 characters together, so a Node name fits the 63-character limit of the `kubernetes.io/hostname` label.
 
 The provisioner runs one active replica under leader election and creates Nodes at a rate the Helm chart sets. It watches `SGPUInventory` (much cheaper to watch than `SGPURacks`) and `SGPURackProfile` objects and the metadata of the Nodes it created. It reads no racks, shard Leases or rack state.
