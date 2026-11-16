@@ -548,7 +548,7 @@ The control plane binds KWOK Nodes as it binds CPU Nodes:
 - and new Nodes are ordered by creation time, 
 - name and UID and fill free slots in rack and index order. 
 
-Nodes beyond the group's capacity stay pending without GPUs, and the inventory reports them as `pendingNodes`. When a binding goes away, the Node loses its GPUs and stays with its source. When a source deletes a bound Node, the control plane releases its slot, and the next pending Node takes it.
+Nodes beyond the group's capacity stay pending without GPUs, and the inventory reports them as `pendingNodes`. When a binding goes away, the data plane [removes the Node's GPUs](#publishing-the-gpus) before the release completes, and the Node stays with its source. When a source deletes a bound Node, the control plane releases its slot, and the next pending Node takes it.
 
 #### KWOK Provisioner
 
@@ -699,7 +699,13 @@ In `DRA` mode, Pods that request `nvidia.com/gpu` still schedule from Kubernetes
 
 If a Node source already set one of these keys to a different value, the data plane doesn't overwrite it: it applies its other keys and reports the conflict as an Event on the Node.
 
-The data plane removes what it published for a Node when the Node's binding is released or its rack is deleted. A rack that [moves to another replica](#rebalancing) also drops out of the old replica's watch, so the old replica checks that the rack is gone before removing anything. All replicas apply with the same field manager, so the new replica takes over the fields the old one applied, and can change or remove them later.
+A binding's release waits for the data plane to remove what it published on the Node, whatever the control plane releases it for, the rack's deletion included:
+
+1. The control plane removes its projection from the Node, as on a CPU Node, and keeps the slot's Node in the [rack state](#rack-state), marked `releasing`.
+2. The data plane deletes the objects it created for the Node, its ResourceSlices and NodeResourceTopology, drops the Node's entries from the rack's [`SGPURackAllocation`](#gpu-allocation), and only then removes its own fields from the Node, so a Node without them has nothing else left.
+3. Once the Node carries no field of the data plane's field manager, which the control plane sees in the managed fields of the Nodes it already watches, the control plane clears the slot. The rack's `mokka.nvidia.com/rack-cleanup` finalizer goes only once every slot is clear, as on CPU racks.
+
+The rack and the slot stay until then, and the control plane keeps assigning the rack to a live shard, so a replica that was down when a release began, or the replica that takes over its racks, finds the release and finishes it. A rack that leaves a replica's watch, because it [moved to another replica](#rebalancing) or finished its releases, needs no cleanup. All replicas apply with the same field manager, so the new replica takes over the fields the old one applied, and can change or remove them later. With `kwok.enabled` off, no data plane runs, so releases don't wait for one.
 
 ##### GPU Allocation
 
@@ -1063,7 +1069,7 @@ POST /v1alpha1/racks/state:batchGet
 }
 ```
 
-The response has one entry per requested rack, in request order. Facts that every Node of the rack shares sit on the rack, and each slot lists its bound Node and its GPUs. One Node and one GPU are shown, and most hardware fields are left out:
+The response has one entry per requested rack, in request order. Facts that every Node of the rack shares sit on the rack, and each slot lists its bound Node and its GPUs. A slot whose binding is being released lists only its Node, marked `releasing`. Two Nodes and one GPU are shown, and most hardware fields are left out:
 
 ```json
 {
@@ -1099,6 +1105,12 @@ The response has one entry per requested rack, in request order. Facts that ever
               }
             }
           ]
+        },
+        {
+          "index": 1,
+          "node": {"name": "kwok-node-18", "uid": "<Node UID>"},
+          "assignmentRevision": 2,
+          "releasing": true
         }
       ]
     },
@@ -1119,7 +1131,7 @@ A rack's state is compiled from the delivery generation it names. For each rack,
 
 Only a replica that isn't ready at all answers `503`, and the data plane retries the batch with backoff. 
 
-This is [MEP0001's publication-floor check](../0001-mokka-control-plane/README.md#runtime-view-computation-and-delivery), applied per rack. Each Node entry names the Kubernetes Node bound to the slot and its assignment revision, and the data plane applies [the node daemon's ordering](../0001-mokka-control-plane/README.md#node-agent) to each Node: it accepts a Node's state only if the pair of assignment revision and rack delivery generation doesn't go backwards. The control plane includes a Node only once its projection is published, so the data plane never publishes GPUs for an unsettled binding. The endpoint is a batch form of the per-Node one the node daemon polls.
+This is [MEP0001's publication-floor check](../0001-mokka-control-plane/README.md#runtime-view-computation-and-delivery), applied per rack. Each Node entry names the Kubernetes Node bound to the slot and its assignment revision, and the data plane applies [the node daemon's ordering](../0001-mokka-control-plane/README.md#node-agent) to each Node: it accepts a Node's state only if the pair of assignment revision and rack delivery generation doesn't go backwards. The control plane includes a Node only once its projection is published, so the data plane never publishes GPUs for an unsettled binding, and keeps a Node whose binding it's releasing, marked `releasing`, until the data plane has [removed what it published](#publishing-the-gpus). The endpoint is a batch form of the per-Node one the node daemon polls.
 
 Batching keeps both sides cheap:
 
@@ -1128,7 +1140,7 @@ Batching keeps both sides cheap:
 - **The control plane shares work.** Any ready control plane replica serves batches, as it serves the node daemon's polls, so the load spreads across replicas. A replica looks up what racks share, such as their profile and the policies selecting their inventory or rack group, once per request, and answers `429` with `Retry-After` when it already serves its limit of concurrent batches.
 
 The rack tells the data plane when to fetch. The control plane leader bumps a rack's delivery generation whenever anything feeding its state changes: 
-- a slot is bound or released, 
+- a slot is bound, or its release starts or completes, 
 - a policy that selects the rack is added, edited or deleted, the set of accepted policies changes, 
 - or the rack's profile changes. 
 
@@ -1138,7 +1150,7 @@ For each rack UID, the data plane keeps the generation it last applied and queue
 
 Values that change on their own never trigger a fetch. The state carries settings, such as a `Bursty` utilization pattern and its range, and [DCGM Metrics](#dcgm-metrics) describes how the data plane turns them into values.
 
-This puts one requirement on the control plane: a batch endpoint for racks next to the per-Node one. Both serve the state from the same compilation, so a KWOK Node and a CPU Node bound to slots of the same profile get the same facts. KWOK racks go through allocation like CPU racks, so their delivery generation advances with bindings, policies and profile changes without extra work.
+This puts two requirements on the control plane: a batch endpoint for racks next to the per-Node one, and releases of KWOK Nodes that [wait for the data plane](#publishing-the-gpus). Both endpoints serve the state from the same compilation, so a KWOK Node and a CPU Node bound to slots of the same profile get the same facts. KWOK racks go through allocation like CPU racks, so their delivery generation advances with bindings, policies and profile changes without extra work.
 
 Everything the data plane publishes for a Node waits for the Node's first state. After that, GPU allocation and NodeResourceTopology availability follow Pods and don't wait for the endpoint.
 
@@ -1219,7 +1231,7 @@ The old owner keeps the Nodes' GPUs because the binding hasn't changed, and the 
 The scheme accepts three limits:
 
 - **Overlap on join.** Until the old owner's watch delivers the relabel, both replicas may act on the rack. Their allocations meet in the rack's [`SGPURackAllocation`](#gpu-allocation): the first write wins, and the other replica re-reads the object and picks again, so no GPU or zone goes to two Pods. Everything else they write comes from the same rack state and converges, and both may serve the rack's metrics for a few seconds. A leaving replica stops serving before it deletes its Lease, so a leave can't overlap.
-- **Gaps on restart.** While a replica restarts, new GPU Pods on its racks stay Pending until they get an allocation ([Pod Admission](#pod-admission)), their NodeResourceTopology goes stale, and their GPUs have no metrics, as on a real Node whose kubelet, topology updater or dcgm-exporter restarts.
+- **Gaps on restart.** While a replica restarts, new GPU Pods on its racks stay Pending until they get an allocation ([Pod Admission](#pod-admission)), their NodeResourceTopology goes stale, and their GPUs have no metrics, as on a real Node whose kubelet, topology updater or dcgm-exporter restarts. Releases of its racks' Nodes [wait for it](#publishing-the-gpus) too.
 - **No empty replicas.** A replica without racks serves no DCGM series. The chart defaults to one replica, and an autoscaler's maximum should stay well below the number of racks.
 
 #### Separating CPU and KWOK Racks
@@ -1274,7 +1286,7 @@ The data plane writes GPU ResourceSlices only in `DRA` mode, and ComputeDomain c
 #### KWOK Installation
 
 The KWOK functionality in Mokka should be disabled by default.
-The Mokka Helm chart will get a new flag, `kwok.enabled`, that decides whether to deploy the [KWOK data plane](#kwok-data-plane) and lets the control plane watch shard Leases. `kwok.dataPlane.replicas` sets its starting number of [shards](#sharding), which an autoscaler can change later, and `kwok.dataPlane.serviceMonitor.enabled` adds a Prometheus Operator `ServiceMonitor` for the [DCGM metrics](#dcgm-metrics).
+The Mokka Helm chart will get a new flag, `kwok.enabled`, that decides whether to deploy the [KWOK data plane](#kwok-data-plane), lets the control plane watch shard Leases, and makes the control plane's releases of KWOK Nodes wait for the data plane's [cleanup](#publishing-the-gpus). `kwok.dataPlane.replicas` sets its starting number of [shards](#sharding), which an autoscaler can change later, and `kwok.dataPlane.serviceMonitor.enabled` adds a Prometheus Operator `ServiceMonitor` for the [DCGM metrics](#dcgm-metrics).
 `kwok.provisioner.enabled` also deploys the [KWOK provisioner](#kwok-provisioner), which groups with `node.source: Mokka` need. Without it, such a group gets no Nodes, and its status shows free slots and no requested Nodes.
 The `mokka-crds` chart adds the `SGPURackAllocation` CRD next to Mokka's other CRDs.
 
@@ -1324,7 +1336,7 @@ The FGO migration comes first and scale second. The KWOK provisioner is optional
 
 ![Milestones](./img/kwok-milestones.svg)
 
-- **M1: GPUs on KWOK Nodes.** The control plane binds KWOK Nodes into KWOK groups by [`node.type`](#kwok-integration), serves [rack state](#rack-state) in batches, and gives every KWOK rack the [shard label](#sharding) of the only data plane replica, whose name the chart passes to it. That replica [publishes `nvidia.com/gpu` and the GFD and NFD labels](#publishing-the-gpus) and [allocates GPUs to Pods](#gpu-allocation), recording them in `SGPURackAllocations`. The chart gets `kwok.enabled`, with the data plane fixed at one replica, and the docs get the Node template and the `kwokctl` command. Done when [KAI's whole-GPU tests](#kai-use-cases) pass on Nodes from `kwokctl`. Control Plane [MEP0001](../0001-mokka-control-plane/README.md) should be in a sufficient state to incorporate most of the KWOK nodes. It lacks REST API, though, so that part should be implemented first.
+- **M1: GPUs on KWOK Nodes.** The control plane binds KWOK Nodes into KWOK groups by [`node.type`](#kwok-integration), serves [rack state](#rack-state) in batches, and gives every KWOK rack the [shard label](#sharding) of the only data plane replica, whose name the chart passes to it. That replica [publishes `nvidia.com/gpu` and the GFD and NFD labels](#publishing-the-gpus), removes them before the control plane completes a release, and [allocates GPUs to Pods](#gpu-allocation), recording them in `SGPURackAllocations`. The chart gets `kwok.enabled`, with the data plane fixed at one replica, and the docs get the Node template and the `kwokctl` command. Done when [KAI's whole-GPU tests](#kai-use-cases) pass on Nodes from `kwokctl`. Control Plane [MEP0001](../0001-mokka-control-plane/README.md) should be in a sufficient state to incorporate most of the KWOK nodes. It lacks REST API, though, so that part should be implemented first.
 - **M2: FGO parity for Run:ai.** The data plane adds [`DRA` mode](#dra-and-computedomains), with ResourceSlices and allocations copied from claims, ComputeDomains with NVIDIA's controller, [NodeResourceTopology](#noderesourcetopology) from the NUMA layout of [MEP0010](../0010-numa-aware-scheduling/README.md), and [DCGM metrics](#dcgm-metrics) behind the `mokka-kwok-dcgm-exporter` Service. The chart gets the `ServiceMonitor`, and the docs get an FGO migration guide. The DCGM metrics run on the shared metrics generator of [MEP0009's M1](../0009-workload-aware-dynamic-metrics/README.md#milestones), so that milestone comes first. Done when Run:ai's harness runs on Mokka instead of FGO. The workload metrics on KWOK Nodes in [MEP0009](../0009-workload-aware-dynamic-metrics/README.md#kwok-nodes-data-plane) build on this milestone.
 - **M3: Scale out.** Several data plane replicas share the racks. The control plane learns them from their [shard Leases](#shard-leases) instead of M1's fixed name, and the milestone adds [rebalancing](#rebalancing) on join and leave, the rack handover, Lease expiry, scale-down and autoscaling. A single replica keeps its racks through the upgrade, since rendezvous hashing over one replica picks it. The [`tests/kwok`](../../../tests/kwok) harness, which already exercises control plane binding with up to 100,000 KWOK Nodes, gets data plane scenarios. Done when 1,000 racks run across replicas and a control plane failover moves no racks.
 - **M4: KWOK provisioner.** `node.source`, `node.template`, the [provisioner](#kwok-provisioner) and `kwok.provisioner.enabled`. It needs only M1's `node` block and binding, so it can run alongside M2 and M3. Done when a `node.source: Mokka` group comes up without `kwokctl`.
@@ -1333,6 +1345,7 @@ The FGO migration comes first and scale second. The KWOK provisioner is optional
 
 - **Complexity.** KWOK integration greatly expands Mokka's footprint and surface.
 - **Components need wider permissions.** The [data plane](#kwok-data-plane) needs permission to write [`SGPURackAllocations`](#gpu-allocation), to patch any Pod to copy its allocation and its status to [fail it](#pod-admission) when it can't admit it, and to patch Nodes, Node status and ResourceSlices to [publish their GPUs](#publishing-the-gpus). In `DRA` mode or with `computeDomains`, it also reads every ResourceClaim, and with `computeDomains` it labels Nodes and IMEX daemon Pods and writes [`ComputeDomainClique` objects](#dra-and-computedomains) in the DRA driver's namespace. The control plane needs to watch [Leases](#shard-leases) in its namespace.
+- **Releases wait for the data plane.** A KWOK Node's release, and with it a rack's or an inventory's deletion, waits while no data plane replica runs. Turning `kwok.enabled` off first leaves the data plane's fields on KWOK Nodes, so the docs say to delete KWOK inventories before turning it off, as they already say for the control plane.
 - **The provisioner can delete any Node.** It needs permission to create and delete Nodes, and RBAC can't limit `delete` to Nodes with a label, so only its code keeps it to [the Nodes it created](#kwok-provisioner). It's off by default, and on Kubernetes 1.30 and later a ValidatingAdmissionPolicy can enforce the limit.
 
 ## Alternatives
@@ -1344,6 +1357,8 @@ The FGO migration comes first and scale second. The KWOK provisioner is optional
 - **Replicas pick their own racks.** Each data plane replica could hash rack UIDs against its ordinal and the StatefulSet's `spec.replicas`, as kube-state-metrics does. Nothing in the API would show which replica serves a rack, `spec.replicas` counts Pods that aren't serving yet or are already leaving, and replicas that see a new count at different moments can leave a rack with two owners or none.
 - **A hash ring.** The control plane could place the shards on a consistent hash ring, as [kubernetes-controller-sharding](https://github.com/timebertt/kubernetes-controller-sharding) does with xxHash and 100 virtual nodes per shard. It moves racks just as little, but it spreads them evenly only through the virtual nodes. [Rendezvous hashing](#rebalancing) needs no extra state and costs one hash per shard and rack, which stays small with tens of shards.
 - **The control plane publishes the GPUs.** It could write [`nvidia.com/gpu`, GFD and NFD labels and ResourceSlices](#publishing-the-gpus) with the projection. But on a CPU Node they come from daemons on the Node, part of them follows runtime state such as GPU health, and every write would go through the single control plane leader, which would also need the DRA API.
+- **The data plane holds its own finalizer on each rack.** Together with every Node it published to, listed in the rack's `SGPURackAllocation`, it would keep a deleted rack until the data plane cleaned up. But the control plane's release gate already keeps the rack, and each slot's Node, until a release is acknowledged, so a second finalizer and a second list of Nodes would duplicate that gate and have to agree with it.
+- **The data plane sweeps released Nodes when it starts.** Each replica could list KWOK Nodes without `mokka.nvidia.com/sgpu-assigned` and remove its fields from any that still carry them. It would need no control plane change, but an inventory could be gone while its Nodes still advertise GPUs, and every start would list Nodes, pending ones included.
 - **Record allocations on the Pods alone.** Each Pod would carry its GPUs, with its `resourceVersion` as a precondition. But a precondition guards one object, and "no GPU goes to two Pods" spans several, so two replicas acting on a rack during a join could each give GPU-0 to a different Pod, and both writes would succeed.
 - **Record allocations on the `SGPURack` or the Node.** Either would avoid a new type. But the control plane writes the `SGPURack` and every control plane replica watches it, and many components write and watch Nodes. A `resourceVersion` precondition would collide with their unrelated updates, and every allocation would reach all their watchers.
 - **Fence rack ownership during a move.** The leader could take a rack away before handing it over, and each replica could list the racks it acts on in its shard Lease, so no two replicas ever act on a rack and Pods alone could hold allocations. But it adds a custom protocol with ordering rules and fresh reads, pauses every moved rack on a join, and stalls racks whose old owner never lets go, while a conflict-checked record per rack catches the only writes that can clash.
@@ -1366,6 +1381,7 @@ The main decisions this MEP makes, numbered for review. Each links to the sectio
 | D9  | Keep KWOK out of Mokka's Helm chart, so cluster admins install it themselves                                                                                                                    | including KWOK's chart as a subchart                                                 | Clusters that use KWOK already run its controller, set up for `kwokctl`, a CI harness or an autoscaler's KWOK provider with their own version and Stages, and a second controller would manage the same Nodes   | [KWOK Installation](#kwok-installation)                                                                |
 | D10 | Keep NVIDIA's DRA driver and NFD out of Mokka's Helm chart, along with the DeviceClasses and CRDs they bring                                                                                    | including their charts, or just their CRDs, as subcharts                             | Users install them the same way for CPU racks, each CRD has to match the driver or NFD release that uses it, and the data plane's startup check reports any API that's missing                                  | [KWOK Installation](#kwok-installation)                                                                |
 | D11 | Make GPU Pods on KWOK Nodes Running and Ready only once the data plane has allocated their GPUs and zone, with a KWOK Pod stage Mokka's docs ship                                               | a mutating webhook, or KWOK's default stages running them regardless                 | Tests see a GPU Pod Ready only once it holds its GPUs and zone, as on a GPU Node, and a Pod the data plane can't admit ends up Failed, as a kubelet would leave it                                              | [Pod Admission](#pod-admission), [KWOK Installation](#kwok-installation)                               |
+| D12 | Complete the release of a KWOK Node's binding, and with it a rack's deletion, only once the data plane has removed what it published on the Node                                                | a data plane finalizer on each rack, or a sweep of released Nodes on startup         | A Node that outlives its binding never keeps advertising GPUs, even if its replica was down when the release began, and the control plane's existing release gate does the waiting                              | [Publishing the GPUs](#publishing-the-gpus), [Alternatives](#alternatives)                             |
 
 ## Open Questions
 
