@@ -711,7 +711,7 @@ The rack and the slot stay until then, and the control plane keeps assigning the
 
 There's no kubelet on a KWOK Node, so the data plane records which GPUs each Pod bound to the Nodes of its racks got. 
 
-In [`DevicePlugin` mode](#device-plugin-mode), it also picks them, as the kubelet's device manager would under the `single-numa-node` policy the [NodeResourceTopology](#noderesourcetopology) advertises: all of a container's GPUs from one zone, and for a Guaranteed container, from a zone where its CPUs and memory also fit. 
+In [`DevicePlugin` mode](#device-plugin-mode), it also picks them, as the kubelet's device manager would. With [NodeResourceTopology](#noderesourcetopology) on, that's under the `single-numa-node` policy it advertises: all of a container's GPUs from one zone, and for a Guaranteed container, from a zone where its CPUs and memory also fit. Without it, nothing advertises a Topology Manager policy, so the data plane takes free GPUs from any zone, as a kubelet does under its default `none` policy. 
 
 In [`DRA` mode](#dra-and-computedomains), the scheduler has already picked every GPU, for claims and `nvidia.com/gpu` requests alike, and the data plane copies its picks from the Pod's claims, including the claim the scheduler creates for `nvidia.com/gpu` requests, which the Pod's `status.extendedResourceClaimStatus` names.
 
@@ -788,7 +788,7 @@ Mokka's docs ship KWOK Pod stages (see [TODO](#todo)) that gate those Pods on th
 
 - **Which Pods.** Pods that request `nvidia.com/gpu` or have resource claims. A stage sees only the Pod, so it can't tell a claim for GPUs from a claim for another driver's devices.
 - **Running and Ready.** `mokka-pod-ready` moves such a Pod to Running and Ready only once the data plane has allocated its GPUs and, with NodeResourceTopology on, its zone. Once the rack's [`SGPURackAllocation`](#gpu-allocation) records them, the data plane writes `mokka.nvidia.com/gpu-allocation` in the same patch as `mokka.nvidia.com/numa-zone`, so the stage checks one annotation, and writes it for every such Pod on its racks, empty if the Pod holds no GPU.
-- **Failed.** A Pod the data plane can't admit never matches `mokka-pod-ready`, so the data plane marks it `Failed` itself, with the reason and message a kubelet would give: `TopologyAffinityError` when no zone fits, or `UnexpectedAdmissionError` when too few GPUs are free. It waits until KWOK has created the Pod and set its Pod IP, since KWOK's `pod-create` stage sets `phase: Pending` on any Pod without one and would undo an earlier `Failed`.
+- **Failed.** A Pod the data plane can't admit never matches `mokka-pod-ready`, so the data plane marks it `Failed` itself, with the reason and message a kubelet would give: `TopologyAffinityError` when, with [NodeResourceTopology](#noderesourcetopology) on, no zone fits, or `UnexpectedAdmissionError` when too few GPUs are free. It waits until KWOK has created the Pod and set its Pod IP, since KWOK's `pod-create` stage sets `phase: Pending` on any Pod without one and would undo an earlier `Failed`.
 - **The rest stays KWOK's.** The docs ship KWOK's `pod-ready` with these Pods excluded, and KWOK's other Pod stages unchanged.
 
 `mokka-pod-ready` keeps the selector of KWOK's `pod-ready` and adds the gate and the data plane's annotation. Its delay and status template stay KWOK's:
