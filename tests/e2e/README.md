@@ -155,7 +155,7 @@ tests that must not be scoped by `E2E_PROFILES`.
 | Multi-node fleet | `make e2e-multi-node` | `multi-node` | A heterogeneous fleet works: separate A100 and T4 releases on different workers, correct per-node mock files and IB behaviour, and a GPU workload scheduled across them |
 | Node-wide NRI injection | `make e2e-nri` | `nri`, `nri-*`, `compute-domain`, `imex-channels` | Node Resource Interface (NRI) injection follows the allocation rules: a pod with no Mokka-specific spec sees exactly its device-plugin allocation, a `devices`-annotated pod with no GPU request sees every GPU, and a pod that asks for neither is left untouched |
 | NFD label provenance | `make e2e-nfd` | `nfd`, `nfd-provenance` | Node Feature Discovery (NFD) derives `feature.node.kubernetes.io/pci-10de.present` from the feature file the mock writes — and that the mock does not write the label itself. Pinned to `a100`, because the label is vendor-only and identical across profiles |
-| NUMA topology and allocation | `make e2e-numa` | `numa` | Real NFD publishes CPU, memory, and GPU resources. Checks allocation, release, cross-zone rejection, and a live two-to-one-to-two zone update. Uses the A100 fixture |
+| NUMA topology, allocation, and recovery | `make e2e-numa` | `numa` | Real NFD reports CPU, memory, and GPUs. Checks allocation, release, cross-zone rejection, live layout updates, Mokka pod replacement, NUMA disable, and Kind worker restart. Uses the A100 fixture |
 | Container runtime setup | `make e2e` | `container-runtime` | The node daemon registers the `nvidia` handler with containerd on stock `kindest/node` as the default: a pod with `NVIDIA_VISIBLE_DEVICES` sees the node's mock GPUs, with or without `runtimeClassName: nvidia`, replacing the node pod sets the runtime up again, and a node that loses its node pod loses the handler |
 | MIG | `make e2e-mig` | `mig`, `mig-nvml`, `mig-caps`, `mig-device-plugin`, `mig-allocation`, `mig-runtime` | A MIG-capable board partitioned through `gpu.mig` enumerates its partitions through `nvidia-smi`, stages a capability node for each, and the upstream device plugin in `migStrategy=single` publishes and allocates one `nvidia.com/gpu` per partition; runtime repartitioning through `nvidia-smi mig` is followed. Profiles that cannot partition skip |
 | vGPU host and guest | `make e2e-vgpu` | `vgpu`, `vgpu-host`, `vgpu-guest` | Pinned to `a100`, and needs the GPU Operator rolled out (`tilt up -- --gpu-operator`). A vGPU host lists its configured instances under `nvidia-smi vgpu`; a guest reports a licensed vGPU in `nvidia-smi -q`, and the operator's GFD labels the node `nvidia.com/vgpu.*` from the PCI capability the node agent writes |
@@ -410,6 +410,10 @@ The existing image build is reused. CI stages
 `tests/e2e/go/assets/numa-values.yaml` for Tilt; the scenario uses that same
 fixture when it installs the chart itself.
 
+The scenario first disables NUMA and records the restored node files, mount
+information, and kubelet checkpoints. It then enables NUMA. This gives the
+disable test a baseline read from the node instead of Mokka's staged backup.
+
 After Mokka and the real NVIDIA device plugin are ready, the scenario installs
 the pinned NFD chart with `numa-nfd-values.yaml`. Only its topology updater runs;
 Mokka injection is disabled for that pod. The updater reads the node's filesystem,
@@ -424,7 +428,7 @@ pod requests five GPUs, which fit on the worker but require both zones. Kubelet
 must reject it with `TopologyAffinityError`, and NRT availability must stay
 unchanged.
 
-The last check changes the live profile ConfigMap from two zones to one, then
+The live update check changes the profile ConfigMap from two zones to one, then
 back to two. The GPU IDs and PCI addresses stay the same. No Helm upgrade or
 Mokka pod restart is used. The check requires the host NUMA files and applied
 layout marker to match each new plan on every worker. It also checks that the
@@ -436,6 +440,23 @@ and NFD must report the exact CPU, memory, and GPU allocation through the real
 PodResources socket. After the two-zone layout is restored, kubelet must reject
 that request again. Cleanup restores the original profile if the check fails.
 
+Three recovery checks follow:
+
+- Replace the Mokka pod while a Guaranteed CPU, memory, and GPU workload runs.
+  The workload container, kubelet process, applied marker, allocation checkpoints,
+  and NRT availability must stay unchanged. NRT is checked across several updater
+  cycles before the workload is deleted.
+- Disable NUMA through Helm. The node files, mount information, and checkpoints
+  must match the recorded baseline. Recovery markers and the boot service must
+  be removed, and kubelet must be healthy. Enable NUMA again and verify the NRTs.
+- Restart an actual Kind worker container. A temporary file under `/run` must
+  disappear, and the boot cleanup service must run again successfully. Kubelet
+  and Mokka must recover, NFD must report two zones again, a one-GPU workload must
+  run, and a cross-zone five-GPU request must be rejected.
+
+The restart check covers the Kind node startup path, not a physical host or VM
+kernel reboot. It does not require workload allocations to survive node restart.
+
 ```bash
 make e2e-numa E2E_IMAGE=nvml-mock:e2e
 ```
@@ -444,4 +465,4 @@ The NFD release and test workload are removed after the ordered scenario. The
 Mokka release remains installed with NUMA simulation enabled; use a disposable
 cluster or explicitly disable NUMA before removing Mokka. Failure diagnostics
 include NRTs, reporter and device-plugin logs, kubelet journals, and checkpoints.
-This scenario does not cover node reboot or disabling NUMA simulation.
+Failure diagnostics also include the boot cleanup service journal.

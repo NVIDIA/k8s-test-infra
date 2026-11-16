@@ -37,6 +37,7 @@ var _ = Describe("NUMA topology through the real NFD updater", Label("numa"), Or
 		h        *harness.Harness
 		workers  []cluster.Node
 		expected map[string]assertions.NUMAExpectation
+		original map[string]numaNodeSetup
 		baseline assertions.NodeResourceTopology
 		workload []byte
 	)
@@ -51,6 +52,15 @@ var _ = Describe("NUMA topology through the real NFD updater", Label("numa"), Or
 		workers, err = h.Cluster.Workers(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(workers).NotTo(BeEmpty(), "NUMA coverage requires a worker")
+		// Tilt may already have enabled NUMA. Start from a restored node so the
+		// disable test can compare against an observed baseline, not staged files.
+		installNvmlMock(ctx, h, loadProfile("a100"), numaFixtureValues(false))
+		original = map[string]numaNodeSetup{}
+		for _, worker := range workers {
+			waitNUMARestored(ctx, h, worker)
+			original[worker.Name], err = readNUMANodeSetup(ctx, worker)
+			Expect(err).NotTo(HaveOccurred())
+		}
 		expected = numaNodeExpectations(ctx, h, workers)
 		installNvmlMock(ctx, h, loadProfile("a100"), string(assets.NUMAValues))
 		deployDevicePluginOnWorkers(ctx, h, workers, 8)
@@ -122,6 +132,18 @@ var _ = Describe("NUMA topology through the real NFD updater", Label("numa"), Or
 	It("reconciles a live two-to-one-to-two zone change and updates kubelet admission", func(ctx SpecContext) {
 		checkNUMALiveReconfiguration(ctx, h, workers, expected)
 	})
+
+	It("preserves a running workload and its allocations when the Mokka pod is replaced", func(ctx SpecContext) {
+		checkNUMAPodReplacement(ctx, h, workers[0], expected[workers[0].Name])
+	})
+
+	It("restores the original node setup when NUMA is disabled and can enable it again", func(ctx SpecContext) {
+		checkNUMADisable(ctx, h, workers, expected, original)
+	})
+
+	It("starts kubelet and reapplies NUMA after a Kind worker restart", func(ctx SpecContext) {
+		checkNUMANodeRestart(ctx, h, workers, expected)
+	})
 })
 
 func numaWorkload(name, node string, gpus int) []byte {
@@ -177,6 +199,7 @@ func collectNUMADiagnostics(ctx context.Context, h *harness.Harness) {
 	} // Common diagnostics still retain the API failure.
 	for _, node := range workers {
 		c.NodeExec(ctx, node.Name+"-kubelet.txt", node.Container, "journalctl", "-u", "kubelet", "--no-pager", "-n", "100")
+		c.NodeExec(ctx, node.Name+"-boot-reset.txt", node.Container, "journalctl", "-u", "mokka-kubelet-reset.service", "--no-pager", "-n", "100")
 		c.NodeExec(ctx, node.Name+"-numa.txt", node.Container, "sh", "-c", "cat /sys/devices/system/node/online /var/lib/kubelet/config.yaml; cat /var/lib/kubelet/cpu_manager_state /var/lib/kubelet/memory_manager_state")
 	}
 }
