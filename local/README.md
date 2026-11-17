@@ -69,7 +69,9 @@ curl -s localhost:8000/v1/chat/completions -H 'Content-Type: application/json' \
 ten times as `nvidia.com/gpu` and enforces `nvidia.com/gpumem` and
 `nvidia.com/gpucores` inside the container. The `hami-smoke` trigger in the Tilt UI
 schedules `hami-share-a` and `hami-share-b`, asserts that both hold a slice of the
-same GPU and that each sees only its own memory cap, and leaves them running:
+same GPU and that each sees only its own memory cap, and leaves them running. The
+[HAMi guide](../docs/guides/hami.md) walks through the same setup from published
+artifacts:
 
 ```bash
 kubectl get pods hami-share-a hami-share-b \
