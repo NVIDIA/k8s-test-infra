@@ -7,7 +7,8 @@
 # while both pods read Running:
 #   1. Both pods hold a slice of the same GPU, sized as they asked. Under the
 #      chart's default spread policy each pod gets a board of its own, which
-#      schedules fine and shares nothing.
+#      schedules fine and shares nothing. The same GPU means the same node and
+#      UUID: every node a release covers serves the profile's UUIDs.
 #   2. Each container's environment carries that allocation: the GPU, the
 #      memory cap and the core share. HAMi-core reads its limits from there,
 #      and the core share has no NVML reading, so its variable is the only
@@ -68,7 +69,7 @@ kubectl -n "${NAMESPACE}" wait "${pods[@]}" --for=condition=Ready --timeout="${T
   || fail "the pods did not become Ready: $(kubectl -n "${NAMESPACE}" get "${pods[@]}" \
        -o custom-columns='POD:.metadata.name,PHASE:.status.phase,SCHEDULER:.spec.schedulerName' --no-headers | paste -sd';' -)"
 
-shared_gpu=""
+shared=""
 for entry in "${EXPECTED[@]}"; do
   read -r pod want_mem want_cores <<<"${entry}"
 
@@ -77,10 +78,11 @@ for entry in "${EXPECTED[@]}"; do
   IFS=, read -r gpu _ mem cores <<<"${allocated%%:*}"
   [[ "${mem}" == "${want_mem}" && "${cores}" == "${want_cores}" ]] \
     || fail "${pod} asked for ${want_mem} MiB and ${want_cores} cores but HAMi allocated '${allocated}'"
-  shared_gpu="${shared_gpu:-${gpu}}"
-  [[ "${gpu}" == "${shared_gpu}" ]] \
-    || fail "${pod} is on ${gpu}, not on ${shared_gpu} with the pod before it; is gpuSchedulerPolicy still binpack?"
-  printf 'OK: %s holds %s MiB and %s cores of %s\n' "${pod}" "${mem}" "${cores}" "${gpu}"
+  node=$(kubectl -n "${NAMESPACE}" get pod "${pod}" -o jsonpath='{.spec.nodeName}')
+  shared="${shared:-${node} ${gpu}}"
+  [[ "${node} ${gpu}" == "${shared}" ]] \
+    || fail "${pod} is on ${gpu} of ${node}, not on ${shared#* } of ${shared%% *} with the pod before it; are HAMi's node and GPU scheduler policies both binpack?"
+  printf 'OK: %s holds %s MiB and %s cores of %s on %s\n' "${pod}" "${mem}" "${cores}" "${gpu}" "${node}"
 
   # What the device plugin's Allocate sets for a container holding one device.
   want_env=(
@@ -105,6 +107,5 @@ for entry in "${EXPECTED[@]}"; do
   printf 'OK: %s sees only that GPU, with %s MiB\n' "${pod}" "${seen##*, }"
 done
 
-node=$(annotation "${EXPECTED[0]%% *}" 'hami.io/vgpu-node')
 printf '\n==> hami-smoke passed: HAMi packed %s pods onto mock GPU %s on %s, each capped to its own memory.\n' \
-  "${#EXPECTED[@]}" "${shared_gpu}" "${node}"
+  "${#EXPECTED[@]}" "${shared#* }" "${shared%% *}"
