@@ -1,0 +1,27 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+scheduler:
+  defaultSchedulerPolicy:
+    # The chart default, spread, gives each pod its own GPU while any is free.
+    # Packing is what shows two pods sharing one board.
+    gpuSchedulerPolicy: binpack
+
+devices:
+  nvidia:
+    # The Mokka node daemon registers the nvidia handler with containerd but
+    # creates no RuntimeClass object; nothing else in this scenario does either.
+    runtimeClassName: nvidia
+    createRuntimeClass: true
+
+devicePlugin:
+  # The chart's default selector is gpu=on. Every worker in local/kind/*.kind.yaml
+  # already carries the simulated-GPU label the mock selects on.
+  nvidiaNodeSelector:
+    gpu: null
+    mokka.nvidia.com/type: sgpu
+
+  # "auto" reads the GPU Operator's driver-ready contract and, finding none, falls
+  # back to /. The plugin then hands kubelet /dev/nvidiactl, which the node does
+  # not have: the mock's device nodes live under its own driver root.
+  nvidiaDriverRoot: /var/lib/nvml-mock/driver

@@ -63,6 +63,21 @@ curl -s localhost:8000/v1/chat/completions -H 'Content-Type: application/json' \
   -d '{"model":"Qwen/Qwen3-0.6B","messages":[{"role":"user","content":"hi"}],"max_tokens":16}'
 ```
 
+### HAMi
+
+`--hami` installs HAMi with its own device plugin, which advertises every mock GPU
+ten times as `nvidia.com/gpu` and enforces `nvidia.com/gpumem` and
+`nvidia.com/gpucores` inside the container. The `hami-smoke` trigger in the Tilt UI
+schedules `hami-share-a` and `hami-share-b`, asserts that both hold a slice of the
+same GPU and that each sees only its own memory cap, and leaves them running:
+
+```bash
+kubectl get pods hami-share-a hami-share-b \
+  -o custom-columns='POD:.metadata.name,ALLOCATED:.metadata.annotations.hami\.io/vgpu-devices-allocated'
+kubectl exec hami-share-a -- nvidia-smi --query-gpu=uuid,memory.total --format=csv   # 10240 MiB
+kubectl exec hami-share-b -- nvidia-smi --query-gpu=uuid,memory.total --format=csv   # 20480 MiB
+```
+
 ### Slinky
 
 `slurmd` detects GPUs once at startup and `slurmctld` keeps a node's first
