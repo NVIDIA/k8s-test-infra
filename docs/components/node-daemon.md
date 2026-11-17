@@ -118,6 +118,11 @@ CPUs and RAM and resolves one layout in `State.NodeShape.NUMA`. The NUMA
 simulator renders it, and `pcibus` and `gpudriver` publish each GPU's local CPUs
 from the same zones, so kubelet, the driver files, and NVML agree.
 
+The shared layout contains the zones' CPU IDs and memory capacities, plus a
+sorted list of active GPU PCI addresses and their NUMA nodes. GPU locality comes
+from the same reconciled PCI roots that the PCI simulator renders. Inactive
+devices and NVSwitches do not enter the GPU list; unknown locality stays unknown.
+
 If that layout or its kubelet policies change, `numa.PrepareStage` validates the
 new kubelet configuration and restores the original node setup before any
 simulator stages the replacement. This can interrupt existing workloads. The

@@ -1347,6 +1347,22 @@ RAM across the zones, keeping sibling threads together during automatic CPU
 assignment. Optional explicit `cpu_affinity` lists must cover every zone and
 partition all online CPUs without repetition.
 
+The resolved layout also records each active GPU's PCI address and NUMA zone.
+Changing GPU placement triggers the same node update as a CPU or memory layout
+change, even when the zone count and capacities stay the same. Reordering PCI
+roots or device lists without changing placement does not trigger a node reset.
+
+### Minimum node size
+
+With automatic CPU assignment, the Linux node must report at least one physical
+core per simulated zone. Two zones need two cores; eight zones need eight.
+Sibling hardware threads count as one core for this check. Use the core topology
+visible inside the Linux node, including Kind nodes. An eight-zone profile
+cannot fit on a four-vCPU node.
+
+This minimum permits creation of the layout. Workload capacity also depends on
+the CPU and memory reservations described below.
+
 ### CPU and memory allocation in a simulated topology
 
 Static CPU Manager assigns real CPU IDs. NRI is required for static simulated
@@ -1360,6 +1376,11 @@ setting, Mokka reserves the first CPU in the first zone. Set
 headroom. These settings are mutually exclusive. CPU Manager still reserves
 whole CPU IDs, so exclusive allocations remain limited to real unreserved CPUs.
 `systemReservedMemory` defaults to `256Mi`.
+
+A valid layout can still have a zone with no CPUs available for exclusive
+allocation. For example, a zone with one CPU has none left if that CPU is
+reserved for the system. Leave enough unreserved CPU and memory capacity for
+the workloads that must use each zone.
 
 Install an NRT publisher separately. For GPU Operator's NFD subchart, this
 configuration reports GPU, CPU, and memory resources with the managers above:
@@ -1394,6 +1415,9 @@ restarts kubelet and clears incompatible CPU and memory manager allocations.
 Existing workloads can fail and need to be recreated. An unchanged configuration
 keeps its mounts and allocations. Failed restoration retains recovery files for
 a retry and prevents all simulators from staging the new state.
+
+The first upgrade from a version that did not track GPU placement resets active
+GPU layouts once to record the complete layout. Drain workloads before that upgrade.
 
 Before uninstalling Mokka, upgrade with `nodeAgent.numa.enabled: false` and wait
 for restoration to finish.

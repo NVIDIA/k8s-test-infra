@@ -297,6 +297,14 @@ type NodeShape struct {
 // read-only; CPU IDs and memory amounts come from the node, not invented capacity.
 type NUMATopology struct {
 	Zones []NUMAZone `json:"zones"`
+	GPUs  []NUMAGPU  `json:"gpus,omitempty"`
+}
+
+// NUMAGPU records the locality published for an active GPU's PCI function.
+// A NUMANode of -1 preserves the PCI renderer's unknown locality.
+type NUMAGPU struct {
+	PCIBusID string `json:"pciBusID"`
+	NUMANode int    `json:"numaNode"`
 }
 
 // NUMAZone describes one simulated zone using real online CPU IDs.
