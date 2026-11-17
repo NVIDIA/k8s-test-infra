@@ -7,13 +7,6 @@ scheduler:
     # Packing is what shows two pods sharing one board.
     gpuSchedulerPolicy: binpack
 
-devices:
-  nvidia:
-    # The Mokka node daemon registers the nvidia handler with containerd but
-    # creates no RuntimeClass object; nothing else in this scenario does either.
-    runtimeClassName: nvidia
-    createRuntimeClass: true
-
 devicePlugin:
   # The chart's default selector is gpu=on. Every worker in local/kind/*.kind.yaml
   # already carries the simulated-GPU label the mock selects on.
