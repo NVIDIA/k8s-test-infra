@@ -1,0 +1,365 @@
+== 0929d182752a5d5
+driver: veth
+version: 1.0
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: yes
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== 0f7a9df30e4fce3
+driver: veth
+version: 1.0
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: yes
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== 23818ede83da199
+driver: veth
+version: 1.0
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: yes
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== 3751f741bd97ead
+driver: veth
+version: 1.0
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: yes
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== 46fbd07e96022d5
+driver: veth
+version: 1.0
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: yes
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== 4cba1c10bd5a15a
+driver: veth
+version: 1.0
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: yes
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== 5bc04f55c15a6e2
+driver: veth
+version: 1.0
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: yes
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== 610e148ecaee83d
+driver: veth
+version: 1.0
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: yes
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== 8d7c99c41597158
+driver: veth
+version: 1.0
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: yes
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== 8f23217f073bee5
+driver: veth
+version: 1.0
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: yes
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== 96433189e0e76f4
+driver: veth
+version: 1.0
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: yes
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== a3f937a5ea7fb9e
+driver: veth
+version: 1.0
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: yes
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== bdfbd72f53c87ff
+driver: veth
+version: 1.0
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: yes
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== br-int
+driver: openvswitch
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: no
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== brP13p65s0f0np0
+driver: openvswitch
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: no
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== enP11p1s0np0
+driver: mlx5_core
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 82.48.4222 (MT_0000001658)
+expansion-rom-version: 
+bus-info: 000b:01:00.0
+supports-statistics: yes
+supports-test: yes
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: yes
+== enP12p3s0np0
+driver: mlx5_core
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 82.48.4222 (MT_0000001658)
+expansion-rom-version: 
+bus-info: 000c:03:00.0
+supports-statistics: yes
+supports-test: yes
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: yes
+== enP13p65s0f0np0
+driver: mlx5_core
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 82.48.4238 (MT_0000001875)
+expansion-rom-version: 
+bus-info: 000d:41:00.0
+supports-statistics: yes
+supports-test: yes
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: yes
+== enP13p65s0f1np1
+driver: mlx5_core
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 82.48.4238 (MT_0000001875)
+expansion-rom-version: 
+bus-info: 000d:41:00.1
+supports-statistics: yes
+supports-test: yes
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: yes
+== enP14p1s0np0
+driver: mlx5_core
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 82.48.4222 (MT_0000001658)
+expansion-rom-version: 
+bus-info: 000e:01:00.0
+supports-statistics: yes
+supports-test: yes
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: yes
+== enP1p3s0np0
+driver: mlx5_core
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 82.48.4222 (MT_0000001658)
+expansion-rom-version: 
+bus-info: 0001:03:00.0
+supports-statistics: yes
+supports-test: yes
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: yes
+== enP3p1s0np0
+driver: mlx5_core
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 82.48.4222 (MT_0000001658)
+expansion-rom-version: 
+bus-info: 0003:01:00.0
+supports-statistics: yes
+supports-test: yes
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: yes
+== enP4p3s0np0
+driver: mlx5_core
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 82.48.4222 (MT_0000001658)
+expansion-rom-version: 
+bus-info: 0004:03:00.0
+supports-statistics: yes
+supports-test: yes
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: yes
+== enP5p65s0f0np0
+driver: mlx5_core
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 82.48.4238 (MT_0000001875)
+expansion-rom-version: 
+bus-info: 0005:41:00.0
+supports-statistics: yes
+supports-test: yes
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: yes
+== enP5p65s0f1np1
+driver: mlx5_core
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 82.48.4238 (MT_0000001875)
+expansion-rom-version: 
+bus-info: 0005:41:00.1
+supports-statistics: yes
+supports-test: yes
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: yes
+== enP6p1s0np0
+driver: mlx5_core
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 82.48.4222 (MT_0000001658)
+expansion-rom-version: 
+bus-info: 0006:01:00.0
+supports-statistics: yes
+supports-test: yes
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: yes
+== enP9p3s0np0
+driver: mlx5_core
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 82.48.4222 (MT_0000001658)
+expansion-rom-version: 
+bus-info: 0009:03:00.0
+supports-statistics: yes
+supports-test: yes
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: yes
+== enx020000000001
+driver: r8152
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 
+expansion-rom-version: 
+bus-info: usb-0002:e1:00.0-3
+supports-statistics: yes
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== f2b1c3e93f85415
+driver: veth
+version: 1.0
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: yes
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== genev_sys_6081
+driver: geneve
+version: 0.6
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: no
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== lo
+Cannot get driver information: Operation not supported
+== ovn-k8s-mp0
+driver: openvswitch
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: no
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== ovs-system
+driver: openvswitch
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: 
+expansion-rom-version: 
+bus-info: 
+supports-statistics: no
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no
+== usb0
+driver: cdc_subset
+version: 7.0.0-2022-nvidia-bos-64k
+firmware-version: Linux Device
+expansion-rom-version: 
+bus-info: usb-0002:e1:00.0-1.1
+supports-statistics: no
+supports-test: no
+supports-eeprom-access: no
+supports-register-dump: no
+supports-priv-flags: no

@@ -143,7 +143,7 @@ func (s *Server) synthesizeVerbsWrite(h *verbsHandle, data []byte) ([]byte, erro
 		return s.buildQueryDeviceResp(h.caName)
 	case ibUVCmdQueryPort:
 		portNum := uint8(1)
-		if len(data) >= 12 {
+		if len(data) > 12 {
 			portNum = data[12]
 		}
 		if portNum == 0 {
@@ -152,7 +152,7 @@ func (s *Server) synthesizeVerbsWrite(h *verbsHandle, data []byte) ([]byte, erro
 		return s.buildQueryPortResp(h.caName, portNum)
 	case ibUVCmdQueryGID:
 		gidIdx := uint8(0)
-		if len(data) >= 12 {
+		if len(data) > 12 {
 			gidIdx = data[12]
 		}
 		return s.buildQueryGIDResp(h.caName, gidIdx)

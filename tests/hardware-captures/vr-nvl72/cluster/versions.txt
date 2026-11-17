@@ -1,0 +1,27 @@
+clientVersion:
+  buildDate: "2026-05-12T09:51:33Z"
+  compiler: gc
+  gitCommit: 756939600b9a7180fc2df6550a4585b638875e67
+  gitTreeState: clean
+  gitVersion: v1.36.1
+  goVersion: go1.26.3
+  major: "1"
+  minor: "36"
+  platform: darwin/arm64
+kustomizeVersion: v5.8.1
+serverVersion:
+  buildDate: "2026-07-22T18:07:39Z"
+  compiler: gc
+  emulationMajor: "1"
+  emulationMinor: "36"
+  gitCommit: 0f29094e5b73085e3802ecc1298ecae13866bfe6
+  gitTreeState: clean
+  gitVersion: v1.36.3
+  goVersion: go1.26.5
+  major: "1"
+  minCompatibilityMajor: "1"
+  minCompatibilityMinor: "35"
+  minor: "36"
+  platform: linux/arm64
+
+Wed  4 Nov 2026 05:41:09 UTC

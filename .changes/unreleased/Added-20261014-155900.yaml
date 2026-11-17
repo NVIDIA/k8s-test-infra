@@ -1,6 +1,0 @@
-kind: Added
-body: |-
-  profiles: `nvlink.multi_node` marks a board whose NVLink domain spans nodes; `gb200` and `gb300` set it. Only such boards run IMEX and take part in DRA ComputeDomains.
-time: 2026-10-14T22:59:00Z
-custom:
-  Issue: "821"

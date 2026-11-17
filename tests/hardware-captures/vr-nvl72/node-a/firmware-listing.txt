@@ -1,0 +1,8 @@
+/lib/firmware/nvidia:
+615.71.09
+
+/lib/firmware/nvidia/615.71.09:
+gsp_ga10x.bin
+gsp_tu10x.bin
+ucodes_ga10x.bin
+ucodes_tu10x.bin

@@ -1,0 +1,28 @@
+ls: cannot access '/dev/nvidia-caps-imex-channels': No such file or directory
+crw-rw-rw- 1 root root 195, 254 Nov  4 05:07 /dev/nvidia-modeset
+crw-rw-rw- 1 root root 500,   0 Nov  4 05:07 /dev/nvidia-uvm
+crw-rw-rw- 1 root root 500,   1 Nov  4 05:07 /dev/nvidia-uvm-tools
+crw-rw-rw- 1 root root 195,   0 Nov  4 05:07 /dev/nvidia0
+crw-rw-rw- 1 root root 195,   1 Nov  4 05:07 /dev/nvidia1
+crw-rw-rw- 1 root root 195,   2 Nov  4 05:07 /dev/nvidia2
+crw-rw-rw- 1 root root 195,   3 Nov  4 05:07 /dev/nvidia3
+crw-rw-rw- 1 root root 195, 255 Nov  4 05:07 /dev/nvidiactl
+
+/dev/nvidia-caps:
+total 0
+cr-------- 1 root root 503, 1 Nov  4 05:07 nvidia-cap1
+cr--r--r-- 1 root root 503, 2 Nov  4 05:07 nvidia-cap2
+
+/dev/nvidia-caps:
+total 0
+cr-------- 1 root root 503, 1 Nov  4 05:07 nvidia-cap1
+cr--r--r-- 1 root root 503, 2 Nov  4 05:07 nvidia-cap2
+/dev/nvidia-caps 0:0 755 root:root
+/dev/nvidia-modeset c3:fe 666 root:root
+/dev/nvidia-uvm 1f4:0 666 root:root
+/dev/nvidia-uvm-tools 1f4:1 666 root:root
+/dev/nvidia0 c3:0 666 root:root
+/dev/nvidia1 c3:1 666 root:root
+/dev/nvidia2 c3:2 666 root:root
+/dev/nvidia3 c3:3 666 root:root
+/dev/nvidiactl c3:ff 666 root:root

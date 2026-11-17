@@ -20,6 +20,10 @@ kubeletPlugin:
               - key: mokka.nvidia.com/type
                 operator: In
                 values: ["sgpu"]
+  # Same as the chart default. Spelled out because Helm replaces lists instead of
+  # merging them: an overlay that adds a toleration must restate this one.
+  tolerations:
+    - {key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}
 
 # Off by default: Compute Domains need the fabric of --compute-domain, whose
 # overlay (local/compute-domain/dra-driver.values.yaml) turns them on.

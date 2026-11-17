@@ -38,7 +38,7 @@ load('./local/slinky/slinky.tiltfile',
      slinky_upsert_timeout_s='UPSERT_TIMEOUT_S')
 
 config.define_string('gpu-profile', args=False,
-    usage='GPU profile to simulate (used unless --multi-gpu-profile is set): a100 | h100 | b200 | gb200 | gb300 | l40s | t4. Defaults to the chart\'s gpu.profile.')
+    usage='GPU profile to simulate (used unless --multi-gpu-profile is set): a100 | h100 | b200 | gb200 | gb300 | l40s | t4 | vrnvl72. Defaults to the chart\'s gpu.profile.')
 config.define_string('k8s-context', args=False,
     usage='kubectl context to deploy into (must be a local cluster)')
 # Boolean toggles use config.define_bool so `--multi-gpu-profile --gpu-operator
@@ -212,7 +212,8 @@ if active_consumers:
     helm_repo('nvidia', 'https://helm.ngc.nvidia.com/nvidia', labels=active_consumers)
 
 if with_topograph:
-    helm_repo('topograph-repo', 'https://dsx-ai-factory.github.io/topograph', labels=['topograph'])
+    # Topograph's release channel; its dsx-ai-factory.github.io index has no 1.1.0.
+    helm_repo('topograph-repo', 'https://helm.ngc.nvidia.com/nvidia/topograph', labels=['topograph'])
 
 if with_observability:
     helm_repo('prometheus-community', 'https://prometheus-community.github.io/helm-charts',

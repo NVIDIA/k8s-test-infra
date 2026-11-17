@@ -1,0 +1,7 @@
+k8s.compute-domain.nvidia.com/device=all
+k8s.device-plugin.nvidia.com/gdrcopy=all
+k8s.device-plugin.nvidia.com/gpu=GPU-00000002-0000-0000-0000-000000000002
+k8s.device-plugin.nvidia.com/gpu=GPU-00000003-0000-0000-0000-000000000003
+k8s.device-plugin.nvidia.com/gpu=GPU-00000001-0000-0000-0000-000000000001
+k8s.device-plugin.nvidia.com/gpu=GPU-00000000-0000-0000-0000-000000000000
+management.nvidia.com/gpu=all

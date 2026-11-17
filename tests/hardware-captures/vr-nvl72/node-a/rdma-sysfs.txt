@@ -1,0 +1,408 @@
+== mlx5_0
+node_guid=0000:0000:0000:0001
+node_desc=
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0001
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+device/vendor=0x15b3
+device/device=0x1025
+device/class=0x020000
+device/numa_node=0
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0671
+devpath=/sys/devices/pci0001:00/0001:00:00.0/0001:01:00.0/0001:02:00.0/0001:03:00.0
+driver=mlx5_core
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x0
+sm_lid=0x0
+sm_sl=0
+lmc=cat: /sys/class/infiniband/mlx5_0/ports/1/lmc: No such file or directory
+link_layer=Ethernet
+cap_mask=0x00010000
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0001 type=IB/RoCE v1 ndev=enP1p3s0np0
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0001 type=RoCE v2 ndev=enP1p3s0np0
+gid[10]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/types/10: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/ndevs/10: Invalid argument
+gid[100]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/types/100: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/ndevs/100: Invalid argument
+gid[101]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/types/101: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/ndevs/101: Invalid argument
+gid[102]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/types/102: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/ndevs/102: Invalid argument
+gid[103]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/types/103: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/ndevs/103: Invalid argument
+gid[104]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/types/104: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/ndevs/104: Invalid argument
+== mlx5_1
+node_guid=0000:0000:0000:0002
+node_desc=
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0002
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+device/vendor=0x15b3
+device/device=0x1025
+device/class=0x020000
+device/numa_node=0
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0671
+devpath=/sys/devices/pci0003:00/0003:00:00.0/0003:01:00.0
+driver=mlx5_core
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x0
+sm_lid=0x0
+sm_sl=0
+lmc=cat: /sys/class/infiniband/mlx5_1/ports/1/lmc: No such file or directory
+link_layer=Ethernet
+cap_mask=0x00010000
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0002 type=IB/RoCE v1 ndev=enP3p1s0np0
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0002 type=RoCE v2 ndev=enP3p1s0np0
+gid[10]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/types/10: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/ndevs/10: Invalid argument
+gid[100]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/types/100: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/ndevs/100: Invalid argument
+gid[101]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/types/101: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/ndevs/101: Invalid argument
+gid[102]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/types/102: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/ndevs/102: Invalid argument
+gid[103]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/types/103: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/ndevs/103: Invalid argument
+gid[104]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/types/104: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/ndevs/104: Invalid argument
+== mlx5_10
+node_guid=0000:0000:0000:0003
+node_desc=
+node_type=1: CA
+sys_image_guid=0000:0000:0000:000c
+fw_ver=82.48.4238
+hca_type=MT41695
+board_id=MT_0000001875
+device/vendor=0x15b3
+device/device=0xa2df
+device/class=0x020000
+device/numa_node=1
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x2000
+devpath=/sys/devices/pci000d:40/000d:40:00.0/000d:41:00.1
+driver=mlx5_core
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=400 Gb/sec (4X NDR)
+lid=0x0
+sm_lid=0x0
+sm_sl=0
+lmc=cat: /sys/class/infiniband/mlx5_10/ports/1/lmc: No such file or directory
+link_layer=Ethernet
+cap_mask=0x00010000
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:000b type=IB/RoCE v1 ndev=enP13p65s0f1np1
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:000b type=RoCE v2 ndev=enP13p65s0f1np1
+gid[10]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_10/ports/1/gid_attrs/types/10: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_10/ports/1/gid_attrs/ndevs/10: Invalid argument
+gid[100]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_10/ports/1/gid_attrs/types/100: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_10/ports/1/gid_attrs/ndevs/100: Invalid argument
+gid[101]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_10/ports/1/gid_attrs/types/101: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_10/ports/1/gid_attrs/ndevs/101: Invalid argument
+gid[102]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_10/ports/1/gid_attrs/types/102: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_10/ports/1/gid_attrs/ndevs/102: Invalid argument
+gid[103]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_10/ports/1/gid_attrs/types/103: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_10/ports/1/gid_attrs/ndevs/103: Invalid argument
+gid[104]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_10/ports/1/gid_attrs/types/104: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_10/ports/1/gid_attrs/ndevs/104: Invalid argument
+== mlx5_11
+node_guid=0000:0000:0000:0004
+node_desc=
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0004
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+device/vendor=0x15b3
+device/device=0x1025
+device/class=0x020000
+device/numa_node=1
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0671
+devpath=/sys/devices/pci000e:00/000e:00:00.0/000e:01:00.0
+driver=mlx5_core
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x0
+sm_lid=0x0
+sm_sl=0
+lmc=cat: /sys/class/infiniband/mlx5_11/ports/1/lmc: No such file or directory
+link_layer=Ethernet
+cap_mask=0x00010000
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:000c type=IB/RoCE v1 ndev=enP14p1s0np0
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:000c type=RoCE v2 ndev=enP14p1s0np0
+gid[10]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_11/ports/1/gid_attrs/types/10: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_11/ports/1/gid_attrs/ndevs/10: Invalid argument
+gid[100]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_11/ports/1/gid_attrs/types/100: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_11/ports/1/gid_attrs/ndevs/100: Invalid argument
+gid[101]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_11/ports/1/gid_attrs/types/101: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_11/ports/1/gid_attrs/ndevs/101: Invalid argument
+gid[102]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_11/ports/1/gid_attrs/types/102: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_11/ports/1/gid_attrs/ndevs/102: Invalid argument
+gid[103]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_11/ports/1/gid_attrs/types/103: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_11/ports/1/gid_attrs/ndevs/103: Invalid argument
+gid[104]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_11/ports/1/gid_attrs/types/104: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_11/ports/1/gid_attrs/ndevs/104: Invalid argument
+== mlx5_2
+node_guid=0000:0000:0000:0005
+node_desc=
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0005
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+device/vendor=0x15b3
+device/device=0x1025
+device/class=0x020000
+device/numa_node=0
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0671
+devpath=/sys/devices/pci0004:00/0004:00:00.0/0004:01:00.0/0004:02:00.0/0004:03:00.0
+driver=mlx5_core
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x0
+sm_lid=0x0
+sm_sl=0
+lmc=cat: /sys/class/infiniband/mlx5_2/ports/1/lmc: No such file or directory
+link_layer=Ethernet
+cap_mask=0x00010000
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0003 type=IB/RoCE v1 ndev=enP4p3s0np0
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0003 type=RoCE v2 ndev=enP4p3s0np0
+gid[10]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/types/10: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/ndevs/10: Invalid argument
+gid[100]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/types/100: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/ndevs/100: Invalid argument
+gid[101]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/types/101: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/ndevs/101: Invalid argument
+gid[102]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/types/102: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/ndevs/102: Invalid argument
+gid[103]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/types/103: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/ndevs/103: Invalid argument
+gid[104]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/types/104: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/ndevs/104: Invalid argument
+== mlx5_3
+node_guid=0000:0000:0000:0006
+node_desc=
+node_type=1: CA
+sys_image_guid=0000:0000:0000:000c
+fw_ver=82.48.4238
+hca_type=MT41695
+board_id=MT_0000001875
+device/vendor=0x15b3
+device/device=0xa2df
+device/class=0x020000
+device/numa_node=0
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x2000
+devpath=/sys/devices/pci0005:40/0005:40:00.0/0005:41:00.0
+driver=mlx5_core
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=400 Gb/sec (4X NDR)
+lid=0x0
+sm_lid=0x0
+sm_sl=0
+lmc=cat: /sys/class/infiniband/mlx5_3/ports/1/lmc: No such file or directory
+link_layer=Ethernet
+cap_mask=0x00010000
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0004 type=IB/RoCE v1 ndev=enP5p65s0f0np0
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0004 type=RoCE v2 ndev=enP5p65s0f0np0
+gid[10]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/types/10: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/ndevs/10: Invalid argument
+gid[100]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/types/100: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/ndevs/100: Invalid argument
+gid[101]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/types/101: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/ndevs/101: Invalid argument
+gid[102]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/types/102: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/ndevs/102: Invalid argument
+gid[103]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/types/103: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/ndevs/103: Invalid argument
+gid[104]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/types/104: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/ndevs/104: Invalid argument
+== mlx5_4
+node_guid=0000:0000:0000:0007
+node_desc=
+node_type=1: CA
+sys_image_guid=0000:0000:0000:000c
+fw_ver=82.48.4238
+hca_type=MT41695
+board_id=MT_0000001875
+device/vendor=0x15b3
+device/device=0xa2df
+device/class=0x020000
+device/numa_node=0
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x2000
+devpath=/sys/devices/pci0005:40/0005:40:00.0/0005:41:00.1
+driver=mlx5_core
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=400 Gb/sec (4X NDR)
+lid=0x0
+sm_lid=0x0
+sm_sl=0
+lmc=cat: /sys/class/infiniband/mlx5_4/ports/1/lmc: No such file or directory
+link_layer=Ethernet
+cap_mask=0x00010000
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0005 type=IB/RoCE v1 ndev=enP5p65s0f1np1
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0005 type=RoCE v2 ndev=enP5p65s0f1np1
+gid[10]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_4/ports/1/gid_attrs/types/10: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_4/ports/1/gid_attrs/ndevs/10: Invalid argument
+gid[100]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_4/ports/1/gid_attrs/types/100: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_4/ports/1/gid_attrs/ndevs/100: Invalid argument
+gid[101]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_4/ports/1/gid_attrs/types/101: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_4/ports/1/gid_attrs/ndevs/101: Invalid argument
+gid[102]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_4/ports/1/gid_attrs/types/102: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_4/ports/1/gid_attrs/ndevs/102: Invalid argument
+gid[103]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_4/ports/1/gid_attrs/types/103: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_4/ports/1/gid_attrs/ndevs/103: Invalid argument
+gid[104]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_4/ports/1/gid_attrs/types/104: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_4/ports/1/gid_attrs/ndevs/104: Invalid argument
+== mlx5_5
+node_guid=0000:0000:0000:0008
+node_desc=
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0008
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+device/vendor=0x15b3
+device/device=0x1025
+device/class=0x020000
+device/numa_node=0
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0671
+devpath=/sys/devices/pci0006:00/0006:00:00.0/0006:01:00.0
+driver=mlx5_core
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x0
+sm_lid=0x0
+sm_sl=0
+lmc=cat: /sys/class/infiniband/mlx5_5/ports/1/lmc: No such file or directory
+link_layer=Ethernet
+cap_mask=0x00010000
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0006 type=IB/RoCE v1 ndev=enP6p1s0np0
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0006 type=RoCE v2 ndev=enP6p1s0np0
+gid[10]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_5/ports/1/gid_attrs/types/10: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_5/ports/1/gid_attrs/ndevs/10: Invalid argument
+gid[100]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_5/ports/1/gid_attrs/types/100: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_5/ports/1/gid_attrs/ndevs/100: Invalid argument
+gid[101]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_5/ports/1/gid_attrs/types/101: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_5/ports/1/gid_attrs/ndevs/101: Invalid argument
+gid[102]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_5/ports/1/gid_attrs/types/102: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_5/ports/1/gid_attrs/ndevs/102: Invalid argument
+gid[103]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_5/ports/1/gid_attrs/types/103: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_5/ports/1/gid_attrs/ndevs/103: Invalid argument
+gid[104]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_5/ports/1/gid_attrs/types/104: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_5/ports/1/gid_attrs/ndevs/104: Invalid argument
+== mlx5_6
+node_guid=0000:0000:0000:0009
+node_desc=
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0009
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+device/vendor=0x15b3
+device/device=0x1025
+device/class=0x020000
+device/numa_node=1
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0671
+devpath=/sys/devices/pci0009:00/0009:00:00.0/0009:01:00.0/0009:02:00.0/0009:03:00.0
+driver=mlx5_core
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x0
+sm_lid=0x0
+sm_sl=0
+lmc=cat: /sys/class/infiniband/mlx5_6/ports/1/lmc: No such file or directory
+link_layer=Ethernet
+cap_mask=0x00010000
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0007 type=IB/RoCE v1 ndev=enP9p3s0np0
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0007 type=RoCE v2 ndev=enP9p3s0np0
+gid[10]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_6/ports/1/gid_attrs/types/10: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_6/ports/1/gid_attrs/ndevs/10: Invalid argument
+gid[100]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_6/ports/1/gid_attrs/types/100: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_6/ports/1/gid_attrs/ndevs/100: Invalid argument
+gid[101]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_6/ports/1/gid_attrs/types/101: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_6/ports/1/gid_attrs/ndevs/101: Invalid argument
+gid[102]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_6/ports/1/gid_attrs/types/102: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_6/ports/1/gid_attrs/ndevs/102: Invalid argument
+gid[103]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_6/ports/1/gid_attrs/types/103: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_6/ports/1/gid_attrs/ndevs/103: Invalid argument
+gid[104]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_6/ports/1/gid_attrs/types/104: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_6/ports/1/gid_attrs/ndevs/104: Invalid argument
+== mlx5_7
+node_guid=0000:0000:0000:000a
+node_desc=
+node_type=1: CA
+sys_image_guid=0000:0000:0000:000a
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+device/vendor=0x15b3
+device/device=0x1025
+device/class=0x020000
+device/numa_node=1
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0671
+devpath=/sys/devices/pci000b:00/000b:00:00.0/000b:01:00.0
+driver=mlx5_core
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x0
+sm_lid=0x0
+sm_sl=0
+lmc=cat: /sys/class/infiniband/mlx5_7/ports/1/lmc: No such file or directory
+link_layer=Ethernet
+cap_mask=0x00010000
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0008 type=IB/RoCE v1 ndev=enP11p1s0np0
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0008 type=RoCE v2 ndev=enP11p1s0np0
+gid[10]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_7/ports/1/gid_attrs/types/10: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_7/ports/1/gid_attrs/ndevs/10: Invalid argument
+gid[100]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_7/ports/1/gid_attrs/types/100: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_7/ports/1/gid_attrs/ndevs/100: Invalid argument
+gid[101]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_7/ports/1/gid_attrs/types/101: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_7/ports/1/gid_attrs/ndevs/101: Invalid argument
+gid[102]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_7/ports/1/gid_attrs/types/102: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_7/ports/1/gid_attrs/ndevs/102: Invalid argument
+gid[103]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_7/ports/1/gid_attrs/types/103: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_7/ports/1/gid_attrs/ndevs/103: Invalid argument
+gid[104]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_7/ports/1/gid_attrs/types/104: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_7/ports/1/gid_attrs/ndevs/104: Invalid argument
+== mlx5_8
+node_guid=0000:0000:0000:000b
+node_desc=
+node_type=1: CA
+sys_image_guid=0000:0000:0000:000b
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+device/vendor=0x15b3
+device/device=0x1025
+device/class=0x020000
+device/numa_node=1
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0671
+devpath=/sys/devices/pci000c:00/000c:00:00.0/000c:01:00.0/000c:02:00.0/000c:03:00.0
+driver=mlx5_core
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x0
+sm_lid=0x0
+sm_sl=0
+lmc=cat: /sys/class/infiniband/mlx5_8/ports/1/lmc: No such file or directory
+link_layer=Ethernet
+cap_mask=0x00010000
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0009 type=IB/RoCE v1 ndev=enP12p3s0np0
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0009 type=RoCE v2 ndev=enP12p3s0np0
+gid[10]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_8/ports/1/gid_attrs/types/10: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_8/ports/1/gid_attrs/ndevs/10: Invalid argument
+gid[100]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_8/ports/1/gid_attrs/types/100: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_8/ports/1/gid_attrs/ndevs/100: Invalid argument
+gid[101]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_8/ports/1/gid_attrs/types/101: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_8/ports/1/gid_attrs/ndevs/101: Invalid argument
+gid[102]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_8/ports/1/gid_attrs/types/102: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_8/ports/1/gid_attrs/ndevs/102: Invalid argument
+gid[103]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_8/ports/1/gid_attrs/types/103: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_8/ports/1/gid_attrs/ndevs/103: Invalid argument
+gid[104]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_8/ports/1/gid_attrs/types/104: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_8/ports/1/gid_attrs/ndevs/104: Invalid argument
+== mlx5_9
+node_guid=0000:0000:0000:000c
+node_desc=
+node_type=1: CA
+sys_image_guid=0000:0000:0000:000c
+fw_ver=82.48.4238
+hca_type=MT41695
+board_id=MT_0000001875
+device/vendor=0x15b3
+device/device=0xa2df
+device/class=0x020000
+device/numa_node=1
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x2000
+devpath=/sys/devices/pci000d:40/000d:40:00.0/000d:41:00.0
+driver=mlx5_core
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=400 Gb/sec (4X NDR)
+lid=0x0
+sm_lid=0x0
+sm_sl=0
+lmc=cat: /sys/class/infiniband/mlx5_9/ports/1/lmc: No such file or directory
+link_layer=Ethernet
+cap_mask=0x00010000
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:000a type=IB/RoCE v1 ndev=enP13p65s0f0np0
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:000a type=RoCE v2 ndev=enP13p65s0f0np0
+gid[10]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_9/ports/1/gid_attrs/types/10: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_9/ports/1/gid_attrs/ndevs/10: Invalid argument
+gid[100]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_9/ports/1/gid_attrs/types/100: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_9/ports/1/gid_attrs/ndevs/100: Invalid argument
+gid[101]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_9/ports/1/gid_attrs/types/101: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_9/ports/1/gid_attrs/ndevs/101: Invalid argument
+gid[102]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_9/ports/1/gid_attrs/types/102: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_9/ports/1/gid_attrs/ndevs/102: Invalid argument
+gid[103]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_9/ports/1/gid_attrs/types/103: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_9/ports/1/gid_attrs/ndevs/103: Invalid argument
+gid[104]=0000:0000:0000:0000:0000:0000:0000:0000 type=cat: /sys/class/infiniband/mlx5_9/ports/1/gid_attrs/types/104: Invalid argument ndev=cat: /sys/class/infiniband/mlx5_9/ports/1/gid_attrs/ndevs/104: Invalid argument

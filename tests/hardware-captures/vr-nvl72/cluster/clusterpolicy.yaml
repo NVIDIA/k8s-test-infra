@@ -1,0 +1,264 @@
+apiVersion: v1
+items:
+- apiVersion: nvidia.com/v1
+  kind: ClusterPolicy
+  metadata:
+    annotations:
+      meta.helm.sh/release-name: gpu-operator
+      meta.helm.sh/release-namespace: gpu-operator
+    creationTimestamp: "2026-11-03T00:28:46Z"
+    generation: 5
+    labels:
+      app.kubernetes.io/component: gpu-operator
+      app.kubernetes.io/instance: gpu-operator
+      app.kubernetes.io/managed-by: Helm
+      app.kubernetes.io/name: gpu-operator
+      app.kubernetes.io/version: v26.7.2
+      helm.sh/chart: gpu-operator-v26.7.2
+    name: cluster-policy
+    resourceVersion: "147103"
+    uid: 00000002-0000-0000-0000-000000000002
+  spec:
+    ccManager:
+      defaultMode: "on"
+      enabled: false
+      image: k8s-cc-manager
+      imagePullPolicy: IfNotPresent
+      repository: nvcr.io/nvidia/cloud-native
+      version: v0.4.4
+    cdi:
+      default: false
+      enabled: true
+      nriPluginEnabled: false
+    daemonsets:
+      labels:
+        app.kubernetes.io/managed-by: gpu-operator
+        helm.sh/chart: gpu-operator-v26.7.2
+      priorityClassName: system-node-critical
+      rollingUpdate:
+        maxUnavailable: "1"
+      tolerations:
+      - effect: NoSchedule
+        key: nvsentinel.dgxc.nvidia.com/external-remediation
+        operator: Exists
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+        operator: Exists
+      - operator: Exists
+      updateStrategy: RollingUpdate
+    dcgm:
+      enabled: true
+      image: dcgm
+      imagePullPolicy: IfNotPresent
+      repository: nvcr.io/nvidia/cloud-native
+      version: 4.6.1-1-ubuntu24.04
+    dcgmExporter:
+      config:
+        name: dcgm-exporter
+      enabled: true
+      image: dcgm-exporter
+      imagePullPolicy: IfNotPresent
+      repository: nvcr.io/nvidia/k8s
+      service:
+        internalTrafficPolicy: Cluster
+      serviceMonitor:
+        additionalLabels: {}
+        enabled: true
+        honorLabels: true
+        interval: 30s
+        relabelings: []
+        scrapeTimeout: 10s
+      version: 4.6.1-4.8.4-distroless
+    devicePlugin:
+      enabled: true
+      env:
+      - name: DP_DISABLE_HEALTHCHECKS
+        value: "109"
+      - name: DEVICE_LIST_STRATEGY
+        value: cdi-cri,cdi-annotations,volume-mounts
+      - name: MOFED_ENABLED
+        value: "false"
+      image: k8s-device-plugin
+      imagePullPolicy: IfNotPresent
+      repository: nvcr.io/nvidia
+      version: v0.20.1
+    driver:
+      certConfig:
+        name: ""
+      enabled: true
+      image: driver
+      imagePullPolicy: IfNotPresent
+      kernelModuleConfig:
+        name: nvidia-kernel-module-params
+      kernelModuleType: auto
+      licensingConfig:
+        nlsEnabled: true
+        secretName: ""
+      manager:
+        image: k8s-driver-manager
+        imagePullPolicy: IfNotPresent
+        repository: nvcr.io/nvidia/cloud-native
+        version: v0.12.1
+      rdma:
+        enabled: false
+        useHostMofed: false
+      repoConfig:
+        configMapName: ""
+      repository: nvcr.io/nvidia
+      startupProbe:
+        failureThreshold: 120
+        initialDelaySeconds: 60
+        periodSeconds: 10
+        timeoutSeconds: 60
+      upgradePolicy:
+        autoUpgrade: true
+        drain:
+          deleteEmptyDir: false
+          enable: false
+          force: false
+          timeoutSeconds: 300
+        maxParallelUpgrades: 1
+        maxUnavailable: 25%
+        podDeletion:
+          deleteEmptyDir: false
+          force: false
+          timeoutSeconds: 300
+        waitForCompletion:
+          timeoutSeconds: 0
+      useNvidiaDriverCRD: false
+      usePrecompiled: false
+      version: 615.71.09
+      virtualTopology:
+        config: ""
+    gdrcopy:
+      enabled: true
+      image: gdrdrv
+      imagePullPolicy: IfNotPresent
+      repository: nvcr.io/nvidia/cloud-native
+      version: v2.6
+    gds:
+      enabled: false
+      image: nvidia-fs
+      imagePullPolicy: IfNotPresent
+      repository: nvcr.io/nvidia/cloud-native
+      version: 2.29.4
+    gfd:
+      enabled: true
+      image: k8s-device-plugin
+      imagePullPolicy: IfNotPresent
+      repository: nvcr.io/nvidia
+      version: v0.20.1
+    hostPaths:
+      driverInstallDir: /run/nvidia/driver
+      kubeletRootDir: /var/lib/kubelet
+      rootFS: /
+    kataManager:
+      enabled: false
+      imagePullPolicy: IfNotPresent
+    kataSandboxDevicePlugin:
+      enabled: false
+      image: nvidia-sandbox-device-plugin
+      imagePullPolicy: IfNotPresent
+      repository: nvcr.io/nvidia/cloud-native
+      version: v0.0.5
+    mig:
+      strategy: single
+    migManager:
+      config:
+        default: all-disabled
+      enabled: true
+      gpuClientsConfig:
+        name: ""
+      image: k8s-mig-manager
+      imagePullPolicy: IfNotPresent
+      repository: nvcr.io/nvidia/cloud-native
+      version: v0.15.1
+    nodeStatusExporter:
+      enabled: false
+      image: gpu-operator
+      imagePullPolicy: IfNotPresent
+      repository: nvcr.io/nvidia
+      version: v26.7.2
+    operator:
+      runtimeClass: nvidia
+    psa:
+      enabled: false
+    sandboxDevicePlugin:
+      enabled: true
+      image: kubevirt-gpu-device-plugin
+      imagePullPolicy: IfNotPresent
+      repository: nvcr.io/nvidia
+      version: v1.6.0
+    sandboxWorkloads:
+      defaultWorkload: container
+      enabled: false
+      mode: kubevirt
+    toolkit:
+      enabled: true
+      env:
+      - name: RUNTIME_CONFIG_SOURCE
+        value: file
+      - name: ACCEPT_NVIDIA_VISIBLE_DEVICES_ENVVAR_WHEN_UNPRIVILEGED
+        value: "false"
+      image: container-toolkit
+      imagePullPolicy: IfNotPresent
+      installDir: /usr/local/nvidia
+      repository: nvcr.io/nvidia/k8s
+      version: v1.20.1
+    validator:
+      image: gpu-operator
+      imagePullPolicy: IfNotPresent
+      plugin:
+        env:
+        - name: WITH_WORKLOAD
+          value: "false"
+      repository: nvcr.io/nvidia
+      version: v26.7.2
+    vfioManager:
+      driverManager:
+        image: k8s-driver-manager
+        imagePullPolicy: IfNotPresent
+        repository: nvcr.io/nvidia/cloud-native
+        version: v0.12.1
+      enabled: true
+      image: k8s-driver-manager
+      imagePullPolicy: IfNotPresent
+      repository: nvcr.io/nvidia/cloud-native
+      version: v0.12.1
+    vgpuDeviceManager:
+      config:
+        default: default
+        name: ""
+      enabled: true
+      image: vgpu-device-manager
+      imagePullPolicy: IfNotPresent
+      repository: nvcr.io/nvidia/cloud-native
+      version: v0.5.1
+    vgpuManager:
+      driverManager:
+        image: k8s-driver-manager
+        imagePullPolicy: IfNotPresent
+        repository: nvcr.io/nvidia/cloud-native
+        version: v0.12.1
+      enabled: false
+      image: vgpu-manager
+      imagePullPolicy: IfNotPresent
+      kernelModuleConfig:
+        name: ""
+  status:
+    conditions:
+    - lastTransitionTime: "2026-11-03T16:01:43Z"
+      message: ClusterPolicy is ready as all resources have been successfully reconciled
+      reason: Reconciled
+      status: "True"
+      type: Ready
+    - lastTransitionTime: "2026-11-03T16:01:43Z"
+      message: ""
+      reason: Ready
+      status: "False"
+      type: Error
+    namespace: gpu-operator
+    state: ready
+kind: List
+metadata:
+  resourceVersion: ""

@@ -1,6 +1,0 @@
-kind: Added
-body: |-
-  node-agent: while IMEX is staged, the GPU CDI spec (`/var/run/cdi/nvidia.yaml`) mounts `nvidia-imex` and `nvidia-imex-ctl` into GPU containers, as the NVIDIA Container Toolkit does on a real GB200 or GB300 node.
-time: 2026-10-15T02:00:00Z
-custom:
-  Issue: "821"

@@ -205,12 +205,12 @@ type mountEntry struct {
 	mountPoint string
 }
 
-// mounts reads and parses this process's mount table.
+// mounts reads the calling thread's mount table, including after setns.
 func mounts() ([]mountEntry, error) {
-	data, err := os.ReadFile("/proc/self/mountinfo")
+	data, err := os.ReadFile("/proc/thread-self/mountinfo")
 
 	if err != nil {
-		return nil, fmt.Errorf("read /proc/self/mountinfo: %w", err)
+		return nil, fmt.Errorf("read /proc/thread-self/mountinfo: %w", err)
 	}
 
 	var mnts []mountEntry
@@ -282,6 +282,12 @@ func sameContent(source, target string) (bool, error) {
 	expectedRoot := filepath.Join(sourceMount.root, rel)
 
 	return targetMount.majorMinor == sourceMount.majorMinor && targetMount.root == expectedRoot, nil
+}
+
+// IsBindMounted reports whether target is mounted from source, including when
+// an atomic source replacement left the existing mount on the previous inode.
+func IsBindMounted(source, target string) (bool, error) {
+	return sameContent(source, target)
 }
 
 // IsMounted reports whether path is itself a mount point, by scanning this

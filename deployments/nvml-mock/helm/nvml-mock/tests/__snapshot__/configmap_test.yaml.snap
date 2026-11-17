@@ -1152,6 +1152,7 @@ should match snapshot with default gb300 profile:
             tray_index: 16
             host_id: 1                      # the tray's OS domain; all its GPUs report it
             peer_type: "switch_connected"   # peers reached through the NVSwitch trays
+            gpu_fabric_guid: "pdi"          # each GPU reports its own PDI, as on Grace-Blackwell
 
           # ---------------------------------------------------------------------------
           # InfoROM versions
@@ -1756,6 +1757,7 @@ should match snapshot with gb200 profile:
             tray_index: 11
             host_id: 1                      # the tray's OS domain; all its GPUs report it
             peer_type: "switch_connected"   # peers reached through the NVSwitch trays
+            gpu_fabric_guid: "pdi"          # each GPU reports its own PDI, as on Grace-Blackwell
 
           # ---------------------------------------------------------------------------
           # InfoROM versions

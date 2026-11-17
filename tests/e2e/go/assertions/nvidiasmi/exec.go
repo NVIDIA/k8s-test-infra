@@ -43,10 +43,27 @@ func Inventory(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.P
 	gomega.Expect(problems).To(gomega.BeEmpty(), "nvidia-smi inventory wrong:\n%s",
 		strings.Join(problems, "\n"))
 
+	ginkgo.By("nvidia-smi -q -x reports architecture " + ArchitectureName(p.Architecture()))
+	problems = ArchitectureProblems(out, p.Architecture())
+	gomega.Expect(problems).To(gomega.BeEmpty(), "nvidia-smi architecture wrong:\n%s",
+		strings.Join(problems, "\n"))
+
 	ginkgo.By("nvidia-smi -q -x reports no phantom processes")
 	problems = PhantomProcessProblems(out)
 	gomega.Expect(problems).To(gomega.BeEmpty(), "phantom processes:\n%s",
 		strings.Join(problems, "\n"))
+}
+
+// Branch asserts the pod runs the nvidia-smi of the profile's driver branch, the
+// binary the node agent stages for it.
+func Branch(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi comes from driver branch %d", p.DriverMajor()))
+	res, err := k.Exec(ctx, pod, "nvidia-smi")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvidia-smi exited with error: %s", res.Combined())
+	problems := BranchProblems(res.Stdout, p.DriverMajor())
+	gomega.Expect(problems).To(gomega.BeEmpty(), "%s\n%s", strings.Join(problems, "\n"), res.Stdout)
 }
 
 // JpgOfaUtilization asserts nvidia-smi -q -x reports the given JPEG and OFA
@@ -171,6 +188,13 @@ func TemperatureThresholds(ctx context.Context, k *kube.Client, pod kube.PodRef,
 	gomega.Expect(problems).To(gomega.BeEmpty(),
 		"temperature threshold presentation wrong for profile %s:\n%s",
 		p.Name, strings.Join(problems, "\n"))
+
+	if tl, ok := p.TLimit(); ok && p.ReportsTLimitTemp() {
+		ginkgo.By(fmt.Sprintf("nvidia-smi -q -x T.Limit rows on %s match thermal.tlimit", p.Name))
+		problems = TLimitValueProblems(query(ctx, k, pod), tl.ShutdownC, tl.SlowdownC, tl.MaxOperatingC)
+		gomega.Expect(problems).To(gomega.BeEmpty(),
+			"T.Limit rows wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+	}
 }
 
 // C2CMode asserts nvidia-smi -q -x reports the C2C state the profile declares:
@@ -204,6 +228,7 @@ func PlatformIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p pr
 			HostID:              identity.HostID,
 			PeerType:            identity.PeerType,
 			ModuleIDs:           identity.ModuleIDs,
+			FabricGUIDIsPDI:     identity.FabricGUIDIsPDI,
 		}
 	}
 
@@ -215,7 +240,7 @@ func PlatformIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p pr
 
 // DeviceIdentity asserts nvidia-smi -q -x renders the Addressing Mode, PDI and
 // EGM rows the profile's driver and host call for: the configured addressing
-// mode and a PDI distinct per GPU from 580, EGM disabled from 560, and the
+// mode and a PDI distinct per GPU from 580, EGM as the profile sets it from 560, and the
 // rendering of a missing symbol before each. All three read N/A while the
 // getters were generated stubs. See issue #1042.
 func DeviceIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
@@ -228,6 +253,9 @@ func DeviceIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p prof
 	}
 	if p.ReportsCapabilities() {
 		want.EGM = egmDisabled
+		if p.EGM() {
+			want.EGM = egmEnabled
+		}
 	}
 
 	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x identity rows on %s (driver %d.x, addressing_mode %q)",

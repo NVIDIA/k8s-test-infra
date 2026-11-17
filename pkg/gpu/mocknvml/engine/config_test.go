@@ -611,8 +611,8 @@ func TestValidateYAMLConfig_AcceptsEveryShippedProfile(t *testing.T) {
 	}
 }
 
-// Of the shipped profiles, only gb200 and gb300 span nodes with NVLink; Vera
-// Rubin and NVL576 profiles would join them. HGX boards also declare an NVLink
+// Of the shipped profiles, gb200, gb300 and vrnvl72 span nodes with NVLink;
+// NVL576 profiles would join them. HGX boards also declare an NVLink
 // fabric, so the flag, not the presence of a fabric, is what tells the two
 // apart; a profile that gained or lost it would change which nodes simulate
 // IMEX.
@@ -642,7 +642,8 @@ func TestShippedProfiles_MultiNodeNVLink(t *testing.T) {
 				require.NoError(t, yaml.Unmarshal(data, &yc), "yaml decode")
 
 				base := filepath.Base(path)
-				want := strings.Contains(base, "gb200") || strings.Contains(base, "gb300")
+				want := strings.Contains(base, "gb200") || strings.Contains(base, "gb300") ||
+					strings.Contains(base, "vrnvl72")
 				got := yc.NVLink != nil && yc.NVLink.MultiNode
 				require.Equal(t, want, got, "nvlink.multi_node")
 			})

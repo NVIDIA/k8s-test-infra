@@ -217,7 +217,11 @@ build: ## Build all CLIs
 	    parent=$$(basename $$(dirname $$pkg)); \
 	    if [ "$$parent" != "cmd" ]; then name=$$parent-$$name; fi; \
 	    echo "🔨 $$name"; \
-	    $(GO_CMD) build -o $(DIST_DIR)/$$name $$pkg || exit 1; \
+	    if [ "$$name" = "mokka-kubelet-helper" ]; then \
+	        CGO_ENABLED=0 $(GO_CMD) build -o $(DIST_DIR)/$$name $$pkg || exit 1; \
+	    else \
+	        $(GO_CMD) build -o $(DIST_DIR)/$$name $$pkg || exit 1; \
+	    fi; \
 	done
 	@echo "Building Golang shims.."
 	@for pkg in $$(find ./shims -type f -name main.go -exec dirname {} \; | sort -u); do \
@@ -243,6 +247,10 @@ mokka-image: ## Build the main Mokka image (node daemon and mock libraries): mak
 		--build-arg GOLANG_VERSION=$(shell ./hack/golang-version.sh) \
 		--tag "$(MOKKA_IMAGE)" \
 		.
+
+.PHONY: nvidia-smi-smoke
+nvidia-smi-smoke: ## Run every nvidia-smi the image bundles against its mock NVML, no cluster: make nvidia-smi-smoke [MOKKA_IMAGE=repo:tag]
+	./hack/nvidia-smi-smoke.sh "$(MOKKA_IMAGE)"
 
 .PHONY: mokka-control-plane-publish mokka-control-plane-image-push
 .PHONY: mokka-control-plane-image-sign mokka-control-plane-image-sbom
@@ -787,7 +795,7 @@ image-load:
 # scope with E2E_PROFILES / E2E_GINKGO_FLAGS. Examples:
 #   make e2e                       # gb200
 #   make e2e E2E_PROFILES=a100     # fast inner loop, single profile
-#   make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
+#   make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu"'
 #   make e2e-dra                   # DRA scenario
 #   make e2e-compute-domain        # ComputeDomains through the DRA driver (two-rack cluster)
 #   make e2e-gpu-operator          # GPU Operator scenario
@@ -796,6 +804,8 @@ image-load:
 #   make e2e-nfd                   # NFD label-provenance scenario
 #   make e2e-mig                   # MIG scenario, device plugin in migStrategy=single
 #   make e2e-vgpu                  # vGPU host and guest scenario
+# E2E_GINKGO_FLAGS replaces the default filter. Shared check labels span
+# scenarios; keep the exclusions above for a standalone subset.
 # CI builds the image once per run. Every leg loads it into Kind and sets
 # E2E_IMAGE to that ref. The reshaping scenarios set the DaemonSet to this ref.
 #
@@ -818,7 +828,7 @@ E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 # so on a developer machine this recipe otherwise returns tee's status and a
 # failed suite exits 0 — see issue #560 and tests/makefile/makefile_test.go.
 e2e: ## Run the Ginkgo e2e suite against E2E_CLUSTER_NAME/E2E_KUBE_CONTEXT (default mokka/kind-mokka); scope with E2E_PROFILES / E2E_GINKGO_FLAGS
-	set -o pipefail; $(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
+	set -o pipefail; $(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) --fail-on-empty $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
 
 e2e-dra: ## e2e — DRA scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra'

@@ -1,0 +1,31 @@
+== /sys/class/infiniband
+mlx5_0
+mlx5_1
+mlx5_10
+mlx5_11
+mlx5_2
+mlx5_3
+mlx5_4
+mlx5_5
+mlx5_6
+mlx5_7
+mlx5_8
+mlx5_9
+== /sys/class/infiniband_verbs
+abi_version
+uverbs0
+uverbs1
+uverbs10
+uverbs11
+uverbs2
+uverbs3
+uverbs4
+uverbs5
+uverbs6
+uverbs7
+uverbs8
+uverbs9
+== /sys/class/infiniband_mad
+ls: cannot access '/sys/class/infiniband_mad': No such file or directory
+== /sys/class/infiniband_cm
+ls: cannot access '/sys/class/infiniband_cm': No such file or directory

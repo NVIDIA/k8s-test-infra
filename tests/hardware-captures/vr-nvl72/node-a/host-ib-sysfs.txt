@@ -1,0 +1,84 @@
+== /sys/class/infiniband/mlx5_0
+node_guid=0000:0000:0000:0001
+node_type=1: CA
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+port 1 state=4: ACTIVE phys=5: LinkUp rate=200 Gb/sec (1X XDR) layer=Ethernet
+== /sys/class/infiniband/mlx5_1
+node_guid=0000:0000:0000:0002
+node_type=1: CA
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+port 1 state=4: ACTIVE phys=5: LinkUp rate=200 Gb/sec (1X XDR) layer=Ethernet
+== /sys/class/infiniband/mlx5_10
+node_guid=0000:0000:0000:0003
+node_type=1: CA
+fw_ver=82.48.4238
+hca_type=MT41695
+board_id=MT_0000001875
+port 1 state=4: ACTIVE phys=5: LinkUp rate=400 Gb/sec (4X NDR) layer=Ethernet
+== /sys/class/infiniband/mlx5_11
+node_guid=0000:0000:0000:0004
+node_type=1: CA
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+port 1 state=4: ACTIVE phys=5: LinkUp rate=200 Gb/sec (1X XDR) layer=Ethernet
+== /sys/class/infiniband/mlx5_2
+node_guid=0000:0000:0000:0005
+node_type=1: CA
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+port 1 state=4: ACTIVE phys=5: LinkUp rate=200 Gb/sec (1X XDR) layer=Ethernet
+== /sys/class/infiniband/mlx5_3
+node_guid=0000:0000:0000:0006
+node_type=1: CA
+fw_ver=82.48.4238
+hca_type=MT41695
+board_id=MT_0000001875
+port 1 state=4: ACTIVE phys=5: LinkUp rate=400 Gb/sec (4X NDR) layer=Ethernet
+== /sys/class/infiniband/mlx5_4
+node_guid=0000:0000:0000:0007
+node_type=1: CA
+fw_ver=82.48.4238
+hca_type=MT41695
+board_id=MT_0000001875
+port 1 state=4: ACTIVE phys=5: LinkUp rate=400 Gb/sec (4X NDR) layer=Ethernet
+== /sys/class/infiniband/mlx5_5
+node_guid=0000:0000:0000:0008
+node_type=1: CA
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+port 1 state=4: ACTIVE phys=5: LinkUp rate=200 Gb/sec (1X XDR) layer=Ethernet
+== /sys/class/infiniband/mlx5_6
+node_guid=0000:0000:0000:0009
+node_type=1: CA
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+port 1 state=4: ACTIVE phys=5: LinkUp rate=200 Gb/sec (1X XDR) layer=Ethernet
+== /sys/class/infiniband/mlx5_7
+node_guid=0000:0000:0000:000a
+node_type=1: CA
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+port 1 state=4: ACTIVE phys=5: LinkUp rate=200 Gb/sec (1X XDR) layer=Ethernet
+== /sys/class/infiniband/mlx5_8
+node_guid=0000:0000:0000:000b
+node_type=1: CA
+fw_ver=82.48.4222
+hca_type=MT4133
+board_id=MT_0000001658
+port 1 state=4: ACTIVE phys=5: LinkUp rate=200 Gb/sec (1X XDR) layer=Ethernet
+== /sys/class/infiniband/mlx5_9
+node_guid=0000:0000:0000:000c
+node_type=1: CA
+fw_ver=82.48.4238
+hca_type=MT41695
+board_id=MT_0000001875
+port 1 state=4: ACTIVE phys=5: LinkUp rate=400 Gb/sec (4X NDR) layer=Ethernet

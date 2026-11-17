@@ -1,6 +1,0 @@
-kind: Fixed
-body: |-
-  nvml-mock: running-process queries report no MIG instance (0xFFFFFFFF) for each process instead of 0, which read as MIG instance 0.
-time: 2026-10-22T12:35:25Z
-custom:
-  Issue: "1038"

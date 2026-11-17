@@ -38,7 +38,16 @@ go run ./cmd/generate-bridge -validate -header "$GO_NVML_DIR/pkg/nvml/nvml.h"
 |---|---|---|
 | generate (default) | `-input` and `-header` | Writes `-output`, unconditionally |
 | `-stats` | `-input` | Prints an NVML coverage table — total functions, hand-written implementations, generated stubs, and a per-file `//export` count — then exits `0` |
+| `-symbols` | a symbol file | Reads the symbols a real `libnvidia-ml.so` exports and reports how many the bridge implements, how many are generated stubs that answer `NOT_SUPPORTED`, and which are missing, then exits `0` |
 | `-validate` | `-header` | Compares each hand-written export's Go parameter count against its `nvml.h` prototype. Exits `1` after printing one `WARNING: <file>:<line>` per mismatch, or `0` |
+
+`-symbols` is the comparison with a real driver rather than with go-nvml: take the
+symbol list from a capture (`nvml-symbols.txt`), and pass `-mock-symbols` so the
+aliases the C shim provides are not reported as missing.
+
+```bash
+go run ./cmd/generate-bridge -symbols real/nvml-symbols.txt -mock-symbols mock/nvml-symbols.txt
+```
 
 `-stats` wins when both read-only flags are set. A required path that is missing
 or unreadable exits `1` before any work happens, with a message pointing at
@@ -54,6 +63,8 @@ or unreadable exits `1` before any work happens, with a message pointing at
 | `-output` | `pkg/gpu/mocknvml/bridge/stubs_generated.go` | Where generated stubs are written |
 | `-stats` | `false` | Print the coverage table and exit |
 | `-validate` | `false` | Check export parameter counts against `nvml.h` |
+| `-symbols` | none | File of the real library's exported symbols (`nm -D --defined-only` output or one name per line); report the bridge's coverage of them |
+| `-mock-symbols` | none | With `-symbols`: the same listing for the built mock library, so the legacy unversioned names the C shim exports count as exported |
 
 ## Why the output is committed
 

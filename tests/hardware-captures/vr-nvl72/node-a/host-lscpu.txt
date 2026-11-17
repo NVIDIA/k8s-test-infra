@@ -1,0 +1,81 @@
+Architecture:                            aarch64
+CPU op-mode(s):                          64-bit
+Byte Order:                              Little Endian
+CPU(s):                                  352
+On-line CPU(s) list:                     0-351
+Vendor ID:                               NVIDIA
+BIOS Vendor ID:                          NVIDIA
+Model name:                              Olympus
+BIOS Model name:                         Vera A1Z 699-2G558-0201-TS5 CPU @ 3.3GHz
+BIOS CPU family:                         258
+Model:                                   0
+Thread(s) per core:                      2
+Core(s) per socket:                      88
+Socket(s):                               2
+Stepping:                                0x0
+Frequency boost:                         disabled
+CPU(s) scaling MHz:                      100%
+CPU max MHz:                             3384.0000
+CPU min MHz:                             540.0000
+BogoMIPS:                                2000.00
+Flags:                                   fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm dit uscat ilrcpc flagm ssbs sb paca pacg dcpodp sve2 sveaes svepmull svebitperm svesha3 svesm4 flagm2 frint svei8mm svebf16 i8mm bf16 dgh rng bti ecv afp wfxt fpmr lut faminmax f8cvt f8fma f8dp4 f8dp2 f8e4m3 f8e5m2 ls64
+L1d cache:                               16.5 MiB (176 instances)
+L1i cache:                               11 MiB (176 instances)
+L2 cache:                                352 MiB (176 instances)
+L3 cache:                                328 MiB (2 instances)
+NUMA node(s):                            36
+NUMA node0 CPU(s):                       0-87,176-263
+NUMA node1 CPU(s):                       88-175,264-351
+NUMA node2 CPU(s):                       
+NUMA node3 CPU(s):                       
+NUMA node4 CPU(s):                       
+NUMA node5 CPU(s):                       
+NUMA node6 CPU(s):                       
+NUMA node7 CPU(s):                       
+NUMA node8 CPU(s):                       
+NUMA node9 CPU(s):                       
+NUMA node10 CPU(s):                      
+NUMA node11 CPU(s):                      
+NUMA node12 CPU(s):                      
+NUMA node13 CPU(s):                      
+NUMA node14 CPU(s):                      
+NUMA node15 CPU(s):                      
+NUMA node16 CPU(s):                      
+NUMA node17 CPU(s):                      
+NUMA node18 CPU(s):                      
+NUMA node19 CPU(s):                      
+NUMA node20 CPU(s):                      
+NUMA node21 CPU(s):                      
+NUMA node22 CPU(s):                      
+NUMA node23 CPU(s):                      
+NUMA node24 CPU(s):                      
+NUMA node25 CPU(s):                      
+NUMA node26 CPU(s):                      
+NUMA node27 CPU(s):                      
+NUMA node28 CPU(s):                      
+NUMA node29 CPU(s):                      
+NUMA node30 CPU(s):                      
+NUMA node31 CPU(s):                      
+NUMA node32 CPU(s):                      
+NUMA node33 CPU(s):                      
+NUMA node34 CPU(s):                      
+NUMA node35 CPU(s):                      
+Vulnerability Gather data sampling:      Not affected
+Vulnerability Ghostwrite:                Not affected
+Vulnerability Indirect target selection: Not affected
+Vulnerability Itlb multihit:             Not affected
+Vulnerability L1tf:                      Not affected
+Vulnerability Mds:                       Not affected
+Vulnerability Meltdown:                  Not affected
+Vulnerability Mmio stale data:           Not affected
+Vulnerability Old microcode:             Not affected
+Vulnerability Reg file data sampling:    Not affected
+Vulnerability Retbleed:                  Not affected
+Vulnerability Spec rstack overflow:      Not affected
+Vulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl
+Vulnerability Spectre v1:                Mitigation; __user pointer sanitization
+Vulnerability Spectre v2:                Mitigation; CSV2, BHB
+Vulnerability Srbds:                     Not affected
+Vulnerability Tsa:                       Not affected
+Vulnerability Tsx async abort:           Not affected
+Vulnerability Vmscape:                   Not affected

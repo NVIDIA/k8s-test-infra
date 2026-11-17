@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  nvml-mock: on a 615 or newer driver, the NVLink error and utilization counter getters and the per-link speed and data-link error fields answer NOT_SUPPORTED, as on a real 615 tray; NVLink errors, injected ones included, show in the NVLink5 counter fields that `nvidia-smi nvlink -e` reads. Output on older drivers is unchanged.
+time: 2026-11-06T16:00:00Z

@@ -186,7 +186,7 @@ diagrams show.
 
 ## Where the table lives
 
-The table is a sibling document of the profile, not a section of it. The five
+The table is a sibling document of the profile, not a section of it. The six
 MIG-capable boards ship theirs twice, once per config tree:
 
 | | file |
@@ -305,7 +305,8 @@ enum for the same partition is a different number entirely. NVIDIA publishes no
 row's own NVML enum instead — `19` names nothing there and `0` is the 1-slice
 profile rather than the whole board. Name partitions by `profile` on those
 boards, and take any id from the mock's own listing rather than from a real
-board's.
+board's. `vrnvl72` is read off a real tray, so its ids are the tray's own, as on
+`a100` and `h100`.
 
 ## Declaring a layout explicitly
 

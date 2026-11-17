@@ -636,6 +636,8 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
           email: entry.commit?.author?.email,
         } },
         author: entry.author === null ? null : { login: entry.author?.login },
+        // dco.js exempts merge commits by parent count.
+        parents: Array.isArray(entry.parents) ? entry.parents.map((parent) => ({ sha: parent?.sha })) : [],
       }));
     },
 

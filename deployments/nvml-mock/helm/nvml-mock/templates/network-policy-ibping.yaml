@@ -11,8 +11,8 @@ cluster-wide peer still costs OVN-Kubernetes a scan of every Pod per Pod event.
 # reachable by its real clients alone.
 # Egress stays open so DNS peer discovery and registration still work.
 #
-# kindnetd enforces NetworkPolicy on current Kind releases, so this is
-# load-bearing in local e2e, not only on Calico/Cilium.
+# Kind's default kindnet enforces NetworkPolicy since v0.24.0, so this is
+# load-bearing in local e2e; see docs/helm-chart.md#cross-node-ibping.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

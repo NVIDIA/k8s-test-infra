@@ -58,30 +58,47 @@ func (d *ConfigurableDevice) GetAddressingMode() (nvml.DeviceAddressingMode, nvm
 	return nvml.DeviceAddressingMode{Value: uint32(mode)}, nvml.SUCCESS
 }
 
-// GetCapabilities reports an empty capability mask. EGM (Extended GPU Memory)
-// is the only capability NVML defines, and it is disabled on every captured
-// board, Grace hosts included: it has to be turned on in the kernel module.
+// GetCapabilities reports the device capability mask. EGM (Extended GPU
+// Memory) is the only capability NVML defines. It has to be turned on in the
+// kernel module, so it is off unless the profile sets egm: the captured Grace
+// boards have it off, the captured Vera Rubin tray on.
 func (d *ConfigurableDevice) GetCapabilities() (nvml.DeviceCapabilities, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return nvml.DeviceCapabilities{}, ret
 	}
-	debugLog("[NVML] nvmlDeviceGetCapabilities -> capMask=0\n")
-	return nvml.DeviceCapabilities{}, nvml.SUCCESS
+	var caps nvml.DeviceCapabilities
+	if d.cfg().EGM {
+		caps.CapMask = nvml.DEV_CAP_EGM
+	}
+	debugLog("[NVML] nvmlDeviceGetCapabilities -> capMask=%d\n", caps.CapMask)
+	return caps, nvml.SUCCESS
 }
 
 // GetPdi returns the Per Device Identifier, a 64-bit ID fused into the GPU.
-// It is derived from the physical GPU's UUID so that every process loading the
-// mock agrees on it; a MIG device carries its parent's UUID here and so
-// reports the PDI of the GPU it is carved from.
 func (d *ConfigurableDevice) GetPdi() (nvml.Pdi, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return nvml.Pdi{}, ret
 	}
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(d.UUID)) // hash.Hash.Write never returns an error
-	pdi := h.Sum64()
+	pdi := d.pdi(d.cfg())
 	debugLog("[NVML] nvmlDeviceGetPdi -> %#016x\n", pdi)
 	return nvml.Pdi{Value: pdi}, nvml.SUCCESS
+}
+
+// pdi is the configured PDI, or else one derived from the physical GPU's UUID
+// so that every process loading the mock agrees on it. A MIG device shares its
+// parent's config and UUID, and so reports the PDI of the GPU it is carved from.
+func (d *ConfigurableDevice) pdi(cfg *DeviceConfig) uint64 {
+	if cfg.PDI != nil {
+		return uint64(*cfg.PDI)
+	}
+	return pdiFromUUID(d.UUID)
+}
+
+// pdiFromUUID is the PDI of a GPU that declares none.
+func pdiFromUUID(uuid string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(uuid)) // hash.Hash.Write never returns an error
+	return h.Sum64()
 }
 
 // OnSameBoard reports whether two devices share a physical board. Every mocked

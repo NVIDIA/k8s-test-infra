@@ -3,11 +3,8 @@
 
 // nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1 driven through the raw C ABI.
 //
-// This module's go-nvml is pinned at v0.13.0-1, which predates the binding for
-// this entry point — and the pin is deliberate, because the throttle field ids
-// move in later versions (see checkThrottleFieldIDs). So the call is made by
-// symbol, with the struct laid out here from nvml.h rather than borrowed from
-// go-nvml.
+// The call is made by symbol, with the struct laid out here from nvml.h rather
+// than borrowed from go-nvml.
 //
 // That independence is the point. Of the three requested-profile setters this
 // is the only one whose struct carries no version member, so nothing but the
@@ -79,10 +76,8 @@ import (
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
 
-// The operation values and the "no profile" sentinel, spelled out from nvml.h
-// because the pinned go-nvml has neither the enum nor a binding for this entry
-// point. Defining them here is what keeps this check independent of the
-// bindings it is meant to cross-check.
+// The operation values and the "no profile" sentinel are spelled out from
+// nvml.h to keep this check independent of the bindings it cross-checks.
 type profileOperation uint32
 
 const (

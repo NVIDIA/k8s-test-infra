@@ -311,6 +311,30 @@
       "additionalProperties": true,
       "description": "Mokka node agent.",
       "properties": {
+        "numa": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "topologyManagerPolicy": {
+              "description": "Selects how kubelet aligns resources across NUMA zones. Used when NUMA simulation is enabled. For example, single-numa-node requires resources for each container to align within one zone.",
+              "type": "string",
+              "enum": [
+                "none",
+                "best-effort",
+                "restricted",
+                "single-numa-node"
+              ]
+            },
+            "memoryManagerPolicy": { "type": "string", "enum": ["none", "static"] },
+            "systemReservedCPU": { "type": "string" },
+            "systemReservedMemory": { "type": "string", "minLength": 1 },
+            "cpuManagerPolicy": { "type": "string", "enum": ["none", "static"] },
+            "reservedCPUs": { "type": "string", "pattern": "^$|^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$" }
+          }
+        },
         "livenessProbe": { "type": ["object", "null"] },
         "readinessProbe": { "type": ["object", "null"] },
         "logging": {
@@ -599,7 +623,7 @@
             "networkPolicy": {
               "type": "object",
               "additionalProperties": true,
-              "description": "NetworkPolicy restricting inbound access to the fabric port to peer nvml-mock pods. Rendered only at the full mock InfiniBand tier, the only one that listens on the port. No-op on CNIs that do not enforce NetworkPolicy (e.g. Kind's kindnet).",
+              "description": "NetworkPolicy restricting inbound access to the fabric port to peer nvml-mock pods. Rendered only at the full mock InfiniBand tier, the only one that listens on the port. No-op on CNIs that do not enforce NetworkPolicy. Kind's default kindnet enforces it since Kind v0.24.0.",
               "properties": {
                 "enabled": { "type": "boolean" },
                 "peerNamespaces": {

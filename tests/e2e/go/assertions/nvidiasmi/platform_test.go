@@ -223,6 +223,56 @@ func TestPlatformIdentityProblems_ReportsUnparseableDocument(t *testing.T) {
 
 // The rendering must match nvidia-smi's own vocabulary, which is prose rather
 // than the NVML byte or the profile spelling.
+// fabricGUIDGPU is a gb200-profile GPU that renders the given PDI and fabric
+// GUID bodies; an empty guid leaves the element out.
+func fabricGUIDGPU(pdi, guid string) string {
+	gpu := platformGPU("0000:0A:00.0", populatedPlatform("1"), "36 C")
+	extra := "</platformInfo>\n\t\t<pdi>" + pdi + "</pdi>"
+	if guid != "" {
+		extra = "\t<gpu_fabric_guid>" + guid + "</gpu_fabric_guid>\n\t\t" + extra
+	}
+	return strings.Replace(gpu, "</platformInfo>", extra, 1)
+}
+
+func TestPlatformIdentityProblems_FabricGUIDIsPDI(t *testing.T) {
+	want := &PlatformExpectation{
+		ChassisSerialNumber: "1822725100200", SlotNumber: 21, TrayIndex: 11,
+		HostID: 1, PeerType: "switch_connected", ModuleIDs: []int{1}, FabricGUIDIsPDI: true,
+	}
+	const pdi = "0x9c1f4d2e8a7b6c50"
+	for name, tc := range map[string]struct {
+		guid    string
+		wantErr string
+	}{
+		"equal to the PDI":   {guid: pdi},
+		"a different GUID":   {guid: "0x9c1f4d2e8a7b6c51", wantErr: "want its PDI"},
+		"zero, as unmodeled": {guid: "0x0000000000000000", wantErr: "want its PDI"},
+		"not available":      {guid: "N/A", wantErr: "want its PDI"},
+		"element missing":    {wantErr: "emits no gpu_fabric_guid"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			problems := PlatformIdentityProblems(xmlDocument(fabricGUIDGPU(pdi, tc.guid)), want)
+			if tc.wantErr == "" {
+				require.Empty(t, problems)
+				return
+			}
+			require.Len(t, problems, 1)
+			assert.Contains(t, problems[0], tc.wantErr)
+		})
+	}
+}
+
+// Without the expectation the GUID is not compared, so a profile that never
+// declared one keeps passing on whatever the driver reports.
+func TestPlatformIdentityProblems_IgnoresFabricGUIDUnlessExpected(t *testing.T) {
+	problems := PlatformIdentityProblems(xmlDocument(fabricGUIDGPU("0x9c1f4d2e8a7b6c50", "0x0000000000000000")),
+		&PlatformExpectation{
+			ChassisSerialNumber: "1822725100200", SlotNumber: 21, TrayIndex: 11,
+			HostID: 1, PeerType: "switch_connected", ModuleIDs: []int{1},
+		})
+	require.Empty(t, problems)
+}
+
 func TestRenderedPeerType(t *testing.T) {
 	for in, want := range map[string]string{
 		"switch_connected":   peerTypeSwitchConnected,

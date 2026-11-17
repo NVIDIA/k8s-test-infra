@@ -27,12 +27,12 @@ shopt -s nullglob
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
-# Binaries documented at the top level instead of under docs/tools/, because
-# they are aimed at operators rather than at contributors. Listed explicitly
-# because docs/ is full of pages that are about no binary at all, so it cannot
-# be scanned the way docs/tools/ can. Both directions are checked against this
-# list, so a page here that outlives its binary fails too.
-top_level_pages=(nvml-mock-ctl)
+# Operator references can live outside docs/tools/. Register their exact paths
+# so both missing documentation and references to removed commands are checked.
+reference_pages=(
+  nvml-mock-ctl:docs/nvml-mock-ctl.md
+  mokka-kubelet-helper:docs/components/mokka-kubelet-helper.md
+)
 
 # is_component reports whether cmd/<name> builds a binary. Keyed on a main.go
 # rather than on the directory, because `make build` finds its packages the
@@ -46,19 +46,14 @@ is_component() {
   [ -n "$(find "cmd/$1" -name main.go -print -quit 2>/dev/null)" ]
 }
 
-# has_top_level_page reports whether name is registered above AND its page is
-# on disk. Registration is required so that adding docs/<name>.md is a visible
-# edit here, which is what earns that page the reverse check below.
-has_top_level_page() {
-  local name="$1" listed
-  # Guarded because bash 3.2, which is what macOS ships, treats "${empty[@]}"
-  # under `set -u` as an unbound variable and aborts.
-  if [ "${#top_level_pages[@]}" -eq 0 ]; then
+has_reference_page() {
+  local name="$1" reference
+  if [ "${#reference_pages[@]}" -eq 0 ]; then
     return 1
   fi
-  for listed in "${top_level_pages[@]}"; do
-    if [ "${listed}" = "${name}" ]; then
-      [ -f "docs/${name}.md" ]
+  for reference in "${reference_pages[@]}"; do
+    if [ "${reference%%:*}" = "${name}" ]; then
+      [ -f "${reference#*:}" ]
       return
     fi
   done
@@ -82,19 +77,21 @@ for dir in cmd/*/; do
   if ! is_component "${name}"; then
     continue
   fi
-  if [ ! -f "docs/tools/${name}.md" ] && ! has_top_level_page "${name}"; then
+  if [ ! -f "docs/tools/${name}.md" ] && ! has_reference_page "${name}"; then
     undocumented+=("${name}")
   fi
 done
 
-stale_top_level=()
-missing_top_level=()
-if [ "${#top_level_pages[@]}" -gt 0 ]; then
-  for name in "${top_level_pages[@]}"; do
+stale_references=()
+missing_references=()
+if [ "${#reference_pages[@]}" -gt 0 ]; then
+  for reference in "${reference_pages[@]}"; do
+    name="${reference%%:*}"
+    page="${reference#*:}"
     if ! is_component "${name}"; then
-      stale_top_level+=("${name}")
-    elif [ ! -f "docs/${name}.md" ]; then
-      missing_top_level+=("${name}")
+      stale_references+=("${page}")
+    elif [ ! -f "${page}" ]; then
+      missing_references+=("${page}")
     fi
   done
 fi
@@ -109,21 +106,21 @@ fi
 
 if [ "${#undocumented[@]}" -gt 0 ]; then
   echo "ERROR: built from cmd/ but documented nowhere. Add docs/tools/<name>.md," >&2
-  echo "       or add the name to top_level_pages in $0 and write docs/<name>.md:" >&2
+  echo "       or register its documentation path in reference_pages in $0:" >&2
   printf '  %s\n' "${undocumented[@]}" >&2
   status=1
 fi
 
-if [ "${#stale_top_level[@]}" -gt 0 ]; then
-  echo "ERROR: listed in top_level_pages with no cmd/<name> behind them." >&2
-  echo "       Delete docs/<name>.md and the list entry:" >&2
-  printf '  %s\n' "${stale_top_level[@]}" >&2
+if [ "${#stale_references[@]}" -gt 0 ]; then
+  echo "ERROR: registered reference pages have no cmd/<name> behind them." >&2
+  echo "       Delete the page and its reference_pages entry:" >&2
+  printf '  %s\n' "${stale_references[@]}" >&2
   status=1
 fi
 
-if [ "${#missing_top_level[@]}" -gt 0 ]; then
-  echo "ERROR: listed in top_level_pages but docs/<name>.md is absent:" >&2
-  printf '  %s\n' "${missing_top_level[@]}" >&2
+if [ "${#missing_references[@]}" -gt 0 ]; then
+  echo "ERROR: registered reference pages are missing:" >&2
+  printf '  %s\n' "${missing_references[@]}" >&2
   status=1
 fi
 

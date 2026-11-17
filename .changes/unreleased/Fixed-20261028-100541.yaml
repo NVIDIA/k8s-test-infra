@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  nvml-mock: acknowledge GPU memory-limit requests so fractional containers can start; memory limits are not stored or enforced.
+time: 2026-10-28T10:05:41Z

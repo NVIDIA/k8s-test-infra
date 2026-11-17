@@ -1267,12 +1267,18 @@ func TestConfigurableDevice_GetClock_RejectsEnumSentinels(t *testing.T) {
 // 1 direct GPU link to device 1, plus a single-NUMA pcie_topology block.
 func newFabricEngine(t *testing.T) *Engine {
 	t.Helper()
+	return newFabricEngineOnDriver(t, "560.0")
+}
+
+// newFabricEngineOnDriver is newFabricEngine reporting driver.
+func newFabricEngineOnDriver(t *testing.T, driver string) *Engine {
+	t.Helper()
 	cfg := &Config{
 		NumDevices:    2,
-		DriverVersion: "560.0",
+		DriverVersion: driver,
 		YAMLConfig: &YAMLConfig{
 			Version: "1.0",
-			System:  SystemConfig{DriverVersion: "560.0", NVMLVersion: "12.560.0", NumDevices: 2},
+			System:  SystemConfig{DriverVersion: driver, NumDevices: 2},
 			DeviceDefaults: DeviceConfig{
 				Name: "NVIDIA A100-SXM4-80GB",
 			},
@@ -1313,6 +1319,35 @@ func fabricDevice(t *testing.T, e *Engine, index int) *ConfigurableDevice {
 	cd, ok := e.LookupDevice(handle).(*ConfigurableDevice)
 	require.True(t, ok, "device %d is not a ConfigurableDevice", index)
 	return cd
+}
+
+// An index past the board's links is an invalid argument only where the
+// driver's NVML cannot address it. From 615 NVML addresses 36 links on every
+// board, and a 615 nvidia-smi walks all of them: answering an index the board
+// lacks as an invalid argument is what made its topology matrix fail.
+func TestConfigurableDevice_NvLinkIndexRangeFollowsTheDriver(t *testing.T) {
+	for _, tc := range []struct {
+		driver string
+		bound  int
+	}{
+		{"560.0", 18},
+		{"580.65.06", 18},
+		{"614.99", 18},
+		{"615.71.09", 36},
+		{"620.10", 36},
+	} {
+		t.Run(tc.driver, func(t *testing.T) {
+			d0 := fabricDevice(t, newFabricEngineOnDriver(t, tc.driver), 0)
+
+			st, ret := d0.GetNvLinkState(tc.bound - 1)
+			require.Equal(t, nvml.SUCCESS, ret, "last index the driver addresses")
+			require.Equal(t, nvml.FEATURE_DISABLED, st, "the board has no link there")
+			_, ret = d0.GetNvLinkState(tc.bound)
+			require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret, "first index past the driver's bound")
+			_, ret = d0.GetNvLinkRemoteDeviceType(tc.bound)
+			require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret)
+		})
+	}
 }
 
 func TestConfigurableDevice_NvLinkGetters_PerDevice(t *testing.T) {

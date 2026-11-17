@@ -1,6 +1,0 @@
-kind: Added
-body: |-
-  nvml-mock: GPM profiling metrics can be read per MIG GPU instance through `nvmlGpmMigSampleGet`, which no longer returns NOT_SUPPORTED; each instance, sampled by ID or MIG device handle, reports the board's activity and its slice share of PCIe and NVLink throughput.
-time: 2026-10-21T06:59:17Z
-custom:
-  Issue: "1045"

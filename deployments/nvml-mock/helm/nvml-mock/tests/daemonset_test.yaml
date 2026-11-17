@@ -1250,8 +1250,8 @@ tests:
   # The agent reads the node's DMI attributes and reproduces them inside the
   # rendered PCI tree, because serving that tree at /sys/devices replaces the
   # directory /sys/class/dmi/id resolves into and the runtime's bind-mount
-  # targets have to survive it. Read-only: the agent never writes to /sys.
-  - it: should mount the node's sysfs read-only in the agent alone
+  # targets have to survive it. Propagation also publishes the NUMA mounts.
+  - it: should propagate the node sysfs mounts in the agent alone
     set:
       allocationWatcher:
         enabled: true
@@ -1261,7 +1261,7 @@ tests:
           content:
             name: node-sysfs
             mountPath: /host/sys
-            readOnly: true
+            mountPropagation: Bidirectional
       # The watcher reads the kubelet's pod-resources socket, not the node's
       # sysfs, and the volume is the whole of /sys.
       - notContains:
@@ -1269,7 +1269,7 @@ tests:
           content:
             name: node-sysfs
             mountPath: /host/sys
-            readOnly: true
+            mountPropagation: Bidirectional
       - contains:
           path: spec.template.spec.volumes
           content:

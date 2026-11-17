@@ -1,0 +1,56 @@
+== /proc/driver/nvidia/gpus/0002:81:00.0/power
+Runtime D3 status:          Disabled by default
+Tegra iGPU Rail-Gating:     Disabled
+Video Memory:               Active
+
+GPU Hardware Support:
+ Video Memory Self Refresh: Not Supported
+ Video Memory Off:          Not Supported
+
+S0ix Power Management:
+ Platform Support:          Supported
+ Status:                    Disabled
+
+Notebook Dynamic Boost:     Not Supported
+== /proc/driver/nvidia/gpus/0002:c1:00.0/power
+Runtime D3 status:          Disabled by default
+Tegra iGPU Rail-Gating:     Disabled
+Video Memory:               Active
+
+GPU Hardware Support:
+ Video Memory Self Refresh: Not Supported
+ Video Memory Off:          Not Supported
+
+S0ix Power Management:
+ Platform Support:          Supported
+ Status:                    Disabled
+
+Notebook Dynamic Boost:     Not Supported
+== /proc/driver/nvidia/gpus/000a:81:00.0/power
+Runtime D3 status:          Disabled by default
+Tegra iGPU Rail-Gating:     Disabled
+Video Memory:               Active
+
+GPU Hardware Support:
+ Video Memory Self Refresh: Not Supported
+ Video Memory Off:          Not Supported
+
+S0ix Power Management:
+ Platform Support:          Supported
+ Status:                    Disabled
+
+Notebook Dynamic Boost:     Not Supported
+== /proc/driver/nvidia/gpus/000a:e1:00.0/power
+Runtime D3 status:          Disabled by default
+Tegra iGPU Rail-Gating:     Disabled
+Video Memory:               Active
+
+GPU Hardware Support:
+ Video Memory Self Refresh: Not Supported
+ Video Memory Off:          Not Supported
+
+S0ix Power Management:
+ Platform Support:          Supported
+ Status:                    Disabled
+
+Notebook Dynamic Boost:     Not Supported

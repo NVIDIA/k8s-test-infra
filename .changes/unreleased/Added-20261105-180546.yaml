@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  nvml-mock: nodes on a 615 driver (a profile's `system.driver_version` or the chart's `driverVersion`) now run nvidia-smi 615.71.09 instead of 580.65.06; nodes on other drivers are unchanged.
+time: 2026-11-06T01:05:46Z

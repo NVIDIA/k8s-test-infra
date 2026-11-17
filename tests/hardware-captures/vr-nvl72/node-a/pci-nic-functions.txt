@@ -1,0 +1,32 @@
+0001:01:00.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/0001:01:00.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/0001:01:00.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+0001:02:00.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/0001:02:00.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/0001:02:00.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+0001:02:01.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/0001:02:01.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/0001:02:01.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+0001:03:00.0 subsys=0x15b3:0x0671 sriov_totalvfs=1 sriov_numvfs=0 physfn= virtfn=0
+0001:04:00.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/0001:04:00.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/0001:04:00.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+0001:05:04.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/0001:05:04.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/0001:05:04.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+0003:01:00.0 subsys=0x15b3:0x0671 sriov_totalvfs=1 sriov_numvfs=0 physfn= virtfn=0
+0004:01:00.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/0004:01:00.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/0004:01:00.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+0004:02:00.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/0004:02:00.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/0004:02:00.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+0004:02:01.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/0004:02:01.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/0004:02:01.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+0004:03:00.0 subsys=0x15b3:0x0671 sriov_totalvfs=1 sriov_numvfs=0 physfn= virtfn=0
+0004:04:00.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/0004:04:00.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/0004:04:00.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+0004:05:04.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/0004:05:04.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/0004:05:04.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+0005:41:00.0 subsys=0x15b3:0x2000 sriov_totalvfs=46 sriov_numvfs=0 physfn= virtfn=0
+0005:41:00.1 subsys=0x15b3:0x2000 sriov_totalvfs=46 sriov_numvfs=0 physfn= virtfn=0
+0006:01:00.0 subsys=0x15b3:0x0671 sriov_totalvfs=1 sriov_numvfs=0 physfn= virtfn=0
+0009:01:00.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/0009:01:00.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/0009:01:00.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+0009:02:00.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/0009:02:00.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/0009:02:00.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+0009:02:01.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/0009:02:01.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/0009:02:01.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+0009:03:00.0 subsys=0x15b3:0x0671 sriov_totalvfs=1 sriov_numvfs=0 physfn= virtfn=0
+0009:04:00.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/0009:04:00.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/0009:04:00.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+0009:05:04.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/0009:05:04.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/0009:05:04.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+000b:01:00.0 subsys=0x15b3:0x0671 sriov_totalvfs=1 sriov_numvfs=0 physfn= virtfn=0
+000c:01:00.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/000c:01:00.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/000c:01:00.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+000c:02:00.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/000c:02:00.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/000c:02:00.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+000c:02:01.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/000c:02:01.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/000c:02:01.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+000c:03:00.0 subsys=0x15b3:0x0671 sriov_totalvfs=1 sriov_numvfs=0 physfn= virtfn=0
+000c:04:00.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/000c:04:00.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/000c:04:00.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+000c:05:04.0 subsys=0x0000:0x0000 sriov_totalvfs=cat: '/sys/bus/pci/devices/000c:05:04.0/sriov_totalvfs': No such file or directory sriov_numvfs=cat: '/sys/bus/pci/devices/000c:05:04.0/sriov_numvfs': No such file or directory physfn= virtfn=0
+000d:41:00.0 subsys=0x15b3:0x2000 sriov_totalvfs=46 sriov_numvfs=0 physfn= virtfn=0
+000d:41:00.1 subsys=0x15b3:0x2000 sriov_totalvfs=46 sriov_numvfs=0 physfn= virtfn=0
+000e:01:00.0 subsys=0x15b3:0x0671 sriov_totalvfs=1 sriov_numvfs=0 physfn= virtfn=0

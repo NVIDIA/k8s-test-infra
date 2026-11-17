@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  mokka-capture: `collect -mock` captures a Mokka node the same way as a real one, so the two captures can be compared with `diff`; see [mokka-capture](docs/tools/mokka-capture.md#a-mokka-node).
+time: 2026-11-08T12:00:00Z

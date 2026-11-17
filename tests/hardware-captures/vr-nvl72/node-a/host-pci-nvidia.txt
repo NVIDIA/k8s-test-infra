@@ -1,0 +1,25 @@
+/sys/bus/pci/devices/0001:00:00.0 device=0x2f95 class=0x060400 subsys=0x0000:0x0000 numa=0 link=64.0 GT/s PCIex16 max=64.0 GT/s PCIex16
+/sys/bus/pci/devices/0002:80:00.0 device=0x2f98 class=0x060400 subsys=0x0000:0x0000 numa=0 link=64.0 GT/s PCIex2 max=64.0 GT/s PCIex2
+/sys/bus/pci/devices/0002:81:00.0 device=0x3041 class=0x030200 subsys=0x10de:0x221a numa=0 link=64.0 GT/s PCIex2 max=64.0 GT/s PCIex16
+/sys/bus/pci/devices/0002:a0:00.0 device=0x2f98 class=0x060400 subsys=0x0000:0x0000 numa=0 link=5.0 GT/s PCIex1 max=64.0 GT/s PCIex2
+/sys/bus/pci/devices/0002:c0:00.0 device=0x2f98 class=0x060400 subsys=0x0000:0x0000 numa=0 link=64.0 GT/s PCIex2 max=64.0 GT/s PCIex2
+/sys/bus/pci/devices/0002:c1:00.0 device=0x3041 class=0x030200 subsys=0x10de:0x221a numa=0 link=64.0 GT/s PCIex2 max=64.0 GT/s PCIex16
+/sys/bus/pci/devices/0002:e0:00.0 device=0x2f98 class=0x060400 subsys=0x0000:0x0000 numa=0 link=5.0 GT/s PCIex1 max=64.0 GT/s PCIex2
+/sys/bus/pci/devices/0003:00:00.0 device=0x2f95 class=0x060400 subsys=0x0000:0x0000 numa=0 link=64.0 GT/s PCIex16 max=64.0 GT/s PCIex16
+/sys/bus/pci/devices/0004:00:00.0 device=0x2f95 class=0x060400 subsys=0x0000:0x0000 numa=0 link=64.0 GT/s PCIex16 max=64.0 GT/s PCIex16
+/sys/bus/pci/devices/0005:00:00.0 device=0x2f97 class=0x060400 subsys=0x0000:0x0000 numa=0 link=Unknownx0 max=64.0 GT/s PCIex4
+/sys/bus/pci/devices/0005:40:00.0 device=0x2f96 class=0x060400 subsys=0x0000:0x0000 numa=0 link=64.0 GT/s PCIex8 max=64.0 GT/s PCIex8
+/sys/bus/pci/devices/0005:c0:00.0 device=0x2f97 class=0x060400 subsys=0x0000:0x0000 numa=0 link=Unknownx0 max=64.0 GT/s PCIex4
+/sys/bus/pci/devices/0006:00:00.0 device=0x2f95 class=0x060400 subsys=0x0000:0x0000 numa=0 link=64.0 GT/s PCIex16 max=64.0 GT/s PCIex16
+/sys/bus/pci/devices/0009:00:00.0 device=0x2f95 class=0x060400 subsys=0x0000:0x0000 numa=1 link=64.0 GT/s PCIex16 max=64.0 GT/s PCIex16
+/sys/bus/pci/devices/000a:80:00.0 device=0x2f98 class=0x060400 subsys=0x0000:0x0000 numa=1 link=64.0 GT/s PCIex2 max=64.0 GT/s PCIex2
+/sys/bus/pci/devices/000a:81:00.0 device=0x3041 class=0x030200 subsys=0x10de:0x221a numa=1 link=64.0 GT/s PCIex2 max=64.0 GT/s PCIex16
+/sys/bus/pci/devices/000a:a0:00.0 device=0x2f97 class=0x060400 subsys=0x0000:0x0000 numa=1 link=32.0 GT/s PCIex4 max=32.0 GT/s PCIex4
+/sys/bus/pci/devices/000a:e0:00.0 device=0x2f98 class=0x060400 subsys=0x0000:0x0000 numa=1 link=64.0 GT/s PCIex2 max=64.0 GT/s PCIex2
+/sys/bus/pci/devices/000a:e1:00.0 device=0x3041 class=0x030200 subsys=0x10de:0x221a numa=1 link=64.0 GT/s PCIex2 max=64.0 GT/s PCIex16
+/sys/bus/pci/devices/000b:00:00.0 device=0x2f95 class=0x060400 subsys=0x0000:0x0000 numa=1 link=64.0 GT/s PCIex16 max=64.0 GT/s PCIex16
+/sys/bus/pci/devices/000c:00:00.0 device=0x2f95 class=0x060400 subsys=0x0000:0x0000 numa=1 link=64.0 GT/s PCIex16 max=64.0 GT/s PCIex16
+/sys/bus/pci/devices/000d:00:00.0 device=0x2f97 class=0x060400 subsys=0x0000:0x0000 numa=1 link=Unknownx0 max=64.0 GT/s PCIex4
+/sys/bus/pci/devices/000d:40:00.0 device=0x2f96 class=0x060400 subsys=0x0000:0x0000 numa=1 link=64.0 GT/s PCIex8 max=64.0 GT/s PCIex8
+/sys/bus/pci/devices/000d:c0:00.0 device=0x2f97 class=0x060400 subsys=0x0000:0x0000 numa=1 link=Unknownx0 max=64.0 GT/s PCIex4
+/sys/bus/pci/devices/000e:00:00.0 device=0x2f95 class=0x060400 subsys=0x0000:0x0000 numa=1 link=64.0 GT/s PCIex16 max=64.0 GT/s PCIex16

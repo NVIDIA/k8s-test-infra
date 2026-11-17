@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: field ids now follow system.driver_version, so a profile on a newer 580 driver (580.95.05+) serves throttle counters and power smoothing at the ids that driver uses; 580.65.06 profiles are unchanged.
+time: 2026-10-27T14:11:49Z
+custom:
+  Issue: "1096"

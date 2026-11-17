@@ -1,6 +1,0 @@
-kind: Added
-body: |-
-  helm: new `driverBranch` and `hic[]` values feed the NVML driver branch and `nvidia-smi -q -u`.
-time: 2026-10-13T07:17:33Z
-custom:
-  Issue: "1041"

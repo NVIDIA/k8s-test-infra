@@ -1,6 +1,0 @@
-kind: Fixed
-body: |-
-  profiles: `b200` reports PCIe Gen5 rather than Gen6 for Max, Current, Device Current and Device Max, matching a real B200.
-time: 2026-10-26T17:49:58Z
-custom:
-  Issue: "1053"

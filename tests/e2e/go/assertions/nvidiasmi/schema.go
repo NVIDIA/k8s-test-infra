@@ -219,8 +219,7 @@ type migSharedAttributes struct {
 // platformInfo is <platformInfo> — the one camelCase container in the document.
 // It answers where the board sits in a rack: the chassis, the slot and tray
 // within it, the node inside that tray, and the GPU's module within the node.
-// gpu_fabric_guid shares the block but comes from a field of the same NVML
-// struct that the mock does not model, so it is deliberately not decoded.
+// gpu_fabric_guid names the GPU itself to an NVLink fabric manager.
 type platformInfo struct {
 	ChassisSerialNumber reading `xml:"chassis_serial_number"`
 	SlotNumber          reading `xml:"slot_number"`
@@ -228,6 +227,7 @@ type platformInfo struct {
 	HostID              reading `xml:"host_id"`
 	PeerType            reading `xml:"peer_type"`
 	ModuleID            reading `xml:"module_id"`
+	GPUFabricGUID       reading `xml:"gpu_fabric_guid"`
 }
 
 // pciInfo is <pci>. Only the link-generation subtree is decoded; the sibling

@@ -1,0 +1,13 @@
+nvidia-bug-report.sh
+nvidia-cuda-mps-control
+nvidia-cuda-mps-server
+nvidia-debugdump
+nvidia-fabricmanager-start.sh
+nvidia-imex
+nvidia-imex-ctl
+nvidia-modprobe
+nvidia-networking-bug-report.py
+nvidia-ngx-updater
+nvidia-persistenced
+nvidia-powerd
+nvidia-smi

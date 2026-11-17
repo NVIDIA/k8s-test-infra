@@ -58,6 +58,7 @@ type presetWrite struct{ flag, value, what string }
 func presetWrites(p nvidiasmi.PowerSmoothingPreset) []presetWrite {
 	format := func(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
 	return []presetWrite{
+		// 580 prints "floor", 615 "Floor"; the checks ignore case.
 		{"-ptf", format(p.PercentTMPFloor), "Percent TMP floor"},
 		{"-rur", format(p.RampUpWPerS * 1000), "Ramp Up Rate"},
 		{"-rdr", format(p.RampDownWPerS * 1000), "Ramp Down Rate"},
@@ -116,7 +117,7 @@ func assertPowerSmoothingViaNvidiaSmi(ctx SpecContext, h *harness.Harness, consu
 		By(fmt.Sprintf("nvidia-smi power-smoothing -i %d -p %s %s %s", target, preset, w.flag, w.value))
 		exit, out := smiPowerSmoothing(ctx, h, consumer, target, "-p", preset, w.flag, w.value)
 		Expect(exit).To(Equal(0), "%s %s: %s", w.flag, w.value, out)
-		Expect(out).To(ContainSubstring("Successfully updated %s for Preset Profile ID %s", w.what, preset))
+		Expect(strings.ToLower(out)).To(ContainSubstring(strings.ToLower(fmt.Sprintf("Successfully updated %s for Preset Profile ID %s", w.what, preset))))
 	}
 
 	By("a separate nvidia-smi power-smoothing -ppd reports the tuned preset " + preset)
@@ -203,7 +204,7 @@ func assertActivePresetRetune(ctx SpecContext, h *harness.Harness, pod kube.PodR
 	exit, out = smiPowerSmoothing(ctx, h, pod, idx, args...)
 	Expect(exit).To(Equal(0), "%s: %s", cmd, out)
 	for _, w := range writes {
-		Expect(out).To(ContainSubstring("Successfully updated %s for Preset Profile ID 0", w.what))
+		Expect(strings.ToLower(out)).To(ContainSubstring(strings.ToLower("Successfully updated " + w.what + " for Preset Profile ID 0")))
 	}
 
 	retuned := nvidiasmi.PowerSmoothingExpectation{

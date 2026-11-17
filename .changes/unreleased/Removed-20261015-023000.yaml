@@ -1,6 +1,0 @@
-kind: Removed
-body: |-
-  nvml-mock: `Dockerfile.compute-domain-daemon` and the Tilt images `nvml-mock:compute-domain-imex` and `nvml-mock:compute-domain-daemon`; the DRA driver runs ComputeDomains with its upstream images, and the node agent stages IMEX for them.
-time: 2026-10-15T02:30:00Z
-custom:
-  Issue: "821"

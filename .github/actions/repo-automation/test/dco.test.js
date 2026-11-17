@@ -127,18 +127,73 @@ test("checks missing, mismatched, and multiple wrong signoffs on every human com
   assert.match(result.failures[2].reason, /Carol Example <carol@example\.com>/);
 });
 
-test("checks merge commits like every other human commit", () => {
+test("exempts unsigned merge commits like the probot DCO app", () => {
   const merge = commit({
     sha: "merge-sha",
-    message: "Merge branch 'topic' into main",
+    name: "Jay",
+    message: "Merge branch 'main' into topic",
     parents: [{ sha: "first" }, { sha: "second" }],
   });
 
-  const result = evaluateDco([merge], botPolicy);
+  assert.deepEqual(evaluateDco([commit({ sha: "signed" }), merge], botPolicy), {
+    valid: true,
+    failures: [],
+    exempted: ["merge-sha"],
+  });
+});
+
+test("still checks unsigned commits that a merge brings in", () => {
+  const result = evaluateDco([
+    commit({ sha: "unsigned", message: "feat: unsigned" }),
+    commit({
+      sha: "merge-sha",
+      message: "Merge branch 'other' into topic",
+      parents: [{ sha: "unsigned" }, { sha: "topic" }],
+    }),
+  ], botPolicy);
 
   assert.equal(result.valid, false);
-  assert.equal(result.failures.length, 1);
-  assert.equal(result.failures[0].sha, "merge-sha");
+  assert.deepEqual(result.failures.map(({ sha }) => sha), ["unsigned"]);
+  assert.deepEqual(result.exempted, ["merge-sha"]);
+});
+
+test("checks commits with one or unknown parents", async (t) => {
+  for (const [name, parents] of [["one parent", [{ sha: "parent" }]], ["no parents", []], ["unknown parents", undefined]]) {
+    await t.test(name, () => {
+      const input = commit({ sha: name, message: "feat: unsigned" });
+      if (parents === undefined) {
+        delete input.parents;
+      } else {
+        input.parents = parents;
+      }
+      const result = evaluateDco([input], botPolicy);
+
+      assert.equal(result.valid, false);
+      assert.deepEqual(result.failures.map(({ sha }) => sha), [name]);
+    });
+  }
+});
+
+test("fails an unsafe merge author closed instead of exempting it", () => {
+  const input = commit({
+    sha: "unsafe-merge",
+    name: "Alice‮admin",
+    message: "Merge branch 'main' into topic",
+    parents: [{ sha: "first" }, { sha: "second" }],
+  });
+
+  assert.deepEqual(evaluateDco([input], botPolicy), {
+    valid: false,
+    failures: [{ sha: "unsafe-merge", reason: "commit author identity is unsafe" }],
+    exempted: [],
+  });
+});
+
+test("rejects non-array parents", () => {
+  assert.throws(
+    () => evaluateDco([commit({ parents: { sha: "parent" } })], botPolicy),
+    { name: "TypeError", message: "commits[0].parents must be an array" },
+  );
 });
 
 test("exempts only an exact configured bot login and author email pair", () => {

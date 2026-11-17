@@ -1,0 +1,8 @@
+195 nvidia
+195 nvidia-modeset
+195 nvidiactl
+500 nvidia-uvm
+501 nvidia-nvswitch
+502 nvidia-nvlink
+503 nvidia-caps
+504 nvidia-caps-imex-channels

@@ -136,6 +136,24 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				assertAgentSeesGPUs(ctx, h, p.ExpectedGPUs())
 			})
 
+			// #780. GPU-management workloads receive the driver overlay containing
+			// this capability. IMEX-only opt-in pods receive channel devices, not
+			// the overlay, so they are not the consumer of this file.
+			It("serves the IMEX capability at the GPU-management workload kernel path", Label("compute-domain"), func(ctx SpecContext) {
+				if !p.MultiNodeNVLink() {
+					Skip("profile " + name + " is not multi-node NVLink, so its nodes stage no IMEX capability")
+				}
+
+				managementPod := nriAgentPodOnNode(ctx, h, workers[0].Name)
+				res, err := h.Kube.Exec(ctx, managementPod, "cat", "/proc/driver/nvidia/capabilities/fabric-imex-mgmt")
+				Expect(err).NotTo(HaveOccurred(),
+					"IMEX capability file is not readable at the GPU-management kernel path in %s:\n%s",
+					managementPod.Pod, res.Combined())
+				Expect(strings.Split(strings.TrimSpace(res.Stdout), "\n")).To(ContainElement("DeviceFileMinor: 512"),
+					"IMEX capability file carries no staged management device minor in %s:\n%s",
+					managementPod.Pod, res.Combined())
+			})
+
 			It("resets a GPU with nvidia-smi -r from inside an injected container", Label("nvidia-smi"), Label("nri-inject"), func(ctx SpecContext) {
 				assertGpuResetFromInjectedContainer(ctx, h)
 			})

@@ -155,6 +155,14 @@ typedef struct nvmlMemory_v2_st
     unsigned long long used;         //!< Allocated device memory (in bytes)
 } nvmlMemory_v2_t;
 
+/* NVML CUDA 13.4 input used by the container toolkit's memory-limit hook. */
+typedef struct nvmlSetMemoryLimits_v1_st
+{
+    const char *nameSpace;
+    unsigned long long softLimit;
+    unsigned long long hardLimit;
+} nvmlSetMemoryLimits_v1_t;
+
 /*
  * Device architecture type
  */
