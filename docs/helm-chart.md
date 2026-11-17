@@ -1347,6 +1347,17 @@ RAM across the zones, keeping sibling threads together during automatic CPU
 assignment. Optional explicit `cpu_affinity` lists must cover every zone and
 partition all online CPUs without repetition.
 
+### Minimum node size
+
+With automatic CPU assignment, the Linux node must report at least one physical
+core per simulated zone. Two zones need two cores; eight zones need eight.
+Sibling hardware threads count as one core for this check. Use the core topology
+visible inside the Linux node, including Kind nodes. An eight-zone profile
+cannot fit on a four-vCPU node.
+
+This minimum permits creation of the layout. Workload capacity also depends on
+the CPU and memory reservations described below.
+
 ### CPU and memory allocation in a simulated topology
 
 Static CPU Manager assigns real CPU IDs. NRI is required for static simulated
@@ -1360,6 +1371,11 @@ setting, Mokka reserves the first CPU in the first zone. Set
 headroom. These settings are mutually exclusive. CPU Manager still reserves
 whole CPU IDs, so exclusive allocations remain limited to real unreserved CPUs.
 `systemReservedMemory` defaults to `256Mi`.
+
+A valid layout can still have a zone with no CPUs available for exclusive
+allocation. For example, a zone with one CPU has none left if that CPU is
+reserved for the system. Leave enough unreserved CPU and memory capacity for
+the workloads that must use each zone.
 
 Install an NRT publisher separately. For GPU Operator's NFD subchart, this
 configuration reports GPU, CPU, and memory resources with the managers above:
