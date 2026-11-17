@@ -3,15 +3,19 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Schedules the pods in local/hami/gpu-share.k8s.yaml afresh, leaves them
-# running for inspection, and asserts three things, each of which can fail
+# running for inspection, and asserts four things, each of which can fail
 # while both pods read Running:
 #   1. Both pods hold a slice of the same GPU, sized as they asked. Under the
 #      chart's default spread policy each pod gets a board of its own, which
 #      schedules fine and shares nothing.
-#   2. nvidia-smi inside each pod sees exactly the GPU HAMi allocated. More
+#   2. Each container's environment carries that allocation: the GPU, the
+#      memory cap and the core share. HAMi-core reads its limits from there,
+#      and the core share has no NVML reading, so its variable is the only
+#      evidence inside the container that nvidia.com/gpucores arrived.
+#   3. nvidia-smi inside each pod sees exactly the GPU HAMi allocated. More
 #      means the allocation did not scope the mock driver; none means the mock
 #      driver never reached the container.
-#   3. That GPU's total memory is the pod's nvidia.com/gpumem limit, not the
+#   4. That GPU's total memory is the pod's nvidia.com/gpumem limit, not the
 #      board's. The cap is applied by HAMi-core, a library HAMi preloads into
 #      the container to intercept NVML, so this is what proves it works on top
 #      of the mock's libnvidia-ml.
@@ -77,6 +81,19 @@ for entry in "${EXPECTED[@]}"; do
   [[ "${gpu}" == "${shared_gpu}" ]] \
     || fail "${pod} is on ${gpu}, not on ${shared_gpu} with the pod before it; is gpuSchedulerPolicy still binpack?"
   printf 'OK: %s holds %s MiB and %s cores of %s\n' "${pod}" "${mem}" "${cores}" "${gpu}"
+
+  # What the device plugin's Allocate sets for a container holding one device.
+  want_env=(
+    "NVIDIA_VISIBLE_DEVICES=${gpu}"
+    "CUDA_DEVICE_MEMORY_LIMIT_0=${want_mem}m"
+    "CUDA_DEVICE_SM_LIMIT=${want_cores}"
+  )
+  pod_env=$(kubectl -n "${NAMESPACE}" exec "${pod}" -- env) || fail "could not read the environment of ${pod}"
+  for want in "${want_env[@]}"; do
+    grep -qxF "${want}" <<<"${pod_env}" \
+      || fail "${pod} should run with ${want} but has '$(grep "^${want%%=*}=" <<<"${pod_env}" || printf '%s unset' "${want%%=*}")'"
+  done
+  printf 'OK: %s runs with %s\n' "${pod}" "${want_env[*]}"
 
   seen=$(kubectl -n "${NAMESPACE}" exec "${pod}" -- \
     nvidia-smi --query-gpu=uuid,memory.total --format=csv,noheader,nounits 2>/dev/null | grep '^GPU-') \
