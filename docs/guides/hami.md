@@ -47,6 +47,7 @@ Takes about 10 minutes.
 kind create cluster --name mokka-hami
 
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --version 0.7.0 \
   --namespace mokka --create-namespace \
   --wait --timeout 120s
 ```
