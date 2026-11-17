@@ -134,6 +134,19 @@ func TestGPUOperatorDriverAdaptsTheInstaller(t *testing.T) {
 	require.Empty(t, adjustment.CDIDevices)
 }
 
+// The persistenced stand-in copies the mock NVML under its binds, so a root
+// the container fails to unmount fully still serves it. It names the binds in
+// shell, where nothing ties them to the paths bound here.
+func TestGPUOperatorDriverStandInCopiesWhatItBinds(t *testing.T) {
+	t.Parallel()
+
+	standIn, err := kmod.Sources.ReadFile(kmod.PersistencedName)
+	require.NoError(t, err)
+
+	require.Contains(t, string(standIn), "${MOKKA_NVML:-"+driverNVMLPath+"}")
+	require.Contains(t, string(standIn), "${MOKKA_NVML_PROFILE:-"+driverConfigPath+"}")
+}
+
 func TestGPUOperatorDriverLeavesTheInstallerAlone(t *testing.T) {
 	t.Parallel()
 

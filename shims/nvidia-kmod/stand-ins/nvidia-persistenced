@@ -10,5 +10,33 @@
 # it unloads the driver instead, or crash-loops while a workload holds it. A
 # simulated GPU has no state to keep, and the mock NVML reports persistence
 # mode itself.
+#
+# The container starts the daemon in both install paths, after NVIDIA's
+# installer and before it exposes its root to the other operands, so this is
+# also where that root gets its own copy of the mock NVML: the library and the
+# node's profile, which the NRI plugin binds into it. The container cannot
+# fully unmount the root it exposes, and an operand that starts against what
+# is left finds the binds gone, with the empty file and directory they covered
+# in their place. The copies go there, under the binds, where only such an
+# operand sees them; the binds go on serving every live root, the profile's
+# with the node agent's runtime state.
+set -eu
+
+nvml=${MOKKA_NVML:-/usr/lib64/libnvidia-ml.so.1}
+profile=${MOKKA_NVML_PROFILE:-/config}
+
+# A view of the root without its submounts reaches what the binds cover, in a
+# mount namespace of its own so that the view propagates nowhere.
+if ! unshare --mount --propagation private sh -eu -c '
+  view=$(mktemp -d)
+  mount --bind / "$view"
+  cp "$1" "$view$1"
+  cp -R "$2/." "$view$2/"
+  umount "$view"
+  rmdir "$view"
+' copy-under-binds "$nvml" "$profile"; then
+    echo "nvidia-persistenced: warning: no copy of the mock NVML under its binds;" \
+        "an operand that starts against this root after it is gone will not load it" >&2
+fi
+
 echo "nvidia-persistenced: not started: the simulated driver keeps no GPU state" >&2
-exit 0

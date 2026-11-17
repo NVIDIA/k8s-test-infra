@@ -177,6 +177,12 @@ has just installed. The container exposes its root to the other operands at
 `chroot /run/nvidia/driver nvidia-smi` through the root's loader cache, and the
 device plugin through `/usr/lib64`, the first directory it searches.
 
+Before it exposes the root, the container starts `nvidia-persistenced`, and
+the stand-in gives the root a copy of the mock of its own: through a view of
+the root without its submounts, it copies the library and the profile under
+their binds. A live root never shows the copies; only a root that has lost its
+binds does, which the second point below explains.
+
 Two behaviours of the mock keep the operator's own bookkeeping right:
 
 - It reports the loaded module's version, which is that of the installed
@@ -188,7 +194,10 @@ Two behaviours of the mock keep the operator's own bookkeeping right:
   evicts the operands and unmounts the old root before it reschedules them,
   unloading the driver first unless the new pod can keep it. A driver container
   cannot fully unmount its own root, so without that order an operand could
-  start against a root that is already gone.
+  start against a root that is already gone. When no client holds the driver
+  as its pod stops, the shutdown unloads it, nothing is evicted, and an operand
+  can start against such a root after all. Its binds are gone there, and the
+  operand loads the copies the stand-in put under them.
 
 The [Local Development](../../docs/contributing/local-development.md) guide runs
 the whole scenario with `--kernel-mods`.
