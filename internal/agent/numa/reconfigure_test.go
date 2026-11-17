@@ -191,3 +191,32 @@ func TestPendingLayoutChangeRestoresBeforeStaging(t *testing.T) {
 	require.NoError(t, sim.Apply(t.Context(), state))
 	requireFileContent(t, sim.host.RootPath("numa/sysnode/online"), "0-2\n")
 }
+
+func TestGPUOnlyMoveRestoresBeforeStaging(t *testing.T) {
+	t.Parallel()
+	sim, state, calls := reconfigurationFixture(t, nil)
+	state.Devices = []agent.DeviceSpec{{PCIBusID: "0000:07:00.0"}, {PCIBusID: "0000:87:00.0"}}
+	require.NoError(t, numatopology.NewEnricher(sim.host).Enrich(t.Context(), state))
+	require.NoError(t, sim.PrepareStage(t.Context(), state))
+	require.NoError(t, sim.Stage(t.Context(), state))
+	require.NoError(t, sim.Apply(t.Context(), state))
+	*calls = nil
+	oldKey := sim.desired
+	zones := state.NodeShape.NUMA.Zones
+	state.NodeShape.Topology.RootComplexes[0].NUMANode = 1
+	state.NodeShape.Topology.RootComplexes[1].NUMANode = 0
+	require.NoError(t, numatopology.NewEnricher(sim.host).Enrich(t.Context(), state))
+	require.Equal(t, zones, state.NodeShape.NUMA.Zones, "CPU and memory placement must remain unchanged")
+	require.NoError(t, sim.PrepareStage(t.Context(), state))
+	require.Contains(t, *calls, "systemctl stop kubelet", "a GPU-only move must replace the active layout")
+	require.NoFileExists(t, sim.host.RunPath(appliedRel))
+	require.NoError(t, sim.Stage(t.Context(), state))
+	require.NoError(t, sim.Apply(t.Context(), state))
+	require.NotEqual(t, oldKey, sim.desired)
+	require.True(t, sim.Ready())
+	*calls = nil
+	require.NoError(t, sim.PrepareStage(t.Context(), state))
+	require.NoError(t, sim.Stage(t.Context(), state))
+	require.NoError(t, sim.Apply(t.Context(), state))
+	require.Empty(t, *calls, "the same GPU placement must retain allocations")
+}

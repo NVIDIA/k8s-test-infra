@@ -1347,6 +1347,11 @@ RAM across the zones, keeping sibling threads together during automatic CPU
 assignment. Optional explicit `cpu_affinity` lists must cover every zone and
 partition all online CPUs without repetition.
 
+The resolved layout also records each active GPU's PCI address and NUMA zone.
+Changing GPU placement triggers the same node update as a CPU or memory layout
+change, even when the zone count and capacities stay the same. Reordering PCI
+roots or device lists without changing placement does not trigger a node reset.
+
 ### Minimum node size
 
 With automatic CPU assignment, the Linux node must report at least one physical
@@ -1410,6 +1415,9 @@ restarts kubelet and clears incompatible CPU and memory manager allocations.
 Existing workloads can fail and need to be recreated. An unchanged configuration
 keeps its mounts and allocations. Failed restoration retains recovery files for
 a retry and prevents all simulators from staging the new state.
+
+The first upgrade from a version that did not track GPU placement resets active
+GPU layouts once to record the complete layout. Drain workloads before that upgrade.
 
 Before uninstalling Mokka, upgrade with `nodeAgent.numa.enabled: false` and wait
 for restoration to finish.

@@ -6,6 +6,7 @@
 package numatopology
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -41,7 +42,7 @@ func Resolve(h *host.Host, state *agent.State) (*agent.NUMATopology, error) {
 	if err != nil {
 		return nil, err
 	}
-	plan := &agent.NUMATopology{Zones: make([]agent.NUMAZone, zones)}
+	plan := &agent.NUMATopology{Zones: make([]agent.NUMAZone, zones), GPUs: gpuPlacement(state)}
 	for i := range plan.Zones {
 		plan.Zones[i] = agent.NUMAZone{ID: i, CPUs: assigned[i], MemoryKB: total / uint64(zones)}
 		if uint64(i) < total%uint64(zones) {
@@ -49,6 +50,26 @@ func Resolve(h *host.Host, state *agent.State) (*agent.NUMATopology, error) {
 		}
 	}
 	return plan, nil
+}
+
+func gpuPlacement(state *agent.State) []agent.NUMAGPU {
+	gpus := make(map[string]bool, len(state.Devices))
+	for _, device := range state.Devices {
+		gpus[strings.ToLower(device.PCIBusID)] = true
+	}
+	var placement []agent.NUMAGPU
+	// Use the same reconciled roots as PCI rendering, including unknown locality
+	// for unplaced devices. Profile entries for absent GPUs and switches are excluded.
+	for _, root := range state.PCITopology() {
+		for _, bdf := range root.DeviceBDFs {
+			if gpus[bdf] {
+				placement = append(placement, agent.NUMAGPU{PCIBusID: bdf, NUMANode: root.NUMANode})
+			}
+		}
+	}
+	// Declaration order does not change locality or require a node reset.
+	slices.SortFunc(placement, func(a, b agent.NUMAGPU) int { return cmp.Compare(a.PCIBusID, b.PCIBusID) })
+	return placement
 }
 
 func rootZones(roots []agent.RootComplex) (int, map[int]string, error) {

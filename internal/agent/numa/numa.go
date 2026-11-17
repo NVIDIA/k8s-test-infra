@@ -259,7 +259,7 @@ func (opts Options) validateManagers() error {
 }
 
 func (s *Simulator) configurationKey(topology []byte) string {
-	// Retain the managed-layout key so existing complete setups keep allocations.
+	// The shared layout includes GPU locality, so a GPU-only move also resets the node.
 	key := fmt.Sprintf("%x:true:%s:%s:%s:%s:%s", sha256.Sum256(topology), s.opts.Policy, s.opts.CPUManagerPolicy, s.opts.ReservedCPUs, kubeletMemoryPolicy(s.opts.MemoryManagerPolicy), s.opts.SystemReservedMemory)
 	if s.opts.SystemReservedCPU != "" {
 		key += ":system-cpu=" + s.opts.SystemReservedCPU
