@@ -440,6 +440,16 @@ and NFD must report the exact CPU, memory, and GPU allocation through the real
 PodResources socket. After the two-zone layout is restored, kubelet must reject
 that request again. Cleanup restores the original profile if the check fails.
 
+The GPU placement check swaps the two PCI roots' NUMA assignments and then
+restores them. The zone count, CPU lists, memory capacities, GPU UUIDs, and PCI
+addresses must stay unchanged, while the applied layout key must change.
+After the discovery consumers refresh, PCI files and kubelet's real
+`GetAllocatableResources` response must report each GPU in its new zone.
+A Guaranteed workload must allocate its GPU, CPU, and memory in that same zone,
+checked through the real `List` response and NFD's resource accounting. A small
+test-only Go reader is copied into the Kind workers to query their real sockets;
+the test does not install a fake socket or publisher.
+
 Three recovery checks follow:
 
 - Replace the Mokka pod while a Guaranteed CPU, memory, and GPU workload runs.

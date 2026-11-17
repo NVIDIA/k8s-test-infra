@@ -136,6 +136,10 @@ var _ = Describe("NUMA topology through the real NFD updater", Label("numa"), Or
 		checkNUMALiveReconfiguration(ctx, h, workers, expected)
 	})
 
+	It("updates per-GPU NUMA locality when GPU placement swaps and CPU and memory stay unchanged", func(ctx SpecContext) {
+		checkNUMAGPUSwap(ctx, h, workers, expected)
+	})
+
 	It("preserves a running workload and its allocations when the Mokka pod is replaced", func(ctx SpecContext) {
 		checkNUMAPodReplacement(ctx, h, workers[0], expected[workers[0].Name])
 	})
