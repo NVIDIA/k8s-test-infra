@@ -51,13 +51,13 @@ dcgm-exporter runs with its embedded nv-hostengine against the mock NVML:
   memory, ECC, remapped rows, energy, Xid — via the standard NVML getters and
   `nvmlDeviceGetFieldValues`.
 - **Time-varying telemetry**: CI installs nvml-mock with dynamic metrics
-  enabled on every profile, so `DCGM_FI_DEV_POWER_USAGE` changes over time; the
+  enabled on every profile, so `DCGM_FI_DEV_BOARD_POWER_WATTS` changes over time; the
   validator asserts the variation across two scrapes.
 - **Profiling** (`DCGM_FI_PROF_*`): served by the mock GPM implementation
   (`pkg/gpu/mocknvml/engine/gpm.go`) on Hopper+ profiles (h100, b200, gb200,
   gb300). Pre-Hopper profiles report GPM unsupported — real DCGM would use the
   driver-internal perfworks path there, which cannot be mocked.
-- **Failure injection** (`DCGM_FI_DEV_XID_ERRORS`): CI injects an Xid via the
+- **Failure injection** (`DCGM_FI_DEV_XID_ERROR`): CI injects an Xid via the
   nvml-mock failure-injection knobs and asserts dcgm-exporter surfaces the code
   (Go `gpu-operator` scenario, `xid` label). Health watches (`dcgmi health`) for
   PCIe/ECC/NVLink/thermal/power were confirmed by hand against a standalone DCGM

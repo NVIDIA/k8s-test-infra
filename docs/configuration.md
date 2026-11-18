@@ -1356,7 +1356,7 @@ idle node, and they do not move any faster under load.
 **Utilization is live in every shipped profile.** Each profile carries its own
 `device_defaults.dynamic_metrics.utilization` block — `pattern: steady`, GPU
 10–45%, memory 5–25% — so `nvmlDeviceGetUtilizationRates`, and therefore
-`DCGM_FI_DEV_GPU_UTIL`, never reports a constant 0 on a default install. The
+`DCGM_FI_DEV_GPU_UTIL_RATIO`, never reports a constant 0 on a default install. The
 floor is deliberately above 0 so "utilization is reported" is a deterministic
 assertion rather than a flaky one. Because every `DCGM_FI_PROF_*` activity
 metric is a fixed fraction of `utilization.gpu` (see *Deliberately fixed*
