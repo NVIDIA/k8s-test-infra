@@ -23,8 +23,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/urfave/cli/v3"
 	"go.yaml.in/yaml/v3"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/cmdline"
 	"github.com/NVIDIA/k8s-test-infra/internal/nri/inject"
 )
 
@@ -54,6 +56,13 @@ func setup(t *testing.T, fail string) (dir, log, kubectl string) {
 	return dir, log, kubectl
 }
 
+// runCLI runs `mokka-capture collect` with args against kubectl and returns
+// its exit code.
+func runCLI(kubectl string, args ...string) int {
+	root := &cli.Command{Name: "mokka-capture", Commands: []*cli.Command{newCommand(kubectl)}}
+	return cmdline.Run(context.Background(), root, append([]string{"collect"}, args...), io.Discard, io.Discard)
+}
+
 func calls(t *testing.T, log string) string {
 	t.Helper()
 	raw, err := os.ReadFile(log)
@@ -67,7 +76,7 @@ func TestAllCapturesNodeAndClusterAndCleansUp(t *testing.T) {
 	bin := filepath.Join(dir, "mokka-capture-linux")
 	require.NoError(t, os.WriteFile(bin, []byte("binary"), 0o600))
 
-	code := run(context.Background(), []string{"-out", out, "-dump-binary", bin, "all", "node-a"}, io.Discard, io.Discard, kubectl)
+	code := runCLI(kubectl, "-out", out, "-dump-binary", bin, "all", "node-a")
 	require.Equal(t, 0, code)
 
 	for _, f := range []string{
@@ -94,7 +103,7 @@ func TestAllCapturesNodeAndClusterAndCleansUp(t *testing.T) {
 // A host pod that never becomes ready is still deleted.
 func TestHostPodIsDeletedWhenItFailsToStart(t *testing.T) {
 	dir, log, kubectl := setup(t, "--for=condition=Ready")
-	code := run(context.Background(), []string{"-out", filepath.Join(dir, "capture"), "host", "node-a"}, io.Discard, io.Discard, kubectl)
+	code := runCLI(kubectl, "-out", filepath.Join(dir, "capture"), "host", "node-a")
 	require.Equal(t, 0, code)
 	got := calls(t, log)
 	require.Contains(t, got, "delete pod "+hostPodName("node-a", fmtPID()))
@@ -105,21 +114,31 @@ func TestHostPodIsDeletedWhenItFailsToStart(t *testing.T) {
 func TestFailedCommandIsRecordedInErrorsLog(t *testing.T) {
 	dir, _, kubectl := setup(t, "-q")
 	out := filepath.Join(dir, "capture")
-	require.Equal(t, 0, run(context.Background(), []string{"-out", out, "driver", "node-a"}, io.Discard, io.Discard, kubectl))
+	require.Equal(t, 0, runCLI(kubectl, "-out", out, "driver", "node-a"))
 	errs, err := os.ReadFile(filepath.Join(out, "node-a", "errors.log"))
 	require.NoError(t, err)
 	require.Contains(t, string(errs), "FAILED: smi-q.xml")
 	require.FileExists(t, filepath.Join(out, "node-a", "smi-L.txt"))
 }
 
+// collect's flags apply to its commands wherever they are written.
+func TestFlagsMayFollowTheCommand(t *testing.T) {
+	dir, _, kubectl := setup(t, "")
+	out := filepath.Join(dir, "capture")
+	require.Equal(t, 0, runCLI(kubectl, "driver", "node-a", "-out", out, "--operator-namespace", "ops"))
+	xml, err := os.ReadFile(filepath.Join(out, "node-a", "smi-q.xml"))
+	require.NoError(t, err)
+	require.Equal(t, "answer to: -n ops exec nvidia-driver-daemonset-x -c nvidia-driver-ctr -- nvidia-smi -q -x\n", string(xml))
+}
+
 func TestUnreachableClusterStopsTheRun(t *testing.T) {
 	dir, _, kubectl := setup(t, "nodes")
-	require.Equal(t, 1, run(context.Background(), []string{"-out", filepath.Join(dir, "c"), "cluster"}, io.Discard, io.Discard, kubectl))
+	require.Equal(t, 1, runCLI(kubectl, "-out", filepath.Join(dir, "c"), "cluster"))
 }
 
 func TestNodeCommandsNeedANode(t *testing.T) {
 	_, _, kubectl := setup(t, "")
-	require.Equal(t, 2, run(context.Background(), []string{"driver"}, io.Discard, io.Discard, kubectl))
+	require.Equal(t, 2, runCLI(kubectl, "driver"))
 }
 
 func TestHostPodNameFitsAPodName(t *testing.T) {
@@ -137,7 +156,7 @@ func fmtPID() string { return strconv.Itoa(os.Getpid()) }
 func TestMockRunsTheDriverCommandsInAStandIn(t *testing.T) {
 	dir, log, kubectl := setup(t, "")
 	out := filepath.Join(dir, "capture")
-	require.Equal(t, 0, run(context.Background(), []string{"-out", out, "-mock", "driver", "node-a"}, io.Discard, io.Discard, kubectl))
+	require.Equal(t, 0, runCLI(kubectl, "-out", out, "-mock", "driver", "node-a"))
 
 	pod := standInName("node-a", fmtPID())
 	xml, err := os.ReadFile(filepath.Join(out, "node-a", "smi-q.xml"))

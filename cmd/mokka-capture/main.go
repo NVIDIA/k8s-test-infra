@@ -19,10 +19,13 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"io"
 	"os"
 
+	"github.com/urfave/cli/v3"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/cmdline"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/collect"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/nvmldump"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/profile"
@@ -30,56 +33,34 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/smidiff"
 )
 
-const usage = `Usage: mokka-capture <command> [args]
-
-Commands:
-  collect    capture nodes and the cluster through kubectl
-  scrub      replace identifiers in a capture, or -check that none are left
-  profile    write a mock NVML profile from a scrubbed capture
-  diff smi   compare two nvidia-smi -q -x documents
-  diff nvml  compare two NVML recordings
-  dump       record the NVML library on the loader path (collect runs this
-             in the driver container)
-
-Run mokka-capture <command> -h for a command's flags.
-`
-
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+// run executes one invocation and returns its exit code. Keeping the process
+// exit in main alone lets a test drive the command line end to end.
 func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		_, _ = io.WriteString(stderr, usage)
-		return 2
-	}
-	switch cmd, rest := args[0], args[1:]; cmd {
-	case "collect":
-		return collect.Run(rest, stdout, stderr)
-	case "scrub":
-		return scrub.Run(rest, stdout, stderr)
-	case "profile":
-		return profile.Run(rest, stdout, stderr)
-	case "dump":
-		return nvmldump.Dump(rest, stdout, stderr)
-	case "diff":
-		return diff(rest, stdout, stderr)
-	case "-h", "--help", "help":
-		_, _ = io.WriteString(stdout, usage)
-		return 0
-	default:
-		_, _ = fmt.Fprintf(stderr, "unknown command %q\n\n%s", cmd, usage)
-		return 2
-	}
+	return cmdline.Run(context.Background(), newCLI(), args, stdout, stderr)
 }
 
-func diff(args []string, stdout, stderr io.Writer) int {
-	if len(args) > 0 && args[0] == "smi" {
-		return smidiff.Run(args[1:], stdout, stderr)
+func newCLI() *cli.Command {
+	return &cli.Command{
+		Name:  "mokka-capture",
+		Usage: "capture a real GPU node, scrub the capture, write a mock profile from it, and compare it with what Mokka serves",
+		Description: "Runs on your machine and reaches the nodes through kubectl. " +
+			"The procedure is in docs/contributing/capturing-a-real-node.md.",
+		Commands: []*cli.Command{
+			collect.Command(),
+			scrub.Command(),
+			profile.Command(),
+			{
+				Name:     "diff",
+				Usage:    "compare a real node's nvidia-smi document or NVML recording with the mock's",
+				Commands: []*cli.Command{smidiff.Command(), nvmldump.DiffCommand()},
+				Action:   cmdline.UnknownCommand,
+			},
+			nvmldump.DumpCommand(),
+		},
+		Action: cmdline.UnknownCommand,
 	}
-	if len(args) > 0 && args[0] == "nvml" {
-		return nvmldump.Diff(args[1:], stdout, stderr)
-	}
-	_, _ = io.WriteString(stderr, "usage: mokka-capture diff smi|nvml [flags] real mock\n")
-	return 2
 }

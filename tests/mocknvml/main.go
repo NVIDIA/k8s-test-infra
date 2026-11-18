@@ -65,6 +65,13 @@ func main() {
 	}()
 	log.Println("✓ NVML initialized successfully")
 
+	if len(os.Args) == 2 && strings.HasPrefix(os.Args[1], hostMaxCaseArg) {
+		if err := runInternalHostMaxPcieLinkGenCase(strings.TrimPrefix(os.Args[1], hostMaxCaseArg)); err != nil {
+			log.Fatalf("Host-max ABI probe failed: %v", err)
+		}
+		return
+	}
+
 	// Get driver version
 	version, ret := nvml.SystemGetDriverVersion()
 	if ret != nvml.SUCCESS {

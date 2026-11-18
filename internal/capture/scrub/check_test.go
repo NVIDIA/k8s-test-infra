@@ -43,7 +43,7 @@ func TestScrubbedCapturePassesCheck(t *testing.T) {
 	require.NoError(t, os.MkdirAll(src, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(src, "smi-q.xml"), []byte(smiCapture), 0o600))
 	out := filepath.Join(dir, "out")
-	require.Equal(t, 0, run([]string{"-out", out, src}, io.Discard, io.Discard))
+	require.Equal(t, 0, runCLI([]string{"-out", out, src}, io.Discard, io.Discard))
 
 	scrubbed := filepath.Join(out, "node", "smi-q.xml")
 	got, err := os.ReadFile(scrubbed)
@@ -51,6 +51,6 @@ func TestScrubbedCapturePassesCheck(t *testing.T) {
 	require.Empty(t, check(string(got)))
 
 	raw := filepath.Join(src, "smi-q.xml")
-	require.Equal(t, 1, run([]string{"-check", raw}, io.Discard, io.Discard))
-	require.Equal(t, 0, run([]string{"-check", scrubbed}, io.Discard, io.Discard))
+	require.Equal(t, 1, runCLI([]string{"-check", raw}, io.Discard, io.Discard))
+	require.Equal(t, 0, runCLI([]string{"-check", scrubbed}, io.Discard, io.Discard))
 }

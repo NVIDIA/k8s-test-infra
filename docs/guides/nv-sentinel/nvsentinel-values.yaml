@@ -140,7 +140,12 @@ labeler:
 gpu-health-monitor:
   dcgmHealthCheck:
     suppressedErrorCodes:
+      - DCGM_FR_CLOCK_THROTTLE_POWER
+      - DCGM_FR_CLOCKS_EVENT_POWER
+      - DCGM_FR_CLOCK_THROTTLE_THERMAL
+      - DCGM_FR_CLOCKS_EVENT_THERMAL
       - DCGM_FR_NVLINK_EFFECTIVE_BER_THRESHOLD
+      - DCGM_FR_NVLINK_SYMBOL_BER_THRESHOLD
       - DCGM_FR_IMEX_UNHEALTHY
   # GpuThermalMarginWatch (DCGM field 153 vs the per-GPU slowdown T.Limit offset
   # from gpu_metadata.json) is the fault this demo exercises. By default the
