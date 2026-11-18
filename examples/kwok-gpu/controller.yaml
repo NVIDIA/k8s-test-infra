@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kwok-gpu
+  namespace: mokka-kwok-poc
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mokka-kwok-gpu-poc
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods"]
+    verbs: ["list", "patch"]
+  - apiGroups: [""]
+    resources: ["nodes/status"]
+    verbs: ["patch"]
+  - apiGroups: ["mokka.nvidia.com"]
+    resources: ["sgpuracks"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mokka-kwok-gpu-poc
+subjects:
+  - kind: ServiceAccount
+    name: kwok-gpu
+    namespace: mokka-kwok-poc
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mokka-kwok-gpu-poc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kwok-gpu
+  namespace: mokka-kwok-poc
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: mokka-kwok-gpu}
+  template:
+    metadata:
+      labels: {app: mokka-kwok-gpu}
+    spec:
+      serviceAccountName: kwok-gpu
+      containers:
+        - name: kwok-gpu
+          image: mokka-kwok-poc:dev
+          imagePullPolicy: Never
+          command: ["/kwok-gpu"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: {drop: ["ALL"]}
