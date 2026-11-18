@@ -205,6 +205,24 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *mockserver.Serv
 
 		debugLog("[ENGINE] Created device %d: uuid=%s pci=%s\n", i, uuid, pciBusID)
 	}
+	markSharedBoards(server.configurableDevices[:])
+}
+
+// markSharedBoards flags every GPU whose board ID another GPU also reports,
+// which is what GetMultiGpuBoard answers. It runs once all devices exist, since
+// whether a board is shared is a property of the node, not of one profile entry.
+func markSharedBoards(devices []*ConfigurableDevice) {
+	onBoard := make(map[uint32]int, len(devices))
+	for _, dev := range devices {
+		if dev != nil {
+			onBoard[dev.boardID]++
+		}
+	}
+	for _, dev := range devices {
+		if dev != nil {
+			dev.multiGPUBoard = onBoard[dev.boardID] > 1
+		}
+	}
 }
 
 // baseDevicePCIBusIDs lists the PCI addresses of the mock every device is built

@@ -260,7 +260,7 @@ func (e *Engine) driverBindState() (gpuIDs map[int]uint32, bound map[int]bool) {
 		if dev == nil || !e.server.isDeviceVisible(index) {
 			continue
 		}
-		gpuIDs[index] = dev.boardID
+		gpuIDs[index] = dev.gpuID
 		bound[index] = !dev.failureLostByConfig()
 	}
 	return gpuIDs, bound

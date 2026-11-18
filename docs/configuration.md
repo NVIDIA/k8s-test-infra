@@ -560,7 +560,7 @@ device_defaults:
   utilization:
     gpu: 0                            # 0-100%
     memory: 0
-    encoder: 0
+    encoder: 0                        # see Encoder/Decoder
     decoder: 0
     jpeg: 0
     ofa: 0
@@ -911,6 +911,46 @@ device_defaults:
     average_fps: 0
     average_latency_us: 0
 ```
+
+`session_count` also decides how many sessions `nvmlDeviceGetEncoderSessions`
+and `nvmlDeviceGetFBCSessions` list. Each session reports the configured
+`average_fps` and `average_latency_us` and is assigned to the configured
+[processes](#processes) in turn; with no processes, the sessions report pid 0.
+`nvmlDeviceGetEncoderUtilization` reports `utilization.encoder`, which
+mokka-capture records from the real node. When that is 0, it reports the sum of
+the processes' `enc_util` instead, so a profile can model the load process by
+process; an explicit 0 alongside processes with `enc_util` therefore reads as
+their sum. Either is capped at 100. `nvmlDeviceGetEncoderCapacity` reports what
+is left of 100 for every codec, so the two always add up to 100.
+
+### Board and operation mode
+
+```yaml
+device_defaults:
+  gpu_operation_mode:
+    current: "all_on"               # all_on, compute, low_dp
+    pending: "all_on"               # defaults to current
+```
+
+`gpu_operation_mode` is what `nvmlDeviceGetGpuOperationMode` reports; an
+unknown value is rejected when the profile loads.
+
+```yaml
+devices:
+  - index: 0
+    board_id: "0x4100"              # quoted, 0x and up to 8 hex digits
+  - index: 1
+    board_id: "0x4100"              # same board as GPU 0
+```
+
+`board_id` is what `nvmlDeviceGetBoardId` reports. Without it the board ID is
+derived from the GPU's PCI address, so every GPU is a board of its own. GPUs
+that share a `board_id` sit on one board, as the GPUs of a dual-GPU card do:
+`nvmlDeviceOnSameBoard` reports 1 for them and `nvmlDeviceGetMultiGpuBoard`
+reports 1 for each. A board ID wider than 32 bits is rejected when the profile
+loads, and so is one equal to the board ID another GPU derives from its PCI
+address, which would put that GPU on a board its profile does not declare. The CPER log and system events still name each GPU by its own
+PCI-derived ID.
 
 ### Processes
 

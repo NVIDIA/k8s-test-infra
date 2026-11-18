@@ -140,6 +140,13 @@ type DeviceConfig struct {
 	PersistenceMode string `json:"persistence_mode,omitempty"`
 	ComputeMode     string `json:"compute_mode,omitempty"`
 
+	// BoardID is the board nvmlDeviceGetBoardId reports. Unset, it is derived
+	// from the PCI address, so every GPU is a board of its own. GPUs that share
+	// one, as the two GPUs behind a dual-GPU card's PLX switch do, answer
+	// nvmlDeviceOnSameBoard for each other and nvmlDeviceGetMultiGpuBoard 1:
+	// both follow from the shared ID, so neither can disagree with it.
+	BoardID *HexID `json:"board_id,omitempty"`
+
 	// AddressingMode is how the GPU reaches system-allocated memory: "hmm",
 	// "ats" or "none". It is a property of the host as much as the board —
 	// HMM needs kernel support, ATS a Grace CPU — so the same GPU on the same
