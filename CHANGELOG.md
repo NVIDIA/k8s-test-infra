@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-11-12
+
+### Added
+
+- profiles: new `vrnvl72` profile simulates one Vera Rubin compute tray (four Rubin GPUs, compute capability 10.7, multi-node NVLink); select it with `--set gpu.profile=vrnvl72`. ([#1174](https://github.com/NVIDIA/k8s-test-infra/issues/1174))
+- profiles: `system.product_name` sets the machine type GPU Feature Discovery labels as `nvidia.com/gpu.machine`; profiles without it keep the GPU name. ([#1165](https://github.com/NVIDIA/k8s-test-infra/issues/1165))
+- nvml-mock: nodes on a 615 driver (a profile's `system.driver_version` or the chart's `driverVersion`) now run nvidia-smi 615.71.09 instead of 580.65.06; nodes on other drivers are unchanged. ([#1169](https://github.com/NVIDIA/k8s-test-infra/issues/1169))
+- profiles: `system.absent_features: not_supported` makes a feature the profile leaves out answer `NOT_SUPPORTED` (N/A), as a real GPU without it does; the default, `legacy_defaults`, keeps the mock's built-in values. `vrnvl72` sets it. ([#1172](https://github.com/NVIDIA/k8s-test-infra/issues/1172))
+- nvml-mock: profiles can set each GPU's PDI (`pdi`) and GPU Fabric GUID (`platform.gpu_fabric_guid`, a hex value or "pdi"); gb200 and gb300 now report each GPU's PDI as its fabric GUID instead of zero. See the configuration docs. ([#1187](https://github.com/NVIDIA/k8s-test-infra/issues/1187))
+
+### Changed
+
+- nvml-mock: on a 615 or newer driver, the NVLink error and utilization counter getters and the per-link speed and data-link error fields answer NOT_SUPPORTED, as on a real 615 tray; NVLink errors, injected ones included, show in the NVLink5 counter fields that `nvidia-smi nvlink -e` reads. Output on older drivers is unchanged. ([#1165](https://github.com/NVIDIA/k8s-test-infra/issues/1165))
+
+### Fixed
+
+- nvml-mock: field ids now follow `system.driver_version`, so a profile on a newer 580 driver (580.95.05+) serves throttle counters and power smoothing at the ids that driver uses; 580.65.06 profiles are unchanged. ([#1096](https://github.com/NVIDIA/k8s-test-infra/issues/1096))
+- nri-plugin: containers created soon after containerd restarts, as the container toolkit does on each rollout, are no longer started without the mock. ([#1137](https://github.com/NVIDIA/k8s-test-infra/issues/1137))
+- node-agent: short InfiniBand verbs queries no longer crash mock-ib. Connection handler panics are logged and close the affected connection. ([#588](https://github.com/NVIDIA/k8s-test-infra/issues/588))
+
+### Security
+
+- build: images and binaries are now built with Go 1.27.4, which fixes GO-2026-6859 (HTTP/1 servers in net/http crashing on a MaxBytesReader header race). ([#1222](https://github.com/NVIDIA/k8s-test-infra/issues/1222))
+
 ## [0.6.0] - 2026-10-28
 
 ### Added
@@ -1218,6 +1242,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Rebranded from gpu-mock to nvml-mock (PRs #273, #274, #275, #281, #282)
 
+[0.7.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.4.1...v0.5.0

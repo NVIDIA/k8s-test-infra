@@ -15,12 +15,17 @@ package smidiff
 
 import (
 	"bytes"
+	"context"
+	"io"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/urfave/cli/v3"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/cmdline"
 )
 
 const realXML = `<nvidia_smi_log>
@@ -120,7 +125,7 @@ func TestRunReportsRatios(t *testing.T) {
 	writeFile(t, a, realXML)
 	writeFile(t, b, mockXML)
 	var out, errb bytes.Buffer
-	require.Equal(t, 0, run([]string{a, b}, &out, &errb), errb.String())
+	require.Equal(t, 0, runCLI([]string{a, b}, &out, &errb), errb.String())
 	require.Contains(t, out.String(), "present in the mock:")
 	require.Contains(t, out.String(), "value differs (1)")
 	require.Contains(t, out.String(), "not compared, a reading or an identifier (1):\n  nvidia_smi_log[0]/gpu[0]/temperature[0]/gpu_temp[0]",
@@ -128,8 +133,18 @@ func TestRunReportsRatios(t *testing.T) {
 }
 
 func TestRunRejectsBadUsage(t *testing.T) {
-	var out, errb bytes.Buffer
-	require.Equal(t, 2, run([]string{"only-one"}, &out, &errb))
+	for _, args := range [][]string{{"only-one"}, {"a.xml", "b.xml", "c.xml"}, {"-ignore", "(", "a.xml", "b.xml"}} {
+		var out, errb bytes.Buffer
+		require.Equal(t, 2, runCLI(args, &out, &errb), args)
+		require.Empty(t, out.String(), "%v: a usage error goes to standard error", args)
+		require.NotEmpty(t, errb.String(), args)
+	}
+}
+
+// runCLI runs `mokka-capture diff smi` with args and returns its exit code.
+func runCLI(args []string, stdout, stderr io.Writer) int {
+	root := &cli.Command{Name: "mokka-capture", Commands: []*cli.Command{Command()}}
+	return cmdline.Run(context.Background(), root, append([]string{"smi"}, args...), stdout, stderr)
 }
 
 func writeFile(t *testing.T, path, content string) {

@@ -50,8 +50,10 @@ the vendor one and reports whatever the profile describes.
 
 Because the profile says so, and nothing moves it. Mokka runs no kernels, so no
 workload consumes device memory, and the profile's `memory.used_bytes` — `0` in
-every shipped profile — is what every consumer reads no matter what is
-scheduled.
+every shipped profile — is the used memory `nvidia-smi` and other
+`nvmlDeviceGetMemoryInfo_v2` consumers read no matter what is scheduled.
+`nvmlDeviceGetMemoryInfo` (v1) has no reserved field, so as on a real GPU it
+reports `memory.reserved_bytes` plus `memory.used_bytes` as used.
 
 Set `allocationWatcher.enabled=true` to make used and free memory track
 Kubernetes GPU allocation instead: a sidecar polls the kubelet pod-resources API

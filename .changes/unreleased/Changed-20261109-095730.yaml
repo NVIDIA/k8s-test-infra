@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  mokka-capture: `mokka-capture <command> --help` lists that command's own flags and arguments, a bad invocation prints the reason and that help on standard error, and flags may follow the arguments; flag names, defaults and exit codes are unchanged.
+time: 2026-11-09T16:57:30Z

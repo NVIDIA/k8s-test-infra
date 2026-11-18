@@ -2,9 +2,13 @@
 
 Real `nvidia-smi -q -x` documents captured from the e2e kind cluster
 (nvidia-smi 580.65.06, NVML 580.65, `nvsmi_device_v13.dtd`). Element names and
-bodies are verbatim; the only edits are keeping the first two `<gpu>` blocks and
-setting `attached_gpus` to 2, so the files stay readable while still exercising
-per-GPU indexing and override scoping.
+bodies are verbatim except for the edits noted below. All files keep only the
+first two `<gpu>` blocks and set `attached_gpus` to 2, so they stay readable
+while still exercising per-GPU indexing and override scoping.
+
+`qx-a100-healthy.xml` also has both `<max_host_link_gen>` values hand-edited
+from `0` to `N/A` to match the absent host maximum in the A100 profile. It is
+not a fresh capture of the updated mock library.
 
 | File | Content |
 | --- | --- |

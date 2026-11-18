@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  A `--hami` Tilt consumer that installs HAMi 2.11.0 and packs two pods onto one mock GPU, each capped by its own `nvidia.com/gpumem`, with a `hami-smoke` trigger that checks the path end to end. The HAMi guide walks through the same setup from published artifacts.
+time: 2026-11-17T12:24:55Z

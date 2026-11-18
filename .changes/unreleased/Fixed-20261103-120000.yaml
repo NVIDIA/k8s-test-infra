@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nv-sentinel demo: keep idle mock-GPU NVLink suppressions so recovery is not blocked by mock-data warnings.
+time: 2026-11-06T19:03:00Z
+custom:
+  Issue: "1154"

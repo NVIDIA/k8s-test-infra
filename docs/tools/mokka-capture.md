@@ -18,6 +18,10 @@ go build -o bin/mokka-capture ./cmd/mokka-capture
 | [`diff nvml`](#diff-nvml) | Compares two NVML recordings |
 | [`dump`](#dump) | Records the NVML library on the loader path; `collect` runs it in the driver container |
 
+`mokka-capture <command> --help` lists a command's flags and arguments. A flag
+takes one dash or two (`-out` or `--out`) and goes after its command's name,
+before or after the arguments; `--` ends the flags.
+
 ## collect
 
 ```bash
@@ -454,7 +458,7 @@ To dump the mock, run `collect -mock` with the same `-dump-binary` (see
 
 | Code | Meaning |
 | --- | --- |
-| `0` | The command completed. `collect` succeeds even when single commands on a node fail; those are in `errors.log` |
+| `0` | The command completed, or printed its help. `collect` succeeds even when single commands on a node fail; those are in `errors.log` |
 | `1` | The cluster was unreachable, a file could not be read or written, the output directory is not empty, NVML failed to initialise, `scrub -check` found an identifier, or `profile` found GPUs that disagree on a key with no per-device form |
-| `2` | Bad usage |
+| `2` | Bad usage: an unknown command or flag, a missing or extra argument, or an invalid flag value. The reason and the command's help go to standard error |
 | `130` | `collect` was interrupted; the pods it started are deleted first |

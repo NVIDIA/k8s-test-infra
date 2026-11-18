@@ -89,6 +89,7 @@ topology, counters and failures are synthesised.
 | NVIDIA GPU Operator      | The full operand stack installs and its validator starts                                  |
 | DCGM / dcgm-exporter     | Telemetry, time-varying power, and injected Xid errors                                    |
 | Run:ai fake-gpu-operator | Profile ConfigMaps published in the shape its discovery expects                           |
+| HAMi                     | Pods share a GPU through `nvidia.com/gpumem`, and each sees its own cap in `nvidia-smi`   |
 | Slurm via Slinky         | `slurmd` autodetects the GPUs as GRES, and `srun --gres=gpu:N` jobs schedule against them |
 | Topograph                | NVLink cliques become per-node accelerator-domain labels for topology-aware schedulers    |
 

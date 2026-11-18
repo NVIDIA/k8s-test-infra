@@ -66,6 +66,7 @@ Everything else is a flag.
 | `--observability` | kube-prometheus-stack and a Grafana dashboard for the mock fleet |
 | `--dynamo` | The NVIDIA Dynamo operator and a `qwen3` inference graph whose mocker worker runs on a mock GPU |
 | `--slinky` | cert-manager, the Slinky slurm-operator and a Slurm cluster with one GPU `slurmd` per mock-GPU worker |
+| `--hami` | [HAMi](https://project-hami.io/docs)'s scheduler, admission webhook and device plugin, plus a manual `hami-smoke` trigger that packs two pods onto one mock GPU |
 | `--control-plane` | The Mokka control-plane image and the `mokka-crds` chart |
 
 ### What composes and what does not
@@ -78,6 +79,7 @@ Most flags stack. These do not:
 | `--fgo` with `--compute-domain` | Different fleet shapes |
 | `--compute-domain` with `--multi-gpu-profile` or `--gpu-profile` | The compute-domain scenario fixes both |
 | `--slinky` with `--dynamo` | `slurmd` claims every mock GPU, so the Dynamo worker could never schedule |
+| `--hami` with `--gpu-operator` (or a flag that implies it) or `--fgo` | Each brings a device plugin that registers `nvidia.com/gpu` |
 
 Four flags imply others: `--topograph` implies `--compute-domain`, because
 cliques only exist there; `--observability` implies `--gpu-operator`, because
@@ -91,6 +93,7 @@ tilt up -- --gpu-operator --dra
 tilt up -- --observability
 tilt up -- --dynamo
 tilt up -- --slinky
+tilt up -- --hami
 
 make cluster-create PROFILE=compute-domain
 tilt up -- --compute-domain --dra

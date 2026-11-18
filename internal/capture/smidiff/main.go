@@ -27,14 +27,18 @@
 package smidiff
 
 import (
+	"context"
 	"encoding/xml"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/urfave/cli/v3"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/cmdline"
 )
 
 // loadOrIdentity names the elements whose value is not a property of the board,
@@ -73,37 +77,50 @@ var notAReading = map[string]bool{
 	"Unknown Error": true,
 }
 
-// Run runs the comparison with the given arguments.
-func Run(args []string, stdout, stderr io.Writer) int { return run(args, stdout, stderr) }
+// Command is `mokka-capture diff smi`.
+func Command() *cli.Command {
+	return &cli.Command{
+		Name:  "smi",
+		Usage: "compare two nvidia-smi -q -x documents",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        "ignore",
+				Value:       defaultIgnore,
+				DefaultText: "readings and identifiers, as docs/tools/mokka-capture.md lists",
+				Usage:       "regexp of paths whose reading is not compared (presence, and an answer such as N/A, still are)",
+			},
+			&cli.IntFlag{Name: "max", Value: 40, Usage: "maximum entries to list per kind"},
+		},
+		Arguments: []cli.Argument{
+			&cli.StringArg{Name: "real.xml", Required: true},
+			&cli.StringArg{Name: "mock.xml", Required: true},
+		},
+		Action: func(_ context.Context, cmd *cli.Command) error {
+			if err := cmdline.RejectExtraArgs(cmd); err != nil {
+				return err
+			}
+			ignore, err := regexp.Compile(cmd.String("ignore"))
+			if err != nil {
+				return cmdline.Usage(cmd, fmt.Sprintf("-ignore: %v", err))
+			}
+			return cmdline.Exit(run(ignore, cmd.Int("max"), cmd.StringArg("real.xml"), cmd.StringArg("mock.xml"),
+				cmd.Root().Writer, cmd.Root().ErrWriter))
+		},
+	}
+}
 
-func run(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("diff smi", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	ignore := fs.String("ignore", defaultIgnore, "regexp of paths whose reading is not compared (presence, and an answer such as N/A, still are)")
-	limit := fs.Int("max", 40, "maximum entries to list per kind")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	if fs.NArg() != 2 {
-		_, _ = fmt.Fprintln(stderr, "usage: mokka-capture diff smi [-ignore regexp] [-max n] real.xml mock.xml")
-		return 2
-	}
-	re, err := regexp.Compile(*ignore)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "-ignore: %v\n", err)
-		return 2
-	}
-	hw, err := flattenFile(fs.Arg(0))
+func run(ignore *regexp.Regexp, limit int, realPath, mockPath string, stdout, stderr io.Writer) int {
+	hw, err := flattenFile(realPath)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
-	mock, err := flattenFile(fs.Arg(1))
+	mock, err := flattenFile(mockPath)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
-	report(stdout, compare(hw, mock, re), *limit)
+	report(stdout, compare(hw, mock, ignore), limit)
 	return 0
 }
 
