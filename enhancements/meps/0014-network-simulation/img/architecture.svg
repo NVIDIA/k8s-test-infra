@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1020" height="484" viewBox="0 0 1020 484" role="img" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+<title>Mokka network simulation: architecture</title>
+<desc>A test author declares the cluster with SGPURackProfile, SGPUInventory, SFabricProfile and SFabricInventory, and sets runtime policies: SGPURuntimePolicy for device faults and state, SFabricRuntimePolicy for fabric faults. Mokka's control plane resolves the cluster model, manages the controller-owned SGPURack instances, generates the scale-out fabric topology and computes effective state. It delivers each node's effective view to the node-local components through SGPURack, and exposes the generated topology to Topograph through a generic topology interface. The node-local components, the node agent and the NRI plugin, provide simulated interfaces to unmodified node-local consumers; Topograph provides topology information to schedulers.</desc>
+<defs><marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#378ADD" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect x="0.5" y="0.5" width="1019" height="483" rx="12" fill="#FFFFFF" stroke="#E5E3DA"/>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="10" y="28">Declared by a test author</text>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="248" y="28">Mokka</text>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="816" y="28">Unmodified consumers</text>
+
+<!-- Declared by a test author -->
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="10" y="44" width="154" height="208" rx="8" stroke-width="0.75"/>
+<text font-size="14" font-weight="600" fill="#2C2C2A" x="24" y="68">Cluster declaration</text>
+<text font-size="12" font-weight="600" fill="#2C2C2A" x="24" y="94">SGPURackProfile</text>
+<text font-size="11" fill="#5F5E5A" x="24" y="110">GPU and NIC hardware</text>
+<text font-size="12" font-weight="600" fill="#2C2C2A" x="24" y="138">SGPUInventory</text>
+<text font-size="11" fill="#5F5E5A" x="24" y="154">racks and nodes</text>
+<text font-size="12" font-weight="600" fill="#2C2C2A" x="24" y="182">SFabricProfile</text>
+<text font-size="11" fill="#5F5E5A" x="24" y="198">network design rules</text>
+<text font-size="12" font-weight="600" fill="#2C2C2A" x="24" y="226">SFabricInventory</text>
+<text font-size="11" fill="#5F5E5A" x="24" y="242">fabrics and members</text>
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="10" y="272" width="154" height="112" rx="8" stroke-width="0.75"/>
+<text font-size="14" font-weight="600" fill="#2C2C2A" x="24" y="296">Runtime policies</text>
+<text font-size="11" font-weight="600" fill="#2C2C2A" x="24" y="320">SGPURuntimePolicy</text>
+<text font-size="11" fill="#5F5E5A" x="24" y="335">device faults and state</text>
+<text font-size="11" font-weight="600" fill="#2C2C2A" x="24" y="358">SFabricRuntimePolicy</text>
+<text font-size="11" fill="#5F5E5A" x="24" y="373">fabric faults</text>
+
+<!-- Mokka: control plane -->
+<rect fill="#E1F5EE" stroke="#0F6E56" x="248" y="44" width="510" height="128" rx="8" stroke-width="0.75"/>
+<text font-size="14" font-weight="600" fill="#085041" x="264" y="66">Control plane</text>
+<text font-size="12" fill="#0F6E56" x="264" y="88">Resolves cluster configuration and identities</text>
+<text font-size="12" fill="#0F6E56" x="264" y="104">Manages SGPURack instances and node bindings</text>
+<text font-size="12" fill="#0F6E56" x="264" y="120">Generates scale-out fabric topology</text>
+<text font-size="12" fill="#0F6E56" x="264" y="136">Computes effective state and affected nodes</text>
+<text font-size="12" fill="#0F6E56" x="264" y="152">Exposes topology through a generic interface</text>
+
+<!-- Mokka: node-local components -->
+<rect fill="#E1F5EE" stroke="#0F6E56" x="248" y="228" width="510" height="212" rx="8" stroke-width="0.75"/>
+<text font-size="14" font-weight="600" fill="#085041" x="264" y="250">Node-local components, on each node</text>
+<text font-size="11" fill="#0F6E56" x="264" y="267">node agent and NRI plugin</text>
+<rect fill="#FFFFFF" stroke="#0F6E56" x="258" y="280" width="241" height="46" rx="6" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#085041" x="268" y="299">PCI/RDMA sysfs</text>
+<text font-size="11" fill="#0F6E56" x="268" y="315">Simulated device attributes and relationships</text>
+<rect fill="#FFFFFF" stroke="#0F6E56" x="507" y="280" width="241" height="46" rx="6" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#085041" x="517" y="299">NRI plugin</text>
+<text font-size="11" fill="#0F6E56" x="517" y="315">Merged sysfs views for consumers</text>
+<rect fill="#FFFFFF" stroke="#0F6E56" x="258" y="332" width="241" height="46" rx="6" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#085041" x="268" y="351">Device nodes</text>
+<text font-size="11" fill="#0F6E56" x="268" y="367">/dev/infiniband/*</text>
+<rect fill="#FFFFFF" stroke="#0F6E56" x="507" y="332" width="241" height="46" rx="6" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#085041" x="517" y="351">Network interfaces</text>
+<text font-size="11" fill="#0F6E56" x="517" y="367">Linux interfaces and link state</text>
+<rect fill="#FFFFFF" stroke="#0F6E56" x="258" y="384" width="241" height="46" rx="6" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#085041" x="268" y="403">Runtime state</text>
+<text font-size="11" fill="#0F6E56" x="268" y="419">Device/port state and injected faults</text>
+<rect fill="#FFFFFF" stroke="#0F6E56" x="507" y="384" width="241" height="46" rx="6" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#085041" x="517" y="403">Mock libraries</text>
+<text font-size="11" fill="#0F6E56" x="517" y="419">NVML and supported verbs queries</text>
+
+<!-- Unmodified consumers -->
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="816" y="44" width="194" height="168" rx="8" stroke-width="0.75"/>
+<text font-size="14" font-weight="600" fill="#2C2C2A" x="832" y="66">Cluster-wide consumers</text>
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="828" y="84" width="170" height="34" rx="6" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#2C2C2A" x="840" y="105">Topograph</text>
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="828" y="148" width="170" height="48" rx="6" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#2C2C2A" x="840" y="167">Schedulers</text>
+<text font-size="11" fill="#5F5E5A" x="840" y="184">Kubernetes schedulers, Slurm</text>
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="816" y="228" width="194" height="212" rx="8" stroke-width="0.75"/>
+<text font-size="14" font-weight="600" fill="#2C2C2A" x="832" y="250">Node-local consumers</text>
+<text font-size="12" fill="#5F5E5A" x="832" y="282">NFD / Network Operator</text>
+<text font-size="12" fill="#5F5E5A" x="832" y="314">Device plugins / DRA drivers</text>
+<text font-size="12" fill="#5F5E5A" x="832" y="346">NVSentinel / node_exporter</text>
+<text font-size="12" fill="#5F5E5A" x="832" y="378">GFD</text>
+<text font-size="12" fill="#5F5E5A" x="832" y="410">Workload containers</text>
+
+<!-- Flows into Mokka -->
+<line x1="166" y1="104" x2="244" y2="104" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<text font-size="11" fill="#0C447C" x="206" y="84" text-anchor="middle">declared</text>
+<text font-size="11" fill="#0C447C" x="206" y="96" text-anchor="middle">configuration</text>
+<path d="M166 312 L234 312 L234 150 L244 150" fill="none" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<text font-size="11" fill="#0C447C" x="206" y="330" text-anchor="middle">faults and</text>
+<text font-size="11" fill="#0C447C" x="206" y="342" text-anchor="middle">state overrides</text>
+
+<!-- Flows inside Mokka -->
+<line x1="282" y1="174" x2="282" y2="224" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<text font-size="11" fill="#0C447C" x="294" y="196">effective node view via SGPURack delivery</text>
+<text font-size="11" font-style="italic" fill="#0C447C" x="294" y="210">SGPURack is controller-owned, not declared</text>
+
+<!-- Flows out of Mokka -->
+<line x1="760" y1="101" x2="824" y2="101" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<text font-size="11" fill="#0C447C" x="787" y="80" text-anchor="middle">generic</text>
+<text font-size="11" fill="#0C447C" x="787" y="92" text-anchor="middle">topology</text>
+<text font-size="11" fill="#0C447C" x="787" y="118" text-anchor="middle">interface</text>
+<line x1="864" y1="120" x2="864" y2="144" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<text font-size="11" fill="#0C447C" x="874" y="136">topology information</text>
+<line x1="760" y1="340" x2="812" y2="340" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<text font-size="11" fill="#0C447C" x="787" y="320" text-anchor="middle">simulated</text>
+<text font-size="11" fill="#0C447C" x="787" y="332" text-anchor="middle">interfaces</text>
+
+<!-- Legend -->
+<rect x="22" y="456" width="24" height="14" rx="3" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.75"/>
+<text font-size="12" fill="#5F5E5A" x="54" y="467">Proposed Mokka extensions</text>
+</svg>
