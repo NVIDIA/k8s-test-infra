@@ -11,23 +11,20 @@ Helm chart CI installs is pinned: the GPU Operator
 Operator's operands carry no pin of their own; their versions are that chart's
 defaults.
 
-The GPU Operator is held at **v26.3.3**. v26.7.1 gates every operand's
-`toolkit-validation` init container on an `nvidia` line in `/proc/modules`
-([NVIDIA/gpu-operator#2881](https://github.com/NVIDIA/gpu-operator/pull/2881)).
-Mokka serves that file only through the `libmockfs.so` preload, which those
-init containers never receive, so GFD, the device plugin and dcgm-exporter
-wait forever.
+The GPU Operator is pinned at **v26.7.3**. v26.7.1 and v26.7.2 do not run on
+Mokka; [the GPU Operator guide](../../docs/guides/gpu-operator.md#step-3--install-the-gpu-operator)
+explains why.
 
 | Component | Version | Chart / Image | Status |
 |---|---|---|---|
 | NVIDIA Device Plugin (standalone) | v0.18.2 | `nvcr.io/nvidia/k8s-device-plugin:v0.18.2` | **Pinned** + runs in CI (`e2e-nri` ×6 profiles, `e2e-multi-node`) |
-| NVIDIA Device Plugin (GPU Operator operand) | v0.19.3 | from the `gpu-operator` v26.3.3 chart | Pinned by the chart; runs in CI |
+| NVIDIA Device Plugin (GPU Operator operand) | v0.20.2 | from the `gpu-operator` v26.7.3 chart | Pinned by the chart; runs in CI |
 | DRA Driver (GPU) | 0.5.0 | `nvidia/dra-driver-nvidia-gpu` (Helm) | **Pinned** + runs in CI |
 | Node Feature Discovery | v0.19.0 | `nfd/node-feature-discovery` (Helm) | **Pinned** + runs in CI |
-| GPU Operator | v26.3.3 | `nvidia/gpu-operator` (Helm) | **Pinned** + runs in CI |
+| GPU Operator | v26.7.3 | `nvidia/gpu-operator` (Helm) | **Pinned** + runs in CI |
 | DCGM | 3.3.9 | `nvcr.io/nvidia/cloud-native/dcgm:3.3.9-1-ubuntu22.04` | Last version a manual container spike resolved; not run |
 | DCGM Exporter (standalone) | 3.3.9-3.6.1 | `nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04` | Last version a manual container spike resolved; not run |
-| DCGM Exporter (GPU Operator operand) | 4.5.3-4.8.2-distroless | from the `gpu-operator` v26.3.3 chart | Pinned by the chart; runs in CI |
+| DCGM Exporter (GPU Operator operand) | 4.7.0-4.9.0-distroless | from the `gpu-operator` v26.7.3 chart | Pinned by the chart; runs in CI |
 
 GPU Feature Discovery (GFD) is tested only as the GPU Operator's operand. A
 standalone GFD scenario duplicated that coverage without running in CI, and
