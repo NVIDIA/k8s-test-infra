@@ -10,13 +10,11 @@ Authors: [Roman Hlushko](https://github.com/roma-glushko), [Jonathan Rosenboim](
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
-  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [NUMA Setup](#numa-setup)
   - [Milestones](#milestones)
 - [Drawbacks](#drawbacks)
-- [Alternatives](#alternatives)
 - [Decisions](#decisions)
 <!-- /toc -->
 
@@ -143,15 +141,6 @@ Mokka should simulate NUMA information according to the GPU rack profile that NF
 2. **A placement a real Node would reject.** Under `single-numa-node`, a scheduler places a Guaranteed Pod that needs more CPUs than any zone of its Node has. The kubelet rejects it with `TopologyAffinityError`, as a real Node would, so the test catches the bad placement.
 3. **NUMA-aware scheduling at scale.** A KWOK rack group with the same profile gets NRTs from the KWOK data plane that match the CPU Nodes', so KAI's NUMA plugin can be load-tested on thousands of virtual Nodes.
 
-### Notes/Constraints/Caveats (Optional)
-
-<!--
-What are the caveats to the proposal?
-What are some important details that didn't come across above?
-Go in to as much detail as necessary here.
-This might be a good place to talk about core concepts and how they relate.
--->
-
 ### Risks and Mitigations
 
 - **A bad setup keeps the kubelet down**, as [Drawbacks](#drawbacks) describes. The node daemon's container outlives the kubelet's restart, so it reverts the setup if the kubelet doesn't come back healthy. A reboot also restores the kubelet configuration Mokka found.
@@ -260,14 +249,6 @@ We propose two milestones, each ending with something users can run. CPU Nodes c
 ## Drawbacks
 
 - **NUMA setup is invasive.** It changes the Node itself, not only what Mokka simulates on it. As [NUMA Setup](#numa-setup) describes, the node daemon rewrites the kubelet configuration, deletes the kubelet's checkpoints, restarts the kubelet and NFD, and installs a `systemd` unit that runs before the kubelet on every boot. The restarted kubelet admits every running Pod again and marks any Pod the new policy can't fit as `Failed`, and a NUMA file it can't parse keeps it from starting at all. The setup also relies on how the kubelet and NFD read the NUMA tree today, such as NFD silently dropping every zone from the first one that lacks a file, and either project can change that in a release. So it suits only Nodes that Mokka is free to reconfigure, such as Kind Nodes, and it depends on Mokka's NRI plugin to rewrite containers' memory binding.
-
-## Alternatives
-
-<!--
-What other approaches did you consider, and why did you rule them out? These do
-not need to be as detailed as the proposal, but should include enough
-information to express the idea and why it was not acceptable.
--->
 
 ## Decisions
 

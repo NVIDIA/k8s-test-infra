@@ -32,6 +32,7 @@ Author: [Roman Hlushko](https://github.com/roma-glushko)
 - [Alternatives](#alternatives)
 - [Decisions](#decisions)
 - [Open Questions](#open-questions)
+- [TODO](#todo)
 <!-- /toc -->
 
 ## Summary
@@ -1395,7 +1396,6 @@ Questions this MEP leaves open, numbered for review:
 - **Q1. KAI fractions on KWOK Nodes.** KAI shares a GPU through a reservation Pod that requests `nvidia.com/gpu` and, once it runs, writes the UUID of the GPU it got to its own `run.ai/reserve_for_gpu_index` annotation, which KAI's binder reads. That works on CPU Nodes, but nothing runs in a Pod on a KWOK Node, so the annotation stays empty ([Device Plugin Mode](#device-plugin-mode)). FGO's status-updater writes it from the GPU it allocated, and KAI's own KWOK scale tests add a KWOK `Stage` that sets it to the Pod's name. The data plane could write the UUID from its [allocation record](#gpu-allocation), but that's KAI-specific behavior the [Non-Goals](#non-goals) keep out of Mokka. Otherwise, tests keep KAI's `Stage`, whose value names no GPU of the Node, or KAI reads `mokka.nvidia.com/gpu-allocation` on KWOK Nodes.
 
 - **Q2. A GPU mode per rack group.** [`gpuPublishing`](#publishing-the-gpus) applies to every KWOK Node, so one install can't run KAI's fraction checks, which need `DevicePlugin`, next to its DRA checks, which need `DRA` ([KAI Use Cases](#kai-use-cases)). Whole-GPU checks run in either mode: from Kubernetes 1.36 and KAI 0.17, KAI serves `nvidia.com/gpu` requests from ResourceSlices on Nodes without `nvidia.com/gpu` capacity. A rack group could override the chart's mode, as node pools on a real cluster run different NVIDIA components.
-
 
 ## TODO
 

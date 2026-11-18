@@ -12,7 +12,6 @@ Author: [Roman Hlushko](https://github.com/roma-glushko)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
-  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Workload-aware Dynamic Metrics](#workload-aware-dynamic-metrics)
@@ -197,15 +196,6 @@ Mokka supports dynamic metrics today with a few profile patterns (`idle`, `busy`
 1. **A busy and an idle workload on one Node.** A test runs a training Pod annotated with `mokka.nvidia.com/gpu-utilization: "80-100"` and a notebook Pod with `"0"` on the same Node. dcgm-exporter reports 80-100% for the training Pod's GPUs and 0% for the notebook's, each series labeled with its Pod, and `nvidia-smi` reports the same values.
 2. **A workload goes idle.** A test checks an idle-GPU alert. It annotates a running Pod with `mokka.nvidia.com/gpu-utilization: "0"`, the Pod's GPUs drop to 0%, and the alert fires.
 3. **The same test on KWOK Nodes.** Scheduled to KWOK Nodes, the Pods from the first story get the same values from the KWOK data plane's DCGM metrics, so the test runs unchanged on thousands of virtual Nodes.
-
-### Notes/Constraints/Caveats (Optional)
-
-<!--
-What are the caveats to the proposal?
-What are some important details that didn't come across above?
-Go in to as much detail as necessary here.
-This might be a good place to talk about core concepts and how they relate.
--->
 
 ### Risks and Mitigations
 
