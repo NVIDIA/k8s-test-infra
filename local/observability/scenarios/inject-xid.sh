@@ -2,7 +2,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# DCGM_FI_DEV_XID_ERRORS has NO series at all on a healthy cluster: the mock
+# DCGM_FI_DEV_XID_ERROR has NO series at all on a healthy cluster: the mock
 # delivers Xids through the NVML event set, and dcgm-exporter omits field 230
 # entirely while it holds no value for it. So a "!= 0" test would be vacuous —
 # it compares against a series that does not exist.
@@ -66,9 +66,9 @@ fi
 # "the first mock pod" or a fixed node name could miss.
 target_node=""
 target_pod=""
-for host in $(promq "query?query=DCGM_FI_DEV_GPU_TEMP" \
+for host in $(promq "query?query=DCGM_FI_DEV_GPU_TEMP_CELSIUS" \
     | jq -r --arg gpu "${TARGET_GPU}" \
-        '[.data.result[] | select(.metric.gpu == $gpu) | .metric.Hostname] | unique | .[]'); do
+        '[.data.result[] | select(.metric.gpu == $gpu) | .metric.hostname] | unique | .[]'); do
   pod=$(kubectl -n "${MOKKA_NAMESPACE}" get pods -l app.kubernetes.io/name=nvml-mock \
     --field-selector "spec.nodeName=${host},status.phase=Running" \
     -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
@@ -79,7 +79,7 @@ for host in $(promq "query?query=DCGM_FI_DEV_GPU_TEMP" \
   fi
 done
 [[ -n "${target_node}" ]] \
-  || fail "no node has both a running nvml-mock pod and a scraped DCGM_FI_DEV_GPU_TEMP series for gpu ${TARGET_GPU}; check that dcgm-exporter is up and that its ServiceMonitor carries release=kube-prometheus-stack"
+  || fail "no node has both a running nvml-mock pod and a scraped DCGM_FI_DEV_GPU_TEMP_CELSIUS series for gpu ${TARGET_GPU}; check that dcgm-exporter is up and that its ServiceMonitor carries release=kube-prometheus-stack"
 printf '    target: gpu %s on %s (mock pod %s)\n' "${TARGET_GPU}" "${target_node}" "${target_pod}"
 
 mock_ctl() { kubectl -n "${MOKKA_NAMESPACE}" exec "${target_pod}" -- nvml-mock-ctl "$@"; }
@@ -87,25 +87,25 @@ mock_ctl() { kubectl -n "${MOKKA_NAMESPACE}" exec "${target_pod}" -- nvml-mock-c
 # Read the Xid series for the target GPU, yielding "none" when it does not
 # exist — the distinction the rotation below is built on.
 #
-# The optional err_code argument narrows the match. gpu+Hostname alone is not
-# guaranteed to identify one series: DCGM_FI_DEV_XID_ERRORS carries err_code, so
+# The optional err_code argument narrows the match. gpu+hostname alone is not
+# guaranteed to identify one series: DCGM_FI_DEV_XID_ERROR carries err_code, so
 # during the rotation two series can describe the same GPU at once while
 # Prometheus is still serving the superseded code's last sample. Returning
 # whichever one it happened to list first would make the assertion depend on
 # result order, so ambiguity is a hard error instead of a coin flip.
 gpu_xid() {
   local want_code="${1:-}" sample
-  sample=$(promq "query?query=DCGM_FI_DEV_XID_ERRORS" \
+  sample=$(promq "query?query=DCGM_FI_DEV_XID_ERROR" \
     | jq -r --arg gpu "${TARGET_GPU}" --arg node "${target_node}" --arg code "${want_code}" \
         '[.data.result[]
-           | select(.metric.gpu == $gpu and .metric.Hostname == $node)
+           | select(.metric.gpu == $gpu and .metric.hostname == $node)
            | select($code == "" or .metric.err_code == $code)
            | .value[1]]
          | if length == 0 then "none"
            elif length == 1 then .[0]
            else "ambiguous:" + join(",") end')
   [[ "${sample}" != ambiguous:* ]] \
-    || fail "DCGM_FI_DEV_XID_ERRORS{gpu=\"${TARGET_GPU}\",Hostname=\"${target_node}\"} matched several series at once (values: ${sample#ambiguous:}); the read must name the err_code that distinguishes them"
+    || fail "DCGM_FI_DEV_XID_ERROR{gpu=\"${TARGET_GPU}\",hostname=\"${target_node}\"} matched several series at once (values: ${sample#ambiguous:}); the read must name the err_code that distinguishes them"
   printf '%s\n' "${sample}"
 }
 
@@ -117,7 +117,7 @@ xid_want="${XID_CODE}"
 if [[ "${xid_before}" == "${XID_CODE}" ]]; then
   xid_want="${XID_CODE_ALT}"
 fi
-printf '    DCGM_FI_DEV_XID_ERRORS before injection = %s, so this run injects %s\n' \
+printf '    DCGM_FI_DEV_XID_ERROR before injection = %s, so this run injects %s\n' \
   "${xid_before}" "${xid_want}"
 
 printf '==> injecting ecc_uncorrectable with Xid %s on gpu %s\n' "${xid_want}" "${TARGET_GPU}"
@@ -133,33 +133,33 @@ for _ in $(seq 1 "${POLL_ATTEMPTS}"); do
   sleep "${POLL_INTERVAL_S}"
 done
 [[ "${observed}" == "${xid_want}" ]] \
-  || fail "DCGM_FI_DEV_XID_ERRORS{gpu=\"${TARGET_GPU}\",Hostname=\"${target_node}\",err_code=\"${xid_want}\"} never reached Prometheus within ~$((POLL_ATTEMPTS * POLL_INTERVAL_S))s (last read: ${observed})"
+  || fail "DCGM_FI_DEV_XID_ERROR{gpu=\"${TARGET_GPU}\",hostname=\"${target_node}\",err_code=\"${xid_want}\"} never reached Prometheus within ~$((POLL_ATTEMPTS * POLL_INTERVAL_S))s (last read: ${observed})"
 
 if [[ "${xid_before}" == "none" ]]; then
-  printf 'OK: DCGM_FI_DEV_XID_ERRORS for gpu %s appeared carrying %s — the series did not exist before, so this run watched an Xid travel the whole path\n' \
+  printf 'OK: DCGM_FI_DEV_XID_ERROR for gpu %s appeared carrying %s — the series did not exist before, so this run watched an Xid travel the whole path\n' \
     "${TARGET_GPU}" "${observed}"
 else
-  printf 'OK: DCGM_FI_DEV_XID_ERRORS for gpu %s moved %s -> %s, so this run watched a fresh Xid travel the whole path rather than re-reading a latched value\n' \
+  printf 'OK: DCGM_FI_DEV_XID_ERROR for gpu %s moved %s -> %s, so this run watched a fresh Xid travel the whole path rather than re-reading a latched value\n' \
     "${TARGET_GPU}" "${xid_before}" "${observed}"
 fi
 
 # Same scope argument as the temperature pin, phrased against the injected code
 # rather than presence, so a future dcgm-exporter reporting 0 for healthy GPUs
 # would still be correctly scoped.
-xid_others=$(promq "query?query=DCGM_FI_DEV_XID_ERRORS" \
+xid_others=$(promq "query?query=DCGM_FI_DEV_XID_ERROR" \
   | jq -r --arg node "${target_node}" --arg gpu "${TARGET_GPU}" --argjson xid "${xid_want}" \
       '[.data.result[]
-         | select(.metric.Hostname == $node and .metric.gpu != $gpu)
+         | select(.metric.hostname == $node and .metric.gpu != $gpu)
          | select((.value[1] | tonumber) == $xid)
          | .metric.gpu] | sort | join(",")')
 [[ -z "${xid_others}" ]] \
   || fail "gpu(s) ${xid_others} on ${target_node} also report Xid ${xid_want}; the failure is not scoped to gpu ${TARGET_GPU}"
 printf 'OK: the Xid is scoped to gpu %s with labels %s\n' "${TARGET_GPU}" \
-  "$(promq "query?query=DCGM_FI_DEV_XID_ERRORS" \
+  "$(promq "query?query=DCGM_FI_DEV_XID_ERROR" \
       | jq -c --arg node "${target_node}" --arg gpu "${TARGET_GPU}" --arg xid "${xid_want}" \
           'first(.data.result[]
-             | select(.metric.Hostname == $node and .metric.gpu == $gpu and .metric.err_code == $xid)
-             | {Hostname: .metric.Hostname, gpu: .metric.gpu, err_code: .metric.err_code, UUID: .metric.UUID, pci_bus_id: .metric.pci_bus_id})')"
+             | select(.metric.hostname == $node and .metric.gpu == $gpu and .metric.err_code == $xid)
+             | {hostname: .metric.hostname, gpu: .metric.gpu, err_code: .metric.err_code, UUID: .metric.UUID, pci_bus_id: .metric.pci_bus_id})')"
 
 printf '\n==> inject-xid passed: gpu %s on %s reports Xid %s and Prometheus recorded it.\n' \
   "${TARGET_GPU}" "${target_node}" "${xid_want}"

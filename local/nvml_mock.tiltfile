@@ -174,16 +174,25 @@ def install_single(profile, active_consumers, nvmlmock_image='', control_plane=F
 def install_fleet(active_consumers, profiles = FLEET_PROFILES, nvmlmock_image='', control_plane=False):
     """The chart's fullname collapses to the release name when it contains the chart
     name, so 'nvml-mock-a100' and 'nvml-mock-t4' own distinct DaemonSets,
-    ConfigMaps and RBAC.
+    ConfigMaps and RBAC. The fake-gpu-operator profile ConfigMaps are the
+    exception: their names are fixed by FGO's lookup contract.
     """
     for i in range(len(profiles)):
+        # helm --set reads '.' as a path separator, so the dot in
+        # kubernetes.io is escaped to keep the label key in one piece.
+        extra_set = ['nodeSelector.kubernetes\\.io/hostname=worker-%d' % i]
+        if i > 0:
+            # Every release renders the same gpu-profile-<name> ConfigMaps for
+            # all profiles, and Helm refuses to adopt one another release owns.
+            # The releases install concurrently, so a second owner fails the
+            # fleet only when it loses that race. The first release publishes
+            # the full set on its own.
+            extra_set.append('integrations.fakeGpuOperator.enabled=false')
         _install(
             'nvml-mock-' + profiles[i],
             profiles[i],
             active_consumers,
-            # helm --set reads '.' as a path separator, so the dot in
-            # kubernetes.io is escaped to keep the label key in one piece.
-            extra_set=['nodeSelector.kubernetes\\.io/hostname=worker-%d' % i],
+            extra_set=extra_set,
             nvmlmock_image=nvmlmock_image,
             control_plane=control_plane and i == 0,
         )
