@@ -179,7 +179,7 @@ lifetime — matching real NVML semantics. Real consumers see it via:
 
 * the **NVIDIA device plugin** health monitor (marks the GPU
   `Unhealthy`),
-* **dcgm-exporter** (`DCGM_FI_DEV_XID_ERRORS` metric),
+* **dcgm-exporter** (`DCGM_FI_DEV_XID_ERROR` metric),
 * a small Go program calling `nvml.EventSetCreate` /
   `RegisterEvents(EventTypeXidCriticalError)` / `EventSetWait` —
   useful for ad-hoc verification:
