@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 810" width="1000" height="810" role="img" aria-labelledby="title desc">
+  <title id="title">Fetching a rack's state after a policy change</title>
+  <desc id="desc">An admin applies an SGPURuntimePolicy. The Kubernetes API sends the policy event to the control plane leader, which accepts the policy and bumps status.delivery of the affected racks to generation 13. The KWOK data plane gets the rack event, queues the rack with the others whose generation moved, and sends a control plane replica POST /v1alpha1/racks/state:batchGet with the rack at minimum generation 13. The replica answers one of three ways. If it's at generation 13 or later, it returns the rack's compiled state, and the data plane applies it and remembers generation 13. If it's behind, it returns NotReady, and the data plane queues the rack again with backoff and keeps serving generation 12. If it hasn't seen the rack's UID, it returns NotFound, and the data plane does the same, dropping the rack only once its own watch shows the rack gone.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .t { font-size: 13px; font-weight: 600; }
+    .b { font-size: 12px; fill: #59636e; }
+    .c { font-size: 12.5px; }
+    .msg, .sub { paint-order: stroke; stroke: #ffffff; stroke-width: 5px; stroke-linejoin: round; }
+    .msg { font-size: 12.5px; }
+    .sub { font-size: 12px; fill: #59636e; }
+    .in { stroke: #f6f8fa; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+    .box { fill: #ffffff; stroke: #1f2328; stroke-width: 1.5; }
+    .life { fill: none; stroke: #8c959f; stroke-width: 1; stroke-dasharray: 4 4; }
+    .note { fill: #f6f8fa; stroke: #8c959f; stroke-width: 1; }
+    .wire { fill: none; stroke: #59636e; stroke-width: 1.5; }
+    .reply { fill: none; stroke: #59636e; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #59636e; }
+    .loop { fill: #f6f8fa; stroke: #8c959f; stroke-width: 1.5; }
+    .tag { fill: #59636e; }
+    .tagtext { font-size: 12px; font-weight: 600; fill: #ffffff; }
+    .sep { fill: none; stroke: #8c959f; stroke-width: 1; stroke-dasharray: 5 4; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .b, .sub { fill: #9198a1; }
+      .msg, .sub { stroke: #0d1117; }
+      .in { stroke: #151b23; }
+      .box { fill: #0d1117; stroke: #f0f6fc; }
+      .life { stroke: #6e7681; }
+      .note { fill: #151b23; stroke: #6e7681; }
+      .wire, .reply { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+      .loop { fill: #151b23; stroke: #6e7681; }
+      .tag { fill: #9198a1; }
+      .tagtext { fill: #0d1117; }
+      .sep { stroke: #6e7681; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="809" rx="12"/>
+
+  <!-- The replica's three possible answers -->
+  <rect class="loop" x="560" y="389" width="378" height="381" rx="8"/>
+  <path class="sep" d="M560,504 H938"/>
+  <path class="sep" d="M560,622 H938"/>
+
+  <!-- Participants and their lifelines -->
+  <path class="life" d="M99,72 V788"/>
+  <path class="life" d="M266,72 V788"/>
+  <path class="life" d="M433,72 V788"/>
+  <path class="life" d="M600,72 V788"/>
+  <path class="life" d="M820,72 V788"/>
+  <rect class="box" x="24" y="20" width="150" height="52" rx="8"/>
+  <text class="t" x="99" y="41" text-anchor="middle">Admin</text>
+  <text class="b" x="99" y="58" text-anchor="middle">applies a policy</text>
+  <rect class="box" x="191" y="20" width="150" height="52" rx="8"/>
+  <text class="t" x="266" y="41" text-anchor="middle">Kubernetes API</text>
+  <text class="b" x="266" y="58" text-anchor="middle">racks and policies</text>
+  <rect class="box" x="358" y="20" width="150" height="52" rx="8"/>
+  <text class="t" x="433" y="41" text-anchor="middle">control plane leader</text>
+  <text class="b" x="433" y="58" text-anchor="middle">bumps generations</text>
+  <rect class="box" x="525" y="20" width="150" height="52" rx="8"/>
+  <text class="t" x="600" y="41" text-anchor="middle">control plane replica</text>
+  <text class="b" x="600" y="58" text-anchor="middle">any ready one</text>
+  <rect class="box" x="745" y="20" width="150" height="52" rx="8"/>
+  <text class="t" x="820" y="41" text-anchor="middle">KWOK data plane</text>
+  <text class="b" x="820" y="58" text-anchor="middle">the rack's owner</text>
+
+  <!-- Messages: solid calls, dashed replies -->
+  <path class="wire" d="M99,122 H266" marker-end="url(#arrow)"/>
+  <text class="msg" x="182.5" y="98" text-anchor="middle">apply an</text>
+  <text class="msg" x="182.5" y="113" text-anchor="middle"><tspan class="mono">SGPURuntimePolicy</tspan></text>
+  <path class="reply" d="M266,157 H433" marker-end="url(#arrow)"/>
+  <text class="msg" x="349.5" y="148" text-anchor="middle">policy event</text>
+  <path class="wire" d="M433,222 H266" marker-end="url(#arrow)"/>
+  <text class="msg" x="349.5" y="183" text-anchor="middle">accept the policy,</text>
+  <text class="msg" x="349.5" y="198" text-anchor="middle">bump <tspan class="mono">status.delivery</tspan></text>
+  <text class="msg" x="349.5" y="213" text-anchor="middle">of affected racks to 13</text>
+  <path class="reply" d="M266,257 H820" marker-end="url(#arrow)"/>
+  <text class="msg" x="543" y="248" text-anchor="middle">rack event, generation 13</text>
+  <path class="wire" d="M820,367 H600" marker-end="url(#arrow)"/>
+  <text class="msg" x="710" y="343" text-anchor="middle"><tspan class="mono">POST racks/state:batchGet</tspan></text>
+  <text class="sub" x="710" y="358" text-anchor="middle">the rack at minimum 13</text>
+  <path class="reply" d="M600,445 H820" marker-end="url(#arrow)"/>
+  <text class="msg in" x="710" y="421" text-anchor="middle">the rack's compiled state</text>
+  <text class="sub in" x="710" y="436" text-anchor="middle">if it's at generation 13 or later</text>
+  <path class="reply" d="M600,548 H820" marker-end="url(#arrow)"/>
+  <text class="msg in" x="710" y="524" text-anchor="middle">the rack is <tspan class="mono">NotReady</tspan></text>
+  <text class="sub in" x="710" y="539" text-anchor="middle">if it's behind</text>
+  <path class="reply" d="M600,666 H820" marker-end="url(#arrow)"/>
+  <text class="msg in" x="710" y="642" text-anchor="middle">the rack is <tspan class="mono">NotFound</tspan></text>
+  <text class="sub in" x="710" y="657" text-anchor="middle">if it hasn't seen the rack's UID</text>
+
+  <!-- Notes -->
+  <rect class="note" x="722" y="271" width="196" height="46" rx="6"/>
+  <text class="c" x="820" y="291" text-anchor="middle">queue the rack with the others</text>
+  <text class="c" x="820" y="306" text-anchor="middle">whose generation moved</text>
+  <rect class="note" x="714" y="459" width="212" height="31" rx="6"/>
+  <text class="c" x="820" y="479" text-anchor="middle">apply it, remember generation 13</text>
+  <rect class="note" x="730" y="562" width="180" height="46" rx="6"/>
+  <text class="c" x="820" y="582" text-anchor="middle">queue it again with backoff,</text>
+  <text class="c" x="820" y="597" text-anchor="middle">keep serving generation 12</text>
+  <rect class="note" x="721" y="680" width="198" height="76" rx="6"/>
+  <text class="c" x="820" y="700" text-anchor="middle">queue it again with backoff,</text>
+  <text class="c" x="820" y="715" text-anchor="middle">keep serving generation 12,</text>
+  <text class="c" x="820" y="730" text-anchor="middle">drop it only once its own watch</text>
+  <text class="c" x="820" y="745" text-anchor="middle">shows the rack gone</text>
+
+  <!-- The fragment's tag, on its top edge -->
+  <rect class="tag" x="574" y="379" width="144" height="20" rx="10"/>
+  <text class="tagtext" x="586" y="393">one of three answers</text>
+</svg>

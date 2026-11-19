@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 514" width="1000" height="514" role="img" aria-labelledby="title desc">
+  <title id="title">Startup order of the NUMA setup</title>
+  <desc id="desc">The Mokka node daemon publishes the profile's NUMA zones in the Node's /sys tree, configures the kubelet's NUMA-aware managers and restarts it. The kubelet reads the zones once, at startup, and the device plugin registers the GPUs with their NUMA nodes. nfd-topology-updater reads the zones and memory once, at startup, reads the kubelet's allocatable resources once, at startup, and creates the NodeResourceTopology. On every pod change, it lists pod resources from the kubelet and updates each zone's availability in the NodeResourceTopology.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .t { font-size: 13px; font-weight: 600; }
+    .b { font-size: 12px; fill: #59636e; }
+    .c { font-size: 12.5px; }
+    .msg, .sub { paint-order: stroke; stroke: #ffffff; stroke-width: 5px; stroke-linejoin: round; }
+    .msg { font-size: 12.5px; }
+    .sub { font-size: 12px; fill: #59636e; }
+    .in { stroke: #f6f8fa; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+    .box { fill: #ffffff; stroke: #1f2328; stroke-width: 1.5; }
+    .life { fill: none; stroke: #8c959f; stroke-width: 1; stroke-dasharray: 4 4; }
+    .note { fill: #f6f8fa; stroke: #8c959f; stroke-width: 1; }
+    .wire { fill: none; stroke: #59636e; stroke-width: 1.5; }
+    .reply { fill: none; stroke: #59636e; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #59636e; }
+    .loop { fill: #f6f8fa; stroke: #8c959f; stroke-width: 1.5; }
+    .tag { fill: #59636e; }
+    .tagtext { font-size: 12px; font-weight: 600; fill: #ffffff; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .b, .sub { fill: #9198a1; }
+      .msg, .sub { stroke: #0d1117; }
+      .in { stroke: #151b23; }
+      .box { fill: #0d1117; stroke: #f0f6fc; }
+      .life { stroke: #6e7681; }
+      .note { fill: #151b23; stroke: #6e7681; }
+      .wire, .reply { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+      .loop { fill: #151b23; stroke: #6e7681; }
+      .tag { fill: #9198a1; }
+      .tagtext { fill: #0d1117; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="513" rx="12"/>
+
+  <!-- NFD's steps on every pod change -->
+  <rect class="loop" x="379" y="384" width="564" height="90" rx="8"/>
+
+  <!-- Participants and their lifelines -->
+  <path class="life" d="M97,72 V492"/>
+  <path class="life" d="M258,72 V492"/>
+  <path class="life" d="M419,72 V492"/>
+  <path class="life" d="M581,72 V492"/>
+  <path class="life" d="M742,72 V492"/>
+  <path class="life" d="M903,72 V492"/>
+  <rect class="box" x="24" y="20" width="146" height="52" rx="8"/>
+  <text class="t" x="97" y="41" text-anchor="middle">Mokka node daemon</text>
+  <text class="b" x="97" y="58" text-anchor="middle">applies the setup</text>
+  <rect class="box" x="185" y="20" width="146" height="52" rx="8"/>
+  <text class="t" x="258" y="41" text-anchor="middle">NUMA topology</text>
+  <text class="b" x="258" y="58" text-anchor="middle">the Node's /sys tree</text>
+  <rect class="box" x="346" y="20" width="146" height="52" rx="8"/>
+  <text class="t" x="419" y="41" text-anchor="middle">kubelet</text>
+  <text class="b" x="419" y="58" text-anchor="middle">NUMA-aware managers</text>
+  <rect class="box" x="508" y="20" width="146" height="52" rx="8"/>
+  <text class="t" x="581" y="41" text-anchor="middle">device plugin</text>
+  <text class="b" x="581" y="58" text-anchor="middle">real, on Mokka's NVML</text>
+  <rect class="box" x="669" y="20" width="146" height="52" rx="8"/>
+  <text class="t" x="742" y="41" text-anchor="middle">NFD</text>
+  <text class="b" x="742" y="58" text-anchor="middle">nfd-topology-updater</text>
+  <rect class="box" x="830" y="20" width="146" height="52" rx="8"/>
+  <text class="t" x="903" y="41" text-anchor="middle">NRT</text>
+  <text class="b" x="903" y="58" text-anchor="middle">NodeResourceTopology</text>
+
+  <!-- Messages: solid calls, dashed replies -->
+  <path class="wire" d="M97,122 H258" marker-end="url(#arrow)"/>
+  <text class="msg" x="177.5" y="98" text-anchor="middle">publish the</text>
+  <text class="msg" x="177.5" y="113" text-anchor="middle">profile's zones</text>
+  <path class="wire" d="M97,157 H419" marker-end="url(#arrow)"/>
+  <text class="msg" x="258" y="148" text-anchor="middle">configure NUMA-aware managers and restart</text>
+  <path class="wire" d="M419,207 H258" marker-end="url(#arrow)"/>
+  <text class="msg" x="338.5" y="183" text-anchor="middle">read the zones</text>
+  <text class="msg" x="338.5" y="198" text-anchor="middle">once, at startup</text>
+  <path class="wire" d="M581,257 H419" marker-end="url(#arrow)"/>
+  <text class="msg" x="500" y="233" text-anchor="middle">register the GPUs</text>
+  <text class="msg" x="500" y="248" text-anchor="middle">with their NUMA nodes</text>
+  <path class="wire" d="M742,292 H258" marker-end="url(#arrow)"/>
+  <text class="msg" x="500" y="283" text-anchor="middle">read the zones and memory once, at startup</text>
+  <path class="wire" d="M742,327 H419" marker-end="url(#arrow)"/>
+  <text class="msg" x="580.5" y="318" text-anchor="middle">read allocatable resources once, at startup</text>
+  <path class="wire" d="M742,362 H903" marker-end="url(#arrow)"/>
+  <text class="msg" x="822.5" y="353" text-anchor="middle">create</text>
+  <path class="wire" d="M742,425 H419" marker-end="url(#arrow)"/>
+  <text class="msg in" x="580.5" y="416" text-anchor="middle">list pod resources</text>
+  <path class="wire" d="M742,460 H903" marker-end="url(#arrow)"/>
+  <text class="msg in" x="822.5" y="451" text-anchor="middle">update zone availability</text>
+
+  <!-- Notes -->
+
+  <!-- The loop's tag, on its top edge -->
+  <rect class="tag" x="393" y="374" width="144" height="20" rx="10"/>
+  <text class="tagtext" x="405" y="388">on every pod change</text>
+</svg>

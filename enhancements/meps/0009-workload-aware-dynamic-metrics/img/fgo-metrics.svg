@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 500" width="1000" height="500" role="img" aria-labelledby="title desc">
+  <title id="title">How FGO simulates utilization metrics</title>
+  <desc id="desc">FGO's status-updater Deployment watches pods. For the pod training, labeled workloadKind: TrainingWorkload, calculateUsage maps the label to a utilization range of 80 to 100, and the status-updater reads the node's ConfigMap topology-n1, sets the GPU's status and writes it back: GPU0, the pod's UID, utilization min 80, max 100. On node n1, the status-exporter DaemonSet Pod's watcher watches the ConfigMap and reads it on change, or after 10 seconds without one, and sends the node's GPU state on. Every 10 seconds, the status-exporter picks a random number in the range, such as 87, and stores it as the current value, kept in memory and served on port 9400 at /metrics as DCGM_FI_DEV_GPU_UTIL with pod training. Prometheus scrapes it. Yellow marks the shared GPU state, green the metric Prometheus scrapes.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .t { font-size: 13px; font-weight: 600; }
+    .code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; font-weight: 600; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+    .b { font-size: 12px; fill: #59636e; }
+    .label { font-size: 12px; fill: #59636e; }
+    .node { fill: none; stroke: #8c959f; stroke-width: 1.5; stroke-dasharray: 6 4; }
+    .group { fill: none; stroke: #8c959f; stroke-width: 1.5; }
+    .box { fill: #ffffff; stroke: #1f2328; stroke-width: 1.5; }
+    .state { fill: #fff8c5; stroke: #9a6700; stroke-width: 2; }
+    .seen { fill: #dafbe1; stroke: #1a7f37; stroke-width: 2; }
+    .wire { fill: none; stroke: #59636e; stroke-width: 1.5; }
+    .head { fill: #59636e; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .b, .label { fill: #9198a1; }
+      .node, .group { stroke: #6e7681; }
+      .box { fill: #0d1117; stroke: #f0f6fc; }
+      .state { fill: #272115; stroke: #d29922; }
+      .seen { fill: #12261e; stroke: #3fb950; }
+      .wire { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="499" rx="12"/>
+
+  <!-- In the Kubernetes API -->
+  <rect class="box" x="24" y="24" width="248" height="88" rx="8"/>
+  <text class="t" x="40" y="46">Pod <tspan class="code">training</tspan></text>
+  <text class="b" x="40" y="63">API object, with the label</text>
+  <text class="mono" x="40" y="81">workloadKind:</text>
+  <text class="mono" x="40" y="97">TrainingWorkload</text>
+
+  <rect class="box" x="348" y="24" width="236" height="88" rx="8"/>
+  <text class="code" x="364" y="46">status-updater</text>
+  <text class="b" x="364" y="63">Deployment</text>
+  <text class="mono" x="364" y="81">calculateUsage:</text>
+  <text class="b" x="364" y="97">label → range 80–100</text>
+
+  <rect class="state" x="716" y="24" width="260" height="88" rx="8"/>
+  <text class="t" x="732" y="46">ConfigMap <tspan class="code">topology-n1</tspan></text>
+  <text class="b" x="732" y="63">node GPU state</text>
+  <text class="b" x="732" y="80">GPU0, pod UID →</text>
+  <text class="b" x="732" y="96">utilization min 80, max 100</text>
+
+  <!-- On the node -->
+  <rect class="node" x="24" y="150" width="952" height="210" rx="10"/>
+  <text class="t" x="40" y="172">Node n1</text>
+
+  <rect class="group" x="40" y="184" width="920" height="160" rx="10"/>
+  <text class="code" x="56" y="206">status-exporter</text>
+  <text class="b" x="56" y="222">DaemonSet Pod</text>
+
+  <rect class="seen" x="56" y="236" width="232" height="92" rx="8"/>
+  <text class="t" x="72" y="258">value kept in memory</text>
+  <text class="b" x="72" y="275">served on :9400/metrics</text>
+  <text class="mono" x="72" y="293">DCGM_FI_DEV_GPU_UTIL</text>
+  <text class="mono" x="72" y="309">{pod=training} = 87</text>
+
+  <rect class="box" x="384" y="236" width="232" height="92" rx="8"/>
+  <text class="t" x="400" y="258">every 10 s</text>
+  <text class="b" x="400" y="275">picks a random number</text>
+  <text class="b" x="400" y="291">in the range → 87</text>
+
+  <rect class="box" x="712" y="236" width="232" height="92" rx="8"/>
+  <text class="t" x="728" y="258">watcher</text>
+  <text class="b" x="728" y="275">reads the ConfigMap on change,</text>
+  <text class="b" x="728" y="291">or after 10 s quiet</text>
+
+  <rect class="box" x="100" y="392" width="144" height="44" rx="8"/>
+  <text class="t" x="172" y="419" text-anchor="middle">Prometheus</text>
+
+  <!-- Arrows, drawn last so no box covers their heads -->
+  <path class="wire" d="M348,68 H273" marker-end="url(#arrow)"/>
+  <text class="label" x="310" y="46" text-anchor="middle">watches</text>
+  <text class="label" x="310" y="60" text-anchor="middle">pods</text>
+  <path class="wire" d="M584,68 H715" marker-end="url(#arrow)"/>
+  <text class="label" x="650" y="46" text-anchor="middle">reads, sets GPU</text>
+  <text class="label" x="650" y="60" text-anchor="middle">status, writes back</text>
+  <path class="wire" d="M836,236 V113" marker-end="url(#arrow)"/>
+  <text class="label" x="846" y="136">watches</text>
+  <path class="wire" d="M712,282 H617" marker-end="url(#arrow)"/>
+  <text class="label" x="664" y="260" text-anchor="middle">sends node</text>
+  <text class="label" x="664" y="274" text-anchor="middle">GPU state</text>
+  <path class="wire" d="M384,282 H289" marker-end="url(#arrow)"/>
+  <text class="label" x="336" y="260" text-anchor="middle">stores</text>
+  <text class="label" x="336" y="274" text-anchor="middle">current value</text>
+  <path class="wire" d="M172,392 V329" marker-end="url(#arrow)"/>
+  <text class="label" x="182" y="380">scrapes</text>
+
+  <!-- Legend -->
+  <rect class="state" x="24" y="466" width="16" height="12" rx="3"/>
+  <text class="label" x="48" y="476">shared GPU state</text>
+  <rect class="seen" x="180" y="466" width="16" height="12" rx="3"/>
+  <text class="label" x="204" y="476">the metric Prometheus scrapes</text>
+</svg>
