@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 576" width="1000" height="576" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 666" width="1000" height="666" role="img" aria-labelledby="title desc">
   <title id="title">Milestones of MEP0008, MEP0009 and MEP0010</title>
-  <desc id="desc">One plan across three MEPs, in four phases. Phase 1: MEP0010's M1, NUMA setup on CPU Nodes, MEP0001's rack state REST API, and MEP0009's M1, the shared metrics generator. Phase 2: MEP0008's M1, GPUs on KWOK Nodes, after MEP0001's API, and MEP0009's M2, workload telemetry on CPU Nodes. Phase 3: MEP0008's M2, FGO parity for Run:ai, after MEP0008's M1 and MEP0009's M1. It ships together with MEP0010's M2, NodeResourceTopology on KWOK Nodes, which follows MEP0010's M1. Phase 4: MEP0008's M3, scale out, after its M2, and MEP0009's M3, workload telemetry on KWOK Nodes, after MEP0009's M2 and MEP0008's M2. MEP0008's optional M4, the KWOK provisioner, needs only its M1 and runs alongside its M2 and M3.</desc>
+  <desc id="desc">One plan across three MEPs, in four phases. Phase 1: MEP0010's M1, NUMA setup on CPU Nodes, MEP0001's rack state REST API, and MEP0009's M1, workload telemetry on CPU Nodes. Phase 2: MEP0008's M1, GPUs on KWOK Nodes, after MEP0001's API. Phase 3: the FGO migration, in two milestones that each follow MEP0008's M1 and can run in parallel. MEP0008's M2, DRA, ComputeDomains and NodeResourceTopology, ships together with MEP0010's M2, NodeResourceTopology on KWOK Nodes, which follows MEP0010's M1. MEP0008's M3, DCGM metrics with workload telemetry, also follows MEP0009's M1. MEP0008's optional M5, the KWOK provisioner, needs only its M1 and runs alongside its M2 to M4. Phase 4: MEP0008's M4, scale out, after its M2 and M3.</desc>
   <style>
     .panel { fill: #ffffff; stroke: #d1d9e0; }
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
@@ -32,13 +32,13 @@
     <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="panel" x="0.5" y="0.5" width="999" height="575" rx="12"/>
+  <rect class="panel" x="0.5" y="0.5" width="999" height="665" rx="12"/>
 
   <!-- Phases -->
   <text class="label" x="134" y="30" text-anchor="middle"><tspan class="strong">Phase 1</tspan> · foundations</text>
   <text class="label" x="378" y="30" text-anchor="middle"><tspan class="strong">Phase 2</tspan> · first runs</text>
   <text class="label" x="622" y="30" text-anchor="middle"><tspan class="strong">Phase 3</tspan> · FGO parity</text>
-  <text class="label" x="866" y="30" text-anchor="middle"><tspan class="strong">Phase 4</tspan> · scale and telemetry</text>
+  <text class="label" x="866" y="30" text-anchor="middle"><tspan class="strong">Phase 4</tspan> · scale out</text>
 
   <!-- MEP0010 -->
   <rect class="band" x="12" y="44" width="976" height="116" rx="10"/>
@@ -55,72 +55,66 @@
   <text class="done" x="526" y="138">match CPU Nodes'</text>
 
   <path class="wire" d="M244,114 H511" marker-end="url(#arrow)"/>
-  <path class="dot" d="M622,152 V174"/>
+  <path class="dot" d="M622,152 V218"/>
   <text class="label" x="632" y="178">ships with MEP0008 · M2</text>
 
-  <!-- MEP0008 -->
-  <rect class="band" x="12" y="188" width="976" height="208" rx="10"/>
-  <text class="lane" x="28" y="208">MEP0008 · KWOK integration</text>
-
-  <rect class="ms" x="756" y="218" width="220" height="76" rx="8"/>
-  <text class="title" x="770" y="242">M4 · KWOK provisioner</text>
-  <text class="done" x="770" y="263">optional, alongside M2 and M3</text>
-  <text class="done" x="770" y="280"><tspan class="strong">Done when</tspan> Mokka creates Nodes</text>
-
+  <!-- MEP0001, outside the lanes: MEP0008's band starts at Phase 2 -->
   <rect class="ext" x="24" y="308" width="220" height="76" rx="8"/>
   <text class="title" x="38" y="332">MEP0001 · Control plane</text>
   <text class="done" x="38" y="353">rack state REST API</text>
   <text class="done" x="38" y="370">and delivery generation</text>
+
+  <!-- MEP0008: M2 above, M3 below, the provisioner between them -->
+  <rect class="band" x="256" y="188" width="732" height="298" rx="10"/>
+  <text class="lane" x="272" y="208">MEP0008 · KWOK integration</text>
+
+  <rect class="ms key" x="512" y="218" width="220" height="76" rx="8"/>
+  <text class="title" x="526" y="242">M2 · DRA, ComputeDomains</text>
+  <text class="done" x="526" y="263"><tspan class="strong">Done when</tspan> KAI's DRA and NUMA</text>
+  <text class="done" x="526" y="280">tests pass on KWOK Nodes</text>
+
+  <rect class="ms" x="756" y="218" width="220" height="76" rx="8"/>
+  <text class="title" x="770" y="242">M4 · Scale out</text>
+  <text class="done" x="770" y="263"><tspan class="strong">Done when</tspan> 1,000 racks run</text>
+  <text class="done" x="770" y="280">across data plane replicas</text>
 
   <rect class="ms" x="268" y="308" width="220" height="76" rx="8"/>
   <text class="title" x="282" y="332">M1 · GPUs on KWOK Nodes</text>
   <text class="done" x="282" y="353"><tspan class="strong">Done when</tspan> KAI's whole-GPU</text>
   <text class="done" x="282" y="370">tests pass on kwokctl Nodes</text>
 
-  <rect class="ms key" x="512" y="308" width="220" height="76" rx="8"/>
-  <text class="title" x="526" y="332">M2 · FGO parity for Run:ai</text>
-  <text class="done" x="526" y="353"><tspan class="strong">Done when</tspan> Run:ai's harness</text>
-  <text class="done" x="526" y="370">runs on Mokka instead of FGO</text>
+  <rect class="ms" x="512" y="308" width="220" height="76" rx="8"/>
+  <text class="title" x="526" y="332">M5 · KWOK provisioner</text>
+  <text class="done" x="526" y="353">optional, alongside M2 to M4</text>
+  <text class="done" x="526" y="370"><tspan class="strong">Done when</tspan> Mokka creates Nodes</text>
 
-  <rect class="ms" x="756" y="308" width="220" height="76" rx="8"/>
-  <text class="title" x="770" y="332">M3 · Scale out</text>
-  <text class="done" x="770" y="353"><tspan class="strong">Done when</tspan> 1,000 racks run</text>
-  <text class="done" x="770" y="370">across data plane replicas</text>
+  <rect class="ms key" x="512" y="398" width="220" height="76" rx="8"/>
+  <text class="title" x="526" y="422">M3 · DCGM metrics</text>
+  <text class="done" x="526" y="443"><tspan class="strong">Done when</tspan> Run:ai's harness and</text>
+  <text class="done" x="526" y="460">MEP0009's story 3 run on KWOK</text>
 
   <path class="wire" d="M244,346 H267" marker-end="url(#arrow)"/>
   <path class="wire" d="M488,346 H511" marker-end="url(#arrow)"/>
-  <path class="wire" d="M732,346 H755" marker-end="url(#arrow)"/>
-  <path class="wire" d="M378,307 V256 H755" marker-end="url(#arrow)"/>
+  <path class="wire" d="M378,307 V256 H511" marker-end="url(#arrow)"/>
+  <path class="wire" d="M378,385 V436 H511" marker-end="url(#arrow)"/>
+  <path class="wire" d="M732,256 H755" marker-end="url(#arrow)"/>
+  <path class="wire" d="M732,436 H836 V295" marker-end="url(#arrow)"/>
 
   <!-- MEP0009 -->
-  <rect class="band" x="12" y="420" width="976" height="116" rx="10"/>
-  <text class="lane" x="28" y="440">MEP0009 · Workload metrics</text>
+  <rect class="band" x="12" y="510" width="976" height="116" rx="10"/>
+  <text class="lane" x="28" y="530">MEP0009 · Workload metrics</text>
 
-  <rect class="ms" x="24" y="450" width="220" height="76" rx="8"/>
-  <text class="title" x="38" y="474">M1 · Shared generator</text>
-  <text class="done" x="38" y="495"><tspan class="strong">Done when</tspan> patterns shape</text>
-  <text class="done" x="38" y="512">utilization on CPU Nodes</text>
+  <rect class="ms" x="24" y="540" width="220" height="76" rx="8"/>
+  <text class="title" x="38" y="564">M1 · CPU Node telemetry</text>
+  <text class="done" x="38" y="585"><tspan class="strong">Done when</tspan> stories 1 and 2</text>
+  <text class="done" x="38" y="602">pass with plugin and DRA</text>
 
-  <rect class="ms" x="268" y="450" width="220" height="76" rx="8"/>
-  <text class="title" x="282" y="474">M2 · CPU Node telemetry</text>
-  <text class="done" x="282" y="495"><tspan class="strong">Done when</tspan> stories 1 and 2</text>
-  <text class="done" x="282" y="512">pass with plugin and DRA</text>
-
-  <rect class="ms" x="756" y="450" width="220" height="76" rx="8"/>
-  <text class="title" x="770" y="474">M3 · KWOK Node telemetry</text>
-  <text class="done" x="770" y="495"><tspan class="strong">Done when</tspan> story 3 runs</text>
-  <text class="done" x="770" y="512">unchanged on KWOK Nodes</text>
-
-  <path class="wire" d="M244,488 H267" marker-end="url(#arrow)"/>
-  <path class="wire" d="M488,488 H755" marker-end="url(#arrow)"/>
-
-  <!-- Between MEP0009 and MEP0008, drawn over both bands -->
-  <path class="wire" d="M230,449 V402 H592 V385" marker-end="url(#arrow)"/>
-  <path class="wire" d="M652,385 V414 H866 V449" marker-end="url(#arrow)"/>
+  <!-- MEP0009's M1 to MEP0008's M3, drawn over both bands -->
+  <path class="wire" d="M230,539 V492 H592 V475" marker-end="url(#arrow)"/>
 
   <!-- Legend -->
-  <rect class="ms key" x="24" y="551" width="28" height="16" rx="4"/><text class="label" x="60" y="563">the FGO migration</text>
-  <rect class="ext" x="196" y="551" width="28" height="16" rx="4"/><text class="label" x="232" y="563">prerequisite from another MEP</text>
-  <path class="dot" d="M440,559 H470"/><text class="label" x="478" y="563">same work</text>
-  <path class="wire" d="M570,559 H604" marker-end="url(#arrow)"/><text class="label" x="612" y="563">comes first</text>
+  <rect class="ms key" x="24" y="641" width="28" height="16" rx="4"/><text class="label" x="60" y="653">the FGO migration</text>
+  <rect class="ext" x="196" y="641" width="28" height="16" rx="4"/><text class="label" x="232" y="653">prerequisite from another MEP</text>
+  <path class="dot" d="M440,649 H470"/><text class="label" x="478" y="653">same work</text>
+  <path class="wire" d="M570,649 H604" marker-end="url(#arrow)"/><text class="label" x="612" y="653">comes first</text>
 </svg>
