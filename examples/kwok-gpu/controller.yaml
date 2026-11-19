@@ -18,8 +18,8 @@ rules:
     resources: ["nodes/status"]
     verbs: ["patch"]
   - apiGroups: ["mokka.nvidia.com"]
-    resources: ["sgpuracks"]
-    verbs: ["get"]
+    resources: ["sgpuracks", "sgpurackprofiles"]
+    verbs: ["list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -54,6 +54,9 @@ spec:
           image: mokka-kwok-poc:dev
           imagePullPolicy: Never
           command: ["/kwok-gpu"]
+          args: ["--metrics-listen=:9400"]
+          ports:
+            - {name: metrics, containerPort: 9400}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

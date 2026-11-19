@@ -73,7 +73,29 @@ kubectl wait node/mokka-kwok-gpu --for='jsonpath={.status.allocatable.nvidia\.co
 - The controller stores assignments by Pod UID in a node annotation. It reserves all devices for a Pod in one version-checked update before publishing the Pod annotation. A restart preserves active assignments. Deleting a Pod or moving it to a terminal phase releases its devices.
 - To withdraw capacity, remove the `mokka.nvidia.com/sgpu-node` label while the controller is running. It removes its GPU count and annotations. The source retains the node.
 
-The PoC covers whole-GPU requests from regular containers on a small cluster. GPU requests from init containers, DRA, metrics, NUMA placement and hardware execution are outside this example. The Pod annotation is a simulation result. The controller uses no scheduler-specific labels or annotations.
+The PoC covers whole-GPU requests from regular containers with one controller replica. GPU requests from init containers, DRA, metric ranges, NUMA placement and hardware execution are outside this example. The Pod annotation is a simulation result. The controller uses no scheduler-specific labels or annotations.
+
+## Read simulated metrics through a PodMonitor
+
+The example controller serves the three MEP 0009 DCGM fields on port 9400. Idle GPUs report zero utilization and zero used memory. On an allocated GPU, use fixed Pod annotations `mokka.nvidia.com/gpu-utilization` and `mokka.nvidia.com/gpu-memory-used` (0–100). Defaults are 0% utilization and 50% memory for an allocated GPU. Memory metrics are in MiB. GPU UUID, index, model and usable memory come from the bound rack and its profile. This PoC uses one replica.
+
+Apply the PodMonitor in a namespace selected by your Prometheus instance. It discovers the controller Pods directly and copies each sample’s virtual node name from `Hostname` into `node`. No KWOK exporter Service is required. For the 100-node example, run this on a cluster with at least 100 available node CIDRs if the Kubernetes controller allocates Pod CIDRs.
+
+```sh
+examples/kwok-gpu/metrics-lab.sh
+kubectl -n runai apply -f examples/kwok-gpu/podmonitor.yaml
+```
+
+Query `count by (node) (DCGM_FI_DEV_GPU_UTIL{node=~"kwok-metrics-.*"})` in Prometheus. Each of the 100 nodes should return eight. Run:ai installations that derive the node from the exporter Pod IP must use the explicit node label for these samples. New NVIDIA exporters can use ratios and bytes for physical-node metrics. Convert those series to the units expected by your Run:ai version when combining the two sources.
+
+To remove the 100-node example, delete its virtual nodes and inventory before removing the controllers.
+
+```sh
+kubectl get nodes -l type=kwok -o name | sed -n '/^node\/kwok-metrics-[0-9][0-9][0-9]$/p' | xargs -n 20 kubectl delete
+kubectl delete sgpuinventory kwok-metrics
+kubectl delete sgpurackprofile kwok-metrics-a100
+kubectl -n runai delete podmonitor mokka-kwok-gpu
+```
 
 ## Remove the example
 

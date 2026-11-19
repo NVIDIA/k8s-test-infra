@@ -20,11 +20,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
+
 	"k8s.io/apimachinery/pkg/types"
 	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/clientcmd"
 
+	mokkav1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
@@ -37,22 +38,24 @@ const (
 )
 
 type controller struct {
-	core  coreclient.CoreV1Interface
-	racks mokkaclient.SGPURackInterface
+	core    coreclient.CoreV1Interface
+	mokka   mokkaclient.MokkaV1alpha1Interface
+	metrics *metricsEndpoint
 }
 
 func main() {
 	kubeconfig := flag.String("kubeconfig", "", "kubeconfig file (default: in-cluster credentials)")
+	listen := flag.String("metrics-listen", "", "listen address for simulated DCGM metrics (disabled when empty)")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, *kubeconfig); err != nil {
+	if err := run(ctx, *kubeconfig, *listen); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, kubeconfig string) error {
+func run(ctx context.Context, kubeconfig, listen string) error {
 	logger, err := zap.NewProduction()
 	if err != nil {
 		return err
@@ -70,7 +73,19 @@ func run(ctx context.Context, kubeconfig string) error {
 	if err != nil {
 		return err
 	}
-	c := controller{core: core, racks: mokka.SGPURacks()}
+	c := controller{core: core, mokka: mokka}
+	if listen != "" {
+		endpoint, closeServer, err := serveMetrics(listen)
+		if err != nil {
+			return err
+		}
+		defer closeServer()
+		c.metrics = endpoint
+	}
+	return c.poll(ctx)
+}
+
+func (c controller) poll(ctx context.Context) error {
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 	for {
@@ -85,99 +100,145 @@ func run(ctx context.Context, kubeconfig string) error {
 	}
 }
 
+type inventoryView struct {
+	racks    map[string]*mokkav1.SGPURack
+	pods     map[string][]corev1.Pod
+	profiles map[string]*mokkav1.SGPURackProfile
+}
+
+func (c controller) inventory(ctx context.Context) (*inventoryView, error) {
+	view := &inventoryView{racks: map[string]*mokkav1.SGPURack{}, pods: map[string][]corev1.Pod{}, profiles: map[string]*mokkav1.SGPURackProfile{}}
+	racks, err := c.mokka.SGPURacks().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	for i := range racks.Items {
+		r := &racks.Items[i]
+		view.racks[r.Name] = r
+	}
+	pods, err := c.core.Pods("").List(ctx, metav1.ListOptions{FieldSelector: "spec.nodeName!="})
+	if err != nil {
+		return nil, err
+	}
+	for _, pod := range pods.Items {
+		view.pods[pod.Spec.NodeName] = append(view.pods[pod.Spec.NodeName], pod)
+	}
+	if c.metrics != nil {
+		profiles, err := c.mokka.SGPURackProfiles().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, err
+		}
+		for i := range profiles.Items {
+			p := &profiles.Items[i]
+			view.profiles[p.Name] = p
+		}
+	}
+	return view, nil
+}
+
 func (c controller) sync(ctx context.Context) error {
 	nodes, err := c.core.Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
+	view, err := c.inventory(ctx)
+	if err != nil {
+		return err
+	}
+	var snapshot gpuMetrics
 	var errs []error
 	for i := range nodes.Items {
 		n := &nodes.Items[i]
-		_, owned := n.Annotations[ledgerKey]
-		eligible := n.Annotations["kwok.x-k8s.io/node"] == "fake" &&
-			n.Labels["mokka.nvidia.com/node-type"] == "KWOK" && n.Labels["mokka.nvidia.com/sgpu-node"] == "true"
-		if !eligible && !owned {
-			continue
-		}
-		if err := c.syncNode(ctx, n, eligible, owned); err != nil {
+		if err := c.syncNode(ctx, n, view, &snapshot); err != nil {
 			errs = append(errs, fmt.Errorf("node %s: %w", n.Name, err))
 		}
+	}
+	if c.metrics != nil && len(errs) == 0 {
+		c.metrics.publish(&snapshot)
 	}
 	return errors.Join(errs...)
 }
 
-func (c controller) devices(ctx context.Context, n *corev1.Node) ([]string, error) {
+func (c controller) syncNode(ctx context.Context, n *corev1.Node, view *inventoryView, snapshot *gpuMetrics) error {
+	rack, slot, err := boundSlot(n, view.racks)
+	if err != nil {
+		return err
+	}
+	_, owned := n.Annotations[ledgerKey]
+	if !owned && slot == nil {
+		return nil
+	}
+	if !owned && advertisesGPUs(n) {
+		return errors.New("node already advertises GPUs from another source")
+	}
+	pods := view.pods[n.Name]
+	next, err := c.reconcileDevices(ctx, n, slotDeviceIDs(slot), pods)
+	if err != nil {
+		return err
+	}
+	if c.metrics == nil || slot == nil {
+		return nil
+	}
+	return snapshot.addBoundNode(n.Name, slot, rack.Spec.ProfileRef, view.profiles, pods, next)
+}
+
+func slotDeviceIDs(slot *mokkav1.SGPURackNode) []string {
+	var ids []string
+	if slot != nil {
+		for _, gpu := range slot.GPUs {
+			ids = append(ids, gpu.UUID)
+		}
+	}
+	return ids
+}
+
+func advertisesGPUs(n *corev1.Node) bool {
+	_, capacity := n.Status.Capacity[gpuResource]
+	_, allocatable := n.Status.Allocatable[gpuResource]
+	return capacity || allocatable
+}
+
+func boundSlot(n *corev1.Node, racks map[string]*mokkav1.SGPURack) (*mokkav1.SGPURack, *mokkav1.SGPURackNode, error) {
+	if n.Annotations["kwok.x-k8s.io/node"] != "fake" || n.Labels["mokka.nvidia.com/node-type"] != "KWOK" || n.Labels["mokka.nvidia.com/sgpu-node"] != "true" {
+		return nil, nil, nil
+	}
 	raw := n.Annotations[metadata.AssignmentAnnotation]
 	if raw == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	a, err := assignment.DecodeAssignment(raw)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	rack, err := c.racks.Get(ctx, a.Rack.Name, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		return nil, nil
+	r := racks[a.Rack.Name]
+	if r == nil || r.DeletionTimestamp != nil {
+		return nil, nil, nil
 	}
-	if err != nil {
-		return nil, err
+	slot := r.Spec.NodeByIndex(a.NodeIndex)
+	if !projection.MatchesBinding(n, r, slot) {
+		return nil, nil, nil
 	}
-	slot := rack.Spec.NodeByIndex(a.NodeIndex)
-	if rack.DeletionTimestamp != nil || !projection.MatchesBinding(n, rack, slot) {
-		return nil, nil
-	}
-	ids := make([]string, 0, len(slot.GPUs))
-	for _, gpu := range slot.GPUs {
-		ids = append(ids, gpu.UUID)
-	}
-	return ids, nil
+	return r, slot, nil
 }
 
-func (c controller) syncNode(ctx context.Context, n *corev1.Node, eligible, owned bool) error {
-	var ids []string
-	var err error
-	if eligible {
-		ids, err = c.devices(ctx, n)
-		if err != nil {
-			return err
-		}
-	}
-	if !owned {
-		if len(ids) == 0 {
-			return nil
-		}
-		_, capExists := n.Status.Capacity[gpuResource]
-		_, allocExists := n.Status.Allocatable[gpuResource]
-		if capExists || allocExists {
-			return errors.New("node already advertises GPUs from another source")
-		}
-	}
-	return c.reconcileDevices(ctx, n, ids)
-}
-
-func (c controller) reconcileDevices(ctx context.Context, n *corev1.Node, ids []string) error {
-	pods, err := c.core.Pods("").List(ctx, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector("spec.nodeName", n.Name).String()})
+func (c controller) reconcileDevices(ctx context.Context, n *corev1.Node, ids []string, pods []corev1.Pod) (assignments, error) {
+	n, next, err := c.reserve(ctx, n, ids, pods)
 	if err != nil {
-		return err
-	}
-	n, next, err := c.reserve(ctx, n, ids, pods.Items)
-	if err != nil {
-		return err
+		return nil, err
 	}
 	n, err = c.publish(ctx, n, len(ids))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	for i := range pods.Items {
-		pod := &pods.Items[i]
-		if err := c.publishPod(ctx, pod, next[pod.UID]); err != nil {
-			return err
+	for i := range pods {
+		if err := c.publishPod(ctx, &pods[i], next[pods[i].UID]); err != nil {
+			return nil, err
 		}
 	}
 	if len(ids) == 0 {
 		_, err = c.patchNodeAnnotation(ctx, n, nil)
 	}
-	return err
+	return next, err
 }
 
 func (c controller) reserve(ctx context.Context, n *corev1.Node, ids []string, pods []corev1.Pod) (*corev1.Node, assignments, error) {
