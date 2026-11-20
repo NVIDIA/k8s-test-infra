@@ -1331,20 +1331,40 @@ only `vrnvl72` declares a `615` driver; run another one with
 | Unicast Logical Endpoint | Blackwell and newer | `unicast_logical_endpoint` |
 | Multicast Logical Endpoint | Blackwell and newer | `multicast_logical_endpoint` |
 
-List a type under `cliques` when its ID differs from `clique_id`. A Vera Rubin
-NVL72 tray reports its logical-endpoint cliques under another ID than its
-pointer cliques, and the `vrnvl72` profile reproduces that:
+### Default and admin-created partitions
+
+A clique is an NVLink partition. Fabric Manager keeps the GPUs of a rack in a
+default partition until an administrator creates partitions of their own. Mokka
+configures the two in different places:
+
+| Partition | Configured in | Reported by |
+| --------- | ------------- | ----------- |
+| Default | the profile's `fabric.clique_id` and `fabric.cliques` | a node that no topology names |
+| Admin-created | the chart's [`topology.domains`](helm-chart-values.md) | the nodes a clique of the topology lists |
+
+The profile therefore describes a rack nobody has partitioned. `clique_id` is
+the ID of its default partition, and `cliques` lists the clique types that carry
+another ID there. A Vera Rubin NVL72 tray reports its logical-endpoint cliques
+under another ID than its pointer cliques, and the `vrnvl72` profile reproduces
+that:
 
 ```yaml
 device_defaults:
   fabric:
-    clique_id: 65534
-    cliques:
+    clique_id: 65534    # default partition: every type not listed below
+    cliques:            # default partition: the types with another ID
       - type: unicast_logical_endpoint
         id: 32766
       - type: multicast_logical_endpoint
         id: 32766
 ```
+
+A topology takes precedence over the profile, as an admin-created partition
+replaces the default one. It gives a node a single clique ID, so every clique
+type on that node reports that ID and the profile's `cliques` do not apply. A
+node the topology leaves out keeps the profile's default partition.
+
+### The `cliques` list
 
 The entries of a type replace its default. A type can be listed several times,
 and on an architecture that does not report it by default. The library reports
@@ -1354,9 +1374,6 @@ A GPU reports at most 64 cliques. That count includes the unicast-pointer clique
 and the default of every type `cliques` leaves out, and a profile that exceeds
 it is rejected. So is a profile that lists `unicast_pointer`, because that
 clique is the one `clique_id` sets for every struct version.
-
-When the chart's `topology` values place the node in a clique, every type
-reports that clique and `cliques` is ignored.
 
 `nvidia-smi -q` from a 615 driver renders the list under `Fabric` → `Cliques`;
 the 580 binary does not know the block.
