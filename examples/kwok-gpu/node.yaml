@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+apiVersion: v1
+kind: Node
+metadata:
+  name: mokka-kwok-gpu
+  annotations:
+    kwok.x-k8s.io/node: fake
+  labels:
+    kubernetes.io/hostname: mokka-kwok-gpu
+    mokka.nvidia.com/sgpu-node: "true"
+    mokka.nvidia.com/node-type: KWOK
+    mokka.nvidia.com/pool: kwok-gpu-poc
+    nvidia.com/gpu.deploy.operands: "false"
+spec:
+  taints:
+    - key: kwok.x-k8s.io/node
+      value: fake
+      effect: NoSchedule

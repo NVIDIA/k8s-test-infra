@@ -138,6 +138,7 @@ nav:
           - Command-Line Tools:
               - Overview: tools/README.md
               - control-plane: tools/control-plane.md
+              - KWOK GPU PoC: tools/kwok-gpu.md
               - node-agent: tools/node-agent.md
               - nri-plugin: tools/nri-plugin.md
           - Support Policy: support-policy.md

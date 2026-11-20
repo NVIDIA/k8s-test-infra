@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+apiVersion: v1
+kind: Pod
+metadata:
+  generateName: whole-gpu-
+  labels:
+    app: mokka-kwok-gpu-demo
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: mokka-kwok-gpu
+  tolerations:
+    - key: kwok.x-k8s.io/node
+      operator: Equal
+      value: fake
+      effect: NoSchedule
+  containers:
+    - name: worker
+      image: registry.k8s.io/pause:3.10
+      resources:
+        limits:
+          nvidia.com/gpu: 1

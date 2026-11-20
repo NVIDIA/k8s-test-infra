@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: mokka-kwok-gpu
+spec:
+  namespaceSelector:
+    matchNames: [mokka-kwok-poc]
+  selector:
+    matchLabels:
+      app: mokka-kwok-gpu
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      honorLabels: true
+      relabelings:
+        - action: labeldrop
+          regex: pod|container|namespace
+      metricRelabelings:
+        - sourceLabels: [Hostname]
+          regex: (.+)
+          targetLabel: node
+          replacement: ${1}
