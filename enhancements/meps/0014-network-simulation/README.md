@@ -430,9 +430,15 @@ that they are feasible: `mock-ib` answered a live `ibnetdiscover` walk of a
 generated fabric, and API stand-ins served Topograph's production `aws` and
 `netq` providers ([Appendix F](#f-prototypes)).
 
-This approach validates topology processing and the resulting
-scheduler-visible information. Testing a consumer's production discovery
-protocol requires an additional adapter or simulation mechanism.
+**Agreed with the Topograph team (2026-11-18).** Start with the generic
+topology interface to enable end-to-end testing. Topograph may consume it
+through a reusable generic provider, with integration details determined during
+implementation.
+
+When a simulated cluster uses a different topology source than its production
+counterpart, the production discovery path is not validated. This limitation
+should be documented for Mokka users. Support for production-specific topology
+sources may be added based on user demand, priority, and technical feasibility.
 
 #### 4.3.4 Runtime state and failures
 
@@ -733,13 +739,13 @@ assumptions behind them.
 | [Topology generation](#42-cluster-configuration-and-topology) | Generate switches, links, and identities deterministically from reusable fabric profiles and fabric membership. MEP-0015 will specify the generation rules. | Are the attachment and scaling rules sufficient for the intended network architectures? |
 | [Node-local interfaces](#43-device-and-interface-simulation) | Use NRI-mounted merged sysfs views, mock libraries, and kernel-visible objects where required, preserving genuine devices. | Are the proposed mechanisms and their deployment constraints acceptable? |
 | [Runtime state](#434-runtime-state-and-failures) | Derive effective NIC, port, and fabric state from the declaration and runtime policies, propagating changes to affected node-local interfaces and Topograph. | Are state ownership, consistency, and propagation responsibilities appropriate? |
-| [Fabric topology integration](#433-fabric-topology-discovery) | Expose the canonical topology through a generic interface, with optional consumer-specific adapters. MEP-0015 will specify the interface contract. | Does this provide sufficient initial validation coverage for Topograph and other consumers? |
+| [Fabric topology integration](#433-fabric-topology-discovery) | Expose the canonical topology through a generic interface, with optional consumer-specific adapters. MEP-0015 will specify the interface contract. | Initial Topograph integration confirmed. Are there additional consumer requirements that justify source-specific adapters? |
 
 ### 7.2 Consumer confirmations
 
 | Consumer | Confirmation needed |
 |---|---|
-| Topograph | Confirm that a provider reading Mokka's generic topology interface provides sufficient initial validation coverage, and which topology sources need adapters, considering the ongoing Minerva-based provider development for Spectrum-X. |
+| Topograph | **Confirmed (2026-11-18):** The generic topology interface is sufficient for initial end-to-end testing. Production-source adapters are optional follow-ups, prioritized by user demand and feasibility. |
 | NVSentinel | Confirm which NIC and fabric fault signals are required for monitoring and remediation, including kernel logs and per-port state. |
 | NVKE / topology-aware schedulers | Confirm the required combinations of GPU generations, NVLink domains, and scale-out fabric relationships for placement validation. |
 | AICR | Confirm required NIC discovery interfaces, Network Operator policies, device-plugin resources, EFA support, and fabric-specific NCCL template selection. |
@@ -751,7 +757,7 @@ assumptions behind them.
 | Control-plane integration | Mokka / MEP-0001 | NIC identities, inventory relationships, and delivery of consistent GPU and NVLink domain identities to node agents |
 | Runtime state and delivery generations | Mokka / MEP-0001 and MEP-0015 | Reuse node-local runtime mechanisms, introduce fabric-owned policies, and propagate node-visible changes through `SGPURack` delivery generations |
 | NRI and sysfs integration | Mokka / MEP-0005 | Merged device views, network namespace handling, and coexistence with genuine hardware |
-| Topograph integration | Topograph team | A provider for Mokka's generic topology interface, topology refresh, large-scale processing, and alignment with the Minerva-based Spectrum-X provider |
+| Topograph integration | Topograph team | A provider for Mokka's generic topology interface, potentially a reusable generic provider, and topology refresh. Transport and provider details will be determined during implementation. |
 | Kernel RDMA limitations | Mokka and relevant consumer teams | Identifying discovery and allocation workflows that require additional kernel support |
 
 ### 7.4 Separate follow-ups
