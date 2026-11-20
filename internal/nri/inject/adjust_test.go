@@ -9,6 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Adjust decides and adjusts in one call, as the plugin does.
+func Adjust(cfg Config, container Container) (Adjustment, bool) {
+	return Decide(cfg, container).Adjust()
+}
+
 // overlayMount is the mount selected GPU and IMEX containers receive.
 func overlayMount() Mount {
 	return Mount{
