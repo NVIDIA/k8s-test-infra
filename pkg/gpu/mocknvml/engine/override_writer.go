@@ -17,6 +17,7 @@ package engine
 // and mockctl imports this package.
 
 import (
+	"errors"
 	"sync/atomic"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -113,7 +114,35 @@ type OverrideWriter interface {
 	// SetDramEncryptionPending records the DRAM encryption mode that applies
 	// after the next reboot.
 	SetDramEncryptionPending(index int, enabled bool) error
+
+	// SetCoCoGpusReady records the node-wide Confidential Compute
+	// GPUs ready state in the `all:` bucket. With revokes set, clearing a
+	// ready state, judged under the write's lock as SetCoCoKeyRotationThreshold
+	// judges it, records the GPUs as revoked instead; once they are, it refuses
+	// every write with ErrCoCoGpusRevoked.
+	SetCoCoGpusReady(ready, profileReady, revokes bool) error
+
+	// SetCoCoKeyRotationThreshold records the node-wide key rotation
+	// attacker advantage in the `all:` bucket. The value is already validated.
+	//
+	// It refuses with ErrCoCoGpusReady when the GPUs are ready, judged
+	// under the write's lock from the recorded ready state, or from
+	// profileReady when none is recorded: another process may have made them
+	// ready since this one last read the document.
+	SetCoCoKeyRotationThreshold(advantage uint64, profileReady bool) error
 }
+
+// ErrCoCoGpusReady is what a Confidential Compute writer returns when
+// the GPUs turned out to be ready under the write's lock. recordSetterWrite
+// answers it as INVALID_STATE, which is what the driver reports for a change
+// to the key rotation threshold under accepted work.
+var ErrCoCoGpusReady = errors.New("confidential compute GPUs are accepting work")
+
+// ErrCoCoGpusRevoked is what the ready-state writer returns once the GPUs
+// were revoked, found under the write's lock. recordSetterWrite answers it as
+// INVALID_ARGUMENT, which is what the driver reports for any ready-state set
+// until it reloads.
+var ErrCoCoGpusRevoked = errors.New("confidential compute GPUs are revoked until the driver reloads")
 
 // ClockDomain names a clock domain the locked-clock and offset setters write
 // under: the key of its locked_<domain> range and of its offsets.<domain> entry.
@@ -159,6 +188,14 @@ func recordSetterWrite(op string, write func(OverrideWriter) error) nvml.Return 
 		return nvml.ERROR_NO_PERMISSION
 	}
 	if err := write(w); err != nil {
+		if errors.Is(err, ErrCoCoGpusReady) {
+			debugLog("[NVML] %s -> INVALID_STATE: %v\n", op, err)
+			return nvml.ERROR_INVALID_STATE
+		}
+		if errors.Is(err, ErrCoCoGpusRevoked) {
+			debugLog("[NVML] %s -> INVALID_ARGUMENT: %v\n", op, err)
+			return nvml.ERROR_INVALID_ARGUMENT
+		}
 		warnLog("[NVML] %s -> NO_PERMISSION: %v\n", op, err)
 		return nvml.ERROR_NO_PERMISSION
 	}

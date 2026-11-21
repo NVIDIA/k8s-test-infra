@@ -51,6 +51,8 @@ test: build
 	@echo "================================================"
 	@echo ""
 	$(DOCKER) run --rm -e MOCK_NVML_CONFIG=/app/util-test-config.yaml $(IMAGE_NAME):$(IMAGE_TAG)
+	$(DOCKER) run --rm -e MOCK_NVML_CONFIG=/app/cc-test-config.yaml $(IMAGE_NAME):$(IMAGE_TAG) /app/mocknvml-test coco
+	$(DOCKER) run --rm -e MOCK_NVML_CONFIG=/app/ppcie-test-config.yaml $(IMAGE_NAME):$(IMAGE_TAG) /app/mocknvml-test ppcie
 	@echo ""
 	@echo "Running the suites of calls a 615 driver adds..."
 	@echo "================================================"
