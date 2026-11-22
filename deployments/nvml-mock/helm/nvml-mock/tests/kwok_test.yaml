@@ -37,3 +37,19 @@ tests:
               resources: ["events"]
               verbs: ["create", "patch", "update"]
         documentIndex: 1
+
+  - it: renders no KWOK resources when an older release has no KWOK settings
+    set:
+      kwok: null
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: can enable KWOK with no saved data-plane image settings
+    set:
+      kwok.enabled: true
+      kwok.dataPlane: null
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "^ghcr.io/nvidia/mokka-kwok:"
+        documentIndex: 4
