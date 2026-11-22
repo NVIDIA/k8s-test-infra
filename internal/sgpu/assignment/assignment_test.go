@@ -24,6 +24,7 @@ func TestEncodeAssignmentPreservesWireFormat(t *testing.T) {
 	decoded, err := DecodeAssignment(encoded)
 	require.NoError(t, err)
 	require.Equal(t, AssignmentVersion, decoded.Version)
+	require.True(t, decoded.Assigned)
 	require.Equal(t, 1, AssignmentVersion)
 }
 
@@ -93,6 +94,8 @@ func TestPublishedAssignmentAndRelease(t *testing.T) {
 	require.False(t, a.Assigned)
 	require.Equal(t, int64(8), a.AssignmentRevision)
 	require.Zero(t, a.Rack)
+	_, err = DecodeAssignment(`{"v":2,"assigned":true,"nodeUID":"n","assignmentRevision":1,"rack":{"name":"r","uid":"r"},"rackGroup":"g","rackDeliveryGenerationFloor":1}`)
+	require.Error(t, err)
 	_, err = DecodeAssignment(`{"v":2,"nodeUID":"node-id","assignmentRevision":8}`)
 	require.Error(t, err)
 }

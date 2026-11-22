@@ -34,7 +34,7 @@ type ProfileReference struct {
 type Assignment struct {
 	AssignmentRevision          int64            `json:"-"`
 	RackDeliveryGenerationFloor int64            `json:"-"`
-	Assigned                    bool             `json:"-"`
+	Assigned                    bool             `json:"assigned,omitempty"`
 	Version                     int              `json:"v"`
 	Inventory                   ObjectReference  `json:"inventory"`
 	Rack                        ObjectReference  `json:"rack"`
@@ -73,7 +73,7 @@ func DecodeAssignment(value string) (Assignment, error) {
 		return Assignment{}, fmt.Errorf("decode Node assignment: %w", err)
 	}
 	if assignment.Version == publicationVersion {
-		return decodePublication(value)
+		return decodePublication(value, assignment.Assigned)
 	}
 	if assignment.Version != AssignmentVersion {
 		return Assignment{}, fmt.Errorf("unsupported Node assignment version %d", assignment.Version)
@@ -129,8 +129,12 @@ func EncodePublication(uid types.UID, revision int64, binding *PublishedBinding)
 	return string(raw), err
 }
 
-func decodePublication(value string) (Assignment, error) {
+func decodePublication(value string, assigned bool) (Assignment, error) {
 	var p publication
+	if assigned {
+		// Zero is a valid coordinate. Reserve a negative value for a missing index.
+		p.PublishedBinding = &PublishedBinding{RackIndex: -1, NodeIndex: -1}
+	}
 	if err := json.Unmarshal([]byte(value), &p); err != nil {
 		return Assignment{}, err
 	}
