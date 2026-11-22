@@ -1,6 +1,6 @@
 kind: Added
 body: |-
-  helm: Enable kwok.enabled to run one data-plane replica for KWOK racks and exclude KWOK-labeled nodes from the node daemon.
+  control-plane: Set `node.type` to `KWOK` to bind eligible virtual nodes to a rack group. The default is `CPU`. Enable `kwok.enabled` in Helm to run one data-plane replica that watches its racks and bound Pods and to keep the node daemon off KWOK-labeled nodes.
 time: 2026-11-22T10:12:26Z
 custom:
-  Issue: "1251"
+  Issue: "1263"
