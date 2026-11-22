@@ -82,14 +82,14 @@ func CompileGroups(groups []RackGroup) (CompiledGroups, error) {
 
 // ValidatePlacementSelector rejects selectors whose membership can be changed
 // by projecting the binding that placement creates.
-func ValidatePlacementSelector(selector *metav1.LabelSelector) error {
-	_, err := compileUserSelector(selector)
+func ValidatePlacementSelector(selector *metav1.LabelSelector, nodeType mokkav1alpha1.NodeType) error {
+	_, err := compileUserSelector(selector, nodeType)
 	return err
 }
 
 // CompilePlacementSelector validates and compiles a placement selector.
 func CompilePlacementSelector(selector *metav1.LabelSelector, nodeType mokkav1alpha1.NodeType) (labels.Selector, error) {
-	compiled, err := compileUserSelector(selector)
+	compiled, err := compileUserSelector(selector, nodeType)
 	if err != nil {
 		return nil, err
 	}
@@ -104,11 +104,15 @@ func CompilePlacementSelector(selector *metav1.LabelSelector, nodeType mokkav1al
 	return compiled.Add(*req), nil
 }
 
-func compileUserSelector(selector *metav1.LabelSelector) (labels.Selector, error) {
+func compileUserSelector(selector *metav1.LabelSelector, nodeType mokkav1alpha1.NodeType) (labels.Selector, error) {
 	if selector == nil {
 		return labels.Everything(), nil
 	}
-	for _, key := range sgpumetadata.ProjectionLabelKeys() {
+	reserved := sgpumetadata.ProjectionLabelKeys()
+	if nodeType == mokkav1alpha1.NodeTypeKWOK {
+		reserved = append(reserved, sgpumetadata.DiscoveryLabelKeys()...)
+	}
+	for _, key := range reserved {
 		if _, exists := selector.MatchLabels[key]; exists {
 			return nil, fmt.Errorf("selector must not reference controller-owned label %q", key)
 		}

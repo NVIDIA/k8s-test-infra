@@ -1106,19 +1106,7 @@ func setManagedFields(node *corev1.Node, manager string, labels, annotations []s
 }
 
 func cleanupFor(rack *mokkav1alpha1.SGPURack) sgpurelease.Cleanup {
-	slot := rack.Spec.Nodes[0]
-	return sgpurelease.Cleanup{
-		RackName: rack.Name,
-		RackUID:  rack.UID,
-		Binding: allocate.Binding{
-			Coordinate: allocate.Coordinate{
-				Group:     allocate.RackGroupKey{InventoryName: rack.Spec.InventoryRef.Name, InventoryUID: rack.Spec.InventoryRef.UID, RackGroup: rack.Spec.Identity.RackGroup},
-				RackIndex: rack.Spec.Identity.RackIndex,
-				NodeIndex: slot.Index,
-			},
-			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
-		},
-	}
+	return sgpurelease.ForSlot(rack, rack.Spec.Nodes[0], "")
 }
 
 func stateSize(controller *Controller) (outcomes, cleanups int) {
@@ -1158,4 +1146,27 @@ func assertStateIndexesExact(t *testing.T, controller *Controller) {
 		require.True(t, exists)
 		require.Equal(t, coordinate, coordinateKeyForBinding(key))
 	}
+}
+
+func TestCleanupHonorsAssignmentRevision(t *testing.T) {
+	t.Parallel()
+	rack := testRack()
+	rack.Spec.Nodes[0].NodeRef.AssignmentRevision = 7
+	node := testNode("node", "node-uid")
+	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
+	patcher := &recordingPatcher{node: node}
+	controller := NewController(cache, patcher)
+	old := cleanupFor(rack)
+	_, err := controller.Cleanup(t.Context(), old)
+	require.NoError(t, err)
+	require.True(t, controller.Ready(old))
+	rack.Spec.Nodes[0].NodeRef.AssignmentRevision = 9
+	current := cleanupFor(rack)
+	require.False(t, controller.Ready(current))
+	setExactProjection(t, node, rack)
+	_, err = controller.Cleanup(t.Context(), old)
+	require.NoError(t, err)
+	require.Empty(t, patcher.calls)
+	require.False(t, controller.Ready(old))
+	require.False(t, controller.Ready(current))
 }

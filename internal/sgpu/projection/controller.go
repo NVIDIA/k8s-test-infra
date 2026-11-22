@@ -60,18 +60,19 @@ const (
 
 // Outcome is status input tied to a complete rack/logical-Node/Kubernetes-Node identity.
 type Outcome struct {
-	InventoryName string
-	InventoryUID  types.UID
-	RackGroup     string
-	RackName      string
-	RackUID       types.UID
-	RackIndex     int32
-	NodeIndex     int32
-	NodeName      string
-	NodeUID       types.UID
-	State         State
-	Reason        string
-	Message       string
+	AssignmentRevision int64
+	InventoryName      string
+	InventoryUID       types.UID
+	RackGroup          string
+	RackName           string
+	RackUID            types.UID
+	RackIndex          int32
+	NodeIndex          int32
+	NodeName           string
+	NodeUID            types.UID
+	State              State
+	Reason             string
+	Message            string
 }
 
 // MetadataConflictError reports a value or owner that the controller will not
@@ -119,15 +120,16 @@ type Controller struct {
 var _ sgpurelease.Gate = (*Controller)(nil)
 
 type bindingKey struct {
-	inventoryName string
-	inventoryUID  types.UID
-	rackGroup     string
-	rackName      string
-	rackUID       types.UID
-	rackIndex     int32
-	nodeIndex     int32
-	nodeName      string
-	nodeUID       types.UID
+	assignmentRevision int64
+	inventoryName      string
+	inventoryUID       types.UID
+	rackGroup          string
+	rackName           string
+	rackUID            types.UID
+	rackIndex          int32
+	nodeIndex          int32
+	nodeName           string
+	nodeUID            types.UID
 }
 
 type coordinateKey struct {
@@ -229,7 +231,7 @@ func (c *Controller) project(ctx context.Context, rackName string, nodeIndex int
 			incompatible = append(incompatible, sgpumetadata.AssignmentAnnotation)
 		}
 	}
-	incompatible = append(incompatible, foreignOwnedFields(node, projectionManagedFields(labels))...)
+	incompatible = append(incompatible, foreignOwnedFields(node, FieldManager, projectionManagedFields(labels))...)
 	if len(incompatible) > 0 {
 		return c.conflict(outcome, node.Name, incompatible)
 	}
@@ -285,11 +287,16 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 	if rackErr != nil && !apierrors.IsNotFound(rackErr) {
 		return Outcome{}, fmt.Errorf("get rack %q: %w", needed.RackName, rackErr)
 	}
-	exactBindingPresent := rackErr == nil && needed.MatchesRack(rack)
+	outcome := cleanupOutcome(needed)
+	ref := needed.BoundNode(rack)
+	if ref != nil && ref.AssignmentRevision != needed.AssignmentRevision {
+		// A delayed cleanup must leave the new assignment's Node metadata intact.
+		return c.completeCleanup(needed, outcome, ReasonCleaned, false), nil
+	}
+	exactBindingPresent := ref != nil
 	if !exactBindingPresent {
 		rack = nil
 	}
-	outcome := cleanupOutcome(needed)
 	node, err := c.cache.Node(ctx, needed.Binding.Node.Name)
 	if apierrors.IsNotFound(err) {
 		return c.completeCleanup(needed, outcome, ReasonExactNodeAbsent, exactBindingPresent), nil
@@ -443,6 +450,7 @@ func (c *Controller) AcknowledgedCleanup(
 	}
 	return sgpurelease.Cleanup{
 		RackName: rackName, RackUID: key.rackUID, Binding: binding, Reason: reason,
+		AssignmentRevision: key.assignmentRevision,
 	}, true
 }
 
@@ -531,7 +539,7 @@ func MatchesBinding(node *corev1.Node, rack *mokkav1alpha1.SGPURack, slot *mokka
 	if hasClique {
 		projectionLabels[sgpumetadata.CliqueLabel] = clique
 	}
-	return len(foreignOwnedFields(node, projectionManagedFields(projectionLabels))) == 0 &&
+	return len(foreignOwnedFields(node, FieldManager, projectionManagedFields(projectionLabels))) == 0 &&
 		projectionFieldsOwned(node, projectionLabels)
 }
 
@@ -614,7 +622,7 @@ func projectionPresentFields(labels map[string]any) []managedMetadataField {
 func projectionResponseConflicts(node *corev1.Node, labels map[string]any, assignment string) []string {
 	conflicts := projectionValueConflicts(node, labels, assignment)
 	wanted := projectionManagedFields(labels)
-	conflicts = append(conflicts, foreignOwnedFields(node, wanted)...)
+	conflicts = append(conflicts, foreignOwnedFields(node, FieldManager, wanted)...)
 	conflicts = append(conflicts, missingMokkaOwnership(node, projectionPresentFields(labels))...)
 	return sortedUnique(conflicts)
 }
@@ -640,11 +648,11 @@ func projectionValueConflicts(node *corev1.Node, labels map[string]any, assignme
 	return conflicts
 }
 
-func foreignOwnedFields(node *corev1.Node, fields []managedMetadataField) []string {
+func foreignOwnedFields(node *corev1.Node, manager string, fields []managedMetadataField) []string {
 	conflicts := make([]string, 0)
 	for _, field := range fields {
 		for _, entry := range node.ManagedFields {
-			if entry.Manager == FieldManager || entry.Subresource != "" || entry.FieldsType != "FieldsV1" || entry.FieldsV1 == nil {
+			if entry.Manager == manager || entry.Subresource != "" || entry.FieldsType != "FieldsV1" || entry.FieldsV1 == nil {
 				continue
 			}
 			if fieldsV1Owns(entry.FieldsV1.GetRawBytes(), field.path()) {
@@ -667,8 +675,22 @@ func missingMokkaOwnership(node *corev1.Node, fields []managedMetadataField) []s
 }
 
 func mokkaOwnsField(entries []metav1.ManagedFieldsEntry, field managedMetadataField) bool {
+	return managerOwnsField(entries, FieldManager, field)
+}
+
+// ManagerOwnsLabel reports whether an apply manager owns a specific Node label.
+func ManagerOwnsLabel(node *corev1.Node, manager, key string) bool {
+	return managerOwnsField(node.ManagedFields, manager, managedMetadataField{section: "labels", key: key})
+}
+
+// LabelHasOtherOwner reports whether another manager also owns the label.
+func LabelHasOtherOwner(node *corev1.Node, manager, key string) bool {
+	return len(foreignOwnedFields(node, manager, []managedMetadataField{{section: "labels", key: key}})) != 0
+}
+
+func managerOwnsField(entries []metav1.ManagedFieldsEntry, manager string, field managedMetadataField) bool {
 	for _, entry := range entries {
-		if entry.Manager != FieldManager || entry.Operation != metav1.ManagedFieldsOperationApply ||
+		if entry.Manager != manager || entry.Operation != metav1.ManagedFieldsOperationApply ||
 			entry.APIVersion != "v1" || entry.Subresource != "" || entry.FieldsType != "FieldsV1" || entry.FieldsV1 == nil {
 			continue
 		}
@@ -849,7 +871,7 @@ func outcomeFor(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) 
 		InventoryName: rack.Spec.InventoryRef.Name, InventoryUID: rack.Spec.InventoryRef.UID,
 		RackGroup: rack.Spec.Identity.RackGroup, RackName: rack.Name, RackUID: rack.UID,
 		RackIndex: rack.Spec.Identity.RackIndex, NodeIndex: slot.Index,
-		NodeName: slot.NodeRef.Name, NodeUID: slot.NodeRef.UID,
+		NodeName: slot.NodeRef.Name, NodeUID: slot.NodeRef.UID, AssignmentRevision: slot.NodeRef.AssignmentRevision,
 	}
 }
 
@@ -859,7 +881,7 @@ func cleanupOutcome(needed sgpurelease.Cleanup) Outcome {
 		InventoryName: binding.Coordinate.Group.InventoryName, InventoryUID: binding.Coordinate.Group.InventoryUID,
 		RackGroup: binding.Coordinate.Group.RackGroup, RackName: needed.RackName, RackUID: needed.RackUID,
 		RackIndex: binding.Coordinate.RackIndex, NodeIndex: binding.Coordinate.NodeIndex,
-		NodeName: needed.Binding.Node.Name, NodeUID: needed.Binding.Node.UID,
+		NodeName: needed.Binding.Node.Name, NodeUID: needed.Binding.Node.UID, AssignmentRevision: needed.AssignmentRevision,
 	}
 }
 
@@ -1111,16 +1133,10 @@ func bindingKeyForOutcome(outcome Outcome) bindingKey {
 		inventoryName: outcome.InventoryName, inventoryUID: outcome.InventoryUID,
 		rackGroup: outcome.RackGroup, rackName: outcome.RackName, rackUID: outcome.RackUID,
 		rackIndex: outcome.RackIndex, nodeIndex: outcome.NodeIndex,
-		nodeName: outcome.NodeName, nodeUID: outcome.NodeUID,
+		nodeName: outcome.NodeName, nodeUID: outcome.NodeUID, assignmentRevision: outcome.AssignmentRevision,
 	}
 }
 
 func bindingKeyForCleanup(needed sgpurelease.Cleanup) bindingKey {
-	binding := needed.Binding
-	return bindingKey{
-		inventoryName: binding.Coordinate.Group.InventoryName, inventoryUID: binding.Coordinate.Group.InventoryUID,
-		rackGroup: binding.Coordinate.Group.RackGroup, rackName: needed.RackName, rackUID: needed.RackUID,
-		rackIndex: binding.Coordinate.RackIndex, nodeIndex: binding.Coordinate.NodeIndex,
-		nodeName: binding.Node.Name, nodeUID: binding.Node.UID,
-	}
+	return bindingKeyForOutcome(cleanupOutcome(needed))
 }

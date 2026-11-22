@@ -31,6 +31,9 @@ func DependencyManifest(rack *api.SGPURack, profile *api.SGPURackProfile, evalua
 	if err != nil {
 		return api.RackDelivery{}, false, err
 	}
+	if !evaluated.MatchesProfile(rack.Spec.Identity.RackGroup, profileRef.DeliveryObjectReference) {
+		return api.RackDelivery{}, false, errors.New("policy evaluation must use the rack profile UID and generation")
+	}
 	next := api.RackDelivery{
 		RackSpecGeneration: rack.Generation,
 		InventoryRef:       inventoryRef,

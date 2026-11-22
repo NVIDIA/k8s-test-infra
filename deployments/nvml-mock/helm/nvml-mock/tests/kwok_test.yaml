@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 suite: KWOK data plane
+chart:
+  appVersion: 1.2.3
 templates:
   - templates/kwok/data-plane.yaml
 tests:
@@ -12,6 +14,10 @@ tests:
       kwok.enabled: true
     asserts:
       - hasDocuments: {count: 5}
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/nvidia/mokka-kwok:1.2.3
+        documentIndex: 4
       - equal:
           path: spec.replicas
           value: 1
@@ -30,6 +36,12 @@ tests:
             - apiGroups: ["mokka.nvidia.com"]
               resources: ["sgpuracks"]
               verbs: ["list", "watch"]
+            - apiGroups: ["mokka.nvidia.com"]
+              resources: ["sgpurackprofiles"]
+              verbs: ["get"]
+            - apiGroups: [""]
+              resources: ["nodes"]
+              verbs: ["get", "list", "watch", "patch"]
             - apiGroups: [""]
               resources: ["pods"]
               verbs: ["list", "watch"]
@@ -37,3 +49,23 @@ tests:
               resources: ["events"]
               verbs: ["create", "patch", "update"]
         documentIndex: 1
+
+  - it: renders no KWOK resources when an older release has no KWOK settings
+    set:
+      kwok: null
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: can enable KWOK with no saved data-plane image settings
+    set:
+      kwok.enabled: true
+      kwok.dataPlane: null
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/nvidia/mokka-kwok:1.2.3
+        documentIndex: 4
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: IfNotPresent
+        documentIndex: 4

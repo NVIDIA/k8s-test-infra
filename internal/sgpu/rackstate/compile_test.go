@@ -181,10 +181,7 @@ func TestDeliveredRuntime(t *testing.T) {
 func TestReleasingSlot(t *testing.T) {
 	t.Parallel()
 	rack, profile := deliveredRack(t, "gb300-nvl72")
-	cleanup := release.Cleanup{RackName: rack.Name, RackUID: rack.UID, Binding: allocate.Binding{
-		Coordinate: allocate.Coordinate{Group: allocate.RackGroupKey{InventoryName: "demo", InventoryUID: "inventory-id", RackGroup: "train"}},
-		Node:       allocate.NodeReference{Name: "worker-a", UID: "node-a"},
-	}}
+	cleanup := release.ForSlot(rack, rack.Spec.Nodes[0], release.NodeGone)
 	stale := cleanup
 	stale.Binding.Coordinate.NodeIndex = 17
 	stale.Binding.Node = allocate.NodeReference{Name: "worker-z", UID: "old-node"}
@@ -198,4 +195,11 @@ func TestReleasingSlot(t *testing.T) {
 	require.JSONEq(t, `{"index":0,"node":{"name":"worker-a","uid":"node-a"},"assignmentRevision":7,"releasing":true}`, string(slot))
 	require.False(t, got.Nodes[1].Releasing)
 	require.Len(t, got.Nodes[1].GPUs, int(profile.Spec.Node.GPUs.Count))
+
+	// The same Kubernetes Node can return to its old slot with a new assignment.
+	rack.Spec.Nodes[0].NodeRef.AssignmentRevision = 9
+	got, err = Compile(rack, profile, Observations{PendingReleases: []release.Cleanup{cleanup}})
+	require.NoError(t, err)
+	require.False(t, got.Nodes[0].Releasing)
+	require.Len(t, got.Nodes[0].GPUs, int(profile.Spec.Node.GPUs.Count))
 }

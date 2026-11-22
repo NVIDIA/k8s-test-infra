@@ -335,6 +335,18 @@ func TestComputeRackDerivesProjectionFromExactCachedNodeMetadata(t *testing.T) {
 			wantReason: ReasonProjectionIncomplete,
 		},
 		{
+			name: "previous binding conflict cannot mark a new assignment as conflicting",
+			mutate: func(input *RackInput) {
+				delete(input.Nodes[0].Annotations, sgpumetadata.AssignmentAnnotation)
+				input.Rack.Spec.Nodes[0].NodeRef.AssignmentRevision = 9
+				input.Projection[0].AssignmentRevision = 7
+				input.Projection[0].State = sgpuprojection.StateConflict
+				input.Projection[0].Reason = sgpuprojection.ReasonNodeMetadataConflict
+			},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: ReasonProjectionIncomplete,
+		},
+		{
 			name: "missing assignment",
 			mutate: func(input *RackInput) {
 				delete(input.Nodes[0].Annotations, sgpumetadata.AssignmentAnnotation)

@@ -651,11 +651,12 @@ func conflictGroups(conflict allocate.Conflict, inventoryUID types.UID) map[stri
 }
 
 type projectionKey struct {
-	rackName  string
-	rackUID   types.UID
-	nodeIndex int32
-	nodeName  string
-	nodeUID   types.UID
+	assignmentRevision int64
+	rackName           string
+	rackUID            types.UID
+	nodeIndex          int32
+	nodeName           string
+	nodeUID            types.UID
 }
 
 func indexProjection(outcomes []sgpuprojection.Outcome) map[projectionKey]sgpuprojection.Outcome {
@@ -781,13 +782,13 @@ func rackHasMetadataConflict(outcomes map[projectionKey]sgpuprojection.Outcome, 
 func projectionKeyForOutcome(outcome sgpuprojection.Outcome) projectionKey {
 	return projectionKey{
 		rackName: outcome.RackName, rackUID: outcome.RackUID, nodeIndex: outcome.NodeIndex,
-		nodeName: outcome.NodeName, nodeUID: outcome.NodeUID,
+		nodeName: outcome.NodeName, nodeUID: outcome.NodeUID, assignmentRevision: outcome.AssignmentRevision,
 	}
 }
 
 func projectionKeyForBinding(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) projectionKey {
 	return projectionKey{
 		rackName: rack.Name, rackUID: rack.UID, nodeIndex: slot.Index,
-		nodeName: slot.NodeRef.Name, nodeUID: slot.NodeRef.UID,
+		nodeName: slot.NodeRef.Name, nodeUID: slot.NodeRef.UID, assignmentRevision: slot.NodeRef.AssignmentRevision,
 	}
 }

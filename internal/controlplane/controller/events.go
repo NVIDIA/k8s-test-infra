@@ -530,7 +530,7 @@ func (r *eventRouter) nodeDelete(object any) {
 			if !slot.BoundTo(node.Name, node.UID) {
 				continue
 			}
-			cleanup := cleanupFor(rack, slot, sgpurelease.NodeGone)
+			cleanup := sgpurelease.ForSlot(rack, slot, sgpurelease.NodeGone)
 			r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 			deferred[cleanup.Binding.Coordinate.Group] = struct{}{}
 		}
@@ -636,7 +636,7 @@ func (r *eventRouter) rackUpdate(oldObject, newObject any) {
 		if slot.NodeRef == nil || newBindings[slot.Index] == slot.NodeRef.UID {
 			continue
 		}
-		cleanup := cleanupFor(oldRack, slot, sgpurelease.CapacityShrink)
+		cleanup := sgpurelease.ForSlot(oldRack, slot, sgpurelease.CapacityShrink)
 		r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 		r.routeReleasedNode(cleanup.Binding.Node)
 	}
@@ -673,7 +673,7 @@ func (r *eventRouter) rackDelete(object any) {
 		if slot.NodeRef == nil {
 			continue
 		}
-		cleanup := cleanupFor(rack, slot, sgpurelease.RackDeleting)
+		cleanup := sgpurelease.ForSlot(rack, slot, sgpurelease.RackDeleting)
 		r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 		r.routeReleasedNode(cleanup.Binding.Node)
 	}
@@ -827,26 +827,6 @@ func (r *eventRouter) boundRacks(name string, uid types.UID) []*mokkav1alpha1.SG
 	}
 	slices.SortFunc(racks, func(a, b *mokkav1alpha1.SGPURack) int { return cmp.Compare(a.Name, b.Name) })
 	return racks
-}
-
-func cleanupFor(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackNode, reason sgpurelease.Reason) sgpurelease.Cleanup {
-	return sgpurelease.Cleanup{
-		RackName: rack.Name,
-		RackUID:  rack.UID,
-		Reason:   reason,
-		Binding: allocate.Binding{
-			Coordinate: allocate.Coordinate{
-				Group: allocate.RackGroupKey{
-					InventoryName: rack.Spec.InventoryRef.Name,
-					InventoryUID:  rack.Spec.InventoryRef.UID,
-					RackGroup:     rack.Spec.Identity.RackGroup,
-				},
-				RackIndex: rack.Spec.Identity.RackIndex,
-				NodeIndex: slot.Index,
-			},
-			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
-		},
-	}
 }
 
 // eventFields identifies a received informer event in log entries.

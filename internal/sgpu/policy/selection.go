@@ -15,6 +15,7 @@ import (
 type shape struct {
 	racks, nodes, gpus int32
 	profileResolved    bool
+	profileRef         mokkav1alpha1.DeliveryObjectReference
 }
 
 func shapesOf(
@@ -29,11 +30,20 @@ func shapesOf(
 			groupShape.nodes = profile.Spec.Rack.NodesPerRack
 			groupShape.gpus = profile.Spec.Node.GPUs.Count
 			groupShape.profileResolved = true
+			groupShape.profileRef = mokkav1alpha1.DeliveryObjectReference{UID: profile.UID, Generation: profile.Generation}
 		}
 		shapes[group.ID] = groupShape
 	}
 
 	return shapes
+}
+
+// MatchesProfile checks that the rack profile is the same Kubernetes spec version
+// used to select its policies. A removed group has no policies in this evaluation,
+// but its retiring racks can still deliver their releases.
+func (e *Evaluation) MatchesProfile(group string, ref mokkav1alpha1.DeliveryObjectReference) bool {
+	shape, declared := e.shapes[group]
+	return !declared || (shape.profileResolved && shape.profileRef == ref)
 }
 
 // indexes is what one target axis selects within one rack group.
