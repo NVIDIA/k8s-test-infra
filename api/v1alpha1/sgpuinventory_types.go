@@ -87,6 +87,7 @@ type RackGroupNode struct {
 // +kubebuilder:validation:Enum=CPU;KWOK
 type NodeType string
 
+// Supported rack group node types.
 const (
 	NodeTypeCPU  NodeType = "CPU"
 	NodeTypeKWOK NodeType = "KWOK"
