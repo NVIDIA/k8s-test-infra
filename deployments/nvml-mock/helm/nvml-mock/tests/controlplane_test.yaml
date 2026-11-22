@@ -586,3 +586,14 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --kwok-shard-name=mokka-kwok-data-plane-0
+
+  - it: uses the binary default when an older release has no KWOK values
+    set:
+      kwok: null
+      controlPlane.enabled: true
+      controlPlane.kwokShardName: null
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--kwok-shard-name="

@@ -1,4 +1,6 @@
-{{- if .Values.kwok.enabled }}
+{{- if (.Values.kwok | default dict).enabled }}
+{{- $settings := (.Values.kwok.dataPlane | default dict).image | default dict }}
+{{- $image := merge (deepCopy $settings) (dict "repository" "ghcr.io/nvidia/mokka-kwok") }}
 {{- $name := include "nvml-mock.kwokDataPlaneName" . }}
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
@@ -15,6 +17,12 @@ rules:
   - apiGroups: ["mokka.nvidia.com"]
     resources: ["sgpuracks"]
     verbs: ["list", "watch"]
+  - apiGroups: ["mokka.nvidia.com"]
+    resources: ["sgpurackprofiles"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch", "patch"]
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["list", "watch"]
@@ -76,8 +84,8 @@ spec:
                     values: [KWOK]
       containers:
         - name: data-plane
-          image: {{ include "nvml-mock.image" (dict "image" .Values.kwok.dataPlane.image "context" $) | quote }}
-          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" .Values.kwok.dataPlane.image "context" $) }}
+          image: {{ include "nvml-mock.image" (dict "image" $image "context" $) | quote }}
+          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" $image "context" $) }}
           args: ["data-plane", "--shard-name=$(POD_NAME)"]
           env:
             - name: POD_NAME

@@ -4,9 +4,10 @@ name: Mokka KWOK Publish
 on:
   push:
     branches: [main]
+    tags: ["v*"]
 permissions: {}
 concurrency:
-  group: mokka-kwok-publish-main
+  group: mokka-kwok-publish-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   publish:
@@ -17,6 +18,14 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Select the chart image version
+        id: version
+        env:
+          PUBLISH_REF: ${{ github.ref }}
+        run: |
+          app_version=$(awk '$1 == "appVersion:" {gsub(/"/, "", $2); print $2}' deployments/nvml-mock/helm/nvml-mock/Chart.yaml)
+          tag=$(./hack/chart-publish-version.sh "$PUBLISH_REF" "$app_version")
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Read Go version
         id: go
         run: echo "version=$(./hack/golang-version.sh)" >> "$GITHUB_OUTPUT"
@@ -37,15 +46,22 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        id: meta
+        with:
+          images: ghcr.io/nvidia/mokka-kwok
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ steps.version.outputs.tag }}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=sha-${{ github.sha }},enable={{is_default_branch}}
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: dist/kwok
           file: deployments/mokka-kwok/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ghcr.io/nvidia/mokka-kwok:latest
-            ghcr.io/nvidia/mokka-kwok:sha-${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
       - name: Remove the proxy credential
         if: always()
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"

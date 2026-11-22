@@ -13,10 +13,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
-	coreinformers "k8s.io/client-go/informers/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
+	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/tools/cache"
 
+	mokkav1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	mokkaclient "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned"
@@ -25,14 +29,15 @@ import (
 
 const rackUIDIndex = "rackUID"
 
-// Keep one copy of each object. A rack's bound node names join its UID-indexed
-// state to the Pod index. Informers maintain both indexes on updates and deletes.
 type model struct {
-	racks cache.SharedIndexInformer
-	pods  cache.SharedIndexInformer
+	racks     cache.SharedIndexInformer
+	pods      *shardPods
+	podClient coreclient.PodInterface
+	podWatch  *cache.Reflector
+	discovery *labelPublisher
 }
 
-func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, shard string) model {
+func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, nodes metadata.Interface, shard string) model {
 	racks := mokkainformers.NewFilteredSGPURackInformer(mokka, 0, cache.Indexers{
 		rackUIDIndex: func(obj any) ([]string, error) {
 			rack, err := meta.Accessor(obj)
@@ -42,32 +47,71 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, shard stri
 			return []string{string(rack.GetUID())}, nil
 		},
 	}, func(o *metav1.ListOptions) { o.LabelSelector = labels.Set{inventory.KWOKShardLabel: shard}.String() })
-	pods := coreinformers.NewFilteredPodInformer(kube, metav1.NamespaceAll, 0, cache.Indexers{
-		"nodeName": func(obj any) ([]string, error) { return []string{obj.(*corev1.Pod).Spec.NodeName}, nil },
-	}, func(o *metav1.ListOptions) {
-		o.FieldSelector = fields.OneTermNotEqualSelector("spec.nodeName", "").String()
-	})
-	return model{racks: racks, pods: pods}
+	client := kube.CoreV1().Pods(metav1.NamespaceAll)
+	bound := fields.OneTermNotEqualSelector("spec.nodeName", "").String()
+	lw := &cache.ListWatch{
+		ListWithContextFunc: func(ctx context.Context, opts metav1.ListOptions) (runtime.Object, error) {
+			opts.FieldSelector = bound
+			return client.List(ctx, opts)
+		},
+		WatchFuncWithContext: func(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
+			opts.FieldSelector = bound
+			return client.Watch(ctx, opts)
+		},
+	}
+	pods := newShardPods()
+	podWatch := cache.NewReflectorWithOptions(cache.ToListWatcherWithWatchListSemantics(lw, kube), &corev1.Pod{}, pods, cache.ReflectorOptions{Name: "bound Pods"})
+	return model{racks: racks, pods: pods, podClient: client, podWatch: podWatch, discovery: newLabelPublisher(kube, mokka, nodes, racks)}
 }
 
 func (m model) run(ctx context.Context, c config) error {
 	group, ctx := errgroup.WithContext(ctx)
+	rackEvents, err := m.racks.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    m.observeRack,
+		UpdateFunc: func(_, current any) { m.observeRack(current) },
+		DeleteFunc: m.pods.removeRack,
+	})
+	if err != nil {
+		return err
+	}
 	server := health.NewServer(c.listen, health.DefaultShutdownTimeout)
 	server.SetReadiness(func() health.Probe {
-		if !m.racks.HasSynced() || !m.pods.HasSynced() {
-			return health.Unhealthy("waiting for rack and pod caches")
+		if !rackEvents.HasSynced() || !m.pods.hasSynced() || !m.discovery.nodeWatch.HasSynced() {
+			return health.Unhealthy("waiting for rack, pod and node caches")
 		}
 		return health.OK()
 	})
+	group.Go(func() error { return m.discovery.run(ctx) })
 	group.Go(func() error { m.racks.RunWithContext(ctx); return nil })
-	group.Go(func() error { m.pods.RunWithContext(ctx); return nil })
 	group.Go(func() error {
-		if cache.WaitForCacheSync(ctx.Done(), m.racks.HasSynced, m.pods.HasSynced) {
-			zap.L().Info("Rack and Pod caches synced", zap.String("shard", c.shard),
-				zap.Int("racks", len(m.racks.GetStore().ListKeys())), zap.Int("boundPods", len(m.pods.GetStore().ListKeys())))
+		// Populate initial rack membership before the first cluster-wide Pod list.
+		if cache.WaitForCacheSync(ctx.Done(), rackEvents.HasSynced) {
+			m.podWatch.RunWithContext(ctx)
+		}
+		return nil
+	})
+	group.Go(func() error { m.pods.runBackfills(ctx, m.podClient); return nil })
+	group.Go(func() error {
+		<-ctx.Done()
+		m.pods.backfills.ShutDown()
+		return nil
+	})
+	group.Go(func() error {
+		if cache.WaitForCacheSync(ctx.Done(), m.pods.hasSynced) {
+			zap.L().Info("Rack and Pod caches synced", zap.String("shard", c.shard), zap.Int("racks", len(m.racks.GetStore().ListKeys())),
+				zap.Int("boundPods", m.pods.podCount()))
 		}
 		return nil
 	})
 	group.Go(func() error { return server.Run(ctx) })
 	return group.Wait()
+}
+
+func (m model) observeRack(obj any) {
+	m.pods.observeRack(obj)
+	for _, slot := range obj.(*mokkav1.SGPURack).Spec.Nodes {
+		if slot.NodeRef != nil {
+			m.discovery.queue.Add(slot.NodeRef.Name)
+		}
+	}
 }

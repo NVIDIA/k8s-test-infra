@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	mokkav1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 )
 
@@ -84,13 +85,13 @@ func TestValidatePlacementSelectorRejectsProjectedLabels(t *testing.T) {
 	}
 	for _, key := range []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel} {
 		t.Run(key+"/matchLabels", func(t *testing.T) {
-			err := ValidatePlacementSelector(&metav1.LabelSelector{MatchLabels: map[string]string{key: "value"}})
+			err := ValidatePlacementSelector(&metav1.LabelSelector{MatchLabels: map[string]string{key: "value"}}, mokkav1.NodeTypeCPU)
 			require.EqualError(t, err, `selector must not reference controller-owned label "`+key+`"`)
 		})
 		for _, expression := range expressions {
 			expression.Key = key
 			t.Run(key+"/"+string(expression.Operator), func(t *testing.T) {
-				err := ValidatePlacementSelector(&metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{expression}})
+				err := ValidatePlacementSelector(&metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{expression}}, mokkav1.NodeTypeCPU)
 				require.EqualError(t, err, `selector must not reference controller-owned label "`+key+`"`)
 			})
 		}
@@ -105,8 +106,8 @@ func TestValidatePlacementSelectorAcceptsOperatorOwnedLabels(t *testing.T) {
 			{Key: "zone", Operator: metav1.LabelSelectorOpExists},
 		},
 	}
-	require.NoError(t, ValidatePlacementSelector(selector))
-	require.NoError(t, ValidatePlacementSelector(nil))
+	require.NoError(t, ValidatePlacementSelector(selector, mokkav1.NodeTypeCPU))
+	require.NoError(t, ValidatePlacementSelector(nil, mokkav1.NodeTypeCPU))
 }
 
 func TestEmptySelectorMatchesEveryEligibleNode(t *testing.T) {
@@ -137,4 +138,13 @@ func TestNodeEligibleRequiresLabelAndLiveNode(t *testing.T) {
 
 func groupKey(inventory, rackGroup string) RackGroupKey {
 	return RackGroupKey{InventoryName: inventory, InventoryUID: types.UID(inventory + "-uid"), RackGroup: rackGroup}
+}
+
+func TestDiscoveryLabelPlacementDependsOnNodeType(t *testing.T) {
+	t.Parallel()
+	for _, key := range sgpumetadata.DiscoveryLabelKeys() {
+		selector := &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{Key: key, Operator: metav1.LabelSelectorOpDoesNotExist}}}
+		require.NoError(t, ValidatePlacementSelector(selector, mokkav1.NodeTypeCPU))
+		require.ErrorContains(t, ValidatePlacementSelector(selector, mokkav1.NodeTypeKWOK), key)
+	}
 }

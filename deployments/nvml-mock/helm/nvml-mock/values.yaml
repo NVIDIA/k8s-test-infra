@@ -625,7 +625,7 @@ kwok:
   dataPlane:
     image:
       repository: ghcr.io/nvidia/mokka-kwok
-      tag: latest
+      tag: ""  # Defaults to the chart appVersion.
       digest: ""
       pullPolicy: ""
 

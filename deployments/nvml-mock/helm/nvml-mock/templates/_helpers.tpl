@@ -699,7 +699,7 @@ omit the flag and let every gate keep its default.
 An explicitly empty term or term list matches no nodes and must stay empty. */}}
 {{- define "nvml-mock.nodeDaemonAffinity" -}}
 {{- $affinity := deepCopy (.Values.affinity | default dict) -}}
-{{- if .Values.kwok.enabled -}}
+{{- if (.Values.kwok | default dict).enabled -}}
   {{- $node := get $affinity "nodeAffinity" | default dict -}}
   {{- $required := get $node "requiredDuringSchedulingIgnoredDuringExecution" | default dict -}}
   {{- $exclude := dict "key" "mokka.nvidia.com/node-type" "operator" "NotIn" "values" (list "KWOK") -}}
