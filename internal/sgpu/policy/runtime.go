@@ -5,6 +5,7 @@ package policy
 
 import (
 	"cmp"
+	"iter"
 	"slices"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
@@ -46,6 +47,18 @@ func layersByGroup(accepted []candidate) map[string][]layer {
 	}
 
 	return layers
+}
+
+// AcceptedForRack yields each accepted policy that selects any GPU in this rack.
+// The group layers already exclude targets with no matching node or GPU indices.
+func (e *Evaluation) AcceptedForRack(group string, index int32) iter.Seq[*mokkav1alpha1.SGPURuntimePolicy] {
+	return func(yield func(*mokkav1alpha1.SGPURuntimePolicy) bool) {
+		for _, layer := range e.layers[group] {
+			if layer.selects.racks.has(index) && !yield(layer.policy) {
+				return
+			}
+		}
+	}
 }
 
 // Applied returns the accepted policies that select the GPU at a coordinate,

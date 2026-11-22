@@ -31,6 +31,8 @@ type Evaluation struct {
 	InventoryName string
 	// InventoryUID is empty when the inventory does not exist.
 	InventoryUID types.UID
+	// InventoryGeneration pins the spec against which the policies were evaluated.
+	InventoryGeneration int64
 	// Decisions holds one decision per policy, ordered by policy name.
 	Decisions []Decision
 
@@ -72,6 +74,7 @@ func Evaluate(
 	}
 
 	evaluation.InventoryUID = inventory.UID
+	evaluation.InventoryGeneration = inventory.Generation
 	shapes := shapesOf(inventory, profiles)
 	candidates := make([]candidate, 0, len(policies))
 

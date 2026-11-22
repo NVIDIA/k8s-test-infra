@@ -350,6 +350,12 @@ to preserve serving overlap while leader election maintains single-writer mutati
 
 ## Compiled rack state
 
+The control plane can compare a rack's current inputs with its saved delivery
+record. It compares the rack spec generation, the inventory and profile versions,
+and the UIDs and generations of the accepted policies that select this rack.
+Deleting an accepted policy changes the input list even when another policy
+supplies the same setting. Status updates alone leave the list unchanged.
+
 The rack-state compiler builds one hardware description for the rack. It reads the
 profile version pinned in `SGPURack.status.delivery` and checks its UID, generation,
 and content revision. A missing delivery record or a mismatch prevents compilation.
