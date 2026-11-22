@@ -370,7 +370,12 @@ The elected leader saves the input versions in `SGPURack.status.delivery`.
 The first delivery has generation 1. Each changed rack gets a new generation
 when its binding, profile, inventory version, or accepted policies change. The
 leader writes the generation and inputs together with the rack status. A new
-leader continues from the saved generation.
+leader continues from the saved generation. The writer waits for admission of
+the exact inventory UID and generation. A rejected edit leaves the previous
+delivery in place. Readers can observe a new delivery after a watch reconnects
+and skips intermediate edits, even when the final spec has the same values.
+The writer retries if it sees an older generation of an input already in the
+saved delivery.
 
 The v2 node assignment format identifies the node UID, assignment revision,
 rack and slot, and the minimum rack delivery generation for that binding.

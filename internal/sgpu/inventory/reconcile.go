@@ -108,6 +108,10 @@ func (e *OwnershipConflictError) Unwrap() error { return e.Cause }
 // Result contains status inputs and explicit cross-controller cleanup work.
 // Expected configuration problems are data, not retryable errors.
 type Result struct {
+	// AdmittedInventory identifies the exact spec that passed both resolved
+	// capacity validation and cluster-wide admission. Pending and rejected
+	// inventories leave it empty.
+	AdmittedInventory  mokkav1alpha1.DeliveryObjectReference
 	Accepted           bool
 	ResolvedRefs       bool
 	ValidationReason   string
@@ -280,6 +284,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 		}
 		return r.retireCapacityRejectedInventory(ctx, inventory, result, admissionCurrent)
 	case capacityAdmissionAccepted:
+		result.AdmittedInventory = mokkav1alpha1.DeliveryObjectReference{UID: inventory.UID, Generation: inventory.Generation}
 	default:
 		return result, fmt.Errorf("unknown capacity admission decision %d", decision)
 	}
@@ -1120,12 +1125,6 @@ func (r *Reconciler) classifyRackUpdateError(
 		return nil, fmt.Errorf("check ownership after rack %q update failed: %w", desired.Name, getErr)
 	}
 	return nil, err
-}
-
-// ValidRackDeclaration reports whether the inventory's rack groups can be
-// materialized before their profiles are resolved.
-func ValidRackDeclaration(inventory *mokkav1alpha1.SGPUInventory) bool {
-	return inventory != nil && validateInventory(inventory) == nil && validateInventoryRackCapacity(inventory) == nil
 }
 
 //nolint:cyclop // Validation reports the precise independently-invalid inventory field.

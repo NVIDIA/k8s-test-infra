@@ -881,7 +881,7 @@ func eventObject[T any](object any) (T, bool) {
 }
 
 func inventoryUnchanged(old, current *mokkav1alpha1.SGPUInventory) bool {
-	return old.UID == current.UID &&
+	return old.UID == current.UID && old.Generation == current.Generation &&
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
 		equality.Semantic.DeepEqual(old.Finalizers, current.Finalizers) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
@@ -894,23 +894,24 @@ func inventoryAllocationUnchanged(old, current *mokkav1alpha1.SGPUInventory) boo
 }
 
 func profileUnchanged(old, current *mokkav1alpha1.SGPURackProfile) bool {
-	return old.UID == current.UID &&
+	return old.UID == current.UID && old.Generation == current.Generation &&
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }
 
-// runtimePolicyUnchanged ignores metadata-only updates. Unlike racks, a
+// Delivery records pin generations, including when a relist skips intermediate
+// spec edits and observes the original value again. Unlike racks, a
 // status-only update still counts: the status reconciler trusts a cached
 // status that already matches its decision, so it must look again once the
 // informer observes a status write it had not seen.
 func runtimePolicyUnchanged(old, current *mokkav1alpha1.SGPURuntimePolicy) bool {
-	return old.UID == current.UID &&
+	return old.UID == current.UID && old.Generation == current.Generation &&
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
 		equality.Semantic.DeepEqual(old.Status, current.Status)
 }
 
 func rackUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
-	return old.UID == current.UID &&
+	return old.UID == current.UID && old.Generation == current.Generation &&
 		old.Labels[sgpuinventory.KWOKShardLabel] == current.Labels[sgpuinventory.KWOKShardLabel] &&
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
 		equality.Semantic.DeepEqual(old.OwnerReferences, current.OwnerReferences) &&

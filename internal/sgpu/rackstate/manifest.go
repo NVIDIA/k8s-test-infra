@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"slices"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	api "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/policy"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
@@ -87,4 +89,31 @@ func InputsChanged(saved, next *api.RackDelivery) bool {
 	}
 	return saved.RackSpecGeneration != next.RackSpecGeneration || saved.InventoryRef != next.InventoryRef ||
 		saved.ProfileRef != next.ProfileRef || !slices.Equal(previous, next.AcceptedPolicies)
+}
+
+// InputsRegressed reports whether an observation would replace an input with
+// an older generation of the same Kubernetes object. A policy can be removed
+// and a recreated object starts a new sequence under its new UID.
+func InputsRegressed(saved, observed *api.RackDelivery) bool {
+	if saved == nil || observed == nil {
+		return false
+	}
+	if olderReference(saved.InventoryRef, observed.InventoryRef) ||
+		olderReference(saved.ProfileRef.DeliveryObjectReference, observed.ProfileRef.DeliveryObjectReference) {
+		return true
+	}
+	generations := make(map[types.UID]int64, len(saved.AcceptedPolicies))
+	for _, p := range saved.AcceptedPolicies {
+		generations[p.UID] = p.Generation
+	}
+	for _, p := range observed.AcceptedPolicies {
+		if p.Generation < generations[p.UID] {
+			return true
+		}
+	}
+	return false
+}
+
+func olderReference(saved, observed api.DeliveryObjectReference) bool {
+	return saved.UID == observed.UID && observed.Generation < saved.Generation
 }

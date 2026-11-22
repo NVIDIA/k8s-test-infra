@@ -13,7 +13,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
-	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	sgpupolicy "github.com/NVIDIA/k8s-test-infra/internal/sgpu/policy"
 	sgpustatus "github.com/NVIDIA/k8s-test-infra/internal/sgpu/status"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
@@ -68,10 +67,6 @@ func (v *runtimePolicyView) evaluate(inventoryName string) (*deliveryInputs, err
 	evaluation, err := v.evaluateInventory(inventoryName, inventory, profiles)
 	if err != nil {
 		return nil, err
-	}
-	// Retain the last published rack state when the inventory declaration is invalid.
-	if !sgpuinventory.ValidRackDeclaration(inventory) {
-		profiles = nil
 	}
 	return newDeliveryInputs(evaluation, profiles), nil
 }

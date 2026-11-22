@@ -336,10 +336,16 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		inventory, getErr := snapshot.Inventory(name)
 		if getErr == nil {
 			updateRackConflictWaiters(rackWaiters, inventory, observed, group, result)
+			previousAdmission := results.get(inventory.Name, inventory.UID).AdmittedInventory
 			if group == nil {
 				results.put(inventory.Name, inventory.UID, result)
 			} else {
 				results.putGroup(inventory.Name, inventory.UID, group.RackGroup, result)
+			}
+			if previousAdmission != result.AdmittedInventory {
+				// Admission and policy evaluation run on separate queues. Wake the
+				// delivery work even when its input versions have not changed again.
+				controller.queues.addStatus(statusKey{kind: statusRuntimePolicies, name: inventory.Name})
 			}
 			controller.queues.addStatus(statusKey{kind: statusInventory, name: inventory.Name, uid: inventory.UID})
 		} else if !apierrors.IsNotFound(getErr) {
@@ -506,6 +512,8 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			if err != nil {
 				return err
 			}
+			admission := results.get(key.name, inputs.InventoryUID).AdmittedInventory
+			inputs.admitted = admission.UID != "" && admission.UID == inputs.InventoryUID && admission.Generation == inputs.InventoryGeneration
 			racks, err := deliveries.update(inputs, snapshot)
 			if err != nil {
 				return err

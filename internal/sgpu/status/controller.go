@@ -219,7 +219,8 @@ func deliverySnapshotStale(input RackInput, live *mokkav1alpha1.SGPURack) bool {
 	if input.Delivery == nil || !rackstate.InputsChanged(live.Status.Delivery, input.Delivery) {
 		return false
 	}
-	return deliveryGeneration(live.Status.Delivery) != deliveryGeneration(input.Rack.Status.Delivery)
+	return deliveryGeneration(live.Status.Delivery) != deliveryGeneration(input.Rack.Status.Delivery) ||
+		rackstate.InputsRegressed(live.Status.Delivery, input.Delivery)
 }
 
 func deliveryGeneration(saved *mokkav1alpha1.RackDelivery) int64 {

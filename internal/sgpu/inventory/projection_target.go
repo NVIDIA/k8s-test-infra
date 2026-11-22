@@ -83,7 +83,7 @@ func projectionInventoryValid(inventory *mokkav1alpha1.SGPUInventory, uid types.
 	if inventory.UID != uid || inventory.DeletionTimestamp != nil {
 		return false
 	}
-	return ValidRackDeclaration(inventory)
+	return validateInventory(inventory) == nil && validateInventoryRackCapacity(inventory) == nil
 }
 
 func projectionGroup(

@@ -18,6 +18,7 @@ import (
 // profile observations. Only the elected leader uses these to publish status.
 type deliveryInputs struct {
 	*policy.Evaluation
+	admitted bool
 	profiles map[string]*api.SGPURackProfile
 	versions map[types.UID]int64
 }
@@ -36,7 +37,7 @@ func newDeliveryInputs(e *policy.Evaluation, profiles map[string]*api.SGPURackPr
 }
 
 func (d *deliveryInputs) manifest(rack *api.SGPURack) (*api.RackDelivery, error) {
-	if d == nil || d.InventoryUID != rack.Spec.InventoryRef.UID || !rack.OwnerMatchesInventoryRef() {
+	if d == nil || !d.admitted || d.InventoryUID != rack.Spec.InventoryRef.UID || !rack.OwnerMatchesInventoryRef() {
 		return nil, nil
 	}
 	ref := rack.Spec.ProfileRef
@@ -71,7 +72,7 @@ func (c *deliveryCatalog) update(d *deliveryInputs, snapshot *informerCache) ([]
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	old := c.inventories[d.InventoryName]
-	if old != nil && maps.Equal(old.versions, d.versions) {
+	if old != nil && old.admitted == d.admitted && maps.Equal(old.versions, d.versions) {
 		return nil, nil
 	}
 	if d.InventoryUID == "" {
