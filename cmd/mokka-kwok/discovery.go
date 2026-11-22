@@ -195,7 +195,7 @@ func (p *labelPublisher) reconcile(ctx context.Context, name string) error {
 func (p *labelPublisher) boundProfile(node *corev1.Node) (*mokkav1.SGPURackProfileReference, error) {
 	raw := node.Annotations[metadata.AssignmentAnnotation]
 	a, err := assignment.DecodeAssignment(raw)
-	if err != nil {
+	if err != nil || !a.Assigned {
 		return nil, err
 	}
 	obj, exists, err := p.racks.GetStore().GetByKey(a.Rack.Name)
@@ -207,9 +207,8 @@ func (p *labelPublisher) boundProfile(node *corev1.Node) (*mokkav1.SGPURackProfi
 	if rack.Spec.NodeType != mokkav1.NodeTypeKWOK || slot == nil || !slot.BoundTo(node.Name, node.UID) {
 		return nil, nil
 	}
-	expected, err := assignment.EncodeAssignment(rack, slot)
-	if err != nil || expected != raw {
-		return nil, err
+	if !assignment.PublishedAt(raw, rack, slot) {
+		return nil, nil
 	}
 	return &rack.Spec.ProfileRef, nil
 }

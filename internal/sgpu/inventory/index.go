@@ -4,7 +4,9 @@
 package inventory
 
 import (
+	"context"
 	"fmt"
+	corev1 "k8s.io/api/core/v1"
 	"slices"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -112,6 +114,7 @@ func rackByNodeName(obj any) ([]string, error) {
 
 // Cache is the read-only informer snapshot consumed by a reconciliation.
 type Cache interface {
+	Node(context.Context, string) (*corev1.Node, error)
 	Inventory(name string) (*mokkav1alpha1.SGPUInventory, error)
 	Inventories() ([]*mokkav1alpha1.SGPUInventory, error)
 	Profile(name string) (*mokkav1alpha1.SGPURackProfile, error)

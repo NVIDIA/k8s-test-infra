@@ -401,6 +401,7 @@ func (s *catalogAllocationSource) AllocationNodes() ([]allocate.KubernetesNode, 
 }
 
 type mutableAllocationSource struct {
+	Cache          // Only allocation-list methods are used by these planner tests.
 	mu             sync.RWMutex
 	inventories    []*mokkav1alpha1.SGPUInventory
 	profiles       map[string]*mokkav1alpha1.SGPURackProfile

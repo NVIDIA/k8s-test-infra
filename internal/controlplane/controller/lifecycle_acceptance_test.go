@@ -1143,9 +1143,12 @@ func getAcceptanceRack(ctx context.Context, t *testing.T, client *mokkafake.Clie
 }
 
 func nodeHasProjection(node *corev1.Node) bool {
-	return node != nil && (node.Labels[sgpumetadata.AssignedLabel] != "" ||
-		node.Labels[sgpumetadata.CliqueLabel] != "" ||
-		node.Annotations[sgpumetadata.AssignmentAnnotation] != "")
+	if node == nil {
+		return false
+	}
+	raw := node.Annotations[sgpumetadata.AssignmentAnnotation]
+	a, err := sgpuassignment.DecodeAssignment(raw)
+	return node.Labels[sgpumetadata.AssignedLabel] != "" || node.Labels[sgpumetadata.CliqueLabel] != "" || (raw != "" && (err != nil || a.Assigned))
 }
 
 func nodeIsProjected(node *corev1.Node, uid types.UID) bool {
@@ -1154,7 +1157,7 @@ func nodeIsProjected(node *corev1.Node, uid types.UID) bool {
 		return false
 	}
 	assignment, err := sgpuassignment.DecodeAssignment(node.Annotations[sgpumetadata.AssignmentAnnotation])
-	return err == nil && assignment.NodeUID == uid
+	return err == nil && assignment.Assigned && assignment.NodeUID == uid
 }
 
 type acceptanceNodeClient struct {
@@ -1249,9 +1252,10 @@ func (c *acceptanceNodeClient) Patch(
 	}
 	var payload struct {
 		Metadata struct {
-			UID         types.UID          `json:"uid"`
-			Labels      map[string]*string `json:"labels"`
-			Annotations map[string]*string `json:"annotations"`
+			UID             types.UID          `json:"uid"`
+			ResourceVersion string             `json:"resourceVersion"`
+			Labels          map[string]*string `json:"labels"`
+			Annotations     map[string]*string `json:"annotations"`
 		} `json:"metadata"`
 	}
 	if err := json.Unmarshal(data, &payload); err != nil {
@@ -1270,6 +1274,10 @@ func (c *acceptanceNodeClient) Patch(
 	if node == nil {
 		c.mu.Unlock()
 		return nil, apierrors.NewNotFound(corev1.Resource("nodes"), name)
+	}
+	if payload.Metadata.ResourceVersion != node.ResourceVersion {
+		c.mu.Unlock()
+		return nil, apierrors.NewConflict(corev1.Resource("nodes"), name, fmt.Errorf("stale Node resource version %q", payload.Metadata.ResourceVersion))
 	}
 	if payload.Metadata.UID != node.UID {
 		c.mu.Unlock()
@@ -1299,6 +1307,9 @@ func (c *acceptanceNodeClient) Patch(
 
 func (c *acceptanceNodeClient) create(node *corev1.Node) {
 	c.mu.Lock()
+	if rv, err := strconv.ParseInt(node.ResourceVersion, 10, 64); err == nil {
+		c.nextRV = max(c.nextRV, rv)
+	}
 	c.nodes[node.Name] = node.DeepCopy()
 	delete(c.ownedLabels, node.Name)
 	delete(c.ownedAnnotations, node.Name)

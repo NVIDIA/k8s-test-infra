@@ -124,10 +124,7 @@ inspect the remaining finalizers and control-plane logs, and resolve the reporte
 cleanup conflict. Do not force-remove finalizers.
 
 Verify the drain before changing the Helm release. The first command must
-produce no objects. The second must produce no Node names: it checks the two
-projection identity markers and any fields still owned by the
-`mokka-controller` server-side apply manager. A clique-only label owned by
-another manager is deliberately not treated as Mokka projection state.
+produce no objects. The second lists Nodes with an active assignment or a projection label that Mokka still owns. A released Node keeps its unassigned annotation.
 
 ```bash
 kubectl get \
@@ -135,8 +132,13 @@ kubectl get \
   --no-headers \
   -o 'custom-columns=KIND:.kind,NAME:.metadata.name,FINALIZERS:.metadata.finalizers'
 
-kubectl get nodes --show-managed-fields=true \
-  -o go-template='{{range .items}}{{$node := .metadata.name}}{{if or (index .metadata.labels "mokka.nvidia.com/sgpu-assigned") (index .metadata.annotations "mokka.nvidia.com/sgpu-assignment")}}{{printf "%s\n" $node}}{{else}}{{range .metadata.managedFields}}{{if eq .manager "mokka-controller"}}{{printf "%s\n" $node}}{{end}}{{end}}{{end}}{{end}}'
+kubectl get nodes --show-managed-fields=true -o json | jq -r '
+  .items[] | select(
+    .metadata.labels["mokka.nvidia.com/sgpu-assigned"] != null or
+    ((.metadata.annotations["mokka.nvidia.com/sgpu-assignment"] // "{\"assigned\":false}") | fromjson | .assigned != false) or
+    any(.metadata.managedFields[]?; .manager == "mokka-controller" and
+        (.fieldsV1["f:metadata"]["f:labels"]["f:nvidia.com/gpu.clique"] != null))
+  ) | .metadata.name'
 ```
 
 Only after both checks are empty may the control plane be disabled or its
@@ -247,8 +249,7 @@ For each successfully projected binding the control plane owns only:
 
 - `mokka.nvidia.com/sgpu-assigned=true`;
 - `nvidia.com/gpu.clique=<fabric UUID>.<clique ID>`;
-- `mokka.nvidia.com/sgpu-assignment`, compact JSON containing exact inventory,
-  rack, profile revision, coordinate, and Node UID data.
+- `mokka.nvidia.com/sgpu-assignment`, compact JSON with the Node UID, assignment revision, rack identity, slot coordinates, and minimum rack delivery generation.
 
 ## Override runtime state
 
@@ -331,10 +332,16 @@ unassigned Node in conflict. Foreign rack ownership and incompatible Node
 metadata are reported and never overwritten. A runtime policy's `Accepted`
 condition names the reason it does not apply.
 
-Shrinking capacity, deleting an inventory or rack, losing eligibility, and
-replacing a Node UID remove the exact old projection before clearing a live
-binding. Cleanup removes only control-plane-owned keys whose assignment annotation
-still names that binding; incompatible values are preserved and retried. If the exact
+The leader first saves the Node UID and an assignment revision on the rack slot.
+After the rack has a delivery for that spec, the leader writes a v2 assignment
+to the Node annotation. The annotation names the rack and slot and gives the
+minimum usable rack delivery generation. Profile and policy edits can advance
+the rack delivery without a Node write.
+
+When a live Node leaves a slot, the leader removes the assignment labels and
+writes `assigned: false` with the next revision before it clears the binding.
+The annotation stays on the Node. A later assignment advances the same counter.
+Cleanup preserves fields owned by other controllers. If the exact
 Node UID no longer exists, cleanup may proceed without touching a same-name
 replacement. The singleton ClusterRoleBinding ensures only the owning release
 has cluster permissions. Within that release, its namespace-local Lease

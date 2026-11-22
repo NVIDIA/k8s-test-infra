@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -431,6 +432,14 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 				_, err = projection.ProjectFresh(ctx, key.rackName, key.nodeIndex)
 			} else {
 				_, err = projection.Project(ctx, key.rackName, key.nodeIndex)
+			}
+			if errors.Is(err, sgpuprojection.ErrRevisionPending) {
+				controller.queues.inventories.Add(rack.Spec.InventoryRef.Name)
+				return nil
+			}
+			if errors.Is(err, sgpuassignment.ErrDeliveryPending) {
+				controller.queues.addStatus(statusKey{kind: statusRack, name: rack.Name, uid: rack.UID})
+				return nil
 			}
 			controller.queues.addStatus(statusKey{kind: statusRack, name: rack.Name, uid: rack.UID})
 			controller.queues.addStatus(statusKey{kind: statusInventory, name: rack.Spec.InventoryRef.Name, uid: rack.Spec.InventoryRef.UID})

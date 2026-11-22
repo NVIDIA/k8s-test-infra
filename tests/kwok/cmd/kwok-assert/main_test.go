@@ -4,7 +4,7 @@
 package main
 
 import (
-	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
 )
 
@@ -25,12 +26,7 @@ func TestCheckAcceptsExactProjectionAndRejectsUIDDrift(t *testing.T) {
 	require.Equal(t, 1, got.ProjectedNodes)
 
 	node := requireNodeByName(t, nodes, "mokka-node-000000")
-	var projected assignment
-	require.NoError(t, json.Unmarshal([]byte(node.Annotations[assignmentAnnotation]), &projected))
-	projected.NodeUID = "replacement-uid"
-	drifted, err := json.Marshal(projected)
-	require.NoError(t, err)
-	node.Annotations[assignmentAnnotation] = string(drifted)
+	node.Annotations[assignmentAnnotation] = strings.Replace(node.Annotations[assignmentAnnotation], string(node.UID), "replacement-uid", 1)
 
 	got = check(o, inventory, racks, nodes)
 	require.False(t, got.Success)
@@ -105,26 +101,22 @@ func validFixture(t *testing.T) (options, *mokkav1alpha1.SGPUInventory, *mokkav1
 			InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventoryUID},
 			Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: "compute", RackIndex: 0},
 			Nodes: []mokkav1alpha1.SGPURackNode{{
-				Index: 0, NodeRef: &mokkav1alpha1.SGPUNodeReference{Name: "mokka-node-000000", UID: nodeUID},
+				Index: 0, NodeRef: &mokkav1alpha1.SGPUNodeReference{Name: "mokka-node-000000", UID: nodeUID, AssignmentRevision: 1},
 			}},
 		},
 		Status: mokkav1alpha1.SGPURackStatus{
-			ObservedGeneration: 1, AssignedNodes: 1,
+			ObservedGeneration: 1, AssignedNodes: 1, Delivery: &mokkav1alpha1.RackDelivery{Generation: 1, RackSpecGeneration: 1},
 			Conditions: conditions("Ready"),
 		},
 	}
-	encoded, err := json.Marshal(assignment{
-		Version: 1, Inventory: objectReference{Name: inventory.Name, UID: inventoryUID},
-		Rack: objectReference{Name: rackName, UID: rackUID}, RackGroup: "compute",
-		RackIndex: 0, NodeIndex: 0, NodeUID: nodeUID,
-	})
+	encoded, err := assignment.EncodeAssignment(&rack, &rack.Spec.Nodes[0])
 	require.NoError(t, err)
 	node := corev1.Node{ObjectMeta: metav1.ObjectMeta{
 		Name: "mokka-node-000000", UID: nodeUID,
 		Labels: map[string]string{
 			ownerLabel: "test-cluster", eligibleLabel: "true", assignedLabel: "true",
 		},
-		Annotations: map[string]string{assignmentAnnotation: string(encoded)},
+		Annotations: map[string]string{assignmentAnnotation: encoded},
 	}}
 	return options{
 		state: "test", clusterLabel: "test-cluster", expectedRacks: 1, nodesPerRack: 1,

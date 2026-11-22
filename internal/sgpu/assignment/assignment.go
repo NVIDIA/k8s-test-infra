@@ -8,13 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 
 	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 )
 
-// AssignmentVersion identifies the legacy format used by the projection writer.
+// AssignmentVersion identifies the original annotation format on upgraded clusters.
 const AssignmentVersion = 1
 
 // ObjectReference identifies an exact inventory or rack instance.
@@ -49,6 +50,16 @@ type Assignment struct {
 func EncodeAssignment(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) (string, error) {
 	if rack == nil || rack.Name == "" || rack.UID == "" || slot == nil || slot.NodeRef == nil || slot.NodeRef.UID == "" {
 		return "", errors.New("assignment requires exact rack, logical Node, and Kubernetes Node identities")
+	}
+	if slot.NodeRef.AssignmentRevision > 0 {
+		d := rack.Status.Delivery
+		if d == nil || d.RackSpecGeneration != rack.Generation || d.Generation < 1 {
+			return "", ErrDeliveryPending
+		}
+		return EncodePublication(slot.NodeRef.UID, slot.NodeRef.AssignmentRevision, &PublishedBinding{
+			Rack: ObjectReference{Name: rack.Name, UID: rack.UID}, RackGroup: rack.Spec.Identity.RackGroup,
+			RackIndex: rack.Spec.Identity.RackIndex, NodeIndex: slot.Index, RackDeliveryGenerationFloor: d.Generation,
+		})
 	}
 	encoded, err := json.Marshal(Assignment{
 		Version:   AssignmentVersion,
@@ -147,4 +158,38 @@ func decodePublication(value string, assigned bool) (Assignment, error) {
 		a.RackDeliveryGenerationFloor = b.RackDeliveryGenerationFloor
 	}
 	return a, nil
+}
+
+// ErrDeliveryPending means the rack status writer has not yet published this binding.
+var ErrDeliveryPending = errors.New("waiting for the binding's rack delivery")
+
+// SameSlot compares only the immutable identities of a published binding.
+func (a Assignment) SameSlot(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) bool {
+	return a.Assigned && slot.NodeRef != nil && a.NodeUID == slot.NodeRef.UID && a.Rack == (ObjectReference{Name: rack.Name, UID: rack.UID}) && a.RackGroup == rack.Spec.Identity.RackGroup && a.RackIndex == rack.Spec.Identity.RackIndex && a.NodeIndex == slot.Index
+}
+
+// CoversBinding is true when the Node publication and the delivered rack agree.
+// Later profile and policy deliveries keep the original publication floor.
+func (a Assignment) CoversBinding(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) bool {
+	d := rack.Status.Delivery
+	return a.Version == publicationVersion && a.SameSlot(rack, slot) && a.AssignmentRevision == slot.NodeRef.AssignmentRevision && d != nil && d.RackSpecGeneration == rack.Generation && d.Generation >= a.RackDeliveryGenerationFloor
+}
+
+// NextRevision advances a durable counter without wrapping to a smaller value.
+func NextRevision(revision int64) (int64, error) {
+	if revision == math.MaxInt64 {
+		return 0, errors.New("node assignment revision exhausted")
+	}
+	return revision + 1, nil
+}
+
+// PublishedAt validates the Node annotation against the observed binding. A
+// legacy rack can still be inspected while the leader migrates its assignment.
+func PublishedAt(raw string, rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) bool {
+	if slot.NodeRef.AssignmentRevision == 0 {
+		legacy, err := EncodeAssignment(rack, slot)
+		return err == nil && raw == legacy
+	}
+	a, err := DecodeAssignment(raw)
+	return err == nil && a.CoversBinding(rack, slot)
 }

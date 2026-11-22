@@ -608,6 +608,9 @@ func (r *eventRouter) rackUpdate(oldObject, newObject any) {
 		r.observeRackStatus(newRack)
 	}
 	if rackUnchanged(oldRack, newRack) {
+		if newRack.Status.Delivery != nil && newRack.Status.Delivery.RackSpecGeneration == newRack.Generation && (oldRack.Status.Delivery == nil || oldRack.Status.Delivery.RackSpecGeneration != newRack.Generation) {
+			r.routeRackCurrent(newRack, false, nil)
+		}
 		return
 	}
 	if rackCapacityUnchanged(oldRack, newRack) {

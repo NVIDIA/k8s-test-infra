@@ -1058,13 +1058,13 @@ Node projection cannot be changed in one Kubernetes transaction:
    the new one. An assigned `nodeRef` records the chosen revision. The leader
    also advances each affected rack's delivery status with
    `resourceVersion`-guarded updates until the new binding and its dependency
-   manifest are complete. A release ends this phase with no rack binding.
+   manifest are complete. During release, the rack keeps its binding until the Node carries its release tombstone.
 2. Only after the authoritative binding, rack spec, and dependency manifest are
    settled, the leader publishes that completed state by updating the same
    exact Node with a fresh `resourceVersion`. An assignment annotation contains
    the new revision, exact rack UID and coordinates, and the settled rack
    delivery generation as its publication floor. A release publishes the new
-   revision as the minimal unassigned tombstone. Assignment labels are added or
+   revision as the minimal unassigned tombstone before the leader clears the rack binding. Assignment labels are added or
    removed with this projection update.
 
 The first assignment for a Node UID uses revision 1. Every subsequent move,

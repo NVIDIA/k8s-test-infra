@@ -14,6 +14,8 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 
 	api "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
 	mokkafake "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/fake"
 )
@@ -51,6 +53,15 @@ func TestLeaderPublishesRackDeliveries(t *testing.T) {
 	for _, rack := range racks {
 		generations[rack] = waitForRackDelivery(t, client, rack, func(r *api.SGPURack) bool { return r.Status.Delivery.Generation == 1 }).Generation
 	}
+	// A move changes two rack specs. A release changes only the current rack.
+	checkBinding := func(name string, bound bool) {
+		t.Helper()
+		d := waitForRackDelivery(t, client, name, func(r *api.SGPURack) bool {
+			return (r.Spec.Nodes[0].NodeRef != nil) == bound && r.Status.Delivery.Generation > generations[name]
+		})
+		require.Equal(t, generations[name]+1, d.Generation)
+		generations[name] = d.Generation
+	}
 	// Two policies compete for the same field. Only the accepted one is delivered.
 	target := api.PolicyTargetRef{RackGroups: []string{"compute"}}
 	winner := acceptancePolicy("first", 1, inventory.Name, target, gpuTemperature(50))
@@ -80,6 +91,9 @@ func TestLeaderPublishesRackDeliveries(t *testing.T) {
 	requirePolicyDelivery(t, client, racks[:2], generations, relisted)
 	require.NoError(t, policies.Delete(ctx, winner.Name, metav1.DeleteOptions{}))
 	requirePolicyDelivery(t, client, racks[:2], generations, successor)
+	nodes.create(acceptanceNode("node-a", "node-uid", 1))
+	checkBinding(racks[0], true)
+	first := waitForNodePublication(t, nodes, "node-a", 1, racks[0])
 	profile = profile.DeepCopy()
 	profile.Generation++
 	profile.Spec.Defaults = &api.SGPURackProfileDefaults{Runtime: gpuTemperature(40)}
@@ -90,22 +104,31 @@ func TestLeaderPublishesRackDeliveries(t *testing.T) {
 		require.Equal(t, generations[name]+1, d.Generation)
 		generations[name] = d.Generation
 	}
-	// A move changes two rack specs. A release changes only the current rack.
-	checkBinding := func(name string, bound bool) {
-		t.Helper()
-		d := waitForRackDelivery(t, client, name, func(r *api.SGPURack) bool {
-			return (r.Spec.Nodes[0].NodeRef != nil) == bound && r.Status.Delivery.Generation > generations[name]
-		})
-		require.Equal(t, generations[name]+1, d.Generation)
-		generations[name] = d.Generation
-	}
-	nodes.create(acceptanceNode("node-a", "node-uid", 1))
-	checkBinding(racks[0], true)
+	require.Equal(t, first.ResourceVersion, nodes.snapshot("node-a").ResourceVersion, "profile and policy edits must keep the Node publication")
 	nodes.update("node-a", func(n *corev1.Node) { n.Labels["pool"] = "other" })
 	checkBinding(racks[0], false)
 	checkBinding(racks[2], true)
-	nodes.delete("node-a")
+	waitForNodePublication(t, nodes, "node-a", 3, racks[2])
+	nodes.update("node-a", func(n *corev1.Node) { n.Labels["pool"] = "outside" })
 	checkBinding(racks[2], false)
+	waitForNodePublication(t, nodes, "node-a", 4, "")
+	nodes.update("node-a", func(n *corev1.Node) { n.Labels["pool"] = "other" })
+	checkBinding(racks[2], true)
+	waitForNodePublication(t, nodes, "node-a", 5, racks[2])
+}
+
+func waitForNodePublication(t *testing.T, nodes *acceptanceNodeClient, name string, revision int64, rack string) *corev1.Node {
+	t.Helper()
+	var node *corev1.Node
+	require.Eventually(t, func() bool {
+		node = nodes.snapshot(name)
+		if node == nil {
+			return false
+		}
+		a, err := sgpuassignment.DecodeAssignment(node.Annotations[sgpumetadata.AssignmentAnnotation])
+		return err == nil && a.NodeUID == node.UID && a.AssignmentRevision == revision && a.Assigned == (rack != "") && a.Rack.Name == rack
+	}, 10*time.Second, 10*time.Millisecond, "Node %s revision %d, rack %q", name, revision, rack)
+	return node
 }
 
 func waitForRackDelivery(t *testing.T, client *mokkafake.Clientset, name string, match func(*api.SGPURack) bool) *api.RackDelivery {

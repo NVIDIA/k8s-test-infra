@@ -9,6 +9,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -168,6 +169,9 @@ func NewController(cache Cache, patcher NodePatcher) *Controller {
 	}
 }
 
+// ErrRevisionPending asks the rack writer to choose a revision before publication.
+var ErrRevisionPending = errors.New("node assignment revision needs reconciliation")
+
 // Project reconciles metadata for one exact cached logical rack Node.
 func (c *Controller) Project(ctx context.Context, rackName string, nodeIndex int32) (Outcome, error) {
 	return c.project(ctx, rackName, nodeIndex, false)
@@ -220,6 +224,9 @@ func (c *Controller) project(ctx context.Context, rackName string, nodeIndex int
 		return outcome, err
 	}
 
+	if slot.NodeRef.AssignmentRevision == 0 {
+		return outcome, ErrRevisionPending
+	}
 	encodedAssignment, err := sgpuassignment.EncodeAssignment(rack, slot)
 	if err != nil {
 		return c.fail(outcome, err)
@@ -227,7 +234,11 @@ func (c *Controller) project(ctx context.Context, rackName string, nodeIndex int
 	labels, incompatible := projectionLabels(node, rack)
 	if current := node.Annotations[sgpumetadata.AssignmentAnnotation]; current != "" && current != encodedAssignment {
 		decoded, decodeErr := sgpuassignment.DecodeAssignment(current)
-		if decodeErr != nil || !assignmentMatches(decoded, rack, slot) {
+		if decodeErr == nil && decoded.CoversBinding(rack, slot) {
+			encodedAssignment = current
+		} else if decodeErr == nil && decoded.NodeUID == node.UID && decoded.AssignmentRevision >= slot.NodeRef.AssignmentRevision {
+			return outcome, ErrRevisionPending
+		} else if decodeErr != nil || !(assignmentMatches(decoded, rack, slot) || decoded.NodeUID == node.UID && !decoded.Assigned) {
 			incompatible = append(incompatible, sgpumetadata.AssignmentAnnotation)
 		}
 	}
@@ -241,7 +252,7 @@ func (c *Controller) project(ctx context.Context, rackName string, nodeIndex int
 		return outcome, nil
 	}
 
-	payload, err := nodeApplyPayload(node.Name, node.UID, labels, map[string]any{sgpumetadata.AssignmentAnnotation: encodedAssignment})
+	payload, err := nodeApplyPayload(node, labels, map[string]any{sgpumetadata.AssignmentAnnotation: encodedAssignment})
 	if err != nil {
 		return c.fail(outcome, err)
 	}
@@ -315,7 +326,12 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 
 	encoded := node.Annotations[sgpumetadata.AssignmentAnnotation]
 	assignment, decodeErr := sgpuassignment.DecodeAssignment(encoded)
-	if encoded == "" || decodeErr != nil || !cleanupAssignmentMatches(assignment, needed) {
+	pending := exactBindingPresent && encoded == ""
+	tombstone := decodeErr == nil && !assignment.Assigned && assignment.NodeUID == node.UID
+	if tombstone && assignment.AssignmentRevision > needed.AssignmentRevision && node.Labels[sgpumetadata.AssignedLabel] == "" && node.Labels[sgpumetadata.CliqueLabel] == "" {
+		return c.completeCleanup(needed, outcome, ReasonCleaned, exactBindingPresent), nil
+	}
+	if !pending && !(exactBindingPresent && tombstone) && (decodeErr != nil || !cleanupAssignmentMatches(assignment, needed) || (!exactBindingPresent && assignment.AssignmentRevision > needed.AssignmentRevision)) {
 		return c.completeCleanup(needed, outcome, ReasonCleaned, exactBindingPresent), nil
 	}
 
@@ -343,7 +359,7 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 	if len(annotations) == 0 {
 		released = append(released, managedMetadataField{section: "annotations", key: sgpumetadata.AssignmentAnnotation})
 	}
-	if len(mokkaOwnedFields(node, released)) == 0 {
+	if !pending && !tombstone && len(mokkaOwnedFields(node, released)) == 0 {
 		fields := incompatible
 		if len(fields) == 0 {
 			fields = retainedCleanupFields(node, encoded)
@@ -353,7 +369,21 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 		c.recordCleanupFailure(outcome, exactBindingPresent)
 		return outcome, conflict
 	}
-	payload, err := nodeApplyPayload(node.Name, node.UID, nil, annotations)
+	var releaseValue string
+	// On a conflict, first relinquish the fields we own. Keep the binding
+	// pending until the foreign owner yields the assignment or removes it.
+	if len(incompatible) == 0 && len(foreignOwnedFields(node, FieldManager, released)) == 0 {
+		next, err := sgpuassignment.NextRevision(max(assignment.AssignmentRevision, needed.AssignmentRevision))
+		if err != nil {
+			return c.failCleanup(outcome, err, exactBindingPresent)
+		}
+		releaseValue, err = sgpuassignment.EncodePublication(node.UID, next, nil)
+		if err != nil {
+			return c.failCleanup(outcome, err, exactBindingPresent)
+		}
+		annotations = map[string]any{sgpumetadata.AssignmentAnnotation: releaseValue}
+	}
+	payload, err := nodeApplyPayload(node, nil, annotations)
 	if err != nil {
 		return c.failCleanup(outcome, err, exactBindingPresent)
 	}
@@ -379,6 +409,7 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 	if response.UID != node.UID {
 		return c.completeCleanup(needed, outcome, ReasonExactNodeAbsent, exactBindingPresent), nil
 	}
+
 	if retained := retainedCleanupFields(response, encoded); len(retained) > 0 {
 		blockedAfter := response
 		if len(incompatible) > 0 && len(retained) == 1 && retained[0] == sgpumetadata.AssignmentAnnotation {
@@ -388,6 +419,12 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 		outcome, conflict := conflictOutcome(outcome, response.Name, retained)
 		c.recordCleanupFailure(outcome, exactBindingPresent)
 		return outcome, conflict
+	}
+	if exactBindingPresent && releaseValue == "" {
+		return c.failCleanup(outcome, errors.New("release annotation is pending"), exactBindingPresent)
+	}
+	if releaseValue != "" && response.Annotations[sgpumetadata.AssignmentAnnotation] != releaseValue {
+		return c.failCleanup(outcome, errors.New("node did not retain its release revision"), exactBindingPresent)
 	}
 	zap.L().Info("Removed sGPU assignment projection from Node",
 		append(outcomeFields(outcome), zap.String("reason", string(needed.Reason)))...)
@@ -531,8 +568,7 @@ func MatchesBinding(node *corev1.Node, rack *mokkav1alpha1.SGPURack, slot *mokka
 			return false
 		}
 	}
-	assignment, err := sgpuassignment.EncodeAssignment(rack, slot)
-	if err != nil || node.Annotations[sgpumetadata.AssignmentAnnotation] != assignment {
+	if !sgpuassignment.PublishedAt(node.Annotations[sgpumetadata.AssignmentAnnotation], rack, slot) {
 		return false
 	}
 	projectionLabels := map[string]any{sgpumetadata.AssignedLabel: "true"}
@@ -774,7 +810,7 @@ func fieldsV1Owns(raw []byte, path []string) bool {
 
 func retainedCleanupFields(node *corev1.Node, assignment string) []string {
 	retained := make([]string, 0, 3)
-	if node.Annotations[sgpumetadata.AssignmentAnnotation] == assignment {
+	if assignment != "" && node.Annotations[sgpumetadata.AssignmentAnnotation] == assignment {
 		retained = append(retained, sgpumetadata.AssignmentAnnotation)
 	}
 	if _, exists := node.Labels[sgpumetadata.AssignedLabel]; exists {
@@ -791,8 +827,8 @@ func sortedUnique(fields []string) []string {
 	return slices.Compact(fields)
 }
 
-func nodeApplyPayload(name string, uid types.UID, labels, annotations map[string]any) ([]byte, error) {
-	metadata := map[string]any{"name": name, "uid": uid}
+func nodeApplyPayload(node *corev1.Node, labels, annotations map[string]any) ([]byte, error) {
+	metadata := map[string]any{"name": node.Name, "uid": node.UID, "resourceVersion": node.ResourceVersion}
 	if len(labels) > 0 {
 		metadata["labels"] = labels
 	}
@@ -822,6 +858,9 @@ func cliqueValue(rack *mokkav1alpha1.SGPURack) (string, bool) {
 }
 
 func assignmentMatches(current sgpuassignment.Assignment, rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) bool {
+	if current.AssignmentRevision > 0 {
+		return current.SameSlot(rack, slot)
+	}
 	return current.Version == sgpuassignment.AssignmentVersion && rack != nil && slot != nil && slot.NodeRef != nil &&
 		current.Inventory == (sgpuassignment.ObjectReference{Name: rack.Spec.InventoryRef.Name, UID: rack.Spec.InventoryRef.UID}) &&
 		current.Rack == (sgpuassignment.ObjectReference{Name: rack.Name, UID: rack.UID}) &&
@@ -831,8 +870,7 @@ func assignmentMatches(current sgpuassignment.Assignment, rack *mokkav1alpha1.SG
 
 func cleanupAssignmentMatches(current sgpuassignment.Assignment, needed sgpurelease.Cleanup) bool {
 	binding := needed.Binding
-	if current.Version != sgpuassignment.AssignmentVersion || current.Inventory.Name != binding.Coordinate.Group.InventoryName ||
-		current.Inventory.UID != binding.Coordinate.Group.InventoryUID || current.Rack.Name != needed.RackName ||
+	if !current.Assigned || (current.Version == sgpuassignment.AssignmentVersion && (current.Inventory.Name != binding.Coordinate.Group.InventoryName || current.Inventory.UID != binding.Coordinate.Group.InventoryUID)) || current.Rack.Name != needed.RackName ||
 		current.Rack.UID != needed.RackUID ||
 		current.RackGroup != binding.Coordinate.Group.RackGroup || current.RackIndex != binding.Coordinate.RackIndex ||
 		current.NodeIndex != binding.Coordinate.NodeIndex || current.NodeUID != binding.Node.UID {

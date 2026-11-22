@@ -431,7 +431,7 @@ func TestReconcileGroupIndexesLargeBindingSetOnce(t *testing.T) {
 				map[string]string{"pool": "gpu"},
 			)
 			nodes[nodeIndex] = node
-			rack.Spec.Nodes[rackNodeIndex].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: node.Name, UID: node.UID}
+			rack.Spec.Nodes[rackNodeIndex].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: node.Name, UID: node.UID, AssignmentRevision: 1}
 		}
 		objects = append(objects, rack)
 	}
@@ -1340,6 +1340,15 @@ func (c *inventoryOverrideCache) Inventory(name string) (*mokkav1alpha1.SGPUInve
 type nodeOverrideCache struct {
 	Cache
 	nodes []*corev1.Node
+}
+
+func (c *nodeOverrideCache) Node(ctx context.Context, name string) (*corev1.Node, error) {
+	for _, node := range c.nodes {
+		if node.Name == name {
+			return node, nil
+		}
+	}
+	return c.Cache.Node(ctx, name)
 }
 
 func (c *nodeOverrideCache) AllocationNodes() ([]allocate.KubernetesNode, error) {
