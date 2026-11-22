@@ -29,24 +29,28 @@ func Compile(rack *api.SGPURack, profile *api.SGPURackProfile) (state.Rack, erro
 		return state.Rack{}, err
 	}
 
-	result := state.Rack{
-		Hardware: state.Hardware{
-			Rack:                   state.Object{Name: rack.Name, UID: rack.UID},
-			RackDeliveryGeneration: delivery.Generation,
-			Software:               profile.Spec.Software.DeepCopy(),
-			GPUModel:               gpuModel(&profile.Spec.Node.GPUs),
-		},
-	}
-	if fabric := profile.Spec.Node.Topology.GPUFabric; fabric != nil {
-		result.Fabric = &state.Fabric{FabricUUID: rack.Spec.Identity.FabricUUID,
-			CliqueID: rack.Spec.Identity.CliqueID, GPUFabric: *fabric.DeepCopy()}
-	}
 	nodes, err := boundSlots(rack.Spec.Nodes)
 	if err != nil {
 		return state.Rack{}, err
 	}
-	result.Nodes = nodes
-	return result, nil
+	return state.Rack{Hardware: rackHardware(rack, profile), Nodes: nodes}, nil
+}
+
+func rackHardware(rack *api.SGPURack, profile *api.SGPURackProfile) state.Hardware {
+	hardware := state.Hardware{
+		Rack:                   state.Object{Name: rack.Name, UID: rack.UID},
+		RackDeliveryGeneration: rack.Status.Delivery.Generation,
+		Software:               profile.Spec.Software.DeepCopy(),
+		GPUModel:               gpuModel(&profile.Spec.Node.GPUs),
+	}
+	if fabric := profile.Spec.Node.Topology.GPUFabric; fabric != nil {
+		hardware.Fabric = &state.Fabric{
+			FabricUUID: rack.Spec.Identity.FabricUUID,
+			CliqueID:   rack.Spec.Identity.CliqueID,
+			GPUFabric:  *fabric.DeepCopy(),
+		}
+	}
+	return hardware
 }
 
 func boundSlots(slots []api.SGPURackNode) ([]state.Slot, error) {
