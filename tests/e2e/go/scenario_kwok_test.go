@@ -21,9 +21,9 @@ var _ = Describe("KWOK rack binding", Label("kwok"), func() {
 		h := setupCluster(ctx, "kwok")
 		realName := config.ClusterName() + "-worker"
 		const virtualName = "kwok-worker"
-		var real, virtual corev1.Node
-		Expect(h.Kube.GetJSON(ctx, &real, "node", realName)).To(Succeed())
-		Expect(h.Kube.GetJSON(ctx, &virtual, "node", virtualName)).To(Succeed())
+		var cpuNode, kwokNode corev1.Node
+		Expect(h.Kube.GetJSON(ctx, &cpuNode, "node", realName)).To(Succeed())
+		Expect(h.Kube.GetJSON(ctx, &kwokNode, "node", virtualName)).To(Succeed())
 
 		By("checking both rack slots against the exact node instances")
 		Eventually(func(g Gomega) {
@@ -34,9 +34,9 @@ var _ = Describe("KWOK rack binding", Label("kwok"), func() {
 			for _, rack := range racks.Items {
 				g.Expect(rack.Spec.Nodes).To(HaveLen(1))
 				slot := rack.Spec.Nodes[0]
-				expected := real
+				expected := cpuNode
 				if rack.Spec.NodeType == mokkav1.NodeTypeKWOK {
-					expected = virtual
+					expected = kwokNode
 				}
 				g.Expect(slot.BoundTo(expected.Name, expected.UID)).To(BeTrue(), "rack %s has nodeRef %+v", rack.Name, slot.NodeRef)
 				bound[rack.Spec.NodeType] = rack.Spec.Identity.RackGroup
@@ -46,12 +46,12 @@ var _ = Describe("KWOK rack binding", Label("kwok"), func() {
 
 		By("reading all five hardware labels from the virtual Node")
 		Eventually(func(g Gomega) {
-			g.Expect(h.Kube.GetJSON(ctx, &virtual, "node", virtualName)).To(Succeed())
-			g.Expect(virtual.Labels).To(HaveKeyWithValue("nvidia.com/gpu.product", "NVIDIA-A100-SXM4-40GB"))
-			g.Expect(virtual.Labels).To(HaveKeyWithValue("nvidia.com/gpu.count", "8"))
-			g.Expect(virtual.Labels).To(HaveKeyWithValue("nvidia.com/gpu.memory", "40960"))
-			g.Expect(virtual.Labels).To(HaveKeyWithValue("nvidia.com/mig.strategy", "none"))
-			g.Expect(virtual.Labels).To(HaveKeyWithValue("feature.node.kubernetes.io/pci-10de.present", "true"))
+			g.Expect(h.Kube.GetJSON(ctx, &kwokNode, "node", virtualName)).To(Succeed())
+			g.Expect(kwokNode.Labels).To(HaveKeyWithValue("nvidia.com/gpu.product", "NVIDIA-A100-SXM4-40GB"))
+			g.Expect(kwokNode.Labels).To(HaveKeyWithValue("nvidia.com/gpu.count", "8"))
+			g.Expect(kwokNode.Labels).To(HaveKeyWithValue("nvidia.com/gpu.memory", "40960"))
+			g.Expect(kwokNode.Labels).To(HaveKeyWithValue("nvidia.com/mig.strategy", "none"))
+			g.Expect(kwokNode.Labels).To(HaveKeyWithValue("feature.node.kubernetes.io/pci-10de.present", "true"))
 		}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
 
 		By("checking actual node-daemon Pods after the DaemonSet has converged")
