@@ -86,10 +86,11 @@ func newSimulator(h *host.Host, opts Options, ops hostOperations) (*Simulator, e
 // A host failure is often brief, and a failed restore can leave kubelet stopped.
 func (s *Simulator) Requeue() <-chan struct{} { return s.requeue }
 
-// Name identifies this simulator in health reports.
+// Name provides the component key for the agent's readiness report.
 func (s *Simulator) Name() string { return name }
 
-// Ready reports whether the node setup has completed.
+// Ready stays false until Apply succeeds because Stage only prepares files. When
+// simulation is disabled, Apply restores any previous setup before reporting ready.
 func (s *Simulator) Ready() bool { return s.ready.Load() }
 
 // Stage validates and renders the topology without changing the node mount.

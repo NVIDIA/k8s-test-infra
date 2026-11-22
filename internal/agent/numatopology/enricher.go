@@ -21,7 +21,7 @@ type Enricher struct {
 // NewEnricher returns an Enricher that reads the node through h.
 func NewEnricher(h *host.Host) *Enricher { return &Enricher{host: h} }
 
-// Name identifies this enricher in logs.
+// Name identifies which enricher failed when the agent reports a state error.
 func (e *Enricher) Name() string { return "numa-topology" }
 
 // Enrich sets state.NodeShape.NUMA, or leaves it nil on error.
