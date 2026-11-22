@@ -38,7 +38,8 @@
           "pciAddress": "0000:01:00.0",
           "rootComplex": "pci0000:00",
           "numaNode": 0,
-          "hostProcessorIndex": 0
+          "hostProcessorIndex": 0,
+          "runtime": {}
         },
         {
           "index": 1,
@@ -48,7 +49,8 @@
           "pciAddress": "0001:41:00.0",
           "rootComplex": "pci0001:40",
           "numaNode": 1,
-          "hostProcessorIndex": 1
+          "hostProcessorIndex": 1,
+          "runtime": {}
         }
       ]
     }

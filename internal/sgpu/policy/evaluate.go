@@ -37,7 +37,7 @@ type Evaluation struct {
 	Decisions []Decision
 
 	// layers holds each rack group's accepted overrides.
-	layers map[string][]layer
+	layers map[string]RackPolicies
 }
 
 // Evaluate decides every policy that targets inventoryName. inventory is nil

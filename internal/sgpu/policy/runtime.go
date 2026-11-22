@@ -5,8 +5,11 @@ package policy
 
 import (
 	"cmp"
+	"fmt"
 	"iter"
 	"slices"
+
+	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 )
@@ -26,11 +29,48 @@ type layer struct {
 	policy  *mokkav1alpha1.SGPURuntimePolicy
 }
 
+// RackPolicies holds one rack group's accepted overrides in precedence order.
+type RackPolicies []layer
+
+func (layers RackPolicies) order() {
+	slices.SortStableFunc(layers, func(a, b layer) int { return cmp.Compare(a.scope, b.scope) })
+}
+
+// DeliveredPolicies resolves exactly the policy versions that the rack publisher accepted.
+// A cached policy outside this list cannot displace a published policy.
+func DeliveredPolicies(refs []mokkav1alpha1.DeliveryObjectReference, cached map[types.UID]*mokkav1alpha1.SGPURuntimePolicy) (RackPolicies, error) {
+	layers := make(RackPolicies, 0, len(refs))
+	for _, ref := range refs {
+		p := cached[ref.UID]
+		if p == nil || p.UID != ref.UID || ref.UID == "" || ref.Generation < 1 || p.Generation != ref.Generation {
+			return nil, fmt.Errorf("policy %q generation %d is unavailable", ref.UID, ref.Generation)
+		}
+		target := &p.Spec.TargetRef
+		// The manifest already selects this rack. Only the node and GPU axes
+		// can narrow the selection further within it.
+		layers = append(layers, layer{
+			policy: p,
+			scope:  scopeOf(target),
+			selects: groupSelection{
+				racks: indexes{every: true},
+				nodes: deliveredIndexes(target.NodeIndexes),
+				gpus:  deliveredIndexes(target.GPUIndexes),
+			},
+		})
+	}
+	layers.order()
+	return layers, nil
+}
+
+func deliveredIndexes(values []int32) indexes {
+	return indexes{every: len(values) == 0, listed: sortedCopy(values)}
+}
+
 // layersByGroup orders each rack group's accepted overrides from the broadest
 // scope to the narrowest. Accepted policies of one scope that select the same
 // GPU set disjoint fields, so their relative order does not change the result.
-func layersByGroup(accepted []candidate) map[string][]layer {
-	layers := make(map[string][]layer)
+func layersByGroup(accepted []candidate) map[string]RackPolicies {
+	layers := make(map[string]RackPolicies)
 
 	for _, winner := range accepted {
 		for group, selected := range winner.selection {
@@ -43,7 +83,7 @@ func layersByGroup(accepted []candidate) map[string][]layer {
 	}
 
 	for _, groupLayers := range layers {
-		slices.SortStableFunc(groupLayers, func(a, b layer) int { return cmp.Compare(a.scope, b.scope) })
+		groupLayers.order()
 	}
 
 	return layers
@@ -64,7 +104,10 @@ func (e *Evaluation) AcceptedForRack(group string, index int32) iter.Seq[*mokkav
 // Applied returns the accepted policies that select the GPU at a coordinate,
 // in the order their overrides apply: from the broadest scope to the narrowest.
 func (e *Evaluation) Applied(at Coordinate) []*mokkav1alpha1.SGPURuntimePolicy {
-	layers := e.layers[at.RackGroup]
+	return e.layers[at.RackGroup].applied(at)
+}
+
+func (layers RackPolicies) applied(at Coordinate) []*mokkav1alpha1.SGPURuntimePolicy {
 	applied := make([]*mokkav1alpha1.SGPURuntimePolicy, 0, len(layers))
 
 	for _, override := range layers {
@@ -83,7 +126,12 @@ func (e *Evaluation) Runtime(
 	defaults *mokkav1alpha1.RuntimeState,
 	at Coordinate,
 ) (mokkav1alpha1.RuntimeState, error) {
-	applied := e.Applied(at)
+	return e.layers[at.RackGroup].Runtime(defaults, at)
+}
+
+// Runtime applies these policies to one GPU in the rack.
+func (layers RackPolicies) Runtime(defaults *mokkav1alpha1.RuntimeState, at Coordinate) (mokkav1alpha1.RuntimeState, error) {
+	applied := layers.applied(at)
 	overrides := make([]*mokkav1alpha1.RuntimeState, 0, len(applied))
 
 	for _, policy := range applied {

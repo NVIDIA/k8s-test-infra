@@ -12,10 +12,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/yaml"
 
 	api "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 	state "github.com/NVIDIA/k8s-test-infra/pkg/rackstate/v1alpha1"
 )
 
@@ -61,7 +64,7 @@ func TestStaticRackState(t *testing.T) {
 			slices.Reverse(r.Spec.Nodes[0].GPUs)
 			slices.Reverse(r.Spec.Nodes)
 			originalRack, originalProfile := r.DeepCopy(), p.DeepCopy()
-			got, err := Compile(r, p)
+			got, err := Compile(r, p, Observations{})
 			require.NoError(t, err)
 			raw, err := json.MarshalIndent(got, "", "  ")
 			require.NoError(t, err)
@@ -104,9 +107,95 @@ func TestRejectUnpublishedInputs(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			r, p := deliveredRack(t, "pcie-only")
 			edit(r, p)
-			got, err := Compile(r, p)
+			got, err := Compile(r, p, Observations{})
 			require.Error(t, err)
 			require.Zero(t, got)
 		})
 	}
+}
+
+func TestDeliveredRuntime(t *testing.T) {
+	t.Parallel()
+	r, p := deliveredRack(t, "gb300-nvl72")
+	defaults := &api.RuntimeState{DeviceState: api.DeviceStateHealthy, Telemetry: &api.RuntimeTelemetry{PerformanceState: "P0"}}
+	p.Spec.Defaults = &api.SGPURackProfileDefaults{Runtime: defaults}
+	revision, err := rackrender.ProfileRevision(p.Spec)
+	require.NoError(t, err)
+	r.Spec.ProfileRef.Revision, r.Status.Delivery.ProfileRef.Revision = revision, revision
+	inputs := Observations{Policies: make(map[types.UID]*api.SGPURuntimePolicy)}
+	steps := []struct {
+		scope                      string
+		target                     api.PolicyTargetRef
+		value, otherGPU, otherNode string
+	}{
+		{"inventory", api.PolicyTargetRef{}, "P1", "P1", "P1"},
+		{"group", api.PolicyTargetRef{RackGroups: []string{"train"}}, "P2", "P2", "P2"},
+		{"rack", api.PolicyTargetRef{RackIndexes: []int32{0}}, "P3", "P3", "P3"},
+		{"node", api.PolicyTargetRef{NodeIndexes: []int32{0}}, "P4", "P4", "P3"},
+		{"gpu", api.PolicyTargetRef{NodeIndexes: []int32{0}, GPUIndexes: []int32{0}}, "P5", "P4", "P3"},
+	}
+	for _, step := range steps {
+		target := step.target
+		target.Group, target.Kind, target.Name = api.GroupName, "SGPUInventory", "demo"
+		uid := types.UID(step.scope)
+		inputs.Policies[uid] = &api.SGPURuntimePolicy{
+			ObjectMeta: metav1.ObjectMeta{UID: uid, Generation: 1},
+			Spec: api.SGPURuntimePolicySpec{
+				TargetRef: target,
+				Runtime:   &api.RuntimeState{Telemetry: &api.RuntimeTelemetry{PerformanceState: step.value}},
+			},
+		}
+		if step.scope == "gpu" {
+			inputs.Policies[uid].Spec.Runtime.Modes = &api.RuntimeModes{Compute: "Exclusive"}
+		}
+		// The published list is not in precedence order.
+		r.Status.Delivery.AcceptedPolicies = append([]api.DeliveryObjectReference{{UID: uid, Generation: 1}}, r.Status.Delivery.AcceptedPolicies...)
+		got, err := Compile(r, p, inputs)
+		require.NoError(t, err)
+		require.Equal(t, step.value, got.Nodes[0].GPUs[0].Runtime.Telemetry.PerformanceState)
+		require.Equal(t, api.DeviceStateHealthy, got.Nodes[0].GPUs[0].Runtime.DeviceState)
+		require.Equal(t, step.otherGPU, got.Nodes[0].GPUs[1].Runtime.Telemetry.PerformanceState)
+		require.Equal(t, step.otherNode, got.Nodes[1].GPUs[0].Runtime.Telemetry.PerformanceState)
+	}
+	// The previous winner is still in the cache when its successor is published.
+	successor := inputs.Policies["gpu"].DeepCopy()
+	successor.Spec.Runtime.Modes = nil
+	successor.UID = "replacement"
+	successor.Spec.Runtime.Telemetry.PerformanceState = "P8"
+	inputs.Policies[successor.UID] = successor
+	r.Status.Delivery.AcceptedPolicies[0].UID = successor.UID
+	got, err := Compile(r, p, inputs)
+	require.NoError(t, err)
+	require.Nil(t, got.Nodes[0].GPUs[0].Runtime.Modes)
+	require.Equal(t, "P8", got.Nodes[0].GPUs[0].Runtime.Telemetry.PerformanceState)
+	successor.Generation++
+	got, err = Compile(r, p, inputs)
+	require.Error(t, err)
+	require.Zero(t, got)
+	delete(inputs.Policies, successor.UID)
+	got, err = Compile(r, p, inputs)
+	require.Error(t, err)
+	require.Zero(t, got)
+}
+
+func TestReleasingSlot(t *testing.T) {
+	t.Parallel()
+	rack, profile := deliveredRack(t, "gb300-nvl72")
+	cleanup := release.Cleanup{RackName: rack.Name, RackUID: rack.UID, Binding: allocate.Binding{
+		Coordinate: allocate.Coordinate{Group: allocate.RackGroupKey{InventoryName: "demo", InventoryUID: "inventory-id", RackGroup: "train"}},
+		Node:       allocate.NodeReference{Name: "worker-a", UID: "node-a"},
+	}}
+	stale := cleanup
+	stale.Binding.Coordinate.NodeIndex = 17
+	stale.Binding.Node = allocate.NodeReference{Name: "worker-z", UID: "old-node"}
+	got, err := Compile(rack, profile, Observations{PendingReleases: []release.Cleanup{cleanup, stale}})
+	require.NoError(t, err)
+	require.Len(t, got.Nodes, 2)
+	node, ok := got.ForNode(state.Object{Name: "worker-a", UID: "node-a"})
+	require.True(t, ok)
+	slot, err := json.Marshal(node.Slot)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"index":0,"node":{"name":"worker-a","uid":"node-a"},"assignmentRevision":7,"releasing":true}`, string(slot))
+	require.False(t, got.Nodes[1].Releasing)
+	require.Len(t, got.Nodes[1].GPUs, int(profile.Spec.Node.GPUs.Count))
 }

@@ -49,12 +49,19 @@ type Fabric struct {
 	api.GPUFabric
 }
 
+// GPU combines a rendered GPU identity with its effective settings.
+type GPU struct {
+	api.SGPURackGPU
+	Runtime api.RuntimeState `json:"runtime"`
+}
+
 // Slot carries the persisted assignment revision and rendered GPU identities.
 type Slot struct {
-	Index              int32             `json:"index"`
-	Node               Object            `json:"node"`
-	AssignmentRevision int64             `json:"assignmentRevision"`
-	GPUs               []api.SGPURackGPU `json:"gpus"`
+	Index              int32  `json:"index"`
+	Node               Object `json:"node"`
+	AssignmentRevision int64  `json:"assignmentRevision"`
+	Releasing          bool   `json:"releasing,omitempty"`
+	GPUs               []GPU  `json:"gpus,omitempty"`
 }
 
 // Rack is the compiled entry for one rack in a batch response.
