@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -924,6 +925,10 @@ func installAcceptanceAPIReactors(t *testing.T, client *mokkafake.Clientset) {
 				mokkav1alpha1.Resource("sgpuracks"), desired.Name, errors.New("rack resource version changed"),
 			)
 		}
+		desired.Generation = current.Generation
+		if !equality.Semantic.DeepEqual(desired.Spec, current.Spec) {
+			desired.Generation++
+		}
 		desired.Status = current.Status
 		desired.ResourceVersion += "a"
 		setAcceptanceRackManagedFields(desired)
@@ -941,6 +946,10 @@ func installAcceptanceAPIReactors(t *testing.T, client *mokkafake.Clientset) {
 			return true, nil, err
 		}
 		updated := stored.(*mokkav1alpha1.SGPURack).DeepCopy()
+		if candidate.ResourceVersion != updated.ResourceVersion {
+			return true, nil, apierrors.NewConflict(mokkav1alpha1.Resource("sgpuracks"), candidate.Name, errors.New("rack status resource version changed"))
+		}
+		updated.ResourceVersion += "s"
 		updated.Status = candidate.Status
 		err = client.Tracker().Update(resource, updated, "")
 		return true, updated, err
@@ -996,6 +1005,7 @@ func installAcceptanceRackCreateReactor(
 			return true, nil, err
 		}
 		desired.UID = types.UID(fmt.Sprintf("uid-%s-%d", desired.Name, nextRackUID.Add(1)))
+		desired.Generation = 1
 		desired.ResourceVersion = "1"
 		setAcceptanceRackManagedFields(desired)
 		err := client.Tracker().Create(resource, desired, "")

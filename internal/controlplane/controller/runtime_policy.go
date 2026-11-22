@@ -13,6 +13,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	sgpupolicy "github.com/NVIDIA/k8s-test-infra/internal/sgpu/policy"
 	sgpustatus "github.com/NVIDIA/k8s-test-infra/internal/sgpu/status"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
@@ -55,21 +56,24 @@ type runtimePolicyView struct {
 }
 
 // evaluate decides every runtime policy that targets the named inventory.
-func (v *runtimePolicyView) evaluate(inventoryName string) (*sgpupolicy.Evaluation, error) {
+func (v *runtimePolicyView) evaluate(inventoryName string) (*deliveryInputs, error) {
 	inventory, err := v.inventories.Get(inventoryName)
-	if apierrors.IsNotFound(err) {
-		return v.evaluateInventory(inventoryName, nil, nil)
-	}
-	if err != nil {
+	if err != nil && !apierrors.IsNotFound(err) {
 		return nil, fmt.Errorf("get inventory %q from cache: %w", inventoryName, err)
 	}
-
 	profiles, err := v.referencedProfiles(inventory)
 	if err != nil {
 		return nil, err
 	}
-
-	return v.evaluateInventory(inventoryName, inventory, profiles)
+	evaluation, err := v.evaluateInventory(inventoryName, inventory, profiles)
+	if err != nil {
+		return nil, err
+	}
+	// Retain the last published rack state when the inventory declaration is invalid.
+	if !sgpuinventory.ValidRackDeclaration(inventory) {
+		profiles = nil
+	}
+	return newDeliveryInputs(evaluation, profiles), nil
 }
 
 // evaluateInventory decides the policies that target an inventory against one
@@ -242,21 +246,15 @@ func (c *Controller) EffectiveRuntime(assignment AssignmentSnapshot) ([]GPURunti
 // status already converged cost no API calls on the retry.
 func reconcileRuntimePolicyStatus(
 	ctx context.Context,
-	view *runtimePolicyView,
+	evaluation *sgpupolicy.Evaluation,
 	reconciler *sgpustatus.RuntimePolicyReconciler,
-	inventoryName string,
 ) error {
-	evaluation, err := view.evaluate(inventoryName)
-	if err != nil {
-		return err
-	}
-
 	var errs []error
 	accepted := 0
 
 	for _, decision := range evaluation.Decisions {
 		zap.L().Debug("Runtime policy decided", zap.String("policy", decision.Policy.Name),
-			zap.String("inventory", inventoryName), zap.Stringer("scope", decision.Scope),
+			zap.String("inventory", evaluation.InventoryName), zap.Stringer("scope", decision.Scope),
 			zap.String("outcome", string(decision.Outcome)), zap.String("message", decision.Message))
 		if decision.Outcome.Accepted() {
 			accepted++
@@ -266,7 +264,7 @@ func reconcileRuntimePolicyStatus(
 		}
 	}
 
-	zap.L().Debug("Evaluated runtime policies", zap.String("inventory", inventoryName),
+	zap.L().Debug("Evaluated runtime policies", zap.String("inventory", evaluation.InventoryName),
 		zap.Int("policies", len(evaluation.Decisions)), zap.Int("accepted", accepted))
 
 	return errors.Join(errs...)

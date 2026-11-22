@@ -364,7 +364,19 @@ The result contains the driver and CUDA versions, the GPU model, and the NVLink
 fabric when the profile declares one. Each bound slot contains its node UID,
 assignment revision, and GPU identities with their PCI and NUMA locations.
 A per-node reader can select one slot from the same result. The compiler runs in
-memory. The delivery writer and the HTTP endpoints are separate work.
+memory.
+
+The elected leader saves the input versions in `SGPURack.status.delivery`.
+The first delivery has generation 1. Each changed rack gets a new generation
+when its binding, profile, inventory version, or accepted policies change. The
+leader writes the generation and inputs together with the rack status. A new
+leader continues from the saved generation.
+
+The v2 node assignment format identifies the node UID, assignment revision,
+rack and slot, and the minimum rack delivery generation for that binding.
+A release record contains the node UID, its revision, and `assigned: false`.
+The current projection writer still uses v1. Publication of v2 annotations
+and the rack-state HTTP endpoint are separate steps.
 
 ## Stage 1 exclusions
 

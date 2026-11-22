@@ -355,8 +355,7 @@ func inventoryMaterialization(
 	cache Cache,
 	inventory *mokkav1alpha1.SGPUInventory,
 ) ([]resolvedGroup, []ProfileIssue, error) {
-	if inventory == nil || inventory.DeletionTimestamp != nil || validateInventory(inventory) != nil ||
-		validateInventoryRackCapacity(inventory) != nil {
+	if !ValidRackDeclaration(inventory) || inventory.DeletionTimestamp != nil {
 		return nil, nil, nil
 	}
 	resolved, issues, err := (&Reconciler{cache: cache}).resolveGroups(inventory)

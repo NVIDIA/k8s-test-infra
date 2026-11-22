@@ -1122,6 +1122,12 @@ func (r *Reconciler) classifyRackUpdateError(
 	return nil, err
 }
 
+// ValidRackDeclaration reports whether the inventory's rack groups can be
+// materialized before their profiles are resolved.
+func ValidRackDeclaration(inventory *mokkav1alpha1.SGPUInventory) bool {
+	return inventory != nil && validateInventory(inventory) == nil && validateInventoryRackCapacity(inventory) == nil
+}
+
 //nolint:cyclop // Validation reports the precise independently-invalid inventory field.
 func validateInventory(inventory *mokkav1alpha1.SGPUInventory) error {
 	if inventory.Name == "" || inventory.UID == "" {
