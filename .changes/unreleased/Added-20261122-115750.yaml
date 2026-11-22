@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  control-plane: Eligible KWOK nodes bind to KWOK rack groups, including nodes identified only by the KWOK annotation. The inventory reports node usage per group, and each KWOK rack identifies its data-plane replica.
+time: 2026-11-22T09:57:50Z
+custom:
+  Issue: "1249"

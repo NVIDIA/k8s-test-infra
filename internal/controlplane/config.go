@@ -40,6 +40,9 @@ func (config Config) validate() error {
 		return fmt.Errorf("leader-election namespace %q is invalid: %s", leaderElection.Namespace, errs[0])
 	}
 	opts := config.Controller
+	if len(validation.IsDNS1123Label(opts.KWOKShardName)) > 0 {
+		return fmt.Errorf("invalid KWOK shard name %q", opts.KWOKShardName)
+	}
 	if opts.Workers < 1 || opts.StatusDebounce < 0 || opts.StatusProgressInterval < 0 ||
 		opts.LiveNodeGetTimeout <= 0 {
 		return errors.New("workers and live Node GET timeout must be positive and status intervals non-negative")

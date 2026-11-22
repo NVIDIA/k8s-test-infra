@@ -83,6 +83,7 @@ func newCLI() *cli.Command {
 			&cli.DurationFlag{
 				Name: "leader-election-retry-period", Value: defaults.LeaderElection.RetryPeriod,
 			},
+			&cli.StringFlag{Name: "kwok-shard-name", Value: defaults.Controller.KWOKShardName, Usage: "data-plane replica assigned to KWOK racks"},
 			&cli.IntFlag{
 				Name: "workers", Value: defaults.Controller.Workers, Usage: "workers per controller queue",
 			},
@@ -126,6 +127,7 @@ func configFrom(cmd *cli.Command) controlplane.Config {
 		},
 		Controller: controller.Options{
 			Workers:                cmd.Int("workers"),
+			KWOKShardName:          cmd.String("kwok-shard-name"),
 			StatusDebounce:         cmd.Duration("status-debounce"),
 			StatusProgressInterval: cmd.Duration("status-progress-interval"),
 			LiveNodeGetTimeout:     cmd.Duration("live-node-get-timeout"),

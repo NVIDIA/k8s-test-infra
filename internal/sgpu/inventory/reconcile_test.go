@@ -345,7 +345,7 @@ func TestReconcileRejectsAggregateCapacityBeforeAllocationOrWrites(t *testing.T)
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
 		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return false }),
-		allocation,
+		allocation, DefaultKWOKShardName,
 	)
 	h.mokka.Fake.ClearActions()
 
@@ -381,7 +381,7 @@ func TestReconcileRejectsAdmittedMaximumPerGroupBeforeProfileResolution(t *testi
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
 		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return false }),
-		allocation,
+		allocation, DefaultKWOKShardName,
 	)
 	h.mokka.Fake.ClearActions()
 
@@ -1513,4 +1513,8 @@ func testNode(name string, uid types.UID, creationSeconds int64, extraLabels map
 		Name: name, UID: uid, Labels: labels,
 		CreationTimestamp: metav1.NewTime(time.Unix(creationSeconds, 0)),
 	}}
+}
+
+func newRack(inventory *mokkav1alpha1.SGPUInventory, name string, spec mokkav1alpha1.SGPURackSpec) *mokkav1alpha1.SGPURack {
+	return (&Reconciler{kwokShardName: DefaultKWOKShardName}).newRack(inventory, name, spec)
 }

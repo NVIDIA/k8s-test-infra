@@ -300,7 +300,7 @@ func ComputeInventory(input InventoryInput, now metav1.Time) mokkav1alpha1.SGPUI
 			},
 			selector: labels.Nothing(), requested: make(map[types.UID]struct{}),
 		}
-		if selector, err := allocate.CompilePlacementSelector(declaration.NodeSelector()); err == nil {
+		if selector, err := allocate.CompilePlacementSelector(declaration.NodeSelector(), declaration.Node.Type); err == nil {
 			aggregate.selector = selector
 		}
 		profile := input.Profiles[declaration.ProfileRef.Name]
@@ -346,8 +346,9 @@ func ComputeInventory(input InventoryInput, now metav1.Time) mokkav1alpha1.SGPUI
 		if !allocate.NodeEligible(node.Labels, node.DeletionTimestamp != nil) {
 			continue
 		}
+		placement := allocate.PlacementLabels(node)
 		for _, aggregate := range groups {
-			if aggregate.selector.Matches(labels.Set(node.Labels)) {
+			if aggregate.selector.Matches(placement) {
 				aggregate.requested[node.UID] = struct{}{}
 				requested[node.UID] = struct{}{}
 			}

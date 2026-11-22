@@ -194,7 +194,7 @@ func (r *placementRegistry) replace(inventory *mokkav1alpha1.SGPUInventory) {
 	groups := make(map[allocate.RackGroupKey]labels.Selector, len(inventory.Spec.RackGroups))
 	for _, group := range inventory.Spec.RackGroups {
 		key := groupKey(inventory, group.ID)
-		selector, err := allocate.CompilePlacementSelector(group.NodeSelector())
+		selector, err := allocate.CompilePlacementSelector(group.NodeSelector(), group.Node.Type)
 		if err != nil {
 			selector = labels.Nothing()
 		}
@@ -262,7 +262,7 @@ func (r *placementRegistry) matching(node *corev1.Node) []allocate.RackGroupKey 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	matches := make([]allocate.RackGroupKey, 0, 1)
-	set := labels.Set(node.Labels)
+	set := allocate.PlacementLabels(node)
 	for key, selector := range r.active {
 		if selector.Matches(set) {
 			matches = append(matches, key)
@@ -911,6 +911,7 @@ func runtimePolicyUnchanged(old, current *mokkav1alpha1.SGPURuntimePolicy) bool 
 
 func rackUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
 	return old.UID == current.UID &&
+		old.Labels[sgpuinventory.KWOKShardLabel] == current.Labels[sgpuinventory.KWOKShardLabel] &&
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
 		equality.Semantic.DeepEqual(old.OwnerReferences, current.OwnerReferences) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
@@ -928,7 +929,8 @@ func rackCapacityUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
 }
 
 func rackTemplateUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
-	return equality.Semantic.DeepEqual(old.Spec.WithoutBindings(), current.Spec.WithoutBindings()) &&
+	return old.Labels[sgpuinventory.KWOKShardLabel] == current.Labels[sgpuinventory.KWOKShardLabel] &&
+		equality.Semantic.DeepEqual(old.Spec.WithoutBindings(), current.Spec.WithoutBindings()) &&
 		equality.Semantic.DeepEqual(old.OwnerReferences, current.OwnerReferences)
 }
 
@@ -946,7 +948,7 @@ func rackBindingsUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
 
 func nodeUnchanged(old, current *corev1.Node) bool {
 	return old.UID == current.UID &&
-		equality.Semantic.DeepEqual(old.Labels, current.Labels) &&
+		equality.Semantic.DeepEqual(allocate.PlacementLabels(old), allocate.PlacementLabels(current)) &&
 		old.Annotations[sgpumetadata.AssignmentAnnotation] == current.Annotations[sgpumetadata.AssignmentAnnotation] &&
 		equality.Semantic.DeepEqual(old.ManagedFields, current.ManagedFields) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
@@ -954,7 +956,7 @@ func nodeUnchanged(old, current *corev1.Node) bool {
 
 func projectionOnlyNodeUpdate(old, current *corev1.Node) bool {
 	return old.Name == current.Name && old.UID == current.UID &&
-		sgpumetadata.LabelsEqualIgnoringProjection(old.Labels, current.Labels) &&
+		sgpumetadata.LabelsEqualIgnoringProjection(allocate.PlacementLabels(old), allocate.PlacementLabels(current)) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }
 

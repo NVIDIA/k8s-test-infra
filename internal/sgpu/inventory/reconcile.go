@@ -39,6 +39,8 @@ const (
 	RackFieldManager   = "mokka-controller"
 
 	InventoryNameLabel     = "mokka.nvidia.com/inventory"
+	KWOKShardLabel         = "mokka.nvidia.com/kwok-shard"
+	DefaultKWOKShardName   = "mokka-kwok-data-plane-0"
 	RackGroupLabel         = "mokka.nvidia.com/rack-group"
 	RackIndexLabel         = "mokka.nvidia.com/rack-index"
 	InventoryUIDAnnotation = "mokka.nvidia.com/inventory-uid"
@@ -135,6 +137,7 @@ type profileRevisionPrecomputer func(
 
 // Reconciler materializes one cached inventory key at a time.
 type Reconciler struct {
+	kwokShardName             string
 	cache                     Cache
 	inventories               InventoryMutations
 	racks                     Mutations
@@ -154,7 +157,7 @@ func NewReconciler(
 	cleanup sgpurelease.Gate,
 ) *Reconciler {
 	reconciler := NewReconcilerWithAllocationCache(
-		cache, inventories, racks, cleanup, NewAllocationCache(cache),
+		cache, inventories, racks, cleanup, NewAllocationCache(cache), DefaultKWOKShardName,
 	)
 	reconciler.refreshAllocation = true
 	return reconciler
@@ -168,9 +171,10 @@ func NewReconcilerWithAllocationCache(
 	racks Mutations,
 	cleanup sgpurelease.Gate,
 	allocation *AllocationCache,
+	kwokShardName string,
 ) *Reconciler {
 	return &Reconciler{
-		cache: cache, inventories: inventories, racks: racks, cleanup: cleanup, allocation: allocation,
+		cache: cache, inventories: inventories, racks: racks, cleanup: cleanup, allocation: allocation, kwokShardName: kwokShardName,
 	}
 }
 
@@ -912,7 +916,7 @@ func (r *Reconciler) createOrUpdateRack(
 	changed, _, updated, err := r.mutateRack(ctx, inventory, existing, func(latest *mokkav1alpha1.SGPURack) bool {
 		before := latest.DeepCopy()
 		latest.Spec = *spec.DeepCopy()
-		ensureRackMetadata(latest, inventory)
+		ensureRackMetadata(latest, inventory, r.kwokShardName)
 		return !rackSemanticEqual(before, latest)
 	})
 	if err != nil {
@@ -949,7 +953,7 @@ func (r *Reconciler) createCacheMissingRack(
 	name string,
 	spec mokkav1alpha1.SGPURackSpec,
 ) (bool, *OwnershipConflict, error) {
-	desired := newRack(inventory, name, spec)
+	desired := r.newRack(inventory, name, spec)
 	created, err := r.racks.Create(ctx, desired, metav1.CreateOptions{FieldManager: RackFieldManager})
 	if err == nil {
 		if created == nil {
@@ -1206,17 +1210,17 @@ func rackFields(rack *mokkav1alpha1.SGPURack) []zap.Field {
 	}
 }
 
-func newRack(inventory *mokkav1alpha1.SGPUInventory, name string, spec mokkav1alpha1.SGPURackSpec) *mokkav1alpha1.SGPURack {
+func (r *Reconciler) newRack(inventory *mokkav1alpha1.SGPUInventory, name string, spec mokkav1alpha1.SGPURackSpec) *mokkav1alpha1.SGPURack {
 	rack := &mokkav1alpha1.SGPURack{
 		TypeMeta:   metav1.TypeMeta{APIVersion: mokkav1alpha1.SchemeGroupVersion.String(), Kind: "SGPURack"},
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec:       spec,
 	}
-	ensureRackMetadata(rack, inventory)
+	ensureRackMetadata(rack, inventory, r.kwokShardName)
 	return rack
 }
 
-func ensureRackMetadata(rack *mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.SGPUInventory) {
+func ensureRackMetadata(rack *mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.SGPUInventory, shardName string) {
 	if rack.Labels == nil {
 		rack.Labels = make(map[string]string)
 	}
@@ -1224,6 +1228,11 @@ func ensureRackMetadata(rack *mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.S
 		rack.Labels[InventoryNameLabel] = inventory.Name
 	} else {
 		delete(rack.Labels, InventoryNameLabel)
+	}
+	if rack.Spec.NodeType == mokkav1alpha1.NodeTypeKWOK {
+		rack.Labels[KWOKShardLabel] = shardName
+	} else {
+		delete(rack.Labels, KWOKShardLabel)
 	}
 	rack.Labels[RackGroupLabel] = rack.Spec.Identity.RackGroup
 	rack.Labels[RackIndexLabel] = strconv.FormatInt(int64(rack.Spec.Identity.RackIndex), 10)

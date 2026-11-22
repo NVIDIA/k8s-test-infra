@@ -280,6 +280,7 @@ func allocationGroups(
 			groups = append(groups, allocate.RackGroup{
 				Key:          group.key,
 				Selector:     group.group.NodeSelector(),
+				NodeType:     group.group.Node.Type,
 				Racks:        group.group.Count,
 				NodesPerRack: group.profile.Spec.Rack.NodesPerRack,
 			})

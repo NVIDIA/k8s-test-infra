@@ -195,12 +195,16 @@ kubectl label node NODE \
 Set `spec.rackGroups[].node.type` to `CPU` (the default) or `KWOK`.
 Each generated rack records the value in `spec.nodeType`. To change the type,
 create a group with a new ID. The API rejects `mokka.nvidia.com/node-type`
-in placement selectors. Declaring a KWOK group records its type. Node binding
-still uses the group's placement selector.
+in placement selectors. The control plane applies the group selector and node type together.
+A node with the `mokka.nvidia.com/node-type=KWOK` label or the
+`kwok.x-k8s.io/node` annotation matches only KWOK groups. CPU groups also
+accept nodes without a type label. KWOK racks carry the
+`mokka.nvidia.com/kwok-shard` label. The chart passes the replica name from
+`controlPlane.kwokShardName` (default `mokka-kwok-data-plane-0`).
 
 Only Nodes with `mokka.nvidia.com/sgpu-node=true` enter the control plane's cache.
-An empty group selector matches every eligible Node; otherwise both eligibility
-and the selector must match. Placement selectors cannot reference
+An empty placement selector matches every eligible Node of the group's type.
+A nonempty selector also requires the Node to match its labels. Placement selectors cannot reference
 `mokka.nvidia.com/sgpu-assigned` or `nvidia.com/gpu.clique` because those labels
 are derived from placement. Such an inventory is rejected without changing its
 last materialized racks or bindings.

@@ -6,13 +6,35 @@ package allocate
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 )
+
+// KWOKNodeAnnotation identifies a virtual node managed by KWOK.
+const KWOKNodeAnnotation = "kwok.x-k8s.io/node"
+
+// NodeTypeLabel identifies the node type for placement.
+const NodeTypeLabel = "mokka.nvidia.com/node-type"
+
+// PlacementLabels includes the KWOK type for annotated virtual nodes even when
+// their source omitted the type label. The Kubernetes object is never modified.
+func PlacementLabels(node *corev1.Node) labels.Set {
+	if _, ok := node.Annotations[KWOKNodeAnnotation]; !ok || node.Labels[NodeTypeLabel] == string(mokkav1alpha1.NodeTypeKWOK) {
+		return node.Labels
+	}
+	result := make(labels.Set, len(node.Labels)+1)
+	maps.Copy(result, node.Labels)
+	result[NodeTypeLabel] = string(mokkav1alpha1.NodeTypeKWOK)
+	return result
+}
 
 // EligibleNodeLabel gates all Mokka placement.
 const EligibleNodeLabel = "mokka.nvidia.com/sgpu-node"
@@ -46,7 +68,7 @@ func CompileGroups(groups []RackGroup) (CompiledGroups, error) {
 		}
 		seen[group.Key] = struct{}{}
 
-		selector, err := CompilePlacementSelector(group.Selector)
+		selector, err := CompilePlacementSelector(group.Selector, group.NodeType)
 		if err != nil {
 			return CompiledGroups{}, fmt.Errorf("compile selector for %s: %w", group.Key, err)
 		}
@@ -61,12 +83,28 @@ func CompileGroups(groups []RackGroup) (CompiledGroups, error) {
 // ValidatePlacementSelector rejects selectors whose membership can be changed
 // by projecting the binding that placement creates.
 func ValidatePlacementSelector(selector *metav1.LabelSelector) error {
-	_, err := CompilePlacementSelector(selector)
+	_, err := compileUserSelector(selector)
 	return err
 }
 
 // CompilePlacementSelector validates and compiles a placement selector.
-func CompilePlacementSelector(selector *metav1.LabelSelector) (labels.Selector, error) {
+func CompilePlacementSelector(selector *metav1.LabelSelector, nodeType mokkav1alpha1.NodeType) (labels.Selector, error) {
+	compiled, err := compileUserSelector(selector)
+	if err != nil {
+		return nil, err
+	}
+	operator := selection.NotIn
+	if nodeType == mokkav1alpha1.NodeTypeKWOK {
+		operator = selection.In
+	}
+	req, err := labels.NewRequirement(NodeTypeLabel, operator, []string{string(mokkav1alpha1.NodeTypeKWOK)})
+	if err != nil {
+		return nil, err
+	}
+	return compiled.Add(*req), nil
+}
+
+func compileUserSelector(selector *metav1.LabelSelector) (labels.Selector, error) {
 	if selector == nil {
 		return labels.Everything(), nil
 	}

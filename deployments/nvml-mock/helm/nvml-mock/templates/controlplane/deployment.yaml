@@ -68,6 +68,7 @@ spec:
             - --shutdown-timeout={{ .Values.controlPlane.shutdownTimeout }}
             - --leader-election-name={{ .Values.controlPlane.leaderElection.name }}
             - --leader-election-namespace=$(POD_NAMESPACE)
+            - --kwok-shard-name={{ .Values.controlPlane.kwokShardName }}
             - --workers={{ .Values.controlPlane.workers }}
             - --kube-api-qps={{ .Values.controlPlane.kubeAPIQPS }}
             - --kube-api-burst={{ .Values.controlPlane.kubeAPIBurst }}

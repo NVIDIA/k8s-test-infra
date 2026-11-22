@@ -78,7 +78,7 @@ func TestRackBindingReleaseWakesDestinationAfterEarlierWorkDrains(t *testing.T) 
 	allocation := sgpuinventory.NewAllocationCache(snapshot)
 	projection := sgpuprojection.NewController(snapshot, liveNodes)
 	reconciler := sgpuinventory.NewReconcilerWithAllocationCache(
-		snapshot, mokka.MokkaV1alpha1().SGPUInventories(), mokka.MokkaV1alpha1().SGPURacks(), projection, allocation,
+		snapshot, mokka.MokkaV1alpha1().SGPUInventories(), mokka.MokkaV1alpha1().SGPURacks(), projection, allocation, sgpuinventory.DefaultKWOKShardName,
 	)
 	router := newEventRouter(inventories, racks, catalog, registry, queues,
 		allocation.InvalidateAllocation, allocation.InvalidateCapacity)

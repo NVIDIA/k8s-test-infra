@@ -9,7 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/labels"
+
 	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
@@ -134,9 +134,9 @@ func projectionTargetMatches(
 	if observed == nil || !equality.Semantic.DeepEqual(observed, slot) {
 		return false, nil
 	}
-	selector, err := allocate.CompilePlacementSelector(group.group.NodeSelector())
+	selector, err := allocate.CompilePlacementSelector(group.group.NodeSelector(), group.group.Node.Type)
 	if err != nil {
 		return false, nil
 	}
-	return selector.Matches(labels.Set(node.Labels)), nil
+	return selector.Matches(allocate.PlacementLabels(node)), nil
 }
