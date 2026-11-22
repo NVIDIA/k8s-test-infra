@@ -1,6 +1,6 @@
 {{- if (.Values.kwok | default dict).enabled }}
 {{- $settings := (.Values.kwok.dataPlane | default dict).image | default dict }}
-{{- $image := merge (deepCopy $settings) (dict "repository" "ghcr.io/nvidia/mokka-kwok" "tag" "latest") }}
+{{- $image := merge (deepCopy $settings) (dict "repository" "ghcr.io/nvidia/mokka-kwok") }}
 {{- $name := include "nvml-mock.kwokDataPlaneName" . }}
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
