@@ -41,19 +41,15 @@ func TestLeaderPublishesRackDeliveries(t *testing.T) {
 			t.Error("leader did not stop")
 		}
 	})
-	racks := []string{rackrender.RackName(inventory.Name, inventory.UID, "compute", 0), rackrender.RackName(inventory.Name, inventory.UID, "compute", 1), rackrender.RackName(inventory.Name, inventory.UID, "other", 0)}
-	wait := func(name string, match func(*api.SGPURack) bool) *api.RackDelivery {
-		t.Helper()
-		var r *api.SGPURack
-		require.Eventually(t, func() bool {
-			r = getAcceptanceRack(ctx, t, client, name)
-			return r.Status.Delivery != nil && r.Status.Delivery.RackSpecGeneration == r.Generation && match(r)
-		}, 15*time.Second, 10*time.Millisecond, "rack %s", name)
-		return r.Status.Delivery
+	racks := []string{
+		rackrender.RackName(inventory.Name, inventory.UID, "compute", 0),
+		rackrender.RackName(inventory.Name, inventory.UID, "compute", 1),
+		rackrender.RackName(inventory.Name, inventory.UID, "other", 0),
 	}
+
 	generations := map[string]int64{}
 	for _, rack := range racks {
-		generations[rack] = wait(rack, func(r *api.SGPURack) bool { return r.Status.Delivery.Generation == 1 }).Generation
+		generations[rack] = waitForRackDelivery(t, client, rack, func(r *api.SGPURack) bool { return r.Status.Delivery.Generation == 1 }).Generation
 	}
 	// Two policies compete for the same field. Only the accepted one is delivered.
 	target := api.PolicyTargetRef{RackGroups: []string{"compute"}}
@@ -65,50 +61,31 @@ func TestLeaderPublishesRackDeliveries(t *testing.T) {
 		_, err = policies.Create(ctx, p, metav1.CreateOptions{})
 		require.NoError(t, err)
 	}
-	checkPolicy := func(p *api.SGPURuntimePolicy) {
-		t.Helper()
-		for _, name := range racks[:2] {
-			d := wait(name, func(r *api.SGPURack) bool {
-				refs := r.Status.Delivery.AcceptedPolicies
-				return len(refs) == 1 && refs[0].UID == p.UID && refs[0].Generation == p.Generation
-			})
-			require.Equal(t, generations[name]+1, d.Generation)
-			generations[name] = d.Generation
-		}
-		writes := map[string]int{}
-		for _, a := range client.Actions() {
-			if a.GetVerb() == "update" && a.GetResource().Resource == "sgpuracks" && a.GetSubresource() == "status" {
-				obj := a.(k8stesting.UpdateAction).GetObject().(*api.SGPURack)
-				writes[obj.Name]++
-			}
-		}
-		require.Equal(t, map[string]int{racks[0]: 1, racks[1]: 1}, writes)
-		client.ClearActions()
-	}
-	checkPolicy(winner)
+
+	requirePolicyDelivery(t, client, racks[:2], generations, winner)
 	edited, err := policies.Get(ctx, winner.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	edited.Generation++
 	edited.Spec.Runtime = gpuTemperature(60)
 	_, err = policies.Update(ctx, edited, metav1.UpdateOptions{})
 	require.NoError(t, err)
-	checkPolicy(edited)
+	requirePolicyDelivery(t, client, racks[:2], generations, edited)
 	require.NoError(t, policies.Delete(ctx, winner.Name, metav1.DeleteOptions{}))
-	checkPolicy(successor)
+	requirePolicyDelivery(t, client, racks[:2], generations, successor)
 	profile = profile.DeepCopy()
 	profile.Generation++
 	profile.Spec.Defaults = &api.SGPURackProfileDefaults{Runtime: gpuTemperature(40)}
 	_, err = client.MokkaV1alpha1().SGPURackProfiles().Update(ctx, profile, metav1.UpdateOptions{})
 	require.NoError(t, err)
 	for _, name := range racks {
-		d := wait(name, func(r *api.SGPURack) bool { return r.Status.Delivery.ProfileRef.Generation == profile.Generation })
+		d := waitForRackDelivery(t, client, name, func(r *api.SGPURack) bool { return r.Status.Delivery.ProfileRef.Generation == profile.Generation })
 		require.Equal(t, generations[name]+1, d.Generation)
 		generations[name] = d.Generation
 	}
 	// A move changes two rack specs. A release changes only the current rack.
 	checkBinding := func(name string, bound bool) {
 		t.Helper()
-		d := wait(name, func(r *api.SGPURack) bool {
+		d := waitForRackDelivery(t, client, name, func(r *api.SGPURack) bool {
 			return (r.Spec.Nodes[0].NodeRef != nil) == bound && r.Status.Delivery.Generation > generations[name]
 		})
 		require.Equal(t, generations[name]+1, d.Generation)
@@ -121,4 +98,35 @@ func TestLeaderPublishesRackDeliveries(t *testing.T) {
 	checkBinding(racks[2], true)
 	nodes.delete("node-a")
 	checkBinding(racks[2], false)
+}
+
+func waitForRackDelivery(t *testing.T, client *mokkafake.Clientset, name string, match func(*api.SGPURack) bool) *api.RackDelivery {
+	t.Helper()
+	var r *api.SGPURack
+	require.Eventually(t, func() bool {
+		r = getAcceptanceRack(t.Context(), t, client, name)
+		return r.Status.Delivery != nil && r.Status.Delivery.RackSpecGeneration == r.Generation && match(r)
+	}, 15*time.Second, 10*time.Millisecond, "rack %s", name)
+	return r.Status.Delivery
+}
+
+func requirePolicyDelivery(t *testing.T, client *mokkafake.Clientset, racks []string, generations map[string]int64, p *api.SGPURuntimePolicy) {
+	t.Helper()
+	for _, name := range racks {
+		d := waitForRackDelivery(t, client, name, func(r *api.SGPURack) bool {
+			refs := r.Status.Delivery.AcceptedPolicies
+			return len(refs) == 1 && refs[0].UID == p.UID && refs[0].Generation == p.Generation
+		})
+		require.Equal(t, generations[name]+1, d.Generation)
+		generations[name] = d.Generation
+	}
+	writes := map[string]int{}
+	for _, a := range client.Actions() {
+		if a.GetVerb() == "update" && a.GetResource().Resource == "sgpuracks" && a.GetSubresource() == "status" {
+			obj := a.(k8stesting.UpdateAction).GetObject().(*api.SGPURack)
+			writes[obj.Name]++
+		}
+	}
+	require.Equal(t, map[string]int{racks[0]: 1, racks[1]: 1}, writes)
+	client.ClearActions()
 }

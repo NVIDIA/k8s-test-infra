@@ -920,7 +920,7 @@ metadata:
     nvidia.com/gpu.clique: 612ee4ea-82ff-5045-bb7e-04c5f9617370.0
   annotations:
     mokka.nvidia.com/sgpu-assignment: >-
-      {"v":1,"nodeUID":"33427206-1021-4bd9-a6fb-c23737696e98","assignmentRevision":7,"assigned":true,"rack":{"name":"dev-training-0-cf4957078095","uid":"7f6db22d-f91b-4f98-a0d2-a408bc3b78a2"},"rackGroup":"training","rackIndex":0,"nodeIndex":0,"rackDeliveryGenerationFloor":12}
+      {"v":2,"nodeUID":"33427206-1021-4bd9-a6fb-c23737696e98","assignmentRevision":7,"assigned":true,"rack":{"name":"dev-training-0-cf4957078095","uid":"7f6db22d-f91b-4f98-a0d2-a408bc3b78a2"},"rackGroup":"training","rackIndex":0,"nodeIndex":0,"rackDeliveryGenerationFloor":12}
 ```
 
 `assignmentRevision` is allocated from this annotation and is monotonic only
@@ -937,10 +937,10 @@ the fence:
 metadata:
   annotations:
     mokka.nvidia.com/sgpu-assignment: >-
-      {"v":1,"nodeUID":"33427206-1021-4bd9-a6fb-c23737696e98","assignmentRevision":8,"assigned":false}
+      {"v":2,"nodeUID":"33427206-1021-4bd9-a6fb-c23737696e98","assignmentRevision":8,"assigned":false}
 ```
 
-The absent rack generation in a tombstone is represented as zero on the wire.
+The tombstone omits the rack and its delivery generation floor.
 The tombstone prevents a cached response at revision 7 from restoring the old
 binding. Deleting this Kubernetes Node ends the ordering domain; a Node later
 created with the same name has a different UID and starts its own revision

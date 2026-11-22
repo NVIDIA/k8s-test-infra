@@ -301,15 +301,15 @@ func inventoryStatusInput(
 	}
 	outcomes := projection.OutcomesForInventory(inventory.Name, inventory.UID)
 	return sgpustatus.InventoryInput{
-			Inventory:  inventory,
-			Profiles:   profiles,
-			Racks:      racks,
-			Nodes:      nodes.nodes,
-			RackResult: results.get(inventory.Name, inventory.UID),
-			Projection: outcomes,
-		}, statusSnapshotWork{
-			nodesExamined: nodes.examined, racksExamined: len(racks), outcomesExamined: len(outcomes),
-		}, nil
+		Inventory:  inventory,
+		Profiles:   profiles,
+		Racks:      racks,
+		Nodes:      nodes.nodes,
+		RackResult: results.get(inventory.Name, inventory.UID),
+		Projection: outcomes,
+	}, statusSnapshotWork{
+		nodesExamined: nodes.examined, racksExamined: len(racks), outcomesExamined: len(outcomes),
+	}, nil
 }
 
 func rackStatusInput(

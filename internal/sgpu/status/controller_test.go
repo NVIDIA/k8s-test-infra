@@ -1032,4 +1032,14 @@ func TestDeliveryResumesFromPersistedStatus(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, changed)
 	require.Equal(t, int64(43), writer.object.Status.Delivery.Generation)
+	// An older snapshot of this same rack spec cannot replace the delivery
+	// that a different leader has already published.
+	writer.object.Status.Delivery.Generation++
+	writer.object.Status.Delivery.AcceptedPolicies = []mokkav1alpha1.DeliveryObjectReference{{UID: "new-policy", Generation: 1}}
+	writes := writer.updates
+	changed, err = NewReconciler(nil, writer, nil).ReconcileRack(t.Context(), in)
+	require.Error(t, err)
+	require.False(t, changed)
+	require.Equal(t, writes, writer.updates)
+
 }
