@@ -79,6 +79,9 @@ jobs:
     - name: Lint
       run: make lint
 
+    - name: Build the KWOK data plane
+      run: go build ./cmd/mokka-kwok
+
     - name: Run unit tests
       run: make test
 
