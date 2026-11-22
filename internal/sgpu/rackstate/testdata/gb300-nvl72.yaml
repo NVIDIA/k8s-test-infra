@@ -1,0 +1,147 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+# Static profile from MEP0001.
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SGPURackProfile
+metadata:
+  name: gb300-nvl72
+  labels:
+    mokka.nvidia.com/family: gb300
+    mokka.nvidia.com/platform: nvl72
+    mokka.nvidia.com/profile-source: builtin
+spec:
+  rack:
+    nodesPerRack: 18
+  node:
+    gpus:
+      count: 4
+      model:
+        vendor: nvidia.com
+        product: GB300
+        productName: NVIDIA GB300 NVL
+        architecture: blackwell
+        computeCapability:
+          major: 10
+          minor: 0
+        cores:
+          cuda: 21632
+        board:
+          partNumber: 699-2G530-0300-000
+        firmware:
+          vbiosVersion: 97.00.41.00.01
+          gspVersion: 570.124.06
+          infoROM:
+            imageVersion: G530.0300.00.01
+            oemObjectVersion: "2.1"
+            eccObjectVersion: "7.20"
+            powerObjectVersion: "1.0"
+      memory:
+        capacity: 288Gi
+        reserved: 1536Mi
+        bar1Capacity: 768Gi
+        busWidthBits: 8192
+      pci:
+        vendorID: "10de"
+        deviceID: "2941"
+        subsystemVendorID: "10de"
+        subsystemDeviceID: "1830"
+        maxLink:
+          generation: 6
+          width: 16
+      power:
+        managementSupported: true
+        limitsMilliWatts:
+          minimum: 500000
+          default: 1400000
+          maximum: 1600000
+      thermal:
+        targetCelsius: 85
+        maxOperatingCelsius: 85
+        slowdownThresholdCelsius: 90
+        shutdownThresholdCelsius: 95
+      clocks:
+        maximumMHz:
+          graphics: 2200
+          sm: 2200
+          memory: 2625
+          video: 2200
+        supported:
+          - memoryMHz: 2625
+            graphicsMHz:
+              - 345
+              - 690
+              - 1035
+              - 1380
+              - 1725
+              - 1980
+              - 2200
+      capabilities:
+        mig:
+          supported: true
+          maxGPUInstances: 7
+        attributes:
+          nvidia.com/transformer-engine:
+            bool: true
+          nvidia.com/confidential-compute:
+            bool: true
+          nvidia.com/nvlink-c2c:
+            bool: true
+          nvidia.com/tensor-precisions:
+            strings:
+              - fp4
+              - fp6
+              - fp8
+          nvidia.com/decompression-engine:
+            bool: true
+    host:
+      cpu:
+        vendor: nvidia.com
+        product: Grace
+        architecture: arm64
+        cores: 72
+      memory:
+        capacity: 480Gi
+        coherentWithGPU: true
+    topology:
+      gpuSlots:
+        - index: 0
+          pciAddress: "0000:0a:00.0"
+          rootComplex: pci0000:00
+          numaNode: 0
+          hostProcessorIndex: 0
+        - index: 1
+          pciAddress: "0000:0b:00.0"
+          rootComplex: pci0000:00
+          numaNode: 0
+          hostProcessorIndex: 0
+        - index: 2
+          pciAddress: "0000:4a:00.0"
+          rootComplex: pci0000:40
+          numaNode: 1
+          hostProcessorIndex: 1
+        - index: 3
+          pciAddress: "0000:4b:00.0"
+          rootComplex: pci0000:40
+          numaNode: 1
+          hostProcessorIndex: 1
+      gpuFabric:
+        type: NVLink
+        generation: 5
+        linksPerGPU: 18
+        bandwidthPerLinkMBps: 53125
+        c2cSupported: true
+        domain:
+          scope: Rack
+          gpuCount: 72
+        switches:
+          visiblePerNode: 4
+      network:
+        type: InfiniBand
+        adapterModel: MT4129
+        firmwareVersion: 28.43.1000
+        linkSpeedGbps: 400
+        adaptersPerGPU: 1
+  software:
+    driverVersion: 570.124.06
+    nvmlVersion: 12.570.124.06
+    cudaVersion: "12.8"

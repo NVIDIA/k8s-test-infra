@@ -348,6 +348,18 @@ handlers to replay the current caches and its workers to start. Upgrades use a
 `RollingUpdate` Deployment strategy with `maxUnavailable: 0` and `maxSurge: 1`
 to preserve serving overlap while leader election maintains single-writer mutation.
 
+## Compiled rack state
+
+The rack-state compiler builds one hardware description for the rack. It reads the
+profile version pinned in `SGPURack.status.delivery` and checks its UID, generation,
+and content revision. A missing delivery record or a mismatch prevents compilation.
+
+The result contains the driver and CUDA versions, the GPU model, and the NVLink
+fabric when the profile declares one. Each bound slot contains its node UID,
+assignment revision, and GPU identities with their PCI and NUMA locations.
+A per-node reader can select one slot from the same result. The compiler runs in
+memory. The delivery writer and the HTTP endpoints are separate work.
+
 ## Stage 1 exclusions
 
 Stage 1 has no agent or driver, workload GPU injection, REST API, Redis,

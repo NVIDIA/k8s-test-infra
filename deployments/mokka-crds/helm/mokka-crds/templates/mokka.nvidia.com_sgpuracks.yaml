@@ -216,6 +216,12 @@ spec:
                         NodeRef is absent while the logical Node is unbound. Its UID distinguishes
                         a replacement Kubernetes Node that reuses the same name.
                       properties:
+                        assignmentRevision:
+                          description: AssignmentRevision orders assignments for this
+                            exact Node UID.
+                          format: int64
+                          minimum: 1
+                          type: integer
                         name:
                           description: Name is the Kubernetes Node name.
                           minLength: 1
@@ -349,6 +355,96 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              delivery:
+                description: Delivery pins the versions used for a published generation.
+                  Older racks omit it.
+                properties:
+                  acceptedPolicies:
+                    items:
+                      description: DeliveryObjectReference pins an object independently
+                        of status-only updates.
+                      properties:
+                        generation:
+                          format: int64
+                          minimum: 1
+                          type: integer
+                        uid:
+                          description: |-
+                            UID is a type that holds unique ID values, including UUIDs.  Because we
+                            don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                            intent and helps make sure that UIDs and names do not get conflated.
+                          type: string
+                      required:
+                      - generation
+                      - uid
+                      type: object
+                      x-kubernetes-validations:
+                      - message: uid must not be empty
+                        rule: size(self.uid) > 0
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - uid
+                    x-kubernetes-list-type: map
+                  generation:
+                    format: int64
+                    minimum: 1
+                    type: integer
+                  inventoryRef:
+                    description: DeliveryObjectReference pins an object independently
+                      of status-only updates.
+                    properties:
+                      generation:
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      uid:
+                        description: |-
+                          UID is a type that holds unique ID values, including UUIDs.  Because we
+                          don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                          intent and helps make sure that UIDs and names do not get conflated.
+                        type: string
+                    required:
+                    - generation
+                    - uid
+                    type: object
+                    x-kubernetes-validations:
+                    - message: uid must not be empty
+                      rule: size(self.uid) > 0
+                  profileRef:
+                    description: DeliveryProfileReference also pins the canonical
+                      content of the profile.
+                    properties:
+                      generation:
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      revision:
+                        pattern: ^[0-9a-f]{64}$
+                        type: string
+                      uid:
+                        description: |-
+                          UID is a type that holds unique ID values, including UUIDs.  Because we
+                          don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                          intent and helps make sure that UIDs and names do not get conflated.
+                        type: string
+                    required:
+                    - generation
+                    - revision
+                    - uid
+                    type: object
+                    x-kubernetes-validations:
+                    - message: uid must not be empty
+                      rule: size(self.uid) > 0
+                  rackSpecGeneration:
+                    format: int64
+                    minimum: 1
+                    type: integer
+                required:
+                - generation
+                - inventoryRef
+                - profileRef
+                - rackSpecGeneration
+                type: object
               observedGeneration:
                 description: ObservedGeneration is the latest spec generation reflected
                   by this status.

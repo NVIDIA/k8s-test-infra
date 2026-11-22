@@ -211,6 +211,11 @@ type SGPUNodeReference struct {
 
 	// UID distinguishes this Node instance from a replacement with the same name.
 	UID types.UID `json:"uid"`
+
+	// AssignmentRevision orders assignments for this exact Node UID.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	AssignmentRevision int64 `json:"assignmentRevision,omitempty"`
 }
 
 // SGPURackGPU contains deterministic identity and structural placement.
@@ -251,6 +256,10 @@ type SGPURackGPU struct {
 
 // SGPURackStatus summarizes durable logical Node assignments.
 type SGPURackStatus struct {
+	// Delivery pins the versions used for a published generation. Older racks omit it.
+	// +optional
+	Delivery *RackDelivery `json:"delivery,omitempty"`
+
 	// ObservedGeneration is the latest spec generation reflected by this status.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
@@ -273,3 +282,32 @@ type SGPURackStatus struct {
 
 // RackConditionReady reports whether the rack assignment is ready for use.
 const RackConditionReady = "Ready"
+
+// RackDelivery identifies the inputs for one generation of rack state.
+type RackDelivery struct {
+	// +kubebuilder:validation:Minimum=1
+	Generation int64 `json:"generation"`
+	// +kubebuilder:validation:Minimum=1
+	RackSpecGeneration int64                    `json:"rackSpecGeneration"`
+	InventoryRef       DeliveryObjectReference  `json:"inventoryRef"`
+	ProfileRef         DeliveryProfileReference `json:"profileRef"`
+	// +optional
+	// +listType=map
+	// +listMapKey=uid
+	AcceptedPolicies []DeliveryObjectReference `json:"acceptedPolicies,omitempty"`
+}
+
+// DeliveryObjectReference pins an object independently of status-only updates.
+// +kubebuilder:validation:XValidation:rule="size(self.uid) > 0",message="uid must not be empty"
+type DeliveryObjectReference struct {
+	UID types.UID `json:"uid"`
+	// +kubebuilder:validation:Minimum=1
+	Generation int64 `json:"generation"`
+}
+
+// DeliveryProfileReference also pins the canonical content of the profile.
+type DeliveryProfileReference struct {
+	DeliveryObjectReference `json:",inline"`
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{64}$`
+	Revision string `json:"revision"`
+}

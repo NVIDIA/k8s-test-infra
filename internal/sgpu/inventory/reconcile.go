@@ -916,6 +916,7 @@ func (r *Reconciler) createOrUpdateRack(
 	changed, _, updated, err := r.mutateRack(ctx, inventory, existing, func(latest *mokkav1alpha1.SGPURack) bool {
 		before := latest.DeepCopy()
 		latest.Spec = *spec.DeepCopy()
+		preserveAssignmentRevisions(before.Spec.Nodes, latest.Spec.Nodes)
 		ensureRackMetadata(latest, inventory, r.kwokShardName)
 		return !rackSemanticEqual(before, latest)
 	})
@@ -1469,6 +1470,26 @@ func compareAllocationRackKey(a, b allocationRackKey) int {
 		return order
 	}
 	return cmp.Compare(a.rackIndex, b.rackIndex)
+}
+
+// Rendering starts with fresh bindings. Carry a revision forward only while
+// the same Node instance still occupies the same slot.
+func preserveAssignmentRevisions(previous, desired []mokkav1alpha1.SGPURackNode) {
+	var revisions map[int32]*mokkav1alpha1.SGPUNodeReference
+	for _, slot := range previous {
+		if slot.NodeRef != nil && slot.NodeRef.AssignmentRevision > 0 {
+			if revisions == nil {
+				revisions = make(map[int32]*mokkav1alpha1.SGPUNodeReference)
+			}
+			revisions[slot.Index] = slot.NodeRef
+		}
+	}
+	for i := range desired {
+		old := revisions[desired[i].Index]
+		if old != nil && desired[i].BoundTo(old.Name, old.UID) {
+			desired[i].NodeRef.AssignmentRevision = old.AssignmentRevision
+		}
+	}
 }
 
 func applyBindings(spec *mokkav1alpha1.SGPURackSpec, bindings []allocate.Binding) int64 {

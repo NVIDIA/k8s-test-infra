@@ -427,7 +427,7 @@ func ComputeRack(input RackInput, now metav1.Time) mokkav1alpha1.SGPURackStatus 
 		return mokkav1alpha1.SGPURackStatus{}
 	}
 	rack := input.Rack
-	result := mokkav1alpha1.SGPURackStatus{ObservedGeneration: rack.Generation}
+	result := mokkav1alpha1.SGPURackStatus{ObservedGeneration: rack.Generation, Delivery: rack.Status.Delivery.DeepCopy()}
 	liveNodes := make(map[types.UID]*corev1.Node, len(input.Nodes))
 	for _, node := range input.Nodes {
 		if node != nil && node.UID != "" {

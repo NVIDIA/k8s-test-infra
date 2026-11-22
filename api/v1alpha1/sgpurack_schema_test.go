@@ -132,7 +132,10 @@ func TestSGPURackCRDObservedStatus(t *testing.T) {
 
 	schema := loadSGPURackCRD(t).Spec.Versions[0].Schema.OpenAPIV3Schema
 	status := schemaProperty(t, schema, "status")
-	require.Len(t, status.Properties, 3)
+	require.Len(t, status.Properties, 4)
+	require.NotContains(t, status.Required, "delivery")
+	delivery := schemaProperty(t, status, "delivery")
+	require.ElementsMatch(t, []string{"generation", "rackSpecGeneration", "inventoryRef", "profileRef"}, delivery.Required)
 	require.Contains(t, status.Properties, "observedGeneration")
 	require.Contains(t, status.Properties, "assignedNodes")
 
