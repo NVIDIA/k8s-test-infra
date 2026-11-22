@@ -117,3 +117,41 @@ func TestDependencyManifest(t *testing.T) {
 		})
 	}
 }
+
+func TestManifestRequiresEvaluatedProfile(t *testing.T) {
+	t.Parallel()
+	rack, current := deliveredRack(t, "multiple-roots")
+	_, old := deliveredRack(t, "pcie-only")
+	old.Generation = current.Generation - 1
+	inventory := &api.SGPUInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", UID: "inventory-id", Generation: 1},
+		Spec:       api.SGPUInventorySpec{RackGroups: []api.RackGroup{{ID: "train", Count: 1, ProfileRef: api.ProfileReference{Name: current.Name}}}},
+	}
+	gpu1 := manifestPolicy("gpu-1", 0)
+	gpu1.Spec.TargetRef.GPUIndexes = []int32{1}
+	evaluate := func(profile *api.SGPURackProfile) *policy.Evaluation {
+		e, err := policy.Evaluate(inventory.Name, inventory, map[string]*api.SGPURackProfile{current.Name: profile}, []*api.SGPURuntimePolicy{gpu1})
+		require.NoError(t, err)
+		return e
+	}
+	replaced := current.DeepCopy()
+	replaced.UID = "previous-profile"
+	for _, stale := range []*api.SGPURackProfile{old, replaced, nil} {
+		_, _, err := DependencyManifest(rack, current, evaluate(stale))
+		require.Error(t, err)
+	}
+	manifest, _, err := DependencyManifest(rack, current, evaluate(current))
+	require.NoError(t, err)
+	require.Equal(t, []api.DeliveryObjectReference{{UID: gpu1.UID, Generation: gpu1.Generation}}, manifest.AcceptedPolicies)
+	rack.Status.Delivery = &manifest
+	got, err := Compile(rack, current, Observations{Policies: map[types.UID]*api.SGPURuntimePolicy{gpu1.UID: gpu1}})
+	require.NoError(t, err)
+	require.Equal(t, api.DeviceStateFailed, got.Nodes[0].GPUs[1].Runtime.DeviceState)
+
+	// A removed group still needs a delivery record while its bindings retire.
+	inventory.Spec.RackGroups = nil
+	inventory.Generation++
+	retiring, _, err := DependencyManifest(rack, current, evaluate(nil))
+	require.NoError(t, err)
+	require.Empty(t, retiring.AcceptedPolicies)
+}
