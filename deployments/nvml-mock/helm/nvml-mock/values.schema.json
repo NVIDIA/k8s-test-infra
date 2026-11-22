@@ -587,6 +587,20 @@
         }
       }
     },
+    "kwok": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "dataPlane": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "$ref": "#/properties/controlPlane/properties/image" }
+          }
+        }
+      }
+    },
     "controlPlane": {
       "type": "object",
       "additionalProperties": true,

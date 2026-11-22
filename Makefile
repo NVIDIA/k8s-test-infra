@@ -207,6 +207,12 @@ gen-check: gen ## Check whether all generated code is up to date
 
 DIST_DIR ?= dist
 
+.PHONY: build-mokka-kwok
+build-mokka-kwok: ## Build Linux binaries for the multi-platform KWOK data-plane image
+	@for arch in amd64 arm64; do \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch $(GO_CMD) build -trimpath -o dist/kwok/linux/$$arch/mokka-kwok ./cmd/mokka-kwok || exit 1; \
+	done
+
 .PHONY: build
 build: ## Build all CLIs
 	@rm -rf $(DIST_DIR)

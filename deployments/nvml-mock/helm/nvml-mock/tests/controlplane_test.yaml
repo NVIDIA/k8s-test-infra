@@ -575,3 +575,14 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --feature-gates=AllAlpha=true
+
+  - it: assigns KWOK racks to the installed replica
+    set:
+      controlPlane.enabled: true
+      controlPlane.kwokShardName: unused-replica
+      kwok.enabled: true
+    template: templates/controlplane/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kwok-shard-name=mokka-kwok-data-plane-0

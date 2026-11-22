@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+suite: KWOK data plane
+templates:
+  - templates/kwok/data-plane.yaml
+tests:
+  - it: is off by default
+    asserts:
+      - hasDocuments: {count: 0}
+  - it: watches as a single named replica with its own identity
+    set:
+      kwok.enabled: true
+    asserts:
+      - hasDocuments: {count: 5}
+      - equal:
+          path: spec.replicas
+          value: 1
+        documentIndex: 4
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: mokka-kwok-data-plane
+        documentIndex: 4
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value: [data-plane, "--shard-name=$(POD_NAME)"]
+        documentIndex: 4
+      - equal:
+          path: rules
+          value:
+            - apiGroups: ["mokka.nvidia.com"]
+              resources: ["sgpuracks"]
+              verbs: ["list", "watch"]
+            - apiGroups: [""]
+              resources: ["pods"]
+              verbs: ["list", "watch"]
+            - apiGroups: ["", "events.k8s.io"]
+              resources: ["events"]
+              verbs: ["create", "patch", "update"]
+        documentIndex: 1
