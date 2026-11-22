@@ -62,6 +62,9 @@ func TestRackModel(t *testing.T) {
 	require.Equal(t, []string{"owned"}, owned)
 	require.Equal(t, sets.New("test/initial"), retainedPods(m.pods))
 	for _, action := range kube.Actions() {
+		if action.GetResource().Resource != "pods" {
+			continue
+		}
 		switch a := action.(type) {
 		case clienttesting.ListAction:
 			require.Equal(t, "spec.nodeName!=", a.GetListRestrictions().Fields.String())

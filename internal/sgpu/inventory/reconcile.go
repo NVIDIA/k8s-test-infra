@@ -1144,7 +1144,7 @@ func validateInventory(inventory *mokkav1alpha1.SGPUInventory) error {
 		if group.ProfileRef.Name == "" {
 			return fmt.Errorf("rack group %q profileRef.name must not be empty", group.ID)
 		}
-		if err := allocate.ValidatePlacementSelector(group.NodeSelector()); err != nil {
+		if err := allocate.ValidatePlacementSelector(group.NodeSelector(), group.Node.Type); err != nil {
 			return fmt.Errorf("rack group %q selector: %w", group.ID, err)
 		}
 	}

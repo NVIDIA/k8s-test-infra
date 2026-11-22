@@ -10,6 +10,7 @@ import "slices"
 const (
 	// AssignedLabel marks a Kubernetes Node with an active exact logical rack Node assignment.
 	AssignedLabel        = "mokka.nvidia.com/sgpu-assigned"
+	GPUProductLabel      = "nvidia.com/gpu.product"
 	CliqueLabel          = "nvidia.com/gpu.clique"
 	AssignmentAnnotation = "mokka.nvidia.com/sgpu-assignment"
 )

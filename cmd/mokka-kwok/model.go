@@ -19,6 +19,7 @@ import (
 	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
 
+	mokkav1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	mokkaclient "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned"
@@ -32,10 +33,12 @@ type model struct {
 	pods      *shardPods
 	podClient coreclient.PodInterface
 	podWatch  *cache.Reflector
+	products  *productPublisher
 }
 
 func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, shard string) model {
 	racks := mokkainformers.NewFilteredSGPURackInformer(mokka, 0, cache.Indexers{
+		boundNodeIndex: boundNodeNames,
 		rackUIDIndex: func(obj any) ([]string, error) {
 			rack, err := meta.Accessor(obj)
 			if err != nil {
@@ -58,14 +61,14 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, shard stri
 	}
 	pods := newShardPods()
 	podWatch := cache.NewReflectorWithOptions(cache.ToListWatcherWithWatchListSemantics(lw, kube), &corev1.Pod{}, pods, cache.ReflectorOptions{Name: "bound Pods"})
-	return model{racks: racks, pods: pods, podClient: client, podWatch: podWatch}
+	return model{racks: racks, pods: pods, podClient: client, podWatch: podWatch, products: newProductPublisher(kube, mokka, racks)}
 }
 
 func (m model) run(ctx context.Context, c config) error {
 	group, ctx := errgroup.WithContext(ctx)
 	rackEvents, err := m.racks.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    m.pods.observeRack,
-		UpdateFunc: func(_, current any) { m.pods.observeRack(current) },
+		AddFunc:    m.observeRack,
+		UpdateFunc: func(_, current any) { m.observeRack(current) },
 		DeleteFunc: m.pods.removeRack,
 	})
 	if err != nil {
@@ -73,11 +76,12 @@ func (m model) run(ctx context.Context, c config) error {
 	}
 	server := health.NewServer(c.listen, health.DefaultShutdownTimeout)
 	server.SetReadiness(func() health.Probe {
-		if !rackEvents.HasSynced() || !m.pods.hasSynced() {
-			return health.Unhealthy("waiting for rack and pod caches")
+		if !rackEvents.HasSynced() || !m.pods.hasSynced() || !m.products.labeled.HasSynced() {
+			return health.Unhealthy("waiting for rack, pod and node caches")
 		}
 		return health.OK()
 	})
+	group.Go(func() error { return m.products.run(ctx) })
 	group.Go(func() error { m.racks.RunWithContext(ctx); return nil })
 	group.Go(func() error {
 		// Populate initial rack membership before the first cluster-wide Pod list.
@@ -101,4 +105,13 @@ func (m model) run(ctx context.Context, c config) error {
 	})
 	group.Go(func() error { return server.Run(ctx) })
 	return group.Wait()
+}
+
+func (m model) observeRack(obj any) {
+	m.pods.observeRack(obj)
+	for _, slot := range obj.(*mokkav1.SGPURack).Spec.Nodes {
+		if slot.NodeRef != nil {
+			m.products.queue.Add(slot.NodeRef.Name)
+		}
+	}
 }

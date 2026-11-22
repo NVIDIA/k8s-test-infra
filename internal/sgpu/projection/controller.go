@@ -667,8 +667,17 @@ func missingMokkaOwnership(node *corev1.Node, fields []managedMetadataField) []s
 }
 
 func mokkaOwnsField(entries []metav1.ManagedFieldsEntry, field managedMetadataField) bool {
+	return managerOwnsField(entries, FieldManager, field)
+}
+
+// ManagerOwnsLabel reports whether an apply manager owns a specific Node label.
+func ManagerOwnsLabel(node *corev1.Node, manager, key string) bool {
+	return managerOwnsField(node.ManagedFields, manager, managedMetadataField{section: "labels", key: key})
+}
+
+func managerOwnsField(entries []metav1.ManagedFieldsEntry, manager string, field managedMetadataField) bool {
 	for _, entry := range entries {
-		if entry.Manager != FieldManager || entry.Operation != metav1.ManagedFieldsOperationApply ||
+		if entry.Manager != manager || entry.Operation != metav1.ManagedFieldsOperationApply ||
 			entry.APIVersion != "v1" || entry.Subresource != "" || entry.FieldsType != "FieldsV1" || entry.FieldsV1 == nil {
 			continue
 		}
