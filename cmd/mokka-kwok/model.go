@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/tools/cache"
 
 	mokkav1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
@@ -33,12 +34,11 @@ type model struct {
 	pods      *shardPods
 	podClient coreclient.PodInterface
 	podWatch  *cache.Reflector
-	products  *productPublisher
+	discovery *labelPublisher
 }
 
-func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, shard string) model {
+func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, nodes metadata.Interface, shard string) model {
 	racks := mokkainformers.NewFilteredSGPURackInformer(mokka, 0, cache.Indexers{
-		boundNodeIndex: boundNodeNames,
 		rackUIDIndex: func(obj any) ([]string, error) {
 			rack, err := meta.Accessor(obj)
 			if err != nil {
@@ -61,7 +61,7 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, shard stri
 	}
 	pods := newShardPods()
 	podWatch := cache.NewReflectorWithOptions(cache.ToListWatcherWithWatchListSemantics(lw, kube), &corev1.Pod{}, pods, cache.ReflectorOptions{Name: "bound Pods"})
-	return model{racks: racks, pods: pods, podClient: client, podWatch: podWatch, products: newProductPublisher(kube, mokka, racks)}
+	return model{racks: racks, pods: pods, podClient: client, podWatch: podWatch, discovery: newLabelPublisher(kube, mokka, nodes, racks)}
 }
 
 func (m model) run(ctx context.Context, c config) error {
@@ -76,12 +76,12 @@ func (m model) run(ctx context.Context, c config) error {
 	}
 	server := health.NewServer(c.listen, health.DefaultShutdownTimeout)
 	server.SetReadiness(func() health.Probe {
-		if !rackEvents.HasSynced() || !m.pods.hasSynced() || !m.products.labeled.HasSynced() {
+		if !rackEvents.HasSynced() || !m.pods.hasSynced() || !m.discovery.nodeWatch.HasSynced() {
 			return health.Unhealthy("waiting for rack, pod and node caches")
 		}
 		return health.OK()
 	})
-	group.Go(func() error { return m.products.run(ctx) })
+	group.Go(func() error { return m.discovery.run(ctx) })
 	group.Go(func() error { m.racks.RunWithContext(ctx); return nil })
 	group.Go(func() error {
 		// Populate initial rack membership before the first cluster-wide Pod list.
@@ -111,7 +111,7 @@ func (m model) observeRack(obj any) {
 	m.pods.observeRack(obj)
 	for _, slot := range obj.(*mokkav1.SGPURack).Spec.Nodes {
 		if slot.NodeRef != nil {
-			m.products.queue.Add(slot.NodeRef.Name)
+			m.discovery.queue.Add(slot.NodeRef.Name)
 		}
 	}
 }

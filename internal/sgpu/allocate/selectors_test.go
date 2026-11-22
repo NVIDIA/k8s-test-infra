@@ -140,9 +140,11 @@ func groupKey(inventory, rackGroup string) RackGroupKey {
 	return RackGroupKey{InventoryName: inventory, InventoryUID: types.UID(inventory + "-uid"), RackGroup: rackGroup}
 }
 
-func TestGPUProductPlacementDependsOnNodeType(t *testing.T) {
+func TestDiscoveryLabelPlacementDependsOnNodeType(t *testing.T) {
 	t.Parallel()
-	selector := &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{Key: sgpumetadata.GPUProductLabel, Operator: metav1.LabelSelectorOpDoesNotExist}}}
-	require.NoError(t, ValidatePlacementSelector(selector, mokkav1.NodeTypeCPU))
-	require.ErrorContains(t, ValidatePlacementSelector(selector, mokkav1.NodeTypeKWOK), sgpumetadata.GPUProductLabel)
+	for _, key := range sgpumetadata.DiscoveryLabelKeys() {
+		selector := &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{Key: key, Operator: metav1.LabelSelectorOpDoesNotExist}}}
+		require.NoError(t, ValidatePlacementSelector(selector, mokkav1.NodeTypeCPU))
+		require.ErrorContains(t, ValidatePlacementSelector(selector, mokkav1.NodeTypeKWOK), key)
+	}
 }

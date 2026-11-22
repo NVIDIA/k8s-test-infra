@@ -229,7 +229,7 @@ func (c *Controller) project(ctx context.Context, rackName string, nodeIndex int
 			incompatible = append(incompatible, sgpumetadata.AssignmentAnnotation)
 		}
 	}
-	incompatible = append(incompatible, foreignOwnedFields(node, projectionManagedFields(labels))...)
+	incompatible = append(incompatible, foreignOwnedFields(node, FieldManager, projectionManagedFields(labels))...)
 	if len(incompatible) > 0 {
 		return c.conflict(outcome, node.Name, incompatible)
 	}
@@ -531,7 +531,7 @@ func MatchesBinding(node *corev1.Node, rack *mokkav1alpha1.SGPURack, slot *mokka
 	if hasClique {
 		projectionLabels[sgpumetadata.CliqueLabel] = clique
 	}
-	return len(foreignOwnedFields(node, projectionManagedFields(projectionLabels))) == 0 &&
+	return len(foreignOwnedFields(node, FieldManager, projectionManagedFields(projectionLabels))) == 0 &&
 		projectionFieldsOwned(node, projectionLabels)
 }
 
@@ -614,7 +614,7 @@ func projectionPresentFields(labels map[string]any) []managedMetadataField {
 func projectionResponseConflicts(node *corev1.Node, labels map[string]any, assignment string) []string {
 	conflicts := projectionValueConflicts(node, labels, assignment)
 	wanted := projectionManagedFields(labels)
-	conflicts = append(conflicts, foreignOwnedFields(node, wanted)...)
+	conflicts = append(conflicts, foreignOwnedFields(node, FieldManager, wanted)...)
 	conflicts = append(conflicts, missingMokkaOwnership(node, projectionPresentFields(labels))...)
 	return sortedUnique(conflicts)
 }
@@ -640,11 +640,11 @@ func projectionValueConflicts(node *corev1.Node, labels map[string]any, assignme
 	return conflicts
 }
 
-func foreignOwnedFields(node *corev1.Node, fields []managedMetadataField) []string {
+func foreignOwnedFields(node *corev1.Node, manager string, fields []managedMetadataField) []string {
 	conflicts := make([]string, 0)
 	for _, field := range fields {
 		for _, entry := range node.ManagedFields {
-			if entry.Manager == FieldManager || entry.Subresource != "" || entry.FieldsType != "FieldsV1" || entry.FieldsV1 == nil {
+			if entry.Manager == manager || entry.Subresource != "" || entry.FieldsType != "FieldsV1" || entry.FieldsV1 == nil {
 				continue
 			}
 			if fieldsV1Owns(entry.FieldsV1.GetRawBytes(), field.path()) {
@@ -673,6 +673,11 @@ func mokkaOwnsField(entries []metav1.ManagedFieldsEntry, field managedMetadataFi
 // ManagerOwnsLabel reports whether an apply manager owns a specific Node label.
 func ManagerOwnsLabel(node *corev1.Node, manager, key string) bool {
 	return managerOwnsField(node.ManagedFields, manager, managedMetadataField{section: "labels", key: key})
+}
+
+// LabelHasOtherOwner reports whether another manager also owns the label.
+func LabelHasOtherOwner(node *corev1.Node, manager, key string) bool {
+	return len(foreignOwnedFields(node, manager, []managedMetadataField{{section: "labels", key: key}})) != 0
 }
 
 func managerOwnsField(entries []metav1.ManagedFieldsEntry, manager string, field managedMetadataField) bool {

@@ -13,15 +13,25 @@ mokka-kwok data-plane --shard-name=mokka-kwok-data-plane-0
 The shard name must match the `mokka.nvidia.com/kwok-shard` label on its racks.
 The process uses its Kubernetes service account. It listens on `:8080` by
 default. Use `--listen-addr` to change the address. `/healthz` reports process
-health. `/readyz` becomes healthy after the rack, Pod, and product-label watches complete their initial sync.
+health. `/readyz` becomes healthy after the rack, Pod, and Node watches sync.
 
-For each bound KWOK node, the data plane reads
-`spec.node.gpus.model.productName` from the assigned rack profile. It replaces
-spaces with hyphens and sets the Node label `nvidia.com/gpu.product`. For
-example, `NVIDIA A100-SXM4-40GB` becomes `NVIDIA-A100-SXM4-40GB`. Use this
-label in workload selectors. A KWOK rack group must use independent labels for
-placement because binding the node changes its product label.
+## Hardware discovery labels
 
-If the profile has no product name, the data plane omits the label. If the node
-source already set a different value, it keeps that value and emits a Warning
-Event. When the binding ends, the data plane removes the label it owns.
+The data plane sets these labels on each bound KWOK node. The values come from
+`spec.node.gpus` in the assigned rack profile.
+
+| Node label | Source | Example |
+| --- | --- | --- |
+| `nvidia.com/gpu.product` | `model.productName`, with spaces replaced by hyphens | `NVIDIA-A100-SXM4-40GB` |
+| `nvidia.com/gpu.count` | `count`, the number of whole GPUs on the node | `8` |
+| `nvidia.com/gpu.memory` | `memory.capacity` of one GPU, in MiB | `40960` for `40Gi` |
+| `nvidia.com/mig.strategy` | The KWOK simulation exposes whole GPUs | `none` |
+| `feature.node.kubernetes.io/pci-10de.present` | `pci.vendorID` identifies NVIDIA, or the ID is absent and `model.vendor` is NVIDIA | `true` |
+
+Use these labels in workload selectors. Use independent placement labels for
+the rack group. An empty product name leaves the product label unset.
+
+If the node source supplies a different value, Mokka keeps it, emits a
+`DiscoveryLabelConflict` Warning Event, and publishes the other labels.
+When the binding ends, Mokka gives up its fields. Kubernetes removes labels
+that only Mokka owned.

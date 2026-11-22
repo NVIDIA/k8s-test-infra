@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	kubefake "k8s.io/client-go/kubernetes/fake"
+	metafake "k8s.io/client-go/metadata/fake"
 	clienttesting "k8s.io/client-go/testing"
 
 	mokkav1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
@@ -50,7 +51,7 @@ func TestRackModel(t *testing.T) {
 	initial.Name = "initial"
 	initial.Spec.NodeName = "initial-node"
 	kube := kubefake.NewSimpleClientset(pod, foreign, initial)
-	m := newModel(mokka, kube, "replica-0")
+	m := newModel(mokka, kube, metafake.NewSimpleMetadataClient(runtime.NewScheme()), "replica-0")
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { done <- m.run(runCtx, config{shard: "replica-0", listen: "127.0.0.1:0"}) }()

@@ -110,7 +110,7 @@ func compileUserSelector(selector *metav1.LabelSelector, nodeType mokkav1alpha1.
 	}
 	reserved := sgpumetadata.ProjectionLabelKeys()
 	if nodeType == mokkav1alpha1.NodeTypeKWOK {
-		reserved = append(reserved, sgpumetadata.GPUProductLabel)
+		reserved = append(reserved, sgpumetadata.DiscoveryLabelKeys()...)
 	}
 	for _, key := range reserved {
 		if _, exists := selector.MatchLabels[key]; exists {
