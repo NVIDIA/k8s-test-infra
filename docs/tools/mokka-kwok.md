@@ -35,3 +35,18 @@ If the node source supplies a different value, Mokka keeps it, emits a
 `DiscoveryLabelConflict` Warning Event, and publishes the other labels.
 When the binding ends, Mokka gives up its fields. Kubernetes removes labels
 that only Mokka owned.
+
+### Clusters with the NVIDIA GPU Operator
+
+The Operator can detect a KWOK node from the NVIDIA PCI label. Set the OS
+release labels in the virtual Node template so the Operator can read the OS
+identity. Use the values for the OS you simulate. This example uses Debian 12.
+The first label keeps the Operator's node components off the virtual node.
+
+```yaml
+metadata:
+  labels:
+    nvidia.com/gpu.deploy.operands: "false"
+    feature.node.kubernetes.io/system-os_release.ID: debian
+    feature.node.kubernetes.io/system-os_release.VERSION_ID: "12"
+```
