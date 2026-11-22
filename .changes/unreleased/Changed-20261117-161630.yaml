@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  helm: the GPU Operator chart that Tilt, CI and the guides install moves from v26.3.3 to v26.7.3, whose operands start on the mock; v26.7.1 and v26.7.2 still hang in toolkit-validation.
+time: 2026-11-17T23:16:30Z
+custom:
+  Issue: "911"

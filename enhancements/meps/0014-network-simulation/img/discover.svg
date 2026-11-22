@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1020" height="524" viewBox="0 0 1020 524" role="img" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+<title>DISCOVER workflows on Mokka</title>
+<desc>Three discovery paths. Hardware discovery and node configuration: NFD labels the node, the Network Operator places its components on labelled nodes and may deploy the RDMA device plugin, and NIC Feature Discovery labels the driver version. Device registration: the RDMA device plugin, which requires kernel RDMA support, advertises rdma resources to the kubelet, and DRA drivers, installed from their own charts, publish NICs, VFs and EFA devices in ResourceSlices. Topology discovery: GFD labels the clique, Topograph reads clique labels, depending on its provider, and Mokka's generated files or a live walk and writes topology labels and Slurm topology, and the GPU DRA driver brings up a ComputeDomain with IMEX.</desc>
+<defs>
+<marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#378ADD" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#639922" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<marker id="arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#BA7517" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<marker id="arrow-grey" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+</defs>
+<rect x="0.5" y="0.5" width="1019" height="523" rx="12" fill="#FFFFFF" stroke="#E5E3DA"/>
+<!-- Kubernetes band first, so the arrows into it stay on top -->
+<rect x="8" y="400" width="1004" height="90" rx="14" fill="#F8F7F3" stroke="#D3D1C7" stroke-width="0.75"/>
+<text font-size="14" font-weight="600" fill="#2C2C2A" x="22" y="414" dominant-baseline="central">Kubernetes</text>
+
+<!-- What Mokka presents, one segment per discovery path -->
+<rect x="8" y="10" width="1004" height="102" rx="14" fill="none" stroke="#B4B2A9" stroke-width="0.75" stroke-dasharray="4 4"/>
+<text font-size="14" font-weight="600" fill="#2C2C2A" x="22" y="26" dominant-baseline="central">Mokka simulated cluster</text>
+<g>
+<rect fill="#E6F1FB" stroke="#378ADD" x="16" y="40" width="320" height="62" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#0C447C" x="176" y="57" text-anchor="middle" dominant-baseline="central">Hardware discovery and node configuration</text>
+<text font-size="12" fill="#0C447C" x="176" y="76" text-anchor="middle" dominant-baseline="central">PCI functions in sysfs</text>
+<text font-size="12" fill="#0C447C" x="176" y="92" text-anchor="middle" dominant-baseline="central">NIC driver attributes</text>
+</g>
+<g>
+<rect fill="#EAF3DE" stroke="#639922" x="350" y="40" width="320" height="62" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#27500A" x="510" y="57" text-anchor="middle" dominant-baseline="central">Device registration</text>
+<text font-size="12" fill="#27500A" x="510" y="76" text-anchor="middle" dominant-baseline="central">/sys/class/infiniband · /dev/infiniband</text>
+<text font-size="12" fill="#27500A" x="510" y="92" text-anchor="middle" dominant-baseline="central">network interfaces · VFs · EFA</text>
+</g>
+<g>
+<rect fill="#FAEEDA" stroke="#BA7517" x="684" y="40" width="320" height="62" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#633806" x="844" y="57" text-anchor="middle" dominant-baseline="central">Topology discovery</text>
+<text font-size="12" fill="#633806" x="844" y="76" text-anchor="middle" dominant-baseline="central">NVML fabric and clique state</text>
+<text font-size="12" fill="#633806" x="844" y="92" text-anchor="middle" dominant-baseline="central">generated topology files · mock-ib fabric</text>
+</g>
+
+<!-- Path 1: hardware discovery and node configuration -->
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="76" y="136" width="200" height="52" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="176" y="155" text-anchor="middle" dominant-baseline="central">NFD</text>
+<text font-size="12" fill="#5F5E5A" x="176" y="173" text-anchor="middle" dominant-baseline="central">Node Feature Discovery</text>
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="76" y="230" width="200" height="52" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="176" y="249" text-anchor="middle" dominant-baseline="central">Network Operator</text>
+<text font-size="12" fill="#5F5E5A" x="176" y="267" text-anchor="middle" dominant-baseline="central">controller</text>
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="76" y="324" width="200" height="52" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="176" y="343" text-anchor="middle" dominant-baseline="central">NIC Feature Discovery</text>
+<text font-size="12" fill="#5F5E5A" x="176" y="361" text-anchor="middle" dominant-baseline="central">a Network Operator component</text>
+<line x1="176" y1="102" x2="176" y2="134" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<line x1="176" y1="188" x2="176" y2="228" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<text font-size="12" fill="#0C447C" x="184" y="212">labels the node</text>
+<line x1="176" y1="282" x2="176" y2="322" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<text font-size="12" fill="#0C447C" x="184" y="306">places on labelled nodes</text>
+<path d="M40 102 L40 350 L74 350" fill="none" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<line x1="176" y1="376" x2="176" y2="426" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<path d="M276 256 L350 256" fill="none" stroke="#378ADD" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow-blue)"/>
+<text font-size="12" fill="#0C447C" x="313" y="233" text-anchor="middle">may deploy</text>
+<text font-size="12" fill="#0C447C" x="313" y="247" text-anchor="middle">RDMA plugin</text>
+
+<!-- Path 2: device registration -->
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="352" y="230" width="160" height="66" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="432" y="247" text-anchor="middle" dominant-baseline="central">RDMA device plugin</text>
+<text font-size="12" fill="#5F5E5A" x="432" y="264" text-anchor="middle" dominant-baseline="central">InfiniBand, RoCE</text>
+<text font-size="11" font-style="italic" fill="#5F5E5A" x="432" y="281" text-anchor="middle" dominant-baseline="central">(requires kernel RDMA support)</text>
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="518" y="230" width="144" height="52" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="588" y="249" text-anchor="middle" dominant-baseline="central">DRA drivers</text>
+<text font-size="12" fill="#5F5E5A" x="588" y="267" text-anchor="middle" dominant-baseline="central">dranet · SR-IOV DRA</text>
+<line x1="432" y1="102" x2="432" y2="228" stroke="#639922" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<line x1="588" y1="102" x2="588" y2="228" stroke="#639922" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<line x1="432" y1="296" x2="432" y2="426" stroke="#639922" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<line x1="588" y1="282" x2="588" y2="426" stroke="#639922" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<text font-size="12" font-style="italic" fill="#5F5E5A" x="580" y="312" text-anchor="end">installed from</text>
+<text font-size="12" font-style="italic" fill="#5F5E5A" x="580" y="327" text-anchor="end">their own charts</text>
+
+<!-- Path 3: topology discovery -->
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="692" y="136" width="144" height="52" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="764" y="155" text-anchor="middle" dominant-baseline="central">GFD</text>
+<text font-size="12" fill="#5F5E5A" x="764" y="173" text-anchor="middle" dominant-baseline="central">GPU Feature Discovery</text>
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="852" y="136" width="144" height="52" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="924" y="155" text-anchor="middle" dominant-baseline="central">GPU DRA driver</text>
+<text font-size="12" fill="#5F5E5A" x="924" y="173" text-anchor="middle" dominant-baseline="central">NVLink · IMEX</text>
+<rect fill="#FFFFFF" stroke="#B4B2A9" x="692" y="230" width="168" height="68" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#2C2C2A" x="776" y="249" text-anchor="middle" dominant-baseline="central">Topograph</text>
+<text font-size="12" fill="#5F5E5A" x="776" y="267" text-anchor="middle" dominant-baseline="central">cluster-wide, off the node</text>
+<text font-size="12" fill="#5F5E5A" x="776" y="283" text-anchor="middle" dominant-baseline="central">*-sim files · live walk</text>
+<line x1="764" y1="102" x2="764" y2="134" stroke="#BA7517" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+<line x1="924" y1="102" x2="924" y2="134" stroke="#BA7517" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+<line x1="844" y1="102" x2="844" y2="228" stroke="#BA7517" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+<line x1="764" y1="188" x2="764" y2="228" stroke="#BA7517" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow-amber)"/>
+<text font-size="12" fill="#633806" x="756" y="212" text-anchor="end">clique label</text>
+<path d="M860 264 L900 264 L900 190" fill="none" stroke="#BA7517" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow-amber)"/>
+<text font-size="12" fill="#633806" x="906" y="230">clique types</text>
+<line x1="776" y1="298" x2="776" y2="426" stroke="#BA7517" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+<line x1="984" y1="188" x2="984" y2="426" stroke="#BA7517" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+
+<!-- What Kubernetes knows afterwards -->
+<rect fill="#FFFFFF" stroke="#378ADD" x="36" y="428" width="280" height="48" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#0C447C" x="176" y="446" text-anchor="middle" dominant-baseline="central">Node labels and components</text>
+<text font-size="12" fill="#0C447C" x="176" y="463" text-anchor="middle" dominant-baseline="central">pci-15b3.present · mofed.version</text>
+<rect fill="#FFFFFF" stroke="#639922" x="358" y="428" width="148" height="48" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#27500A" x="432" y="446" text-anchor="middle" dominant-baseline="central">kubelet</text>
+<text font-size="12" fill="#27500A" x="432" y="463" text-anchor="middle" dominant-baseline="central">rdma/… resources</text>
+<rect fill="#FFFFFF" stroke="#639922" x="514" y="428" width="148" height="48" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#27500A" x="588" y="446" text-anchor="middle" dominant-baseline="central">ResourceSlices</text>
+<text font-size="12" fill="#27500A" x="588" y="463" text-anchor="middle" dominant-baseline="central">NICs · VFs · EFA</text>
+<rect fill="#FFFFFF" stroke="#BA7517" x="692" y="428" width="168" height="48" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#633806" x="776" y="446" text-anchor="middle" dominant-baseline="central">Topology labels</text>
+<text font-size="12" fill="#633806" x="776" y="463" text-anchor="middle" dominant-baseline="central">and Slurm topology</text>
+<rect fill="#FFFFFF" stroke="#BA7517" x="872" y="428" width="124" height="48" rx="8" stroke-width="0.75"/>
+<text font-size="13" font-weight="600" fill="#633806" x="934" y="446" text-anchor="middle" dominant-baseline="central">ComputeDomain</text>
+<text font-size="12" fill="#633806" x="934" y="463" text-anchor="middle" dominant-baseline="central">with IMEX</text>
+
+<!-- Legend -->
+<line x1="24" y1="506" x2="56" y2="506" stroke="#888780" stroke-width="1.5"/>
+<text font-size="12" fill="#5F5E5A" x="64" y="510">reads or publishes</text>
+<line x1="200" y1="506" x2="232" y2="506" stroke="#888780" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text font-size="12" fill="#5F5E5A" x="240" y="510">conditional or later: the operator may deploy the plugin; clique-label use depends on the provider; clique types later</text>
+</svg>

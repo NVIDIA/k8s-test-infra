@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 460" width="1000" height="460" role="img" aria-labelledby="title desc">
+  <title id="title">KWOK components</title>
+  <desc id="desc">Node sources create a KWOK Node: an external source such as kwokctl, a CI harness or an autoscaler's KWOK provider, or the optional KWOK provisioner for groups with node.source: Mokka. The KWOK controller fakes the Node's status. The control plane binds the Node to a rack slot and projects the binding onto it. The KWOK data plane publishes the Node's GPUs. The control plane assigns racks to data plane shards and serves their state.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .title { font-size: 14px; font-weight: 600; }
+    .body { font-size: 12.5px; fill: #59636e; }
+    .band { font-size: 12.5px; }
+    .tag { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; }
+    .label { font-size: 12px; fill: #59636e; }
+    .box { fill: #ffffff; stroke-width: 1.5; }
+    .dashed { stroke-dasharray: 5 4; }
+    .node { fill: none; stroke: #1f2328; stroke-width: 1.5; }
+    .head { fill: #f6f8fa; }
+    .wire { fill: none; stroke-width: 1.5; }
+    .b-src, .w-src { stroke: #0969da; }
+    .b-cp, .w-cp { stroke: #8250df; }
+    .b-dp, .w-dp { stroke: #1a7f37; }
+    .b-ext, .w-ext { stroke: #59636e; }
+    .t-src, .h-src, .f-src { fill: #0969da; }
+    .t-cp, .h-cp, .f-cp { fill: #8250df; }
+    .t-dp, .h-dp, .f-dp { fill: #1a7f37; }
+    .h-ext { fill: #59636e; }
+    .f-src, .f-cp, .f-dp { fill-opacity: 0.1; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .body, .label { fill: #9198a1; }
+      .box { fill: #0d1117; }
+      .node { stroke: #f0f6fc; }
+      .head { fill: #151b23; }
+      .b-src, .w-src { stroke: #4493f8; }
+      .b-cp, .w-cp { stroke: #ab7df8; }
+      .b-dp, .w-dp { stroke: #3fb950; }
+      .b-ext, .w-ext { stroke: #9198a1; }
+      .t-src, .h-src, .f-src { fill: #4493f8; }
+      .t-cp, .h-cp, .f-cp { fill: #ab7df8; }
+      .t-dp, .h-dp, .f-dp { fill: #3fb950; }
+      .h-ext { fill: #9198a1; }
+      .f-src, .f-cp, .f-dp { fill-opacity: 0.16; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow-src" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-src" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-cp" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-cp" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-dp" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-dp" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-ext" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-ext" d="M0,0 L10,5 L0,10 z"/></marker>
+    <clipPath id="node-shape"><rect x="310" y="176" width="380" height="180" rx="8"/></clipPath>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="459" rx="12"/>
+
+  <!-- Node sources and the KWOK controller -->
+  <rect class="box b-src dashed" x="24" y="24" width="250" height="88" rx="8"/>
+  <text class="title" x="149" y="56" text-anchor="middle">External Node source</text>
+  <text class="body" x="149" y="78" text-anchor="middle">kwokctl, a CI harness or an</text>
+  <text class="body" x="149" y="96" text-anchor="middle">autoscaler's KWOK provider</text>
+
+  <rect class="box b-src" x="300" y="24" width="250" height="88" rx="8"/>
+  <text class="title" x="425" y="56" text-anchor="middle">KWOK provisioner (optional)</text>
+  <text class="body" x="425" y="78" text-anchor="middle">as many Nodes as slots, for</text>
+  <text class="body" x="425" y="96" text-anchor="middle">groups with node.source: Mokka</text>
+
+  <rect class="box b-ext dashed" x="726" y="24" width="250" height="88" rx="8"/>
+  <text class="title" x="851" y="62" text-anchor="middle">KWOK controller</text>
+  <text class="body" x="851" y="84" text-anchor="middle">part of KWOK, not Mokka</text>
+
+  <path class="wire w-src" d="M149,112 V140 H425"/>
+  <path class="wire w-src" d="M425,112 V175" marker-end="url(#arrow-src)"/>
+  <circle class="h-src" cx="425" cy="140" r="3"/>
+  <text class="label" x="434" y="163">creates</text>
+
+  <path class="wire w-ext" d="M851,112 V191 H691" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="841" y="147" text-anchor="end">fakes Node and</text>
+  <text class="label" x="841" y="162" text-anchor="end">Pod status</text>
+
+  <!-- The KWOK Node: one band per writer -->
+  <g clip-path="url(#node-shape)">
+    <rect class="head" x="310" y="176" width="380" height="30"/>
+    <rect class="f-src" x="310" y="206" width="380" height="50"/>
+    <rect class="f-cp" x="310" y="256" width="380" height="50"/>
+    <rect class="f-dp" x="310" y="306" width="380" height="50"/>
+  </g>
+  <rect class="node" x="310" y="176" width="380" height="180" rx="8"/>
+  <text class="title" x="500" y="197" text-anchor="middle">KWOK Node</text>
+
+  <text class="tag t-src" x="324" y="226">NODE SOURCE</text>
+  <text class="band" x="438" y="226">name, taints, CPU, memory, pods,</text>
+  <text class="band" x="438" y="244">sgpu-node and node-type labels</text>
+
+  <text class="tag t-cp" x="324" y="276">CONTROL PLANE</text>
+  <text class="band" x="438" y="276">sgpu-assigned, gpu.clique labels,</text>
+  <text class="band" x="438" y="294">sgpu-assignment annotation</text>
+
+  <text class="tag t-dp" x="324" y="326">DATA PLANE</text>
+  <text class="band" x="438" y="326">nvidia.com/gpu or a ResourceSlice,</text>
+  <text class="band" x="438" y="344">GFD and NFD labels</text>
+
+  <!-- Control plane -->
+  <rect class="box b-cp" x="24" y="233" width="190" height="96" rx="8"/>
+  <text class="title" x="119" y="262" text-anchor="middle">Control plane</text>
+  <text class="body" x="119" y="284" text-anchor="middle">Deployment, one leader</text>
+  <text class="body" x="119" y="303" text-anchor="middle">binds racks to Nodes</text>
+
+  <path class="wire w-cp" d="M214,281 H309" marker-end="url(#arrow-cp)"/>
+  <text class="label" x="262" y="258" text-anchor="middle">projects the</text>
+  <text class="label" x="262" y="272" text-anchor="middle">binding</text>
+
+  <!-- KWOK data plane -->
+  <rect class="box b-dp" x="766" y="281" width="210" height="100" rx="8"/>
+  <text class="title" x="871" y="305" text-anchor="middle">KWOK data plane</text>
+  <text class="body" x="871" y="326" text-anchor="middle">StatefulSet sharded by rack</text>
+  <text class="body" x="871" y="345" text-anchor="middle">also: GPU allocation on Pods,</text>
+  <text class="body" x="871" y="363" text-anchor="middle">NRT and DCGM metrics</text>
+
+  <path class="wire w-dp" d="M766,331 H691" marker-end="url(#arrow-dp)"/>
+  <text class="label" x="728" y="308" text-anchor="middle">publishes</text>
+  <text class="label" x="728" y="322" text-anchor="middle">the GPUs</text>
+
+  <!-- Control plane to data plane -->
+  <path class="wire w-cp" d="M119,329 V410 H871 V382" marker-end="url(#arrow-cp)"/>
+  <text class="label" x="500" y="432" text-anchor="middle">assigns racks to shards and serves their state</text>
+</svg>

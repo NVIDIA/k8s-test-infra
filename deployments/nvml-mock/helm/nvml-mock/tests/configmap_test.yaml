@@ -242,7 +242,7 @@ tests:
   # ── Dynamic metrics ─────────────────────────────────────────────────
   # #506 item 3. The default install must still report a moving, non-zero
   # utilization: every profile now ships its own `dynamic_metrics.utilization`
-  # block, so DCGM_FI_DEV_GPU_UTIL — and the DCGM_FI_PROF_* fractions derived
+  # block, so DCGM_FI_DEV_GPU_UTIL_RATIO — and the DCGM_FI_PROF_* fractions derived
   # from it — are never a constant 0 without opting into the chart overlay.
   # The overlay's temperature/power simulation stays opt-in and must NOT appear.
   - it: should keep the profile's own utilization block when the overlay is disabled (default)

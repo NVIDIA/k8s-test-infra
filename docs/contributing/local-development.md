@@ -110,7 +110,7 @@ the topology and re-asserts.
 **`observability-tests`** — `inject-thermal` pins one GPU's temperature and
 asserts Prometheus serves exactly that value while its siblings keep varying;
 `inject-xid` trips an uncorrectable ECC fault and asserts the Xid reaches
-`DCGM_FI_DEV_XID_ERRORS`. Both inject with `nvml-mock-ctl` rather than
+`DCGM_FI_DEV_XID_ERROR`. Both inject with `nvml-mock-ctl` rather than
 `helm upgrade`, which would recycle the exporter and tear a hole in the series,
 and both **fail if the fault does not reach Prometheus** — the scrape path is
 asserted, not eyeballed.

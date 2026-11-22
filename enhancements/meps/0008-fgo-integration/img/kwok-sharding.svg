@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 520" width="1000" height="520" role="img" aria-labelledby="title desc">
+  <title id="title">Sharding the KWOK data plane</title>
+  <desc id="desc">Each data plane replica renews its own shard Lease every 10 seconds. The control plane watches the shard Leases, and its leader scores every rack against the live shards with hash(rack UID, shard name) and labels the rack with the top one. Each replica watches only the racks labeled with its name. In the example, rack 4 scores highest with mokka-kwok-data-plane-2, so it belongs to that replica, and mokka-kwok-data-plane-0 is its runner-up.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .title { font-size: 14px; font-weight: 600; }
+    .body { font-size: 12.5px; fill: #59636e; }
+    .label { font-size: 12px; fill: #59636e; }
+    .chip { font-size: 12px; }
+    .small { font-size: 11.5px; fill: #59636e; }
+    .box { fill: #ffffff; stroke-width: 1.5; }
+    .band { fill: #f6f8fa; stroke: #59636e; stroke-width: 1.5; }
+    .wire { fill: none; stroke-width: 1.5; }
+    .link { fill: none; stroke-width: 1.5; stroke-dasharray: 2 4; stroke-linecap: round; }
+    .b-cp, .w-cp { stroke: #8250df; }
+    .b-dp, .w-dp { stroke: #1a7f37; }
+    .h-cp { fill: #8250df; }
+    .h-dp { fill: #1a7f37; }
+    .s0 { stroke: #0969da; } .s1 { stroke: #bc4c00; } .s2 { stroke: #bf3989; }
+    .f0 { fill: #0969da; } .f1 { fill: #bc4c00; } .f2 { fill: #bf3989; }
+    .tint { fill-opacity: 0.12; stroke-width: 1.5; }
+    .bar { fill-opacity: 0.85; }
+    .strong { font-weight: 600; fill: #1f2328; }
+    .aside { stroke-width: 1; stroke-opacity: 0.7; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .body, .label, .small { fill: #9198a1; }
+      .box { fill: #0d1117; }
+      .band { fill: #151b23; stroke: #9198a1; }
+      .b-cp, .w-cp { stroke: #ab7df8; }
+      .b-dp, .w-dp { stroke: #3fb950; }
+      .h-cp { fill: #ab7df8; }
+      .h-dp { fill: #3fb950; }
+      .s0 { stroke: #4493f8; } .s1 { stroke: #db6d28; } .s2 { stroke: #db61a2; }
+      .f0 { fill: #4493f8; } .f1 { fill: #db6d28; } .f2 { fill: #db61a2; }
+      .tint { fill-opacity: 0.18; }
+      .strong { fill: #f0f6fc; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow-cp" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-cp" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-dp" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-dp" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="519" rx="12"/>
+
+  <!-- Membership goes up: shard Leases -->
+  <rect class="band" x="200" y="24" width="600" height="100" rx="8"/>
+  <text class="title" x="216" y="48">Shard Leases</text>
+  <text class="label" x="320" y="48">labeled mokka.nvidia.com/shard-ring=kwok-data-plane</text>
+  <rect class="f0 s0 tint" x="216" y="64" width="176" height="40" rx="6"/>
+  <text class="chip" x="304" y="88" text-anchor="middle">mokka-kwok-data-plane-0</text>
+  <rect class="f1 s1 tint" x="412" y="64" width="176" height="40" rx="6"/>
+  <text class="chip" x="500" y="88" text-anchor="middle">mokka-kwok-data-plane-1</text>
+  <rect class="f2 s2 tint" x="608" y="64" width="176" height="40" rx="6"/>
+  <text class="chip" x="696" y="88" text-anchor="middle">mokka-kwok-data-plane-2</text>
+
+  <!-- Data plane replicas -->
+  <rect class="box b-dp" x="24" y="172" width="300" height="160" rx="8"/>
+  <text class="title" x="174" y="196" text-anchor="middle">KWOK data plane</text>
+  <text class="body" x="174" y="214" text-anchor="middle">StatefulSet, one shard per replica</text>
+  <rect class="f0 s0 tint" x="40" y="226" width="268" height="28" rx="6"/>
+  <text class="chip" x="174" y="245" text-anchor="middle">mokka-kwok-data-plane-0</text>
+  <rect class="f1 s1 tint" x="40" y="260" width="268" height="28" rx="6"/>
+  <text class="chip" x="174" y="279" text-anchor="middle">mokka-kwok-data-plane-1</text>
+  <rect class="f2 s2 tint" x="40" y="294" width="268" height="28" rx="6"/>
+  <text class="chip" x="174" y="313" text-anchor="middle">mokka-kwok-data-plane-2</text>
+
+  <path class="wire w-dp" d="M262,172 V125" marker-end="url(#arrow-dp)"/>
+  <text class="label" x="254" y="144" text-anchor="end">each renews its</text>
+  <text class="label" x="254" y="158" text-anchor="end">own every 10 s</text>
+
+  <path class="wire w-dp" d="M262,332 V371" marker-end="url(#arrow-dp)"/>
+  <text class="label" x="254" y="350" text-anchor="end">each watches the</text>
+  <text class="label" x="254" y="364" text-anchor="end">racks labeled with it</text>
+
+  <!-- Control plane leader -->
+  <rect class="box b-cp" x="676" y="172" width="300" height="160" rx="8"/>
+  <text class="title" x="826" y="196" text-anchor="middle">Control plane leader</text>
+  <text class="body" x="826" y="220" text-anchor="middle">for each rack, ranks the live</text>
+  <text class="body" x="826" y="238" text-anchor="middle">shards by hash(rack UID, shard)</text>
+  <text class="body" x="826" y="256" text-anchor="middle">and writes the top one into</text>
+  <text class="body" x="826" y="274" text-anchor="middle">the rack's kwok-shard label</text>
+  <text class="body" x="826" y="304" text-anchor="middle">standbys watch the Leases too</text>
+
+  <path class="wire w-cp" d="M738,172 V125" marker-end="url(#arrow-cp)"/>
+  <text class="label" x="746" y="144">watches every</text>
+  <text class="label" x="746" y="158">shard Lease</text>
+
+  <path class="wire w-cp" d="M738,332 V371" marker-end="url(#arrow-cp)"/>
+  <text class="label" x="746" y="350">labels each rack</text>
+  <text class="label" x="746" y="364">with its top shard</text>
+
+  <!-- How one rack picks its owner -->
+  <rect class="box b-cp aside" x="356" y="172" width="288" height="160" rx="8"/>
+  <text class="title" x="372" y="196">Scores for rack 4</text>
+  <text class="body" x="372" y="214">hash(rack UID, shard name)</text>
+  <text class="small" x="372" y="244">…-plane-0</text>
+  <rect class="f0 bar" x="442" y="234" width="90" height="12" rx="2"/>
+  <text class="small" x="540" y="244">runner-up</text>
+  <text class="small" x="372" y="270">…-plane-1</text>
+  <rect class="f1 bar" x="442" y="260" width="40" height="12" rx="2"/>
+  <text class="small" x="372" y="296">…-plane-2</text>
+  <rect class="f2 bar" x="442" y="286" width="112" height="12" rx="2"/>
+  <text class="small strong" x="562" y="296">top: owner</text>
+  <text class="small" x="372" y="320">if …-plane-2 leaves, …-plane-0 takes rack 4</text>
+  <path class="link w-cp" d="M644,252 H674"/>
+
+  <!-- Assignment comes down: rack labels -->
+  <rect class="band" x="200" y="372" width="600" height="124" rx="8"/>
+  <text class="title" x="216" y="396">SGPURacks</text>
+  <text class="label" x="300" y="396">labeled mokka.nvidia.com/kwok-shard=&lt;owner&gt;</text>
+  <rect class="f2 s2 tint" x="216" y="414" width="88" height="56" rx="6"/>
+  <text class="chip" x="260" y="437" text-anchor="middle">rack 0</text>
+  <text class="small" x="260" y="456" text-anchor="middle">…-plane-2</text>
+  <rect class="f0 s0 tint" x="312" y="414" width="88" height="56" rx="6"/>
+  <text class="chip" x="356" y="437" text-anchor="middle">rack 1</text>
+  <text class="small" x="356" y="456" text-anchor="middle">…-plane-0</text>
+  <rect class="f1 s1 tint" x="408" y="414" width="88" height="56" rx="6"/>
+  <text class="chip" x="452" y="437" text-anchor="middle">rack 2</text>
+  <text class="small" x="452" y="456" text-anchor="middle">…-plane-1</text>
+  <rect class="f0 s0 tint" x="504" y="414" width="88" height="56" rx="6"/>
+  <text class="chip" x="548" y="437" text-anchor="middle">rack 3</text>
+  <text class="small" x="548" y="456" text-anchor="middle">…-plane-0</text>
+  <rect class="f2 s2 tint" x="600" y="414" width="88" height="56" rx="6"/>
+  <text class="chip" x="644" y="437" text-anchor="middle">rack 4</text>
+  <text class="small" x="644" y="456" text-anchor="middle">…-plane-2</text>
+  <rect class="f1 s1 tint" x="696" y="414" width="88" height="56" rx="6"/>
+  <text class="chip" x="740" y="437" text-anchor="middle">rack 5</text>
+  <text class="small" x="740" y="456" text-anchor="middle">…-plane-1</text>
+</svg>

@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1020" height="380" viewBox="0 0 1020 380" role="img" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+<title>Delivery epics and their dependencies</title>
+<desc>Three epics as parallel lanes. Epic T, cluster declaration and fabric topology: T1 NIC and fabric declaration (MEP-0015), then T2 deterministic topology generation, then T3 Topograph integration. Epic N, node-local network simulation: N1 node-local NIC rendering, then N2 NFD and the Network Operator, and N3 device plugins and DRA, both building on N1. Epic H, network health and failures: H1 NIC state and faults, then H2 NVSentinel and remediation, and H3 fabric failure propagation, both building on H1. Across epics, N1 and H1 need only T1's NIC schema, not its implementation; H3 builds on T2's fabric topology.</desc>
+<defs>
+<marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#378ADD" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#639922" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<marker id="arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#BA7517" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<marker id="arrow-grey" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+</defs>
+<rect x="0.5" y="0.5" width="1019" height="379" rx="12" fill="#FFFFFF" stroke="#E5E3DA"/>
+
+<!-- Lanes -->
+<rect fill="#FAEEDA" stroke="#BA7517" x="16" y="16" width="988" height="96" rx="10" stroke-width="0.75"/>
+<text font-size="11" font-weight="600" fill="#BA7517" x="32" y="40" dominant-baseline="central">EPIC T</text>
+<text font-size="13" font-weight="600" fill="#633806" x="32" y="60" dominant-baseline="central">Cluster declaration</text>
+<text font-size="13" font-weight="600" fill="#633806" x="32" y="77" dominant-baseline="central">and fabric topology</text>
+<rect fill="#EAF3DE" stroke="#639922" x="16" y="128" width="988" height="96" rx="10" stroke-width="0.75"/>
+<text font-size="11" font-weight="600" fill="#639922" x="32" y="152" dominant-baseline="central">EPIC N</text>
+<text font-size="13" font-weight="600" fill="#27500A" x="32" y="172" dominant-baseline="central">Node-local network</text>
+<text font-size="13" font-weight="600" fill="#27500A" x="32" y="189" dominant-baseline="central">simulation</text>
+<rect fill="#E6F1FB" stroke="#378ADD" x="16" y="240" width="988" height="96" rx="10" stroke-width="0.75"/>
+<text font-size="11" font-weight="600" fill="#378ADD" x="32" y="264" dominant-baseline="central">EPIC H</text>
+<text font-size="13" font-weight="600" fill="#0C447C" x="32" y="284" dominant-baseline="central">Network health</text>
+<text font-size="13" font-weight="600" fill="#0C447C" x="32" y="301" dominant-baseline="central">and failures</text>
+
+<!-- Epic T deliverables -->
+<rect fill="#FFFFFF" stroke="#BA7517" x="216" y="36" width="200" height="56" rx="8" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#BA7517" x="228" y="50" dominant-baseline="central">T1</text>
+<text font-size="13" fill="#2C2C2A" x="228" y="66" dominant-baseline="central">NIC and fabric declaration</text>
+<text font-size="13" fill="#2C2C2A" x="228" y="81" dominant-baseline="central">(MEP-0015)</text>
+<rect fill="#FFFFFF" stroke="#BA7517" x="486" y="36" width="200" height="56" rx="8" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#BA7517" x="498" y="50" dominant-baseline="central">T2</text>
+<text font-size="13" fill="#2C2C2A" x="498" y="66" dominant-baseline="central">Deterministic topology</text>
+<text font-size="13" fill="#2C2C2A" x="498" y="81" dominant-baseline="central">generation</text>
+<rect fill="#FFFFFF" stroke="#BA7517" x="756" y="36" width="200" height="56" rx="8" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#BA7517" x="768" y="54" dominant-baseline="central">T3</text>
+<text font-size="13" fill="#2C2C2A" x="768" y="72" dominant-baseline="central">Topograph integration</text>
+<line x1="416" y1="64" x2="484" y2="64" stroke="#BA7517" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+<line x1="686" y1="64" x2="754" y2="64" stroke="#BA7517" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+
+<!-- Epic N deliverables -->
+<rect fill="#FFFFFF" stroke="#639922" x="216" y="148" width="200" height="56" rx="8" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#639922" x="228" y="166" dominant-baseline="central">N1</text>
+<text font-size="13" fill="#2C2C2A" x="228" y="184" dominant-baseline="central">Node-local NIC rendering</text>
+<rect fill="#FFFFFF" stroke="#639922" x="486" y="148" width="200" height="56" rx="8" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#639922" x="498" y="166" dominant-baseline="central">N2</text>
+<text font-size="13" fill="#2C2C2A" x="498" y="184" dominant-baseline="central">NFD and Network Operator</text>
+<rect fill="#FFFFFF" stroke="#639922" x="756" y="148" width="200" height="56" rx="8" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#639922" x="768" y="166" dominant-baseline="central">N3</text>
+<text font-size="13" fill="#2C2C2A" x="768" y="184" dominant-baseline="central">Device plugins and DRA</text>
+<line x1="416" y1="176" x2="484" y2="176" stroke="#639922" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<path d="M380 204 L380 214 L856 214 L856 206" fill="none" stroke="#639922" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+
+<!-- Epic H deliverables -->
+<rect fill="#FFFFFF" stroke="#378ADD" x="216" y="260" width="200" height="56" rx="8" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#378ADD" x="228" y="278" dominant-baseline="central">H1</text>
+<text font-size="13" fill="#2C2C2A" x="228" y="296" dominant-baseline="central">NIC state and faults</text>
+<rect fill="#FFFFFF" stroke="#378ADD" x="486" y="260" width="200" height="56" rx="8" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#378ADD" x="498" y="278" dominant-baseline="central">H2</text>
+<text font-size="13" fill="#2C2C2A" x="498" y="296" dominant-baseline="central">NVSentinel and remediation</text>
+<rect fill="#FFFFFF" stroke="#378ADD" x="756" y="260" width="200" height="56" rx="8" stroke-width="0.75"/>
+<text font-size="12" font-weight="600" fill="#378ADD" x="768" y="278" dominant-baseline="central">H3</text>
+<text font-size="13" fill="#2C2C2A" x="768" y="296" dominant-baseline="central">Fabric failure propagation</text>
+<line x1="416" y1="288" x2="484" y2="288" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+<path d="M380 316 L380 326 L856 326 L856 318" fill="none" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+
+<!-- Across epics -->
+<line x1="316" y1="92" x2="316" y2="146" stroke="#5F5E5A" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow-grey)"/>
+<path d="M216 70 L204 70 L204 282 L214 282" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow-grey)"/>
+<path d="M586 92 L586 120 L976 120 L976 300 L958 300" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow-grey)"/>
+
+<!-- Legend -->
+<line x1="24" y1="358" x2="56" y2="358" stroke="#5F5E5A" stroke-width="1.5"/>
+<text font-size="12" fill="#5F5E5A" x="64" y="362">builds on</text>
+<line x1="150" y1="358" x2="182" y2="358" stroke="#5F5E5A" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text font-size="12" fill="#5F5E5A" x="190" y="362">needs only the NIC schema, not its implementation</text>
+<text font-size="12" fill="#5F5E5A" x="520" y="362">Each epic can start on its own; arrows link deliverables, not whole epics</text>
+</svg>

@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  observability: the Mokka GPU dashboard and the `inject-thermal` and `inject-xid` scenarios read the metric names and units that dcgm-exporter 4.9.0 serves (for example `DCGM_FI_DEV_GPU_TEMP_CELSIUS`), the version GPU Operator v26.7.3 deploys.
+time: 2026-11-18T00:47:20Z

@@ -560,7 +560,7 @@ device_defaults:
   utilization:
     gpu: 0                            # 0-100%
     memory: 0
-    encoder: 0
+    encoder: 0                        # see Encoder/Decoder
     decoder: 0
     jpeg: 0
     ofa: 0
@@ -911,6 +911,46 @@ device_defaults:
     average_fps: 0
     average_latency_us: 0
 ```
+
+`session_count` also decides how many sessions `nvmlDeviceGetEncoderSessions`
+and `nvmlDeviceGetFBCSessions` list. Each session reports the configured
+`average_fps` and `average_latency_us` and is assigned to the configured
+[processes](#processes) in turn; with no processes, the sessions report pid 0.
+`nvmlDeviceGetEncoderUtilization` reports `utilization.encoder`, which
+mokka-capture records from the real node. When that is 0, it reports the sum of
+the processes' `enc_util` instead, so a profile can model the load process by
+process; an explicit 0 alongside processes with `enc_util` therefore reads as
+their sum. Either is capped at 100. `nvmlDeviceGetEncoderCapacity` reports what
+is left of 100 for every codec, so the two always add up to 100.
+
+### Board and operation mode
+
+```yaml
+device_defaults:
+  gpu_operation_mode:
+    current: "all_on"               # all_on, compute, low_dp
+    pending: "all_on"               # defaults to current
+```
+
+`gpu_operation_mode` is what `nvmlDeviceGetGpuOperationMode` reports; an
+unknown value is rejected when the profile loads.
+
+```yaml
+devices:
+  - index: 0
+    board_id: "0x4100"              # quoted, 0x and up to 8 hex digits
+  - index: 1
+    board_id: "0x4100"              # same board as GPU 0
+```
+
+`board_id` is what `nvmlDeviceGetBoardId` reports. Without it the board ID is
+derived from the GPU's PCI address, so every GPU is a board of its own. GPUs
+that share a `board_id` sit on one board, as the GPUs of a dual-GPU card do:
+`nvmlDeviceOnSameBoard` reports 1 for them and `nvmlDeviceGetMultiGpuBoard`
+reports 1 for each. A board ID wider than 32 bits is rejected when the profile
+loads, and so is one equal to the board ID another GPU derives from its PCI
+address, which would put that GPU on a board its profile does not declare. The CPER log and system events still name each GPU by its own
+PCI-derived ID.
 
 ### Processes
 
@@ -1270,6 +1310,74 @@ Fabric health can also be degraded and restored at runtime with
 [`nvml-mock-ctl fabric-health`](nvml-mock-ctl.md#fabric-health--degrade-nvlink-fabric-health),
 without restarting the consumer.
 
+## Fabric Cliques
+
+`nvmlDeviceGetGpuFabricInfo_v4` replaces the single clique ID of the earlier
+fabric structs with a list of cliques, one per fabric operation type. The mock
+builds the list from the profile's `architecture`, and every clique in it
+carries `clique_id`. A consumer therefore reads the same clique from the v4
+struct as from `nvmlDeviceGetGpuFabricInfoV`.
+
+The call exists from driver `615`. On an older driver it answers
+`FUNCTION_NOT_FOUND`, because that driver's library has no such symbol, and a
+consumer falls back to `nvmlDeviceGetGpuFabricInfoV`. Of the shipped profiles
+only `vrnvl72` declares a `615` driver; run another one with
+`driverVersion: 615.71.09` to read its cliques.
+
+| Clique type | Reported on | `cliques:` type |
+| ----------- | ----------- | --------------- |
+| Unicast Pointer | every GPU with a `fabric:` block | none: always `clique_id` |
+| Multicast Pointer | Hopper and newer | `multicast_pointer` |
+| Unicast Logical Endpoint | Blackwell and newer | `unicast_logical_endpoint` |
+| Multicast Logical Endpoint | Blackwell and newer | `multicast_logical_endpoint` |
+
+### Default and admin-created partitions
+
+A clique is an NVLink partition. Fabric Manager keeps the GPUs of a rack in a
+default partition until an administrator creates partitions of their own. Mokka
+configures the two in different places:
+
+| Partition | Configured in | Reported by |
+| --------- | ------------- | ----------- |
+| Default | the profile's `fabric.clique_id` and `fabric.cliques` | a node that no topology names |
+| Admin-created | the chart's [`topology.domains`](helm-chart-values.md) | the nodes a clique of the topology lists |
+
+The profile therefore describes a rack nobody has partitioned. `clique_id` is
+the ID of its default partition, and `cliques` lists the clique types that carry
+another ID there. A Vera Rubin NVL72 tray reports its logical-endpoint cliques
+under another ID than its pointer cliques, and the `vrnvl72` profile reproduces
+that:
+
+```yaml
+device_defaults:
+  fabric:
+    clique_id: 65534    # default partition: every type not listed below
+    cliques:            # default partition: the types with another ID
+      - type: unicast_logical_endpoint
+        id: 32766
+      - type: multicast_logical_endpoint
+        id: 32766
+```
+
+A topology takes precedence over the profile, as an admin-created partition
+replaces the default one. It gives a node a single clique ID, so every clique
+type on that node reports that ID and the profile's `cliques` do not apply. A
+node the topology leaves out keeps the profile's default partition.
+
+### The `cliques` list
+
+The entries of a type replace its default. A type can be listed several times,
+and on an architecture that does not report it by default. The library reports
+the cliques sorted by type and then by ID, as NVML does.
+
+A GPU reports at most 64 cliques. That count includes the unicast-pointer clique
+and the default of every type `cliques` leaves out, and a profile that exceeds
+it is rejected. So is a profile that lists `unicast_pointer`, because that
+clique is the one `clique_id` sets for every struct version.
+
+`nvidia-smi -q` from a 615 driver renders the list under `Fabric` → `Cliques`;
+the 580 binary does not know the block.
+
 ## Available GPU Profiles
 
 Standalone configuration files are provided for each supported GPU model:
@@ -1316,7 +1424,7 @@ idle node, and they do not move any faster under load.
 **Utilization is live in every shipped profile.** Each profile carries its own
 `device_defaults.dynamic_metrics.utilization` block — `pattern: steady`, GPU
 10–45%, memory 5–25% — so `nvmlDeviceGetUtilizationRates`, and therefore
-`DCGM_FI_DEV_GPU_UTIL`, never reports a constant 0 on a default install. The
+`DCGM_FI_DEV_GPU_UTIL_RATIO`, never reports a constant 0 on a default install. The
 floor is deliberately above 0 so "utilization is reported" is a deterministic
 assertion rather than a flaky one. Because every `DCGM_FI_PROF_*` activity
 metric is a fixed fraction of `utilization.gpu` (see *Deliberately fixed*
