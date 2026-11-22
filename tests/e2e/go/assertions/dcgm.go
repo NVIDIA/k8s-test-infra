@@ -26,15 +26,15 @@ const (
 	dcgmExporterDaemonSet = "nvidia-dcgm-exporter"
 	dcgmExporterPort      = 9400
 
-	fiDevGPUTemp    = "DCGM_FI_DEV_GPU_TEMP"
-	fiDevPowerUsage = "DCGM_FI_DEV_POWER_USAGE"
-	fiDevXidErrors  = "DCGM_FI_DEV_XID_ERRORS"
+	fiDevGPUTemp    = "DCGM_FI_DEV_GPU_TEMP_CELSIUS"
+	fiDevPowerUsage = "DCGM_FI_DEV_BOARD_POWER_WATTS"
+	fiDevXidErrors  = "DCGM_FI_DEV_XID_ERROR"
 	fiProfPCIeTx    = "DCGM_FI_PROF_PCIE_TX_BYTES"
 )
 
 // DCGMDeviceMetrics asserts dcgm-exporter telemetry from the mock NVML:
-//   - one DCGM_FI_DEV_GPU_TEMP sample per GPU, each in a plausible range;
-//   - positive DCGM_FI_DEV_POWER_USAGE for every GPU;
+//   - one DCGM_FI_DEV_GPU_TEMP_CELSIUS sample per GPU, each in a plausible range;
+//   - positive DCGM_FI_DEV_BOARD_POWER_WATTS for every GPU;
 //   - a modelName label matching the profile's display name;
 //   - on GPM (Hopper+) profiles, one positive DCGM_FI_PROF_PCIE_TX_BYTES per GPU;
 //   - power that varies over time.
@@ -91,7 +91,7 @@ func DCGMDeviceMetrics(ctx context.Context, k *kube.Client, ns, gpuName string, 
 	}
 
 	// Power must differ across two scrapes (dynamic metrics).
-	ginkgo.By("checking DCGM_FI_DEV_POWER_USAGE varies over time")
+	ginkgo.By("checking DCGM_FI_DEV_BOARD_POWER_WATTS varies over time")
 	baseline := promRaw(metrics, fiDevPowerUsage)
 	gomega.Expect(baseline).NotTo(gomega.BeEmpty(), "%s not present for time-varying check", fiDevPowerUsage)
 	gomega.Eventually(func() (bool, error) {
@@ -105,7 +105,7 @@ func DCGMDeviceMetrics(ctx context.Context, k *kube.Client, ns, gpuName string, 
 }
 
 // DCGMXidReported polls until at least one GPU reports xid as
-// DCGM_FI_DEV_XID_ERRORS (healthy default is 0).
+// DCGM_FI_DEV_XID_ERROR (healthy default is 0).
 //
 // The exporter is a moving target here: the GPU Operator replaces its operands a
 // reconcile period after nvml-mock rolls, well after the caller's own rollouts
@@ -143,7 +143,7 @@ func DCGMXidReported(ctx context.Context, k *kube.Client, ns string, xid int, ti
 }
 
 // DCGMXidReportedForGPU polls until dcgm-exporter reports the injected xid for
-// the target GPU index via DCGM_FI_DEV_XID_ERRORS, then asserts every other GPU
+// the target GPU index via DCGM_FI_DEV_XID_ERROR, then asserts every other GPU
 // stays at xid 0. It never restarts dcgm-exporter, so it validates that a
 // runtime, single-GPU failure injection (via nvml-mock-ctl) propagates to an
 // already-running consumer through the bind-mounted overlay. `node` pins the
@@ -180,7 +180,7 @@ func DCGMXidReportedForGPU(ctx context.Context, k *kube.Client, ns, node string,
 }
 
 // DCGMTempReportedForGPU polls until dcgm-exporter reports wantC as
-// DCGM_FI_DEV_GPU_TEMP for the target GPU, then asserts every other GPU keeps a
+// DCGM_FI_DEV_GPU_TEMP_CELSIUS for the target GPU, then asserts every other GPU keeps a
 // different (simulator-driven) reading. It never restarts dcgm-exporter, so it
 // validates that a runtime, single-GPU temperature pin (via nvml-mock-ctl)
 // propagates to an already-running consumer through the bind-mounted overlay.
@@ -193,7 +193,7 @@ func DCGMTempReportedForGPU(ctx context.Context, k *kube.Client, ns, node string
 }
 
 // DCGMPowerReportedForGPU polls until dcgm-exporter reports ~wantW as
-// DCGM_FI_DEV_POWER_USAGE (watts) for the target GPU, then asserts every other
+// DCGM_FI_DEV_BOARD_POWER_WATTS (watts) for the target GPU, then asserts every other
 // GPU keeps a different (simulator-driven) reading. Like the temperature
 // variant it never restarts dcgm-exporter, validating that a runtime power pin
 // (via nvml-mock-ctl) reaches an already-running consumer through the overlay.

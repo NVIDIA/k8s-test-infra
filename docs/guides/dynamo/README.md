@@ -92,7 +92,7 @@ the chart version:
 ```bash
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia && helm repo update
 
-helm install gpu-operator nvidia/gpu-operator --version v26.3.3 \
+helm install gpu-operator nvidia/gpu-operator --version v26.7.3 \
   --namespace gpu-operator --create-namespace \
   -f gpu-operator-values.yaml \
   --wait --timeout 600s
@@ -104,10 +104,9 @@ kubectl get node dynamo-worker -o jsonpath='{.status.allocatable.nvidia\.com/gpu
 Wait for a non-zero count before going on. Until the device plugin registers,
 the Dynamo worker has nowhere to schedule.
 
-!!! warning "Stay on v26.3.x for now"
-    GPU Operator v26.7.1 gates every operand on an `nvidia` line in
-    `/proc/modules`, which Mokka cannot serve to those containers, so GFD, the
-    device plugin and `dcgm-exporter` never start.
+!!! warning "Skip v26.7.1 and v26.7.2"
+    See [the GPU Operator guide](../gpu-operator.md#step-3--install-the-gpu-operator)
+    for why those releases never start their operands on Mokka.
 
 ## Step 4 — Install the Dynamo platform
 

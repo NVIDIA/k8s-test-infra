@@ -25,8 +25,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "DCGM_FI_DEV_GPU_TEMP",
-          "legendFormat": "{{Hostname}} gpu{{gpu}}"
+          "expr": "DCGM_FI_DEV_GPU_TEMP_CELSIUS",
+          "legendFormat": "{{hostname}} gpu{{gpu}}"
         }
       ]
     },
@@ -34,7 +34,7 @@
       "id": 2,
       "type": "timeseries",
       "title": "Last Xid code reported",
-      "description": "DCGM_FI_DEV_XID_ERRORS carries the code of the most recent Xid, not a count of them: injecting Xid 79 with `nvml-mock-ctl fail` latches this line at 79, which is one error, not 79. Empty on a healthy fleet: the mock delivers Xids through the NVML event set, so DCGM has no value to report until one fires.",
+      "description": "DCGM_FI_DEV_XID_ERROR carries the code of the most recent Xid, not a count of them: injecting Xid 79 with `nvml-mock-ctl fail` latches this line at 79, which is one error, not 79. Empty on a healthy fleet: the mock delivers Xids through the NVML event set, so DCGM has no value to report until one fires.",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "fieldConfig": {
@@ -49,8 +49,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "DCGM_FI_DEV_XID_ERRORS",
-          "legendFormat": "{{Hostname}} gpu{{gpu}}"
+          "expr": "DCGM_FI_DEV_XID_ERROR",
+          "legendFormat": "{{hostname}} gpu{{gpu}}"
         }
       ]
     },
@@ -69,8 +69,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "DCGM_FI_DEV_POWER_USAGE",
-          "legendFormat": "{{Hostname}} gpu{{gpu}}"
+          "expr": "DCGM_FI_DEV_BOARD_POWER_WATTS",
+          "legendFormat": "{{hostname}} gpu{{gpu}}"
         }
       ]
     },
@@ -83,8 +83,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "max": 100,
+          "unit": "percentunit",
+          "max": 1,
           "min": 0,
           "custom": { "lineWidth": 1, "fillOpacity": 5 }
         },
@@ -94,8 +94,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "DCGM_FI_DEV_GPU_UTIL",
-          "legendFormat": "{{Hostname}} gpu{{gpu}}"
+          "expr": "DCGM_FI_DEV_GPU_UTIL_RATIO",
+          "legendFormat": "{{hostname}} gpu{{gpu}}"
         }
       ]
     },
