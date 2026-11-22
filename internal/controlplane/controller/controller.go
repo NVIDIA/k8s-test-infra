@@ -417,7 +417,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			if slot == nil || slot.NodeRef == nil {
 				return nil
 			}
-			if !key.fresh && projection.Ready(cleanupFor(rack, *slot, sgpurelease.NodeIneligible)) {
+			if !key.fresh && projection.Ready(sgpurelease.ForSlot(rack, *slot, sgpurelease.NodeIneligible)) {
 				return nil
 			}
 			if key.fresh {
