@@ -192,6 +192,12 @@ kubectl label node NODE \
   mokka.nvidia.com/pool=example
 ```
 
+Set `spec.rackGroups[].node.type` to `CPU` (the default) or `KWOK`.
+Each generated rack records the value in `spec.nodeType`. To change the type,
+create a group with a new ID. The API rejects `mokka.nvidia.com/node-type`
+in placement selectors. Declaring a KWOK group records its type. Node binding
+still uses the group's placement selector.
+
 Only Nodes with `mokka.nvidia.com/sgpu-node=true` enter the control plane's cache.
 An empty group selector matches every eligible Node; otherwise both eligibility
 and the selector must match. Placement selectors cannot reference

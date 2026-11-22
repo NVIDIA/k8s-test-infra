@@ -34,7 +34,7 @@ func TestControllerExamplesAreTypedAndMaterializable(t *testing.T) {
 	require.Equal(t, mokkav1alpha1.SchemeGroupVersion.String(), inventory.APIVersion)
 	require.Equal(t, "SGPUInventory", inventory.Kind)
 	require.Len(t, inventory.Spec.RackGroups, 1)
-	selector, err := metav1.LabelSelectorAsSelector(inventory.Spec.RackGroups[0].Placement.NodeSelector)
+	selector, err := metav1.LabelSelectorAsSelector(inventory.Spec.RackGroups[0].NodeSelector())
 	require.NoError(t, err)
 	require.Equal(t, "mokka.nvidia.com/pool=example", selector.String())
 }

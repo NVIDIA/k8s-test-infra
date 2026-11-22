@@ -65,6 +65,12 @@ type SGPURackList struct {
 
 // SGPURackSpec is a rendered rack with durable logical Node bindings.
 type SGPURackSpec struct {
+	// NodeType is inherited from the inventory rack group.
+	// +optional
+	// +kubebuilder:default:=CPU
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="node type is immutable"
+	NodeType NodeType `json:"nodeType,omitempty"`
+
 	// InventoryRef pins ownership to an exact inventory instance so a
 	// same-name replacement cannot inherit this rack.
 	InventoryRef SGPURackInventoryReference `json:"inventoryRef"`

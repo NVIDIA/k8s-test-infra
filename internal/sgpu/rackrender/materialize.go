@@ -232,6 +232,7 @@ func renderRack(input RackInput, revision string) (Rack, error) {
 		}
 	}
 	spec := mokkav1alpha1.SGPURackSpec{
+		NodeType: cmp.Or(input.Group.Node.Type, mokkav1alpha1.NodeTypeCPU),
 		InventoryRef: mokkav1alpha1.SGPURackInventoryReference{
 			Name: input.InventoryName,
 			UID:  input.InventoryUID,

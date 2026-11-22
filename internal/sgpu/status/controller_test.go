@@ -868,7 +868,7 @@ func encodeStatusAssignment(assignment sgpuassignment.Assignment) string {
 }
 
 func placement(values ...string) *mokkav1alpha1.RackPlacement {
-	return &mokkav1alpha1.RackPlacement{NodeSelector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+	return &mokkav1alpha1.RackPlacement{NodeSelector: &mokkav1alpha1.RackNodeSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
 		Key: "pool", Operator: metav1.LabelSelectorOpIn, Values: values,
 	}}}}
 }

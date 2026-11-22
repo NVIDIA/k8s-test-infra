@@ -5,7 +5,7 @@ package v1alpha1
 
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-// SGPUInventory is a set of simulated GPU racks to distribute across CPU nodes.
+// SGPUInventory is a set of simulated GPU racks to distribute across nodes.
 //
 // +genclient
 // +genclient:nonNamespaced
@@ -64,10 +64,33 @@ type RackGroup struct {
 	// ProfileRef names the rack profile used to materialize each rack.
 	ProfileRef ProfileReference `json:"profileRef"`
 
+	// Node identifies the kind of Nodes in this group.
+	// +optional
+	// +kubebuilder:default:={}
+	Node RackGroupNode `json:"node,omitzero"`
+
 	// +optional
 	// Placement optionally restricts the Nodes eligible for this rack group.
 	Placement *RackPlacement `json:"placement,omitempty"`
 }
+
+// RackGroupNode describes the Nodes that a rack group uses.
+type RackGroupNode struct {
+	// Type is fixed for the lifetime of the rack group.
+	// +optional
+	// +kubebuilder:default:=CPU
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="node type is immutable"
+	Type NodeType `json:"type,omitempty"`
+}
+
+// NodeType identifies the kind of Node simulated by a rack.
+// +kubebuilder:validation:Enum=CPU;KWOK
+type NodeType string
+
+const (
+	NodeTypeCPU  NodeType = "CPU"
+	NodeTypeKWOK NodeType = "KWOK"
+)
 
 // NodeSelector returns the group's placement Node selector, or nil when none
 // is set.
@@ -75,7 +98,7 @@ func (g *RackGroup) NodeSelector() *metav1.LabelSelector {
 	if g.Placement == nil {
 		return nil
 	}
-	return g.Placement.NodeSelector
+	return (*metav1.LabelSelector)(g.Placement.NodeSelector)
 }
 
 // ProfileReference targets an SGPURackProfile by name.
@@ -89,7 +112,22 @@ type ProfileReference struct {
 type RackPlacement struct {
 	// +optional
 	// NodeSelector restricts placement to Nodes matching these labels.
-	NodeSelector *metav1.LabelSelector `json:"nodeSelector,omitempty"`
+	// +kubebuilder:validation:XValidation:rule="!has(self.matchLabels) || !('mokka.nvidia.com/node-type' in self.matchLabels)",message="use node.type instead of selecting mokka.nvidia.com/node-type"
+	NodeSelector *RackNodeSelector `json:"nodeSelector,omitempty"`
+}
+
+// RackNodeSelector is a Kubernetes label selector for rack group placement.
+// +structType=atomic
+type RackNodeSelector struct {
+	// MatchLabels requires each listed label to match.
+	// +optional
+	MatchLabels map[string]string `json:"matchLabels,omitempty"`
+
+	// MatchExpressions requires each listed selector requirement to match.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:items:XValidation:rule="self.key != 'mokka.nvidia.com/node-type'",message="use node.type instead of selecting mokka.nvidia.com/node-type"
+	MatchExpressions []metav1.LabelSelectorRequirement `json:"matchExpressions,omitempty"`
 }
 
 // SGPUInventoryStatus is the Control Plane view of realized capacity and usage.

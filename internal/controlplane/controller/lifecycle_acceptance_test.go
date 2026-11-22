@@ -275,7 +275,7 @@ func TestControllerRejectsProjectedLabelPlacementWithoutOscillation(t *testing.T
 	mokka.Fake.ClearActions()
 	invalid, err := mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
 	require.NoError(t, err)
-	invalid.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+	invalid.Spec.RackGroups[0].Placement.NodeSelector = &mokkav1alpha1.RackNodeSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
 		Key: sgpumetadata.AssignedLabel, Operator: metav1.LabelSelectorOpDoesNotExist,
 	}}}
 	invalid.Generation++
@@ -1043,7 +1043,7 @@ func acceptanceInventory() *mokkav1alpha1.SGPUInventory {
 		Spec: mokkav1alpha1.SGPUInventorySpec{RackGroups: []mokkav1alpha1.RackGroup{{
 			ID: "compute", Count: 1,
 			ProfileRef: mokkav1alpha1.ProfileReference{Name: "acceptance-profile"},
-			Placement: &mokkav1alpha1.RackPlacement{NodeSelector: &metav1.LabelSelector{
+			Placement: &mokkav1alpha1.RackPlacement{NodeSelector: &mokkav1alpha1.RackNodeSelector{
 				MatchLabels: map[string]string{"pool": "acceptance"},
 			}},
 		}}},
