@@ -53,7 +53,7 @@ func EncodeAssignment(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURack
 	}
 	if slot.NodeRef.AssignmentRevision > 0 {
 		d := rack.Status.Delivery
-		if d == nil || d.RackSpecGeneration != rack.Generation || d.Generation < 1 {
+		if !DeliveryCoversSpec(rack) {
 			return "", ErrDeliveryPending
 		}
 		return EncodePublication(slot.NodeRef.UID, slot.NodeRef.AssignmentRevision, &PublishedBinding{
@@ -163,16 +163,26 @@ func decodePublication(value string, assigned bool) (Assignment, error) {
 // ErrDeliveryPending means the rack status writer has not yet published this binding.
 var ErrDeliveryPending = errors.New("waiting for the binding's rack delivery")
 
+// DeliveryCoversSpec reports whether the leader has delivered the current rack spec.
+func DeliveryCoversSpec(rack *mokkav1alpha1.SGPURack) bool {
+	d := rack.Status.Delivery
+	return d != nil && d.Generation > 0 && d.RackSpecGeneration == rack.Generation
+}
+
 // SameSlot compares only the immutable identities of a published binding.
 func (a Assignment) SameSlot(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) bool {
-	return a.Assigned && slot.NodeRef != nil && a.NodeUID == slot.NodeRef.UID && a.Rack == (ObjectReference{Name: rack.Name, UID: rack.UID}) && a.RackGroup == rack.Spec.Identity.RackGroup && a.RackIndex == rack.Spec.Identity.RackIndex && a.NodeIndex == slot.Index
+	return a.Assigned && slot.NodeRef != nil && a.NodeUID == slot.NodeRef.UID &&
+		a.Rack == (ObjectReference{Name: rack.Name, UID: rack.UID}) &&
+		a.RackGroup == rack.Spec.Identity.RackGroup && a.RackIndex == rack.Spec.Identity.RackIndex &&
+		a.NodeIndex == slot.Index
 }
 
 // CoversBinding is true when the Node publication and the delivered rack agree.
 // Later profile and policy deliveries keep the original publication floor.
 func (a Assignment) CoversBinding(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) bool {
 	d := rack.Status.Delivery
-	return a.Version == publicationVersion && a.SameSlot(rack, slot) && a.AssignmentRevision == slot.NodeRef.AssignmentRevision && d != nil && d.RackSpecGeneration == rack.Generation && d.Generation >= a.RackDeliveryGenerationFloor
+	return a.Version == publicationVersion && a.SameSlot(rack, slot) &&
+		a.AssignmentRevision == slot.NodeRef.AssignmentRevision && DeliveryCoversSpec(rack) && d.Generation >= a.RackDeliveryGenerationFloor
 }
 
 // NextRevision advances a durable counter without wrapping to a smaller value.

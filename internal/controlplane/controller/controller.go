@@ -489,6 +489,10 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 				}
 				return retryErr
 			})
+			if errors.Is(err, sgpuprojection.ErrRevisionPending) {
+				controller.queues.inventories.Add(key.cleanup.Binding.Coordinate.Group.InventoryName)
+				return nil
+			}
 			if err == nil && outcome.State == sgpuprojection.StateCleaned {
 				// Retiring or shrinking racks resumes in the inventory reconcile; a
 				// released binding only needs its group reallocated.

@@ -4,10 +4,11 @@
 package assignment
 
 import (
+	"testing"
+
 	api "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"testing"
 )
 
 func TestPublicationFloorSurvivesLaterDelivery(t *testing.T) {

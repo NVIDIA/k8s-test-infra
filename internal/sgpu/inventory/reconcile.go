@@ -12,12 +12,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
-	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"slices"
 	"strconv"
 
 	"go.uber.org/zap"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,6 +28,8 @@ import (
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
 	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 )
@@ -1483,17 +1484,18 @@ func compareAllocationRackKey(a, b allocationRackKey) int {
 // chooseRevisions records the first phase in the rendered spec. Pending
 // releases are retained separately with the revision being released.
 func (r *Reconciler) chooseRevisions(ctx context.Context, previous *mokkav1alpha1.SGPURack, desired *mokkav1alpha1.SGPURackSpec) error {
+	previousRefs := make(map[int32]*mokkav1alpha1.SGPUNodeReference)
+	if previous != nil {
+		for _, old := range previous.Spec.Nodes {
+			if old.NodeRef != nil {
+				previousRefs[old.Index] = old.NodeRef
+			}
+		}
+	}
 	for i := range desired.Nodes {
 		slot := &desired.Nodes[i]
 		if slot.NodeRef == nil {
 			continue
-		}
-		if previous != nil {
-			old := previous.Spec.NodeByIndex(slot.Index)
-			if old != nil && old.BoundTo(slot.NodeRef.Name, slot.NodeRef.UID) && old.NodeRef.AssignmentRevision > 0 {
-				slot.NodeRef.AssignmentRevision = old.NodeRef.AssignmentRevision
-				continue
-			}
 		}
 		node, err := r.cache.Node(ctx, slot.NodeRef.Name)
 		if err != nil {
@@ -1502,20 +1504,33 @@ func (r *Reconciler) chooseRevisions(ctx context.Context, previous *mokkav1alpha
 		if node.UID != slot.NodeRef.UID {
 			return ErrAllocationInputChanged
 		}
-		var revision int64
-		if raw := node.Annotations[sgpumetadata.AssignmentAnnotation]; raw != "" {
-			current, err := sgpuassignment.DecodeAssignment(raw)
-			if err == nil && current.NodeUID == node.UID {
-				revision = current.AssignmentRevision
-			}
-		}
-		next, err := sgpuassignment.NextRevision(revision)
+		next, err := bindingRevision(node, previous, previousRefs[slot.Index], slot)
 		if err != nil {
 			return err
 		}
 		slot.NodeRef.AssignmentRevision = next
 	}
 	return nil
+}
+
+// A pending binding keeps its chosen revision unless a publication on this
+// exact Node has already superseded it.
+func bindingRevision(node *corev1.Node, rack *mokkav1alpha1.SGPURack, old *mokkav1alpha1.SGPUNodeReference, slot *mokkav1alpha1.SGPURackNode) (int64, error) {
+	var saved sgpuassignment.Assignment
+	if raw := node.Annotations[sgpumetadata.AssignmentAnnotation]; raw != "" {
+		a, err := sgpuassignment.DecodeAssignment(raw)
+		if err == nil && a.NodeUID == node.UID {
+			saved = a
+		}
+	}
+	if old != nil && slot.BoundTo(old.Name, old.UID) && old.AssignmentRevision > 0 {
+		pending := old.AssignmentRevision > saved.AssignmentRevision
+		published := old.AssignmentRevision == saved.AssignmentRevision && saved.SameSlot(rack, slot)
+		if pending || published {
+			return old.AssignmentRevision, nil
+		}
+	}
+	return sgpuassignment.NextRevision(saved.AssignmentRevision)
 }
 
 func applyBindings(spec *mokkav1alpha1.SGPURackSpec, bindings []allocate.Binding) int64 {

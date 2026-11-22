@@ -238,7 +238,7 @@ func (c *Controller) project(ctx context.Context, rackName string, nodeIndex int
 			encodedAssignment = current
 		} else if decodeErr == nil && decoded.NodeUID == node.UID && decoded.AssignmentRevision >= slot.NodeRef.AssignmentRevision {
 			return outcome, ErrRevisionPending
-		} else if decodeErr != nil || !(assignmentMatches(decoded, rack, slot) || decoded.NodeUID == node.UID && !decoded.Assigned) {
+		} else if decodeErr != nil || !replaceablePublication(decoded, node, rack, slot) {
 			incompatible = append(incompatible, sgpumetadata.AssignmentAnnotation)
 		}
 	}
@@ -328,11 +328,21 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 	assignment, decodeErr := sgpuassignment.DecodeAssignment(encoded)
 	pending := exactBindingPresent && encoded == ""
 	tombstone := decodeErr == nil && !assignment.Assigned && assignment.NodeUID == node.UID
-	if tombstone && assignment.AssignmentRevision > needed.AssignmentRevision && node.Labels[sgpumetadata.AssignedLabel] == "" && node.Labels[sgpumetadata.CliqueLabel] == "" {
+	_, assignedLabel := node.Labels[sgpumetadata.AssignedLabel]
+	_, cliqueLabel := node.Labels[sgpumetadata.CliqueLabel]
+	if tombstone && assignment.AssignmentRevision > needed.AssignmentRevision && !assignedLabel && !cliqueLabel {
 		return c.completeCleanup(needed, outcome, ReasonCleaned, exactBindingPresent), nil
 	}
-	if !pending && !(exactBindingPresent && tombstone) && (decodeErr != nil || !cleanupAssignmentMatches(assignment, needed) || (!exactBindingPresent && assignment.AssignmentRevision > needed.AssignmentRevision)) {
-		return c.completeCleanup(needed, outcome, ReasonCleaned, exactBindingPresent), nil
+	matches := decodeErr == nil && cleanupAssignmentMatches(assignment, needed)
+	if !exactBindingPresent && (!matches || assignment.AssignmentRevision > needed.AssignmentRevision) {
+		return c.completeCleanup(needed, outcome, ReasonCleaned, false), nil
+	}
+	if exactBindingPresent && !pending && !tombstone && !matches {
+		// Keep the slot until this Node can retain its release revision. An
+		// incompatible annotation may belong to another binding or manager.
+		outcome, conflict := conflictOutcome(outcome, node.Name, []string{sgpumetadata.AssignmentAnnotation})
+		c.recordCleanupFailure(outcome, true)
+		return outcome, conflict
 	}
 
 	incompatible := make([]string, 0, 2)
@@ -373,11 +383,14 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 	// On a conflict, first relinquish the fields we own. Keep the binding
 	// pending until the foreign owner yields the assignment or removes it.
 	if len(incompatible) == 0 && len(foreignOwnedFields(node, FieldManager, released)) == 0 {
-		next, err := sgpuassignment.NextRevision(max(assignment.AssignmentRevision, needed.AssignmentRevision))
-		if err != nil {
-			return c.failCleanup(outcome, err, exactBindingPresent)
+		revision := assignment.AssignmentRevision
+		if !tombstone || revision <= needed.AssignmentRevision {
+			revision, err = sgpuassignment.NextRevision(max(revision, needed.AssignmentRevision))
+			if err != nil {
+				return c.failCleanup(outcome, err, exactBindingPresent)
+			}
 		}
-		releaseValue, err = sgpuassignment.EncodePublication(node.UID, next, nil)
+		releaseValue, err = sgpuassignment.EncodePublication(node.UID, revision, nil)
 		if err != nil {
 			return c.failCleanup(outcome, err, exactBindingPresent)
 		}
@@ -410,7 +423,11 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 		return c.completeCleanup(needed, outcome, ReasonExactNodeAbsent, exactBindingPresent), nil
 	}
 
-	if retained := retainedCleanupFields(response, encoded); len(retained) > 0 {
+	priorAssignment := encoded
+	if priorAssignment == releaseValue {
+		priorAssignment = ""
+	}
+	if retained := retainedCleanupFields(response, priorAssignment); len(retained) > 0 {
 		blockedAfter := response
 		if len(incompatible) > 0 && len(retained) == 1 && retained[0] == sgpumetadata.AssignmentAnnotation {
 			blockedAfter = nil
@@ -857,20 +874,34 @@ func cliqueValue(rack *mokkav1alpha1.SGPURack) (string, bool) {
 	return fmt.Sprintf("%s.%d", rack.Spec.Identity.FabricUUID, rack.Spec.Identity.CliqueID), true
 }
 
-func assignmentMatches(current sgpuassignment.Assignment, rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) bool {
-	if current.AssignmentRevision > 0 {
-		return current.SameSlot(rack, slot)
+// A lower revision from this writer can survive an interrupted move. An
+// unrelated annotation still belongs to its original owner.
+func replaceablePublication(a sgpuassignment.Assignment, node *corev1.Node, rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) bool {
+	if assignmentMatches(a, rack, slot) {
+		return true
 	}
-	return current.Version == sgpuassignment.AssignmentVersion && rack != nil && slot != nil && slot.NodeRef != nil &&
-		current.Inventory == (sgpuassignment.ObjectReference{Name: rack.Spec.InventoryRef.Name, UID: rack.Spec.InventoryRef.UID}) &&
-		current.Rack == (sgpuassignment.ObjectReference{Name: rack.Name, UID: rack.UID}) &&
-		current.RackGroup == rack.Spec.Identity.RackGroup && current.RackIndex == rack.Spec.Identity.RackIndex &&
-		current.NodeIndex == slot.Index && current.NodeUID == slot.NodeRef.UID
+	if a.NodeUID != node.UID || a.AssignmentRevision == 0 {
+		return false
+	}
+	return !a.Assigned || mokkaOwnsField(node.ManagedFields, managedMetadataField{section: "annotations", key: sgpumetadata.AssignmentAnnotation})
+}
+
+func assignmentMatches(current sgpuassignment.Assignment, rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) bool {
+	if !current.SameSlot(rack, slot) {
+		return false
+	}
+	return current.AssignmentRevision > 0 || current.Inventory == (sgpuassignment.ObjectReference{Name: rack.Spec.InventoryRef.Name, UID: rack.Spec.InventoryRef.UID})
 }
 
 func cleanupAssignmentMatches(current sgpuassignment.Assignment, needed sgpurelease.Cleanup) bool {
 	binding := needed.Binding
-	if !current.Assigned || (current.Version == sgpuassignment.AssignmentVersion && (current.Inventory.Name != binding.Coordinate.Group.InventoryName || current.Inventory.UID != binding.Coordinate.Group.InventoryUID)) || current.Rack.Name != needed.RackName ||
+	if !current.Assigned {
+		return false
+	}
+	if current.Version == sgpuassignment.AssignmentVersion && current.Inventory != (sgpuassignment.ObjectReference{Name: binding.Coordinate.Group.InventoryName, UID: binding.Coordinate.Group.InventoryUID}) {
+		return false
+	}
+	if current.Rack.Name != needed.RackName ||
 		current.Rack.UID != needed.RackUID ||
 		current.RackGroup != binding.Coordinate.Group.RackGroup || current.RackIndex != binding.Coordinate.RackIndex ||
 		current.NodeIndex != binding.Coordinate.NodeIndex || current.NodeUID != binding.Node.UID {

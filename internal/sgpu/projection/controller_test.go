@@ -583,14 +583,13 @@ func TestCleanupTreatsAbsentExactUIDAsCleanAndPreservesStaleAnnotation(t *testin
 	cleanup := cleanupFor(rack)
 
 	outcome, err := controller.Cleanup(t.Context(), cleanup)
-	require.NoError(t, err)
-	require.Equal(t, StateCleaned, outcome.State)
-	require.True(t, controller.Ready(cleanup))
+	var conflict *MetadataConflictError
+	require.ErrorAs(t, err, &conflict)
+	require.Equal(t, StateConflict, outcome.State)
+	require.False(t, controller.Ready(cleanup))
 	require.Empty(t, patcher.calls)
 	require.Contains(t, node.Annotations, sgpumetadata.AssignmentAnnotation)
 
-	_, err = controller.Project(t.Context(), rack.Name, 0) // a stale apply preserves the cleanup acknowledgement
-	require.NoError(t, err)
 	cache.nodes["node"] = testNode("node", "replacement-uid")
 	outcome, err = controller.Cleanup(t.Context(), cleanup)
 	require.NoError(t, err)

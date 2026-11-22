@@ -5,6 +5,7 @@ package controller
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -102,6 +103,18 @@ func TestLeaderPublishesRackDeliveries(t *testing.T) {
 	for _, name := range racks {
 		d := waitForRackDelivery(t, client, name, func(r *api.SGPURack) bool { return r.Status.Delivery.ProfileRef.Generation == profile.Generation })
 		require.Equal(t, generations[name]+1, d.Generation)
+		generations[name] = d.Generation
+	}
+	// Change an accepted policy while the Node is bound, too.
+	successor.Generation++
+	successor.Spec.Runtime = gpuTemperature(65)
+	_, err = policies.Update(ctx, successor, metav1.UpdateOptions{})
+	require.NoError(t, err)
+	for _, name := range racks[:2] {
+		d := waitForRackDelivery(t, client, name, func(r *api.SGPURack) bool {
+			policies := r.Status.Delivery.AcceptedPolicies
+			return len(policies) == 1 && policies[0].UID == successor.UID && policies[0].Generation == successor.Generation
+		})
 		generations[name] = d.Generation
 	}
 	require.Equal(t, first.ResourceVersion, nodes.snapshot("node-a").ResourceVersion, "profile and policy edits must keep the Node publication")
@@ -217,4 +230,100 @@ func TestDeliveryRelistDetectsGenerationOnlyChanges(t *testing.T) {
 	require.False(t, profileUnchanged(profile, nextProfile))
 	require.False(t, runtimePolicyUnchanged(policy, nextPolicy))
 	require.False(t, rackUnchanged(rack, nextRack))
+}
+
+// A fresh controller starts with empty queues and caches. Only the API objects
+// survive when the previous leader stops.
+func TestLeaderResumesAssignmentPublication(t *testing.T) {
+	for name, conflict := range map[string]bool{"pending binding": false, "newer Node revision during publish": true} {
+		t.Run(name, func(t *testing.T) {
+			profile, inventory := acceptanceProfile(1), acceptanceInventory()
+			client := mokkafake.NewSimpleClientset(profile, inventory)
+			installAcceptanceAPIReactors(t, client)
+			nodes := newAcceptanceNodeClient()
+			node := acceptanceNode("worker", "worker-uid", 1)
+			nodes.create(node)
+			rack := rackrender.RackName(inventory.Name, inventory.UID, "compute", 0)
+
+			stop, _ := startPublicationLeader(t, nodes, client, true)
+			waitForRackDelivery(t, client, rack, func(r *api.SGPURack) bool {
+				ref := r.Spec.Nodes[0].NodeRef
+				return ref != nil && ref.AssignmentRevision == 1
+			})
+			stop()
+			require.Empty(t, nodes.snapshot(node.Name).Annotations[sgpumetadata.AssignmentAnnotation])
+
+			expected := int64(1)
+			var started <-chan struct{}
+			var finish func()
+			if conflict {
+				started, finish = nodes.blockNextPatch()
+				t.Cleanup(finish)
+			}
+			stop, _ = startPublicationLeader(t, nodes, client, false)
+			if conflict {
+				select {
+				case <-started:
+				case <-time.After(5 * time.Second):
+					t.Fatal("leader did not attempt the pending write")
+				}
+				tombstone, err := sgpuassignment.EncodePublication(node.UID, 8, nil)
+				require.NoError(t, err)
+				nodes.update(node.Name, func(n *corev1.Node) {
+					n.Annotations = map[string]string{sgpumetadata.AssignmentAnnotation: tombstone}
+				})
+				finish()
+				require.Eventually(t, func() bool { return nodes.conflicts.Load() > 0 }, 5*time.Second, 10*time.Millisecond)
+				expected = 9
+			}
+			published := waitForNodePublication(t, nodes, node.Name, expected, rack)
+			stop()
+			require.Equal(t, 1, nodes.patchCalls())
+			stop, replayed := startPublicationLeader(t, nodes, client, false)
+			select {
+			case <-replayed:
+			case <-time.After(5 * time.Second):
+				t.Fatal("new leader did not reconcile the saved publication")
+			}
+			waitForRackDelivery(t, client, rack, func(r *api.SGPURack) bool {
+				return r.Spec.Nodes[0].NodeRef != nil && r.Spec.Nodes[0].NodeRef.AssignmentRevision == expected
+			})
+			stop()
+			require.Equal(t, published.ResourceVersion, nodes.snapshot(node.Name).ResourceVersion)
+			require.Equal(t, 1, nodes.patchCalls())
+		})
+	}
+}
+
+func startPublicationLeader(t *testing.T, nodes *acceptanceNodeClient, client *mokkafake.Clientset, holdPublication bool) (func(), <-chan struct{}) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	leader, err := newForNodes(nodes, client, Options{Workers: 1, StatusDebounce: 5 * time.Millisecond})
+	require.NoError(t, err)
+	projected := make(chan struct{})
+	observed := sync.OnceFunc(func() { close(projected) })
+	reconcile := leader.reconcileProjection
+	leader.reconcileProjection = func(ctx context.Context, key projectionKey) error {
+		if holdPublication {
+			return nil
+		}
+		err := reconcile(ctx, key)
+		if err == nil && key.mode == projectionApply {
+			observed()
+		}
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- runControllerForTest(ctx, leader) }()
+	stop := sync.OnceFunc(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("leader did not stop")
+		}
+	})
+	t.Cleanup(stop)
+	require.Eventually(t, leader.LeaderReady, 5*time.Second, 10*time.Millisecond)
+	return stop, projected
 }

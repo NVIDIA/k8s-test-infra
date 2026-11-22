@@ -489,10 +489,10 @@ func TestControllerRestoresBindingWhenAllocationChangesDuringCleanup(t *testing.
 	releaseCleanupPatch()
 
 	require.Eventually(t, func() bool {
-		return nodes.patchCalls() >= patchesBeforeMismatch+2 &&
+		return nodes.conflicts.Load() > 0 && nodes.patchCalls() == patchesBeforeMismatch &&
 			nodeIsProjected(nodes.snapshot(node.Name), node.UID)
 	}, 10*time.Second, 20*time.Millisecond,
-		"stale cleanup must be followed by a fresh projection that clears its acknowledgement")
+		"the resource-version conflict must preserve the restored binding")
 }
 
 //nolint:cyclop // The barriers place restoration after acknowledgement but before its follow-up reconcile.
@@ -1170,6 +1170,7 @@ type acceptanceNodeClient struct {
 	foreignAnnotations map[string]map[string]struct{}
 	watcher            *watch.RaceFreeFakeWatcher
 	nextRV             int64
+	conflicts          atomic.Int64
 	patches            int
 	nextPatchBarrier   *acceptancePatchBarrier
 }
@@ -1205,7 +1206,7 @@ func (c *acceptanceNodeClient) List(context.Context, metav1.ListOptions) (*corev
 
 func (c *acceptanceNodeClient) Watch(_ context.Context, options metav1.ListOptions) (watch.Interface, error) {
 	c.mu.Lock()
-	if c.watcher == nil {
+	if c.watcher == nil || c.watcher.IsStopped() {
 		c.watcher = watch.NewRaceFreeFake()
 	}
 	watcher := c.watcher
@@ -1276,6 +1277,7 @@ func (c *acceptanceNodeClient) Patch(
 		return nil, apierrors.NewNotFound(corev1.Resource("nodes"), name)
 	}
 	if payload.Metadata.ResourceVersion != node.ResourceVersion {
+		c.conflicts.Add(1)
 		c.mu.Unlock()
 		return nil, apierrors.NewConflict(corev1.Resource("nodes"), name, fmt.Errorf("stale Node resource version %q", payload.Metadata.ResourceVersion))
 	}
