@@ -1010,3 +1010,26 @@ func (f *fakeRackWriter) UpdateStatus(_ context.Context, candidate *mokkav1alpha
 	f.object = candidate.DeepCopy()
 	return f.object.DeepCopy(), nil
 }
+
+func TestDeliveryResumesFromPersistedStatus(t *testing.T) {
+	t.Parallel()
+	in := singleProjectedRackInput(t)
+	in.Rack.Generation = 12
+	in.Rack.Status.Delivery = &mokkav1alpha1.RackDelivery{Generation: 41, RackSpecGeneration: 11}
+	in.Delivery = &mokkav1alpha1.RackDelivery{RackSpecGeneration: 12}
+	writer := &fakeRackWriter{object: in.Rack.DeepCopy(), conflictOnce: true, conflictConverges: true}
+	changed, err := NewReconciler(nil, writer, nil).ReconcileRack(t.Context(), in)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Equal(t, int64(42), writer.object.Status.Delivery.Generation)
+	require.Equal(t, 2, writer.gets)
+	// A new leader takes its counter from the rack, even with no in-memory history.
+	in.Rack = writer.object.DeepCopy()
+	in.Rack.Generation++
+	in.Delivery.RackSpecGeneration = in.Rack.Generation
+	writer.object = in.Rack.DeepCopy()
+	changed, err = NewReconciler(nil, writer, nil).ReconcileRack(t.Context(), in)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, int64(43), writer.object.Status.Delivery.Generation)
+}

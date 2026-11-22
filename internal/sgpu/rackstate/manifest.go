@@ -46,7 +46,7 @@ func DependencyManifest(rack *api.SGPURack, profile *api.SGPURackProfile, evalua
 		return next, true, nil
 	}
 	next.Generation = saved.Generation
-	return next, inputsChanged(saved, &next), nil
+	return next, InputsChanged(saved, &next), nil
 }
 
 func evaluatedInventory(owner api.SGPURackInventoryReference, evaluated *policy.Evaluation) (api.DeliveryObjectReference, error) {
@@ -75,7 +75,11 @@ func comparePolicyUID(a, b api.DeliveryObjectReference) int {
 	return cmp.Compare(a.UID, b.UID)
 }
 
-func inputsChanged(saved, next *api.RackDelivery) bool {
+// InputsChanged compares input versions independently of the delivery counter.
+func InputsChanged(saved, next *api.RackDelivery) bool {
+	if saved == nil {
+		return true
+	}
 	previous := saved.AcceptedPolicies
 	// Kubernetes list-map order carries no meaning. Keep informer objects immutable.
 	if !slices.IsSortedFunc(previous, comparePolicyUID) {
