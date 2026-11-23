@@ -16,6 +16,7 @@ package engine
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
@@ -753,4 +754,61 @@ func TestSystemNvlinkBwMode_Rejected(t *testing.T) {
 			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, e.SystemSetNvlinkBwMode(0), "set return")
 		})
 	}
+}
+
+func TestSetMockNvlinkBwModeAsync_PreRubinNotSupported(t *testing.T) {
+	persistSetterWrites(t)
+	for _, arch := range []string{"hopper", "blackwell"} {
+		t.Run(arch, func(t *testing.T) {
+			dev := rubinSwitchFabricDevice(t, arch)
+			_, ret := dev.SetMockNvlinkBwModeAsync(3, false)
+			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+		})
+	}
+}
+
+// TestSetMockNvlinkBwModeAsync_FabricTransition pins the contract a caller
+// polls on: the mode is readable at once, the fabric reports IN_PROGRESS
+// until the settle time, then COMPLETED.
+func TestSetMockNvlinkBwModeAsync_FabricTransition(t *testing.T) {
+	persistSetterWrites(t)
+	dev := rubinSwitchFabricDevice(t, "rubin")
+	t0 := time.Unix(1_800_000_000, 0)
+	clock := t0
+	dev.fabric.now = func() time.Time { return clock }
+
+	timeout, ret := dev.SetMockNvlinkBwModeAsync(3, false)
+	require.Equal(t, nvml.SUCCESS, ret, "async set HALF")
+	require.Equal(t, uint32(nvlinkBwModeAsyncPollTimeoutMs), timeout)
+	require.Greater(t, time.Duration(timeout)*time.Millisecond, nvlinkBwModeAsyncSettle,
+		"the poll timeout outlasts the settle time")
+
+	mode, _, ret := dev.GetMockNvlinkBwMode()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, uint8(3), mode, "new mode is readable at once")
+
+	info, ret := dev.GetMockFabricInfoV()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, FabricStateInProgress, info.State, "settling")
+	info, ret = dev.GetMockFabricInfoV4()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, FabricStateInProgress, info.State, "v4 reports the same transition")
+
+	clock = t0.Add(nvlinkBwModeAsyncSettle)
+	info, ret = dev.GetMockFabricInfoV()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, FabricStateCompleted, info.State, "settled")
+}
+
+func TestSetMockNvlinkBwModeAsync_SharesValidation(t *testing.T) {
+	persistSetterWrites(t)
+	dev := rubinSwitchFabricDevice(t, "rubin")
+
+	_, ret := dev.SetMockNvlinkBwModeAsync(256, false)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret, "mode above uint8")
+	_, ret = dev.SetMockNvlinkBwModeAsync(5, false)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret, "mode outside supported")
+
+	_, ret = dev.SetMockNvlinkBwModeAsync(256, true)
+	require.Equal(t, nvml.SUCCESS, ret, "setBest ignores mode")
 }

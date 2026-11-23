@@ -23,7 +23,7 @@ package main
 */
 import "C"
 
-// 109 stub functions for unimplemented NVML functions.
+// 107 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceGetInfo_v1
@@ -114,11 +114,6 @@ func nvmlDeviceGetMPSComputeRunningProcesses_v1(device C.nvmlDevice_t, infoCount
 //export nvmlDeviceGetMemoryLimits_v1
 func nvmlDeviceGetMemoryLimits_v1(device C.nvmlDevice_t, limits *C.nvmlGetMemoryLimits_v1_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetMemoryLimits_v1")
-}
-
-//export nvmlDeviceGetNvLinkTelemetrySamples_v1
-func nvmlDeviceGetNvLinkTelemetrySamples_v1(device C.nvmlDevice_t, samples *C.nvmlNvlinkTelemetrySamples_v1_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetNvLinkTelemetrySamples_v1")
 }
 
 //export nvmlDeviceGetNvLinkUtilizationControl
@@ -249,11 +244,6 @@ func nvmlDeviceSetGpuOperationMode(device C.nvmlDevice_t, mode C.nvmlGpuOperatio
 //export nvmlDeviceSetNvLinkUtilizationControl
 func nvmlDeviceSetNvLinkUtilizationControl(device C.nvmlDevice_t, link C.uint, counter C.uint, control *C.nvmlNvLinkUtilizationControl_t, reset C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetNvLinkUtilizationControl")
-}
-
-//export nvmlDeviceSetNvlinkBwModeAsync_v1
-func nvmlDeviceSetNvlinkBwModeAsync_v1(device C.nvmlDevice_t, setBwModeAsync *C.nvmlNvlinkSetBwModeAsync_v1_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceSetNvlinkBwModeAsync_v1")
 }
 
 //export nvmlDeviceSetRusdSettings_v1

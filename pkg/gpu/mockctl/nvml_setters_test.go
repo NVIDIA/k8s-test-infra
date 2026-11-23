@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -95,6 +96,22 @@ func TestSetNvlinkBwMode_SurvivesReload(t *testing.T) {
 	require.EqualValues(t, 3, doc.Devices["1"]["nvlink_bw_mode"])
 	require.NotContains(t, doc.All, "nvlink_bw_mode",
 		"a per-device set must not land in the bucket the node-wide getter reads")
+}
+
+// TestSetNvlinkBwModeAsync_RecordsModeAndSettleTime pins that the async set
+// lands the mode and its completion time in the same device bucket, which is
+// what lets a reader in another process derive the in-flight fabric state.
+func TestSetNvlinkBwModeAsync_RecordsModeAndSettleTime(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+	settleAt := time.UnixMilli(1_800_000_002_000)
+
+	require.NoError(t, SetNvlinkBwModeAsync(path, 1, 3, settleAt))
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, doc.Devices["1"]["nvlink_bw_mode"])
+	require.EqualValues(t, settleAt.UnixMilli(), doc.Devices["1"]["nvlink_bw_mode_settle_at_ms"])
 }
 
 // TestSetNvlinkBwMode_NodeWideTargetsAllBucket pins where the node-wide NVML

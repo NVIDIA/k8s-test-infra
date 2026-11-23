@@ -178,3 +178,80 @@ func nvmlSystemSetNvlinkBwMode(nvlinkBwMode C.uint) C.nvmlReturn_t {
 	}
 	return toReturn(engine.GetEngine().SystemSetNvlinkBwMode(uint32(nvlinkBwMode)))
 }
+
+//export nvmlDeviceSetNvlinkBwModeAsync_v1
+func nvmlDeviceSetNvlinkBwModeAsync_v1(device C.nvmlDevice_t, setBwModeAsync *C.nvmlNvlinkSetBwModeAsync_v1_t) C.nvmlReturn_t {
+	if setBwModeAsync == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	if ret, ok := bridgeVersionCheck("nvmlDeviceSetNvlinkBwModeAsync_v1"); !ok {
+		return ret
+	}
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	timeoutMs, ret := dev.SetMockNvlinkBwModeAsync(uint32(setBwModeAsync.bwMode), setBwModeAsync.bSetBest != 0)
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	setBwModeAsync.asyncPollTimeoutMs = C.uint(timeoutMs)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetNvLinkTelemetrySamples_v1
+func nvmlDeviceGetNvLinkTelemetrySamples_v1(device C.nvmlDevice_t, samples *C.nvmlNvlinkTelemetrySamples_v1_t) C.nvmlReturn_t {
+	if samples == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetNvLinkTelemetrySamples_v1"); !ok {
+		return ret
+	}
+	n := int(samples.telemetryCount)
+	if n > 0 && samples.telemetrySamples == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	var slots []C.nvmlNvlinkTelemetrySample_v1_t
+	if n > 0 {
+		slots = unsafe.Slice(samples.telemetrySamples, n)
+	}
+	results, ret := dev.GetMockNvLinkTelemetrySamples(nvlinkTelemetryRequests(slots))
+	if results != nil {
+		writeNvlinkTelemetryResults(slots, results, ret == nvml.SUCCESS)
+	}
+	return toReturn(ret)
+}
+
+func nvlinkTelemetryRequests(slots []C.nvmlNvlinkTelemetrySample_v1_t) []engine.NvLinkTelemetryRequest {
+	reqs := make([]engine.NvLinkTelemetryRequest, len(slots))
+	for i := range slots {
+		reqs[i] = engine.NvLinkTelemetryRequest{
+			Link:       uint32(slots[i].linkId),
+			SampleType: nvml.NvlinkTelemetrySampleType(slots[i].sampleType),
+			Count:      uint32(slots[i].sampleCount),
+			HasBuffer:  slots[i].samples != nil,
+		}
+	}
+	return reqs
+}
+
+// writeNvlinkTelemetryResults sets every slot's status, and fills counts and
+// samples only when the batch succeeded: a failed batch leaves the caller's
+// buffers as they were, so the only change is which slot was rejected.
+func writeNvlinkTelemetryResults(slots []C.nvmlNvlinkTelemetrySample_v1_t, results []engine.NvLinkTelemetryResult, batchOK bool) {
+	for i := range slots {
+		r := results[i]
+		slots[i].nvmlReturn = toReturn(r.Return)
+		if !batchOK || r.Return != nvml.SUCCESS {
+			continue
+		}
+		slots[i].sampleCount = C.uint(r.Count)
+		if len(r.Samples) > 0 {
+			copy(unsafe.Slice((*uint64)(unsafe.Pointer(slots[i].samples)), len(r.Samples)), r.Samples)
+		}
+	}
+}

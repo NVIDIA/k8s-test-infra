@@ -190,6 +190,10 @@ func TestFunctionAvailable_NvlinkBwMode(t *testing.T) {
 		{"nvmlDeviceSetNvLinkDeviceLowPowerThreshold", "510.0", false},
 		{"nvmlDeviceGetNvLinkInfo", "580.0", true},
 		{"nvmlDeviceGetNvLinkInfo", "570.0", false},
+		{"nvmlDeviceGetNvLinkTelemetrySamples_v1", "600.0", true},
+		{"nvmlDeviceGetNvLinkTelemetrySamples_v1", "580.65.06", false},
+		{"nvmlDeviceSetNvlinkBwModeAsync_v1", "600.0", true},
+		{"nvmlDeviceSetNvlinkBwModeAsync_v1", "580.65.06", false},
 	}
 	for _, tt := range cases {
 		t.Run(tt.funcName+"@"+tt.driverVersion, func(t *testing.T) {

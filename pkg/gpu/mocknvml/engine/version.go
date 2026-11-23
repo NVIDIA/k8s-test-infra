@@ -201,6 +201,12 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceGetNvlinkSupportedBwModes":        {Added: "570.0"},
 	"nvmlDeviceGetNvLinkInfo":                    {Added: "580.0"},
 
+	// The Rubin-or-newer NVLink pair arrived with the NVML 13.4 header, newer
+	// than the r595 one, so like BBXTimeData_v1 above 600.0 records only that
+	// the shipped driver lines lack them.
+	"nvmlDeviceGetNvLinkTelemetrySamples_v1": {Added: "600.0"},
+	"nvmlDeviceSetNvlinkBwModeAsync_v1":      {Added: "600.0"},
+
 	// CPU / memory affinity functions
 	"nvmlDeviceGetCpuAffinity":            {Added: "331.0"},
 	"nvmlDeviceGetCpuAffinityWithinScope": {Added: "440.0"},

@@ -129,6 +129,16 @@ func (w *fileOverrideWriter) SetNvlinkBwMode(index int, mode uint8, allDevices b
 	return w.mutate(index, patch)
 }
 
+func (w *fileOverrideWriter) SetNvlinkBwModeAsync(index int, mode uint8, settleAt time.Time) error {
+	return w.mutate(index, func(bucket map[string]any) error {
+		deepMergeMaps(bucket, map[string]any{
+			"nvlink_bw_mode":              mode,
+			"nvlink_bw_mode_settle_at_ms": settleAt.UnixMilli(),
+		})
+		return nil
+	})
+}
+
 func (w *fileOverrideWriter) SetNvlinkLowPowerThreshold(index int, threshold *uint32) error {
 	return w.mutate(index, func(bucket map[string]any) error {
 		if threshold == nil {
