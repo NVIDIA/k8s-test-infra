@@ -112,13 +112,27 @@ func (f *rackFetcher) fetch(ctx context.Context, items []*trackedRack) {
 		zap.L().Warn("Fetch KWOK rack state", zap.Error(err), zap.Int("racks", len(active)))
 	}
 	for i, item := range active {
-		_, owned := f.request(item)
-		if owned && ctx.Err() == nil && (err != nil || !f.accept(item, results[i])) {
-			f.queue.AddAfter(item, max(f.retries.When(item), delay))
-		} else {
-			f.retries.Forget(item)
+		var result state.RackResult
+		if err == nil {
+			result = results[i]
 		}
-		f.queue.Done(item)
+		f.finish(item, requests[i].MinRackDeliveryGeneration, result, delay)
+	}
+}
+
+// Only the worker schedules follow-up work while a rack is pending. Watch
+// updates can advance wanted without shortening a server or local backoff.
+func (f *rackFetcher) finish(item *trackedRack, requested int64, result state.RackResult, delay time.Duration) {
+	defer f.queue.Done(item)
+	accepted := f.accept(item, requested, result)
+	_, pending := f.request(item)
+	if !accepted && pending {
+		f.queue.AddAfter(item, max(f.retries.When(item), delay))
+		return
+	}
+	f.retries.Forget(item)
+	if pending {
+		f.queue.Add(item)
 	}
 }
 

@@ -57,15 +57,19 @@ func parseConfig(args []string) (config, error) {
 	if _, _, err := net.SplitHostPort(c.listen); err != nil {
 		return c, fmt.Errorf("invalid listen address: %w", err)
 	}
+	c.controlPlane = strings.TrimRight(c.controlPlane, "/")
+	return c, c.validateRackClient()
+}
+
+func (c config) validateRackClient() error {
 	u, err := url.Parse(c.controlPlane)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-		return c, errors.New("expected an http(s) --control-plane-url")
+		return errors.New("expected an http(s) --control-plane-url")
 	}
-	c.controlPlane = strings.TrimRight(c.controlPlane, "/")
 	if c.batch.size < 1 || c.batch.size > 100 || c.batch.window <= 0 || c.batch.workers < 1 {
-		return c, errors.New("invalid rack batch limits")
+		return errors.New("invalid rack batch limits")
 	}
-	return c, nil
+	return nil
 }
 
 func run(ctx context.Context, args []string) error {

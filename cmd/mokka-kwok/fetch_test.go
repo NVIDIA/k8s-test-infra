@@ -28,8 +28,9 @@ type batchCall struct {
 }
 
 type batchReply struct {
-	code    int
-	results []state.RackResult
+	code       int
+	retryAfter string
+	results    []state.RackResult
 }
 
 func testFetcher(t *testing.T, opts batchOptions) (*rackFetcher, <-chan batchCall) {
@@ -54,6 +55,7 @@ func testFetcher(t *testing.T, opts batchOptions) (*rackFetcher, <-chan batchCal
 		select {
 		case reply := <-call.reply:
 			if reply.code != 0 {
+				w.Header().Set("Retry-After", reply.retryAfter)
 				w.WriteHeader(reply.code)
 				return
 			}
@@ -130,6 +132,48 @@ func TestFetchBatchesAndConcurrency(t *testing.T) {
 	require.Len(t, seen, 205)
 }
 
+func TestFetchMakesProgressWhileGenerationAdvances(t *testing.T) {
+	f, calls := testFetcher(t, batchOptions{1, time.Millisecond, 1})
+	f.observe(watchedRack("rack", 1))
+	call := nextBatch(t, calls)
+	for generation := int64(1); generation <= 8; generation++ {
+		require.Equal(t, generation, call.racks[0].MinRackDeliveryGeneration)
+		f.observe(watchedRack("rack", generation+1))
+		call.reply <- batchReply{results: []state.RackResult{rackResult(call.racks[0], 1)}}
+		call = nextBatch(t, calls)
+		node, ok := f.node("worker-uid")
+		require.True(t, ok)
+		require.Equal(t, generation, node.RackDeliveryGeneration)
+	}
+	// A response below the requested floor still cannot replace applied state.
+	below := call.racks[0]
+	below.MinRackDeliveryGeneration = 1
+	call.reply <- batchReply{results: []state.RackResult{rackResult(below, 1)}}
+	retry := nextBatch(t, calls)
+	require.EqualValues(t, 9, retry.racks[0].MinRackDeliveryGeneration)
+	node, _ := f.node("worker-uid")
+	require.EqualValues(t, 8, node.RackDeliveryGeneration)
+}
+
+func TestWatchUpdatesRespectRetryAfter(t *testing.T) {
+	f, calls := testFetcher(t, batchOptions{1, time.Millisecond, 1})
+	f.observe(watchedRack("rack", 1))
+	call := nextBatch(t, calls)
+	// Cover both windows: an update during the HTTP request and another
+	// after the retry has been scheduled.
+	f.observe(watchedRack("rack", 2))
+	start := time.Now()
+	call.reply <- batchReply{code: http.StatusTooManyRequests, retryAfter: "1"}
+	f.mu.RLock()
+	item := f.owned["rack"]
+	f.mu.RUnlock()
+	require.Eventually(t, func() bool { return f.retries.NumRequeues(item) > 0 }, time.Second, time.Millisecond)
+	f.observe(watchedRack("rack", 3))
+	retry := nextBatch(t, calls)
+	require.GreaterOrEqual(t, time.Since(start), time.Second)
+	require.EqualValues(t, 3, retry.racks[0].MinRackDeliveryGeneration)
+}
+
 func TestFetchRetryPreservesAppliedState(t *testing.T) {
 	f, calls := testFetcher(t, batchOptions{100, 10 * time.Millisecond, 2})
 	rack := watchedRack("rack", 1)
@@ -155,6 +199,37 @@ func TestFetchRetryPreservesAppliedState(t *testing.T) {
 	c = nextBatch(t, calls)
 	c.reply <- batchReply{results: []state.RackResult{rackResult(c.racks[0], 2)}}
 	require.Eventually(t, func() bool { n, _ := f.node("worker-uid"); return n.AssignmentRevision == 2 }, time.Second, time.Millisecond)
+}
+
+func TestInitialReadCanDeferOrDropARack(t *testing.T) {
+	f, calls := testFetcher(t, batchOptions{2, time.Millisecond * 20, 1})
+	unavailable, removed := watchedRack("waiting", 1), watchedRack("leaving", 1)
+	f.observe(unavailable)
+	f.observe(removed)
+	call := nextBatch(t, calls)
+	require.Len(t, call.racks, 2)
+	ready := make(chan bool, 1)
+	go func() { ready <- f.waitInitialReads(t.Context()) }()
+	f.remove(removed)
+	select {
+	case <-ready:
+		t.Fatal("initial load completed before the remaining rack replied")
+	case <-time.After(10 * time.Millisecond):
+	}
+	results := make([]state.RackResult, 0, len(call.racks))
+	for _, req := range call.racks {
+		results = append(results, state.RackResult{Status: state.NotReady, Reference: req.Object})
+	}
+	call.reply <- batchReply{results: results}
+	select {
+	case ok := <-ready:
+		require.True(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("unavailable rack blocked initial Pod list")
+	}
+	retry := nextBatch(t, calls)
+	require.Len(t, retry.racks, 1)
+	require.Equal(t, unavailable.UID, retry.racks[0].UID)
 }
 
 func TestFetchDiscardsSupersededOwnershipAndRevision(t *testing.T) {

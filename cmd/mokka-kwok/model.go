@@ -89,7 +89,7 @@ func (m model) run(ctx context.Context, c config) error {
 	group.Go(func() error { m.racks.RunWithContext(ctx); return nil })
 	group.Go(func() error {
 		// Populate initial rack membership before the first cluster-wide Pod list.
-		if cache.WaitForCacheSync(ctx.Done(), rackEvents.HasSynced) {
+		if cache.WaitForCacheSync(ctx.Done(), rackEvents.HasSynced) && m.fetcher.waitInitialReads(ctx) {
 			m.podWatch.RunWithContext(ctx)
 		}
 		return nil

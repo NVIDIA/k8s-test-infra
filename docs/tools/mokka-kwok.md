@@ -14,7 +14,11 @@ mokka-kwok data-plane --shard-name=mokka-kwok-data-plane-0 \
 The shard name must match the `mokka.nvidia.com/kwok-shard` label on its racks.
 The process uses its Kubernetes service account. It listens on `:8080` by
 default. Use `--listen-addr` to change the address. `/healthz` reports process
-health. `/readyz` becomes healthy after the rack, Pod, and Node watches sync.
+health. Before the first Pod list, the replica waits for a rack-state reply for
+each initially owned rack with a published generation, or for that rack to
+leave the shard. A per-rack `NotReady` or `NotFound` reply defers the rack.
+When it becomes available, the replica lists Pods on its newly bound Nodes.
+`/readyz` becomes healthy after the rack, Pod, and Node watches sync.
 
 ## Rack state
 
@@ -28,7 +32,9 @@ second. At most two requests run at once. Adjust `size`, `window`, and
 `maxInFlight` under `kwok.dataPlane.batch` to change these limits.
 
 The replica retries unavailable racks with backoff and keeps the last accepted
-state. A rack that leaves the shard loses its cached state. A late reply for
+state. A new generation preserves the retry deadline. If a rack changes during
+a successful request, the replica applies the reply that satisfies the requested
+generation, then fetches the newer generation. A rack that leaves the shard loses its cached state. A late reply for
 its previous ownership is discarded. For each Node UID, the assignment revision
 takes precedence. Within one revision, the rack delivery generation orders updates.
 

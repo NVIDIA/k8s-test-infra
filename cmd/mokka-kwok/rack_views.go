@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"sync"
 
 	"go.uber.org/zap"
@@ -21,6 +22,7 @@ type trackedRack struct {
 	ref             state.Object
 	wanted, applied int64
 	members         map[types.UID]string
+	firstRead       chan struct{}
 }
 
 type nodeVersion struct{ revision, generation int64 }
@@ -55,12 +57,15 @@ func (f *rackFetcher) observe(obj any) {
 		if item != nil {
 			f.drop(item)
 		}
-		item = &trackedRack{ref: state.Object{Name: rack.Name, UID: rack.UID}}
+		item = &trackedRack{ref: state.Object{Name: rack.Name, UID: rack.UID}, firstRead: make(chan struct{})}
 		f.owned[rack.Name] = item
 	}
 	if d := rack.Status.Delivery; d != nil && d.Generation > item.wanted {
+		// A pending item already has a queued request, an in-flight request,
+		// or a retry timer. Only the transition from current to pending needs Add.
+		wasCurrent := item.wanted <= item.applied
 		item.wanted = d.Generation
-		if item.wanted > item.applied {
+		if wasCurrent && item.wanted > item.applied {
 			f.queue.Add(item)
 		}
 	}
@@ -82,6 +87,7 @@ func (f *rackFetcher) remove(obj any) {
 }
 
 func (v *rackViews) drop(item *trackedRack) {
+	item.finishFirstRead()
 	v.clearNodes(item)
 	v.pods.setRack(item.ref.Name, nil)
 	delete(v.owned, item.ref.Name)
@@ -102,16 +108,51 @@ func (v *rackViews) request(item *trackedRack) (state.RackRequest, bool) {
 	return state.RackRequest{Object: item.ref, MinRackDeliveryGeneration: item.wanted}, v.owned[item.ref.Name] == item && item.wanted > item.applied
 }
 
+// waitInitialReads takes a finite snapshot after the rack handler has synced.
+// Later arrivals use the normal per-Node backfill. An explicit unavailable
+// result defers that rack without blocking Pod tracking for healthy racks.
+func (v *rackViews) waitInitialReads(ctx context.Context) bool {
+	v.mu.RLock()
+	var pending []<-chan struct{}
+	for _, item := range v.owned {
+		if item.wanted > 0 && item.firstRead != nil {
+			pending = append(pending, item.firstRead)
+		}
+	}
+	v.mu.RUnlock()
+	for _, ch := range pending {
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return false
+		}
+	}
+	return ctx.Err() == nil
+}
+
+// Called under the view lock on the first usable state, an explicit per-rack
+// unavailable result, or the end of this ownership period.
+func (item *trackedRack) finishFirstRead() {
+	if item.firstRead != nil {
+		close(item.firstRead)
+		item.firstRead = nil
+	}
+}
+
 // accept holds the ownership check and publication under the same lock. A
 // failed read keeps the last usable state until the watch removes ownership.
-func (v *rackViews) accept(item *trackedRack, result state.RackResult) bool {
+func (v *rackViews) accept(item *trackedRack, requested int64, result state.RackResult) bool {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if v.owned[item.ref.Name] != item {
 		return true
 	}
+	if result.Status == state.NotReady || result.Status == state.NotFound {
+		item.finishFirstRead()
+		return false
+	}
 	r := result.Rack
-	if r == nil || r.Hardware.Rack != item.ref || r.RackDeliveryGeneration < item.wanted {
+	if r == nil || r.Hardware.Rack != item.ref || r.RackDeliveryGeneration < requested {
 		return false
 	}
 	if v.regresses(r) {
@@ -134,6 +175,7 @@ func (v *rackViews) accept(item *trackedRack, result state.RackResult) bool {
 	item.members = members
 	item.applied = r.RackDeliveryGeneration
 	v.pods.setRack(item.ref.Name, names)
+	item.finishFirstRead()
 	zap.L().Debug("Applied KWOK rack state", zap.String("rack", item.ref.Name), zap.Int64("generation", item.applied))
 	return true
 }
