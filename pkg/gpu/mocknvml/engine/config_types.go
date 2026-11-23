@@ -133,6 +133,9 @@ type DeviceConfig struct {
 	// Remapped rows
 	RemappedRows *RemappedRowsConfig `json:"remapped_rows,omitempty"`
 
+	// Bank remapper (Rubin and later)
+	BankRemapper *BankRemapperConfig `json:"bank_remapper,omitempty"`
+
 	// Display
 	Display *DisplayConfig `json:"display,omitempty"`
 
@@ -776,6 +779,24 @@ type RowRemapHistogramConfig struct {
 	Partial uint32 `json:"partial,omitzero"`
 	Low     uint32 `json:"low,omitzero"`
 	None    uint32 `json:"none,omitzero"`
+}
+
+// BankRemapperConfig describes the memory bank remapper Rubin and later GPUs
+// repair failing DRAM banks with: how many remappings are in use, whether one
+// waits for the next GPU reset, and how much spare capacity the bank groups
+// have left.
+type BankRemapperConfig struct {
+	ActiveRemappings   uint32                       `json:"active_remappings,omitzero"`
+	InactiveRemappings uint32                       `json:"inactive_remappings,omitzero"`
+	Pending            bool                         `json:"pending,omitzero"`
+	Histogram          *BankRemapperHistogramConfig `json:"histogram,omitempty"`
+}
+
+// BankRemapperHistogramConfig counts the bank groups that still have every
+// spare and those that have none left.
+type BankRemapperHistogramConfig struct {
+	MaxSpareGroups uint32 `json:"max_spare_groups,omitzero"`
+	NoSpareGroups  uint32 `json:"no_spare_groups,omitzero"`
 }
 
 // DisplayConfig defines display output settings

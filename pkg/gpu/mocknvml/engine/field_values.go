@@ -86,6 +86,14 @@ const (
 	fiRemappedPending = 144
 	fiRemappedFailure = 145
 
+	// Bank remapper state (Rubin and later), the field-value view of
+	// nvmlDeviceGetBankRemapperStatus_v1.
+	fiActiveBankRemappings      = 303
+	fiInactiveBankRemappings    = 304
+	fiBankRemapperHistogramMax  = 305
+	fiBankRemapperHistogramNone = 306
+	fiPendingBankRemapping      = 307
+
 	// GPU T.Limit temperature thresholds (Ada and later; these supersede
 	// nvmlDeviceGetTemperatureThreshold). DCGM's cache manager reads them
 	// through the field-value path, and NVSentinel's GpuThermalMarginWatch
@@ -301,6 +309,10 @@ func (d *ConfigurableDevice) getDeviceFieldValue(fieldID, scopeID uint32) (Field
 		default:
 			return FieldValueUint, boolField(failure), nvml.SUCCESS, true
 		}
+
+	case fiActiveBankRemappings, fiInactiveBankRemappings, fiBankRemapperHistogramMax,
+		fiBankRemapperHistogramNone, fiPendingBankRemapping:
+		return d.bankRemapperFieldValue(fieldID)
 
 	default:
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, false

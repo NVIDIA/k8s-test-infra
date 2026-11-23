@@ -4143,6 +4143,18 @@ should match snapshot with vrnvl72 profile:
               none: 0
 
           # ---------------------------------------------------------------------------
+          # Bank remapper (Rubin)
+          # ---------------------------------------------------------------------------
+          bank_remapper:
+            active_remappings: 0
+            inactive_remappings: 0
+            pending: false
+            # Every bank group still has all its spare banks, as the idle tray reports.
+            histogram:
+              max_spare_groups: 252
+              no_spare_groups: 0
+
+          # ---------------------------------------------------------------------------
           # Display configuration
           # ---------------------------------------------------------------------------
           display:

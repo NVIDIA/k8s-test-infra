@@ -103,6 +103,53 @@ func nvmlDeviceGetUnrepairableMemoryFlag_v1(device C.nvmlDevice_t, unrepairableM
 	return C.NVML_SUCCESS
 }
 
+// nvmlEccBankRemapperStatus_v1_t has no version field either: the _v1 in the
+// name is the version, and the caller's ABI is fixed by the symbol it binds.
+//
+//export nvmlDeviceGetBankRemapperStatus_v1
+func nvmlDeviceGetBankRemapperStatus_v1(device C.nvmlDevice_t, pBankRemapperStatus *C.nvmlEccBankRemapperStatus_v1_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetBankRemapperStatus_v1"); !ok {
+		return ret
+	}
+	if pBankRemapperStatus == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	dev := lookupECCDevice(device)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	status, ret := dev.GetBankRemapperStatus_v1()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	pBankRemapperStatus.activeRemappings = C.uint(status.ActiveRemappings)
+	pBankRemapperStatus.inactiveRemappings = C.uint(status.InactiveRemappings)
+	pBankRemapperStatus.bPending = C.uint(status.BPending)
+	pBankRemapperStatus.histogram.maxSpareGroupCount = C.uint(status.Histogram.MaxSpareGroupCount)
+	pBankRemapperStatus.histogram.noSpareGroupCount = C.uint(status.Histogram.NoSpareGroupCount)
+	return C.NVML_SUCCESS
+}
+
+// bankRemapperStatusForTest calls the export as a C caller would: a _test.go
+// file cannot name nvmlDevice_t or nvmlEccBankRemapperStatus_v1_t. The struct
+// starts filled with a sentinel so a test sees which fields the export wrote.
+func bankRemapperStatusForTest(handle unsafe.Pointer) (nvml.EccBankRemapperStatus_v1, uint32) {
+	var device C.nvmlDevice_t
+	device.handle = (*C.struct_nvmlDevice_st)(handle)
+	var status C.nvmlEccBankRemapperStatus_v1_t
+	C.memset(unsafe.Pointer(&status), 0xff, C.sizeof_nvmlEccBankRemapperStatus_v1_t)
+	ret := uint32(nvmlDeviceGetBankRemapperStatus_v1(device, &status))
+	return nvml.EccBankRemapperStatus_v1{
+		ActiveRemappings:   uint32(status.activeRemappings),
+		InactiveRemappings: uint32(status.inactiveRemappings),
+		BPending:           uint32(status.bPending),
+		Histogram: nvml.EccBankRemapperHistogram_v1{
+			MaxSpareGroupCount: uint32(status.histogram.maxSpareGroupCount),
+			NoSpareGroupCount:  uint32(status.histogram.noSpareGroupCount),
+		},
+	}, ret
+}
+
 // The entries buffer is the caller's, and the C and Go entry layouts are
 // identical (pinned by ecc_repair_layout_test.go), so the engine fills it in
 // place rather than the bridge copying field by field.

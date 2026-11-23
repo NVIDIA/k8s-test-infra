@@ -1,6 +1,6 @@
 should match config checksum snapshot with vrnvl72 profile:
   1: |
-    2f2e941d3dcb1f4b783de086cfe9ff8bbed1898dc2c4ae73d52f4c093243285c
+    4d623517a5e0c777d879661db8291badef7d4aaed52bba99bb2f97a04001a0c1
 should match snapshot with all overrides:
   1: |
     apiVersion: apps/v1
