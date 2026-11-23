@@ -878,6 +878,8 @@ func TestProjectionStateConcurrentAccess(t *testing.T) {
 	require.Zero(t, cleanups)
 }
 
+func (*fakeCache) PublishRelease(context.Context, sgpurelease.Cleanup, int64) error { return nil }
+
 type fakeCache struct {
 	liveRack         func(context.Context, string) (*mokkav1alpha1.SGPURack, error)
 	nodes            map[string]*corev1.Node

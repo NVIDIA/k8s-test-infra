@@ -87,8 +87,9 @@ func (e *MetadataConflictError) Error() string {
 	return fmt.Sprintf("Node %q has conflicting controller metadata fields %v", e.NodeName, e.Fields)
 }
 
-// Cache is the informer-backed read surface needed for one projection.
-type Cache interface {
+// Store supplies informer-backed reads and persists release notifications.
+type Store interface {
+	PublishRelease(context.Context, sgpurelease.Cleanup, int64) error
 	Node(context.Context, string) (*corev1.Node, error)
 	ProjectionTarget(*mokkav1alpha1.SGPURack, *mokkav1alpha1.SGPURackNode) (*corev1.Node, bool, error)
 	Rack(string) (*mokkav1alpha1.SGPURack, error)
@@ -103,7 +104,7 @@ type NodePatcher interface {
 
 // Controller applies projections and tracks exact cleanup acknowledgements.
 type Controller struct {
-	cache   Cache
+	cache   Store
 	patcher NodePatcher
 
 	mu                  sync.RWMutex
@@ -156,7 +157,7 @@ type cleanupBlock struct {
 }
 
 // NewController builds a Node metadata projector over informer-backed reads.
-func NewController(cache Cache, patcher NodePatcher) *Controller {
+func NewController(cache Store, patcher NodePatcher) *Controller {
 	return &Controller{
 		cache: cache, patcher: patcher,
 		outcomes:            make(map[bindingKey]Outcome),
@@ -332,7 +333,7 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 	_, assignedLabel := node.Labels[sgpumetadata.AssignedLabel]
 	_, cliqueLabel := node.Labels[sgpumetadata.CliqueLabel]
 	if tombstone && assignment.AssignmentRevision > needed.AssignmentRevision && !assignedLabel && !cliqueLabel {
-		return c.completeCleanup(needed, outcome, ReasonCleaned, exactBindingPresent), nil
+		return c.finishPublishedRelease(ctx, needed, outcome, exactBindingPresent, assignment.AssignmentRevision)
 	}
 	matches := decodeErr == nil && cleanupAssignmentMatches(assignment, needed)
 	if !exactBindingPresent && (!matches || assignment.AssignmentRevision > needed.AssignmentRevision) {
@@ -397,9 +398,10 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 		return outcome, conflict
 	}
 	var releaseValue string
+	var revision int64
 	// Publish the tombstone only when the assignment labels can be removed.
 	if !partial {
-		revision := assignment.AssignmentRevision
+		revision = assignment.AssignmentRevision
 		if !tombstone || revision <= needed.AssignmentRevision {
 			revision, err = sgpuassignment.NextRevision(max(revision, needed.AssignmentRevision))
 			if err != nil {
@@ -461,7 +463,16 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 	}
 	zap.L().Info("Removed sGPU assignment projection from Node",
 		append(outcomeFields(outcome), zap.String("reason", string(needed.Reason)))...)
-	return c.completeCleanup(needed, outcome, ReasonCleaned, exactBindingPresent), nil
+	return c.finishPublishedRelease(ctx, needed, outcome, exactBindingPresent, revision)
+}
+
+func (c *Controller) finishPublishedRelease(ctx context.Context, needed sgpurelease.Cleanup, outcome Outcome, bound bool, revision int64) (Outcome, error) {
+	if bound {
+		if err := c.cache.PublishRelease(ctx, needed, revision); err != nil {
+			return c.failCleanup(outcome, fmt.Errorf("publish release of Node %q: %w", needed.Binding.Node.Name, err), true)
+		}
+	}
+	return c.completeCleanup(needed, outcome, ReasonCleaned, bound), nil
 }
 
 // Ready reports whether an exact cleanup acknowledgement is pending.

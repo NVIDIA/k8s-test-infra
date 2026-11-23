@@ -439,6 +439,14 @@ spec:
                     format: int64
                     minimum: 1
                     type: integer
+                  releaseRevisions:
+                    additionalProperties:
+                      format: int64
+                      type: integer
+                    description: |-
+                      ReleaseRevisions pins the published release revision for each Node UID
+                      whose old binding is still in this delivery.
+                    type: object
                 required:
                 - generation
                 - inventoryRef

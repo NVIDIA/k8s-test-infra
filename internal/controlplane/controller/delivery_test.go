@@ -58,14 +58,7 @@ func TestLeaderPublishesRackDeliveries(t *testing.T) {
 		generations[rack] = waitForRackDelivery(t, client, rack, func(r *api.SGPURack) bool { return r.Status.Delivery.Generation == 1 }).Generation
 	}
 	// A move changes two rack specs. A release changes only the current rack.
-	checkBinding := func(name string, bound bool) {
-		t.Helper()
-		d := waitForRackDelivery(t, client, name, func(r *api.SGPURack) bool {
-			return (r.Spec.Nodes[0].NodeRef != nil) == bound && r.Status.Delivery.Generation > generations[name]
-		})
-		require.Equal(t, generations[name]+1, d.Generation)
-		generations[name] = d.Generation
-	}
+
 	// Two policies compete for the same field. Only the accepted one is delivered.
 	target := api.PolicyTargetRef{RackGroups: []string{"compute"}}
 	winner := acceptancePolicy("first", 1, inventory.Name, target, gpuTemperature(50))
@@ -96,7 +89,7 @@ func TestLeaderPublishesRackDeliveries(t *testing.T) {
 	require.NoError(t, policies.Delete(ctx, winner.Name, metav1.DeleteOptions{}))
 	requirePolicyDelivery(t, client, racks[:2], generations, successor)
 	nodes.create(acceptanceNode("node-a", "node-uid", 1))
-	checkBinding(racks[0], true)
+	checkBindingDelivery(t, client, generations, racks[0], true)
 	first := waitForNodePublication(t, nodes, "node-a", 1, racks[0])
 	profile = profile.DeepCopy()
 	profile.Generation++
@@ -122,15 +115,29 @@ func TestLeaderPublishesRackDeliveries(t *testing.T) {
 	}
 	require.Equal(t, first.ResourceVersion, nodes.snapshot("node-a").ResourceVersion, "profile and policy edits must keep the Node publication")
 	nodes.update("node-a", func(n *corev1.Node) { n.Labels["pool"] = "other" })
-	checkBinding(racks[0], false)
-	checkBinding(racks[2], true)
+	checkBindingDelivery(t, client, generations, racks[0], false)
+	checkBindingDelivery(t, client, generations, racks[2], true)
 	waitForNodePublication(t, nodes, "node-a", 3, racks[2])
 	nodes.update("node-a", func(n *corev1.Node) { n.Labels["pool"] = "outside" })
-	checkBinding(racks[2], false)
+	checkBindingDelivery(t, client, generations, racks[2], false)
 	waitForNodePublication(t, nodes, "node-a", 4, "")
 	nodes.update("node-a", func(n *corev1.Node) { n.Labels["pool"] = "other" })
-	checkBinding(racks[2], true)
+	checkBindingDelivery(t, client, generations, racks[2], true)
 	waitForNodePublication(t, nodes, "node-a", 5, racks[2])
+}
+
+func checkBindingDelivery(t *testing.T, client *mokkafake.Clientset, generations map[string]int64, name string, bound bool) {
+	t.Helper()
+	d := waitForRackDelivery(t, client, name, func(r *api.SGPURack) bool {
+		return (r.Spec.Nodes[0].NodeRef != nil) == bound && r.Status.Delivery.Generation > generations[name] && r.Status.Delivery.RackSpecGeneration == r.Generation
+	})
+	want := generations[name] + 1
+	if !bound {
+		// Publish the release, then the cleared slot.
+		want++
+	}
+	require.Equal(t, want, d.Generation)
+	generations[name] = d.Generation
 }
 
 func waitForNodePublication(t *testing.T, nodes *acceptanceNodeClient, name string, revision int64, rack string) *corev1.Node {

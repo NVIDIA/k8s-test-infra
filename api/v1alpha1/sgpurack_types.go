@@ -285,6 +285,11 @@ const RackConditionReady = "Ready"
 
 // RackDelivery identifies the inputs for one generation of rack state.
 type RackDelivery struct {
+	// ReleaseRevisions pins the published release revision for each Node UID
+	// whose old binding is still in this delivery.
+	// +optional
+	ReleaseRevisions map[types.UID]int64 `json:"releaseRevisions,omitempty"`
+
 	// +kubebuilder:validation:Minimum=1
 	Generation int64 `json:"generation"`
 	// +kubebuilder:validation:Minimum=1
@@ -295,6 +300,14 @@ type RackDelivery struct {
 	// +listType=map
 	// +listMapKey=uid
 	AcceptedPolicies []DeliveryObjectReference `json:"acceptedPolicies,omitempty"`
+}
+
+// ReleaseRevision returns zero until a release is published for this Node.
+func (d *RackDelivery) ReleaseRevision(uid types.UID) int64 {
+	if d == nil {
+		return 0
+	}
+	return d.ReleaseRevisions[uid]
 }
 
 // DeliveryObjectReference pins an object independently of status-only updates.

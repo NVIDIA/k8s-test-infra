@@ -10,8 +10,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	state "github.com/NVIDIA/k8s-test-infra/pkg/rackstate/v1alpha1"
 	"github.com/stretchr/testify/require"
@@ -50,6 +52,15 @@ func TestRackBatchResponse(t *testing.T) {
 	require.Equal(t, "b", rack.Hardware.Rack.Name)
 	require.EqualValues(t, 8, rack.RackDeliveryGeneration)
 	require.JSONEq(t, `{"rack":{"name":"c","uid":"three"},"status":"NotFound"}`, string(resp.Racks[2]))
+	var entry state.RackResult
+	for _, raw := range resp.Racks {
+		require.NoError(t, json.Unmarshal(raw, &entry))
+		require.Equal(t, entry.Status == "", entry.Rack != nil)
+		require.NotEmpty(t, entry.Reference.UID)
+		encoded, err := json.Marshal(entry)
+		require.NoError(t, err)
+		require.JSONEq(t, string(raw), string(encoded))
+	}
 }
 
 func TestRackBatchLimits(t *testing.T) {
@@ -85,4 +96,20 @@ func TestRackBatchLimits(t *testing.T) {
 	require.Equal(t, http.StatusTooManyRequests, busy.Code)
 	require.Equal(t, "1", busy.Header().Get("Retry-After"))
 	require.Equal(t, http.StatusOK, (<-done).Code)
+}
+
+// Drive the same timeout error net/http gives the handler when its body read
+// deadline expires. One slot suffices to verify that the next batch can run.
+func TestRackBatchReleasesSlotAfterReadTimeout(t *testing.T) {
+	server := NewServer(DefaultConfig(), zap.NewNop())
+	require.Positive(t, server.http.ReadTimeout)
+	require.Greater(t, server.http.WriteTimeout, server.http.ReadTimeout)
+	h := batchHandler(func() bool { return true }, func([]state.RackRequest) ([]state.RackResult, error) { return nil, nil }, 1)
+	send := func(body io.Reader) int {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, rackBatchPath, body))
+		return w.Code
+	}
+	require.Equal(t, http.StatusRequestTimeout, send(iotest.ErrReader(os.ErrDeadlineExceeded)))
+	require.Equal(t, http.StatusOK, send(strings.NewReader(`{"racks":[{"name":"a","uid":"1"}]}`)))
 }

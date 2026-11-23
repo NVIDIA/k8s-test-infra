@@ -6,8 +6,10 @@ package controlplane
 import (
 	"encoding/json"
 	"errors"
+	"go.uber.org/zap"
 	"io"
 	"net/http"
+	"os"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane/controller"
 	state "github.com/NVIDIA/k8s-test-infra/pkg/rackstate/v1alpha1"
@@ -38,7 +40,11 @@ func batchHandler(ready func() bool, read rackBatchReader, limit int) http.Handl
 			return
 		}
 		var request state.BatchRequest
-		if !decodeRackRequest(http.MaxBytesReader(w, r.Body, maxRackRequestBytes), &request) {
+		if err := decodeRackRequest(http.MaxBytesReader(w, r.Body, maxRackRequestBytes), &request); err != nil {
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				http.Error(w, "rack request timed out", http.StatusRequestTimeout)
+				return
+			}
 			http.Error(w, "expected 1 to 100 racks with a name, UID and nonnegative minimum generation", http.StatusBadRequest)
 			return
 		}
@@ -53,25 +59,32 @@ func batchHandler(ready func() bool, read rackBatchReader, limit int) http.Handl
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Add("Vary", "Accept-Encoding")
-		_ = json.NewEncoder(w).Encode(state.BatchResponse{APIVersion: state.Version, Racks: results})
+		if err := json.NewEncoder(w).Encode(state.BatchResponse{APIVersion: state.Version, Racks: results}); err != nil {
+			zap.L().Debug("Could not write rack batch response", zap.Error(err))
+		}
 	}
 }
 
-func decodeRackRequest(body io.Reader, request *state.BatchRequest) bool {
+var errInvalidRackBatch = errors.New("invalid rack batch")
+
+func decodeRackRequest(body io.Reader, request *state.BatchRequest) error {
 	dec := json.NewDecoder(body)
 	if err := dec.Decode(request); err != nil {
-		return false
+		return err
 	}
-	if dec.Decode(new(json.RawMessage)) != io.EOF {
-		return false
+	if err := dec.Decode(new(json.RawMessage)); err != io.EOF {
+		if err != nil {
+			return err
+		}
+		return errInvalidRackBatch
 	}
 	if len(request.Racks) == 0 || len(request.Racks) > maxRackBatchSize {
-		return false
+		return errInvalidRackBatch
 	}
 	for _, rack := range request.Racks {
 		if rack.Name == "" || rack.UID == "" || rack.MinRackDeliveryGeneration < 0 {
-			return false
+			return errInvalidRackBatch
 		}
 	}
-	return true
+	return nil
 }

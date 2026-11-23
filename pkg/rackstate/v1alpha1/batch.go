@@ -3,7 +3,10 @@
 
 package v1alpha1
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // RackRequest selects an exact rack instance and its minimum usable delivery.
 type RackRequest struct {
@@ -37,6 +40,27 @@ func (r RackResult) MarshalJSON() ([]byte, error) {
 		Rack   Object     `json:"rack"`
 		Status RackStatus `json:"status"`
 	}{r.Reference, r.Status})
+}
+
+// UnmarshalJSON restores the same result variant and identity that MarshalJSON sends.
+func (r *RackResult) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Rack
+		Status RackStatus `json:"status"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	next := RackResult{Reference: wire.Hardware.Rack, Status: wire.Status}
+	switch wire.Status {
+	case "":
+		next.Rack = &wire.Rack
+	case NotFound, NotReady:
+	default:
+		return fmt.Errorf("unknown rack result status %q", wire.Status)
+	}
+	*r = next
+	return nil
 }
 
 // BatchRequest lists the racks to read in client order.

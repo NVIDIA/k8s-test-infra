@@ -150,8 +150,9 @@ func (c *Controller) releaseRevision(rack *api.SGPURack, slot *api.SGPURackNode)
 	if err != nil || node.UID != ref.UID || a.NodeUID != ref.UID {
 		return 0, false
 	}
-	if a.CoversBinding(rack, slot) {
+	expected := rack.Status.Delivery.ReleaseRevision(ref.UID)
+	if expected == 0 && a.CoversBinding(rack, slot) {
 		return 0, true
 	}
-	return a.AssignmentRevision, !a.Assigned && ref.AssignmentRevision > 0 && a.AssignmentRevision > ref.AssignmentRevision
+	return expected, !a.Assigned && expected == a.AssignmentRevision && expected > ref.AssignmentRevision
 }

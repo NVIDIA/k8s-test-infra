@@ -4,6 +4,7 @@
 package controller
 
 import (
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -77,8 +78,24 @@ func TestStandbyReadsOnlyPublishedRackState(t *testing.T) {
 	released := n.DeepCopy()
 	released.Annotations[metadata.AssignmentAnnotation] = tombstone
 	require.NoError(t, c.publicationNodes.Update(released))
+	require.Equal(t, state.NotReady, read().Status, "a Node tombstone alone must not change the old delivery")
+	// Use separate stores so either watch can reach the standby first.
+	leaderAPI := mokkafake.NewSimpleClientset(rack.DeepCopy()).MokkaV1alpha1().SGPURacks()
+	leader := informerCache{liveRacks: leaderAPI, liveTimeout: defaultLiveNodeGetTimeout}
+	cleanup := release.ForSlot(rack, rack.Spec.Nodes[0], release.NodeIneligible)
+	require.NoError(t, leader.PublishRelease(t.Context(), cleanup, 8))
+	require.NoError(t, leader.PublishRelease(t.Context(), cleanup, 8), "retry after a leader restart")
+	delivered, err := leaderAPI.Get(t.Context(), rack.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	require.EqualValues(t, 11, delivered.Status.Delivery.Generation)
+	require.EqualValues(t, 8, delivered.Status.Delivery.ReleaseRevisions[n.UID])
+	require.NoError(t, c.snapshot.racks.Update(delivered))
+	require.NoError(t, c.publicationNodes.Update(n))
+	require.Equal(t, state.NotReady, read().Status, "a replica must also see the matching Node release")
+	require.NoError(t, c.publicationNodes.Update(released))
 	result := read()
 	require.NotNil(t, result.Rack)
+	require.Greater(t, result.RackDeliveryGeneration, got[1].RackDeliveryGeneration)
 	require.True(t, result.Nodes[0].Releasing)
 	require.Empty(t, result.Nodes[0].GPUs)
 	require.EqualValues(t, 8, result.Nodes[0].AssignmentRevision)

@@ -66,6 +66,8 @@ func newServer(cfg Config, logger *zap.Logger, ready func() bool, read rackBatch
 			Addr:              cfg.Server.ListenAddr,
 			Handler:           router,
 			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       15 * time.Second,
+			WriteTimeout:      2 * time.Minute,
 		},
 	}
 }

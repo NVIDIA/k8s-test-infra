@@ -1088,3 +1088,20 @@ func TestDeliveryRejectsOlderInputVersions(t *testing.T) {
 		})
 	}
 }
+
+func TestDeliveryKeepsOnlyReleasesForCurrentBindings(t *testing.T) {
+	t.Parallel()
+	rack := &mokkav1alpha1.SGPURack{}
+	rack.Status.Delivery = &mokkav1alpha1.RackDelivery{Generation: 11, ReleaseRevisions: map[types.UID]int64{"releasing": 8, "rebound": 4, "gone": 12}}
+	rack.Spec.Nodes = []mokkav1alpha1.SGPURackNode{
+		{NodeRef: &mokkav1alpha1.SGPUNodeReference{UID: "releasing", AssignmentRevision: 7}},
+		{NodeRef: &mokkav1alpha1.SGPUNodeReference{UID: "rebound", AssignmentRevision: 5}},
+	}
+	// A status worker may already have prepared this input when cleanup
+	// acquires its resource version and publishes the release.
+	observed := &mokkav1alpha1.RackDelivery{RackSpecGeneration: 2}
+	updated := nextDelivery(rack, observed)
+	require.EqualValues(t, 12, updated.Generation)
+	require.Equal(t, map[types.UID]int64{"releasing": 8}, updated.ReleaseRevisions)
+	require.Len(t, rack.Status.Delivery.ReleaseRevisions, 3)
+}

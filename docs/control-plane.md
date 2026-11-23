@@ -223,7 +223,7 @@ plane's shard-name flag. It uses the StatefulSet replica name,
 `mokka-kwok-data-plane-0`. With a separately deployed data plane, use
 `controlPlane.kwokShardName` to select the shard.
 
-Only Nodes with `mokka.nvidia.com/sgpu-node=true` enter the control plane's cache.
+The control plane watches all Nodes. Only Nodes with `mokka.nvidia.com/sgpu-node=true` qualify for a new binding. When a Node loses that label, the cache keeps its identity and assignment annotation so a replica can finish its release.
 An empty placement selector matches every eligible Node of the group's type.
 A nonempty selector also requires the Node to match its labels. Placement selectors cannot reference
 `mokka.nvidia.com/sgpu-assigned` or `nvidia.com/gpu.clique` because those labels
@@ -427,6 +427,8 @@ and one entry per rack, in request order.
 | Rack state | The replica has the published assignment and all inputs for this generation. The entry lists the bound Nodes, GPU identities, and settings. A Node with a published release carries its tombstone revision and has no GPUs in this entry. |
 | `NotReady` | The rack exists. Retry after the replica observes the required inputs or Node assignment. |
 | `NotFound` | The replica has no rack with this name and UID. |
+
+A Node release advances the rack delivery generation. The delivery records the release revision under the Node UID in `status.delivery.releaseRevisions`. A replica returns the releasing Node once it also sees this revision in the Node annotation. Clearing the slot advances the rack generation again.
 
 The endpoint accepts gzip with `Accept-Encoding: gzip`. Each replica serves up
 to four batches at once. A further request gets HTTP 429 and a `Retry-After`

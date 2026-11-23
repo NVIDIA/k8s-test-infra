@@ -230,12 +230,26 @@ func deliveryGeneration(saved *mokkav1alpha1.RackDelivery) int64 {
 	return saved.Generation
 }
 
-func nextDelivery(saved, observed *mokkav1alpha1.RackDelivery) *mokkav1alpha1.RackDelivery {
+func nextDelivery(rack *mokkav1alpha1.SGPURack, observed *mokkav1alpha1.RackDelivery) *mokkav1alpha1.RackDelivery {
+	saved := rack.Status.Delivery
 	if observed == nil || !rackstate.InputsChanged(saved, observed) {
 		return saved.DeepCopy()
 	}
 	next := observed.DeepCopy()
 	next.Generation = deliveryGeneration(saved) + 1
+	// Preserve releases across independent profile and policy deliveries.
+	// A cleared slot or a later assignment ends that release.
+	if saved != nil && len(saved.ReleaseRevisions) > 0 {
+		next.ReleaseRevisions = make(map[types.UID]int64)
+		for _, slot := range rack.Spec.Nodes {
+			if ref := slot.NodeRef; ref != nil && saved.ReleaseRevisions[ref.UID] > ref.AssignmentRevision {
+				next.ReleaseRevisions[ref.UID] = saved.ReleaseRevisions[ref.UID]
+			}
+		}
+		if len(next.ReleaseRevisions) == 0 {
+			next.ReleaseRevisions = nil
+		}
+	}
 	return next
 }
 
@@ -462,7 +476,7 @@ func ComputeRack(input RackInput, now metav1.Time) mokkav1alpha1.SGPURackStatus 
 		return mokkav1alpha1.SGPURackStatus{}
 	}
 	rack := input.Rack
-	result := mokkav1alpha1.SGPURackStatus{ObservedGeneration: rack.Generation, Delivery: nextDelivery(rack.Status.Delivery, input.Delivery)}
+	result := mokkav1alpha1.SGPURackStatus{ObservedGeneration: rack.Generation, Delivery: nextDelivery(rack, input.Delivery)}
 	liveNodes := make(map[types.UID]*corev1.Node, len(input.Nodes))
 	for _, node := range input.Nodes {
 		if node != nil && node.UID != "" {
