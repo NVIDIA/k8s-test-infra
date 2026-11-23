@@ -93,6 +93,10 @@ Kubernetes: `>= 1.28.0-0`
 | integrations.fakeGpuOperator.enabled | bool | `false` | Enable fake-gpu-operator profile integration. |
 | integrations.fakeGpuOperator.profileLabels."run.ai/gpu-profile" | string | `"true"` | Additional label applied to generated fake-gpu-operator profiles. |
 | integrations.fakeGpuOperator.targetNamespace | string | `""` | Namespace where fake-gpu-operator reads profile ConfigMaps. |
+| kwok.dataPlane.batch.maxInFlight | int | `2` | Maximum simultaneous rack-state requests per replica. |
+| kwok.dataPlane.batch.size | int | `100` | Maximum racks per request, from 1 to 100. |
+| kwok.dataPlane.batch.window | string | `"1s"` | Maximum time to collect a partial batch. |
+| kwok.dataPlane.controlPlaneURL | string | `""` | Override when the control-plane Service belongs to another release. |
 | nodeAgent.kernelLog.enabled | bool | `false` | Announce injected Xids through the host kernel log. |
 | nodeAgent.livenessProbe | object | `{"httpGet":{"path":"/healthz","port":"health"}}` | Liveness probe; /healthz fails when the last Stage wave failed. Set to null to disable. |
 | nodeAgent.livenessProbe.httpGet.path | string | `"/healthz"` | Liveness probe endpoint path. |

@@ -15,8 +15,6 @@ import (
 	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
-
-	mokkav1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 )
 
 // The API can select all bound Pods, but cannot select a set of node names.
@@ -43,26 +41,6 @@ func newShardPods() *shardPods {
 		racks: make(map[string]sets.Set[string]), nodes: make(map[string]*nodePods),
 		backfills: workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
 	}
-}
-
-func (s *shardPods) observeRack(obj any) {
-	rack := obj.(*mokkav1.SGPURack)
-	nodes := sets.New[string]()
-	for _, slot := range rack.Spec.Nodes {
-		if slot.NodeRef != nil {
-			nodes.Insert(slot.NodeRef.Name)
-		}
-	}
-	s.setRack(rack.Name, nodes)
-}
-
-func (s *shardPods) removeRack(obj any) {
-	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
-	if err != nil {
-		zap.L().Error("Get deleted rack name", zap.Error(err))
-		return
-	}
-	s.setRack(key, nil)
 }
 
 func (s *shardPods) setRack(rack string, nodes sets.Set[string]) {

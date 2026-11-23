@@ -9,6 +9,7 @@ import (
 	"maps"
 	"sync"
 
+	state "github.com/NVIDIA/k8s-test-infra/pkg/rackstate/v1alpha1"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -23,37 +24,33 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
-	"k8s.io/utils/lru"
 
 	mokkav1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
-	mokkaclient "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned"
-	mokkaclientv1 "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/typed/api/v1alpha1"
 )
 
 type labelPublisher struct {
-	nodes         coreclient.NodeInterface
-	profiles      mokkaclientv1.SGPURackProfileInterface
-	events        coreclient.EventInterface
-	recorder      record.EventRecorder
-	racks         cache.SharedIndexInformer
-	nodeWatch     cache.SharedIndexInformer
-	queue         workqueue.TypedRateLimitingInterface[string]
-	profileLabels *lru.Cache
+	nodes     coreclient.NodeInterface
+	views     *rackViews
+	events    coreclient.EventInterface
+	recorder  record.EventRecorder
+	racks     cache.SharedIndexInformer
+	nodeWatch cache.SharedIndexInformer
+	queue     workqueue.TypedRateLimitingInterface[string]
 }
 
-func newLabelPublisher(kube kubernetes.Interface, mokka mokkaclient.Interface, nodes metaclient.Interface, racks cache.SharedIndexInformer) *labelPublisher {
+func newLabelPublisher(kube kubernetes.Interface, nodes metaclient.Interface, racks cache.SharedIndexInformer) *labelPublisher {
 	return &labelPublisher{
-		nodes:         kube.CoreV1().Nodes(),
-		profiles:      mokka.MokkaV1alpha1().SGPURackProfiles(),
-		events:        kube.CoreV1().Events(metav1.NamespaceAll),
-		racks:         racks,
-		profileLabels: lru.New(256),
-		queue:         workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
-		nodeWatch:     metadatainformer.NewFilteredMetadataInformer(nodes, corev1.SchemeGroupVersion.WithResource("nodes"), metav1.NamespaceAll, 0, cache.Indexers{}, nil).Informer(),
+		nodes: kube.CoreV1().Nodes(),
+
+		events: kube.CoreV1().Events(metav1.NamespaceAll),
+		racks:  racks,
+
+		queue:     workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
+		nodeWatch: metadatainformer.NewFilteredMetadataInformer(nodes, corev1.SchemeGroupVersion.WithResource("nodes"), metav1.NamespaceAll, 0, cache.Indexers{}, nil).Informer(),
 	}
 }
 
@@ -122,6 +119,9 @@ func (p *labelPublisher) enqueue(obj any) {
 
 func (p *labelPublisher) nodeUpdated(old, current any) {
 	a, b := old.(*nodeObservation), current.(*nodeObservation)
+	if a.UID != b.UID {
+		p.views.forgetNode(a.UID)
+	}
 	if a.UID != b.UID || a.assignment != b.assignment || a.ownership != b.ownership || a.kwok != b.kwok || a.assigned != b.assigned || !maps.Equal(a.Labels, b.Labels) {
 		p.enqueue(b)
 	}
@@ -132,7 +132,14 @@ func (p *labelPublisher) run(ctx context.Context) error {
 	if err := p.nodeWatch.SetTransform(observeNode); err != nil {
 		return err
 	}
-	_, err := p.nodeWatch.AddEventHandler(cache.ResourceEventHandlerFuncs{AddFunc: p.enqueue, UpdateFunc: p.nodeUpdated})
+	_, err := p.nodeWatch.AddEventHandler(cache.ResourceEventHandlerFuncs{AddFunc: p.enqueue, UpdateFunc: p.nodeUpdated, DeleteFunc: func(obj any) {
+		if t, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+			obj = t.Obj
+		}
+		if n, ok := obj.(*nodeObservation); ok {
+			p.views.forgetNode(n.UID)
+		}
+	}})
 	if err != nil {
 		return err
 	}
@@ -180,53 +187,32 @@ func (p *labelPublisher) reconcile(ctx context.Context, name string) error {
 	if !isKWOK(node.ObjectMeta) || raw == "" || node.Labels[metadata.AssignedLabel] != "true" {
 		return p.publish(ctx, node, nil)
 	}
-	ref, err := p.boundProfile(node)
-	if err != nil || ref == nil {
-		return err
-	}
-	desired, err := p.labelsForProfile(ctx, *ref)
-	if err != nil {
+	desired, err := p.desiredLabels(node)
+	if err != nil || desired == nil {
 		return err
 	}
 	return p.publish(ctx, node, desired)
 }
 
-// Only the shard that holds the exact projected rack and slot may publish.
-func (p *labelPublisher) boundProfile(node *corev1.Node) (*mokkav1.SGPURackProfileReference, error) {
-	raw := node.Annotations[metadata.AssignmentAnnotation]
-	a, err := assignment.DecodeAssignment(raw)
-	if err != nil || !a.Assigned {
-		return nil, err
-	}
-	obj, exists, err := p.racks.GetStore().GetByKey(a.Rack.Name)
-	if err != nil || !exists {
-		return nil, err
-	}
-	rack := obj.(*mokkav1.SGPURack)
-	slot := rack.Spec.NodeByIndex(a.NodeIndex)
-	if rack.Spec.NodeType != mokkav1.NodeTypeKWOK || slot == nil || !slot.BoundTo(node.Name, node.UID) {
-		return nil, nil
-	}
-	if !assignment.PublishedAt(raw, rack, slot) {
-		return nil, nil
-	}
-	return &rack.Spec.ProfileRef, nil
-}
-
-func (p *labelPublisher) labelsForProfile(ctx context.Context, ref mokkav1.SGPURackProfileReference) (map[string]string, error) {
-	if value, ok := p.profileLabels.Get(ref); ok {
-		return value.(map[string]string), nil
-	}
-	profile, err := p.profiles.Get(ctx, ref.Name, metav1.GetOptions{})
+// Only publish an accepted response for the exact live Node assignment.
+// A rack watch without a usable response leaves the previous labels in place.
+func (p *labelPublisher) desiredLabels(node *corev1.Node) (map[string]string, error) {
+	a, err := assignment.DecodeAssignment(node.Annotations[metadata.AssignmentAnnotation])
 	if err != nil {
 		return nil, err
 	}
-	if profile.UID != ref.UID || profile.Generation != ref.Generation {
-		return nil, fmt.Errorf("waiting for rack to reference current profile %s", ref.Name)
+	n, ok := p.views.node(node.UID)
+	if !ok || n.Node.Name != node.Name || !matchesPublication(n, a) {
+		return nil, nil
 	}
-	desired := metadata.DiscoveryLabels(profile.Spec.Node.GPUs)
-	p.profileLabels.Add(ref, desired)
-	return desired, nil
+	return metadata.DiscoveryLabels(len(n.GPUs), n.GPUModel)
+}
+
+func matchesPublication(n state.NodePayload, a assignment.Assignment) bool {
+	return a.Assigned && !n.Releasing && a.NodeUID == n.Node.UID &&
+		a.Rack.Name == n.Hardware.Rack.Name && a.Rack.UID == n.Hardware.Rack.UID &&
+		a.NodeIndex == n.Index && a.AssignmentRevision == n.AssignmentRevision &&
+		n.RackDeliveryGeneration >= a.RackDeliveryGenerationFloor
 }
 
 func (p *labelPublisher) publish(ctx context.Context, node *corev1.Node, desired map[string]string) error {

@@ -28,7 +28,7 @@ tests:
         documentIndex: 4
       - equal:
           path: spec.template.spec.containers[0].args
-          value: [data-plane, "--shard-name=$(POD_NAME)"]
+          value: [data-plane, "--shard-name=$(POD_NAME)", "--control-plane-url=http://RELEASE-NAME-nvml-mock-control-plane:8080", "--batch-size=100", "--batch-window=1s", "--max-in-flight=2"]
         documentIndex: 4
       - equal:
           path: rules
@@ -36,9 +36,6 @@ tests:
             - apiGroups: ["mokka.nvidia.com"]
               resources: ["sgpuracks"]
               verbs: ["list", "watch"]
-            - apiGroups: ["mokka.nvidia.com"]
-              resources: ["sgpurackprofiles"]
-              verbs: ["get"]
             - apiGroups: [""]
               resources: ["nodes"]
               verbs: ["get", "list", "watch", "patch"]

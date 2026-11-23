@@ -623,6 +623,15 @@ kwok:
   # -- Deploy the single KWOK data-plane replica.
   enabled: false
   dataPlane:
+    # -- Override when the control-plane Service belongs to another release.
+    controlPlaneURL: ""
+    batch:
+      # -- Maximum racks per request, from 1 to 100.
+      size: 100
+      # -- Maximum time to collect a partial batch.
+      window: 1s
+      # -- Maximum simultaneous rack-state requests per replica.
+      maxInFlight: 2
     image:
       repository: ghcr.io/nvidia/mokka-kwok
       tag: ""  # Defaults to the chart appVersion.

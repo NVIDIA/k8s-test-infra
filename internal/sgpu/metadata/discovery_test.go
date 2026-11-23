@@ -6,28 +6,25 @@ package metadata
 import (
 	"testing"
 
+	state "github.com/NVIDIA/k8s-test-infra/pkg/rackstate/v1alpha1"
 	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/api/resource"
-
-	mokkav1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 )
 
 func TestDiscoveryLabels(t *testing.T) {
 	t.Parallel()
-	gpus := mokkav1.SGPUGPUs{Count: 8}
-	gpus.Model.ProductName = "NVIDIA A100"
-	gpus.Memory.Capacity = resource.MustParse("40Gi")
-	reserved := resource.MustParse("1Gi")
-	gpus.Memory.Reserved = &reserved
-	gpus.PCI.VendorID = "0x10DE"
+	model := state.GPUModel{Memory: "40Gi", ProductName: "NVIDIA A100", Vendor: "NVIDIA"}
+	model.PCI.VendorID = "0x10DE"
+	got, err := DiscoveryLabels(8, model)
+	require.NoError(t, err)
 	require.Equal(t, map[string]string{
 		"nvidia.com/gpu.product": "NVIDIA-A100", "nvidia.com/gpu.count": "8",
 		"nvidia.com/gpu.memory": "40960", "nvidia.com/mig.strategy": "none",
 		"feature.node.kubernetes.io/pci-10de.present": "true",
-	}, DiscoveryLabels(gpus))
-	gpus.Model.ProductName = ""
-	gpus.PCI.VendorID = "1234"
-	got := DiscoveryLabels(gpus)
+	}, got)
+	model.ProductName = ""
+	model.PCI.VendorID = "1234"
+	got, err = DiscoveryLabels(8, model)
+	require.NoError(t, err)
 	require.NotContains(t, got, GPUProductLabel)
 	require.NotContains(t, got, NvidiaPCILabel)
 }

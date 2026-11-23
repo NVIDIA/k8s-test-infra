@@ -20,7 +20,6 @@ import (
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/tools/cache"
 
-	mokkav1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	mokkaclient "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned"
@@ -35,9 +34,10 @@ type model struct {
 	podClient coreclient.PodInterface
 	podWatch  *cache.Reflector
 	discovery *labelPublisher
+	fetcher   *rackFetcher
 }
 
-func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, nodes metadata.Interface, shard string) model {
+func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, nodes metadata.Interface, c config) model {
 	racks := mokkainformers.NewFilteredSGPURackInformer(mokka, 0, cache.Indexers{
 		rackUIDIndex: func(obj any) ([]string, error) {
 			rack, err := meta.Accessor(obj)
@@ -46,7 +46,7 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, nodes meta
 			}
 			return []string{string(rack.GetUID())}, nil
 		},
-	}, func(o *metav1.ListOptions) { o.LabelSelector = labels.Set{inventory.KWOKShardLabel: shard}.String() })
+	}, func(o *metav1.ListOptions) { o.LabelSelector = labels.Set{inventory.KWOKShardLabel: c.shard}.String() })
 	client := kube.CoreV1().Pods(metav1.NamespaceAll)
 	bound := fields.OneTermNotEqualSelector("spec.nodeName", "").String()
 	lw := &cache.ListWatch{
@@ -61,15 +61,18 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, nodes meta
 	}
 	pods := newShardPods()
 	podWatch := cache.NewReflectorWithOptions(cache.ToListWatcherWithWatchListSemantics(lw, kube), &corev1.Pod{}, pods, cache.ReflectorOptions{Name: "bound Pods"})
-	return model{racks: racks, pods: pods, podClient: client, podWatch: podWatch, discovery: newLabelPublisher(kube, mokka, nodes, racks)}
+	discovery := newLabelPublisher(kube, nodes, racks)
+	views := newRackViews(pods, discovery.queue.Add)
+	discovery.views = views
+	return model{fetcher: newRackFetcher(c, views), racks: racks, pods: pods, podClient: client, podWatch: podWatch, discovery: discovery}
 }
 
 func (m model) run(ctx context.Context, c config) error {
 	group, ctx := errgroup.WithContext(ctx)
 	rackEvents, err := m.racks.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    m.observeRack,
-		UpdateFunc: func(_, current any) { m.observeRack(current) },
-		DeleteFunc: m.pods.removeRack,
+		AddFunc:    m.fetcher.observe,
+		UpdateFunc: func(_, current any) { m.fetcher.observe(current) },
+		DeleteFunc: m.fetcher.remove,
 	})
 	if err != nil {
 		return err
@@ -82,6 +85,7 @@ func (m model) run(ctx context.Context, c config) error {
 		return health.OK()
 	})
 	group.Go(func() error { return m.discovery.run(ctx) })
+	group.Go(func() error { return m.fetcher.run(ctx) })
 	group.Go(func() error { m.racks.RunWithContext(ctx); return nil })
 	group.Go(func() error {
 		// Populate initial rack membership before the first cluster-wide Pod list.
@@ -105,13 +109,4 @@ func (m model) run(ctx context.Context, c config) error {
 	})
 	group.Go(func() error { return server.Run(ctx) })
 	return group.Wait()
-}
-
-func (m model) observeRack(obj any) {
-	m.pods.observeRack(obj)
-	for _, slot := range obj.(*mokkav1.SGPURack).Spec.Nodes {
-		if slot.NodeRef != nil {
-			m.discovery.queue.Add(slot.NodeRef.Name)
-		}
-	}
 }

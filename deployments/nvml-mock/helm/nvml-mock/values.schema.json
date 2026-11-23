@@ -596,6 +596,16 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "controlPlaneURL": { "type": "string", "pattern": "^(|https?://.+)$" },
+            "batch": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "size": { "type": "integer", "minimum": 1, "maximum": 100 },
+                "window": { "type": "string", "minLength": 1 },
+                "maxInFlight": { "type": "integer", "minimum": 1 }
+              }
+            },
             "image": { "$ref": "#/properties/controlPlane/properties/image" }
           }
         }

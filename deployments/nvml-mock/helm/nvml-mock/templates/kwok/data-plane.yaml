@@ -1,6 +1,8 @@
 {{- if (.Values.kwok | default dict).enabled }}
 {{- $settings := (.Values.kwok.dataPlane | default dict).image | default dict }}
 {{- $image := merge (deepCopy $settings) (dict "repository" "ghcr.io/nvidia/mokka-kwok") }}
+{{- $dp := .Values.kwok.dataPlane | default dict }}
+{{- $batch := $dp.batch | default dict }}
 {{- $name := include "nvml-mock.kwokDataPlaneName" . }}
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
@@ -17,9 +19,6 @@ rules:
   - apiGroups: ["mokka.nvidia.com"]
     resources: ["sgpuracks"]
     verbs: ["list", "watch"]
-  - apiGroups: ["mokka.nvidia.com"]
-    resources: ["sgpurackprofiles"]
-    verbs: ["get"]
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list", "watch", "patch"]
@@ -86,7 +85,13 @@ spec:
         - name: data-plane
           image: {{ include "nvml-mock.image" (dict "image" $image "context" $) | quote }}
           imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" $image "context" $) }}
-          args: ["data-plane", "--shard-name=$(POD_NAME)"]
+          args:
+            - data-plane
+            - --shard-name=$(POD_NAME)
+            - --control-plane-url={{ $dp.controlPlaneURL | default (printf "http://%s:%v" (include "nvml-mock.controlPlaneName" .) .Values.controlPlane.service.port) }}
+            - --batch-size={{ dig "size" 100 $batch }}
+            - --batch-window={{ $batch.window | default "1s" }}
+            - --max-in-flight={{ dig "maxInFlight" 2 $batch }}
           env:
             - name: POD_NAME
               valueFrom:

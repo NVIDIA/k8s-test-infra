@@ -7,7 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	mokkav1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	state "github.com/NVIDIA/k8s-test-infra/pkg/rackstate/v1alpha1"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 // Hardware discovery labels published by the KWOK data plane.
@@ -25,19 +26,23 @@ func DiscoveryLabelKeys() []string {
 }
 
 // DiscoveryLabels renders the GFD and NFD values for a homogeneous whole-GPU node.
-func DiscoveryLabels(gpus mokkav1.SGPUGPUs) map[string]string {
+func DiscoveryLabels(count int, model state.GPUModel) (map[string]string, error) {
+	memory, err := resource.ParseQuantity(model.Memory)
+	if err != nil {
+		return nil, err
+	}
 	const bytesPerMiB = 1 << 20
 	result := map[string]string{
-		GPUCountLabel:    strconv.FormatInt(int64(gpus.Count), 10),
-		GPUMemoryLabel:   strconv.FormatInt(gpus.Memory.Capacity.Value()/bytesPerMiB, 10),
+		GPUCountLabel:    strconv.Itoa(count),
+		GPUMemoryLabel:   strconv.FormatInt(memory.Value()/bytesPerMiB, 10),
 		MIGStrategyLabel: "none",
 	}
-	if name := gpus.Model.ProductName; name != "" {
+	if name := model.ProductName; name != "" {
 		result[GPUProductLabel] = strings.ReplaceAll(name, " ", "-")
 	}
-	vendorID := strings.TrimPrefix(strings.ToLower(gpus.PCI.VendorID), "0x")
-	if vendorID == "10de" || vendorID == "" && strings.EqualFold(gpus.Model.Vendor, "NVIDIA") {
+	vendorID := strings.TrimPrefix(strings.ToLower(model.PCI.VendorID), "0x")
+	if vendorID == "10de" || vendorID == "" && strings.EqualFold(model.Vendor, "NVIDIA") {
 		result[NvidiaPCILabel] = "true"
 	}
-	return result
+	return result, nil
 }

@@ -7,13 +7,13 @@ import (
 	"encoding/json"
 	"testing"
 
+	state "github.com/NVIDIA/k8s-test-infra/pkg/rackstate/v1alpha1"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
-	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 
 	mokkav1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
@@ -61,18 +61,28 @@ func TestPublishRequiresExactKWOKBinding(t *testing.T) {
 	t.Parallel()
 	rack := &mokkav1.SGPURack{ObjectMeta: metav1.ObjectMeta{Name: "rack", UID: "rack-uid"}}
 	rack.Spec.NodeType = mokkav1.NodeTypeKWOK
-	rack.Spec.ProfileRef = mokkav1.SGPURackProfileReference{Name: "a100", UID: "profile-uid", Revision: "revision"}
-	rack.Spec.Nodes = []mokkav1.SGPURackNode{{NodeRef: &mokkav1.SGPUNodeReference{Name: "node", UID: "node-uid"}}}
+	rack.Generation = 1
+	rack.Status.Delivery = &mokkav1.RackDelivery{Generation: 4, RackSpecGeneration: 1}
+	rack.Spec.Identity.RackGroup = "compute"
+	rack.Spec.Nodes = []mokkav1.SGPURackNode{{NodeRef: &mokkav1.SGPUNodeReference{Name: "node", UID: "node-uid", AssignmentRevision: 2}}}
 	raw, err := assignment.EncodeAssignment(rack, &rack.Spec.Nodes[0])
 	require.NoError(t, err)
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", UID: "node-uid", Labels: map[string]string{metadata.AssignedLabel: "true"}, Annotations: map[string]string{metadata.AssignmentAnnotation: raw}}}
-	p := labelPublisher{racks: cache.NewSharedIndexInformer(nil, rack, 0, cache.Indexers{})}
-	require.NoError(t, p.racks.GetStore().Add(rack))
-	ref, err := p.boundProfile(node)
+	views := newRackViews(newShardPods(), func(string) {})
+	nodeState := state.NodePayload{Hardware: state.Hardware{Rack: state.Object{Name: rack.Name, UID: rack.UID}, RackDeliveryGeneration: 4, GPUModel: state.GPUModel{Memory: "40Gi", ProductName: "NVIDIA A100"}}, Slot: state.Slot{Node: state.Object{Name: "node", UID: node.UID}, AssignmentRevision: 2, GPUs: make([]state.GPU, 8)}}
+	views.nodes[node.UID] = nodeState
+	p := labelPublisher{views: views}
+	labels, err := p.desiredLabels(node)
 	require.NoError(t, err)
-	require.Equal(t, &rack.Spec.ProfileRef, ref)
+	require.Equal(t, "8", labels[metadata.GPUCountLabel])
+	require.Equal(t, "40960", labels[metadata.GPUMemoryLabel])
+	nodeState.RackDeliveryGeneration = 3
+	views.nodes[node.UID] = nodeState
+	labels, err = p.desiredLabels(node)
+	require.NoError(t, err)
+	require.Nil(t, labels)
 	node.UID = "replacement"
-	ref, err = p.boundProfile(node)
+	labels, err = p.desiredLabels(node)
 	require.NoError(t, err)
-	require.Nil(t, ref)
+	require.Nil(t, labels)
 }

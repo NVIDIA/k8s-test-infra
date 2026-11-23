@@ -49,3 +49,20 @@ type BatchResponse struct {
 	APIVersion string       `json:"apiVersion"`
 	Racks      []RackResult `json:"racks"`
 }
+
+// UnmarshalJSON decodes either a compiled rack or a per-rack retry status.
+func (r *RackResult) UnmarshalJSON(data []byte) error {
+	var header struct {
+		Reference Object     `json:"rack"`
+		Status    RackStatus `json:"status"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return err
+	}
+	*r = RackResult{Reference: header.Reference, Status: header.Status}
+	if header.Status != "" {
+		return nil
+	}
+	r.Rack = new(Rack)
+	return json.Unmarshal(data, r.Rack)
+}
