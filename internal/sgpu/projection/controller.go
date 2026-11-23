@@ -92,6 +92,7 @@ type Cache interface {
 	Node(context.Context, string) (*corev1.Node, error)
 	ProjectionTarget(*mokkav1alpha1.SGPURack, *mokkav1alpha1.SGPURackNode) (*corev1.Node, bool, error)
 	Rack(string) (*mokkav1alpha1.SGPURack, error)
+	LiveRack(context.Context, string) (*mokkav1alpha1.SGPURack, error)
 	RacksByNodeUID(types.UID) ([]*mokkav1alpha1.SGPURack, error)
 }
 
@@ -345,6 +346,18 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 		return outcome, conflict
 	}
 
+	if matches && assignment.AssignmentRevision > needed.AssignmentRevision {
+		// The Node watch can see a rebind before the rack watch does. Its
+		// resourceVersion protects the Node write, but cannot verify the rack.
+		live, err := c.cache.LiveRack(ctx, needed.RackName)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return c.failCleanup(outcome, fmt.Errorf("verify release of rack %q: %w", needed.RackName, err), exactBindingPresent)
+		}
+		if !needed.MatchesRack(live) {
+			return c.completeCleanup(needed, outcome, ReasonCleaned, false), nil
+		}
+	}
+
 	incompatible := make([]string, 0, 2)
 	if value, exists := node.Labels[sgpumetadata.AssignedLabel]; exists {
 		if value != "true" {
@@ -358,18 +371,22 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 		}
 	}
 
-	annotations := map[string]any(nil)
-	if len(incompatible) > 0 {
-		annotations = map[string]any{sgpumetadata.AssignmentAnnotation: encoded}
-	}
+	annotationField := managedMetadataField{section: "annotations", key: sgpumetadata.AssignmentAnnotation}
 	released := []managedMetadataField{
 		{section: "labels", key: sgpumetadata.AssignedLabel},
 		{section: "labels", key: sgpumetadata.CliqueLabel},
+		annotationField,
 	}
-	if len(annotations) == 0 {
-		released = append(released, managedMetadataField{section: "annotations", key: sgpumetadata.AssignmentAnnotation})
+	foreign := foreignOwnedFields(node, FieldManager, released)
+	partial := len(incompatible) > 0 || len(foreign) > 0
+	var annotations map[string]any
+	// SSA removes a solely owned annotation if it is omitted. Keep its
+	// revision durable while another owner blocks removal of a label.
+	if partial && encoded != "" && mokkaOwnsField(node.ManagedFields, annotationField) {
+		annotations = map[string]any{sgpumetadata.AssignmentAnnotation: encoded}
+		released = released[:len(released)-1]
 	}
-	if !pending && !tombstone && len(mokkaOwnedFields(node, released)) == 0 {
+	if (partial || !pending && !tombstone) && len(mokkaOwnedFields(node, released)) == 0 {
 		fields := incompatible
 		if len(fields) == 0 {
 			fields = retainedCleanupFields(node, encoded)
@@ -380,9 +397,8 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 		return outcome, conflict
 	}
 	var releaseValue string
-	// On a conflict, first relinquish the fields we own. Keep the binding
-	// pending until the foreign owner yields the assignment or removes it.
-	if len(incompatible) == 0 && len(foreignOwnedFields(node, FieldManager, released)) == 0 {
+	// Publish the tombstone only when the assignment labels can be removed.
+	if !partial {
 		revision := assignment.AssignmentRevision
 		if !tombstone || revision <= needed.AssignmentRevision {
 			revision, err = sgpuassignment.NextRevision(max(revision, needed.AssignmentRevision))

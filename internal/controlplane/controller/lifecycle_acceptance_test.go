@@ -854,7 +854,7 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 				mokkalisters.NewSGPURackProfileLister(profileIndexer),
 				rackIndexer,
 				nodeCatalog,
-				liveNodes,
+				liveNodes, mokka.MokkaV1alpha1().SGPURacks(),
 				DefaultOptions(),
 			)
 			projection := sgpuprojection.NewController(snapshot, liveNodes)

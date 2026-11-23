@@ -58,7 +58,7 @@ type Options struct {
 	StatusDebounce time.Duration
 	// StatusProgressInterval bounds status staleness while changes continue.
 	StatusProgressInterval time.Duration
-	// LiveNodeGetTimeout bounds the exact GET used when a Node leaves the filtered cache.
+	// LiveNodeGetTimeout bounds live Node lookups and rack checks during assignment cleanup.
 	LiveNodeGetTimeout time.Duration
 }
 
@@ -281,7 +281,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	nodeCatalog := nodecatalog.New()
 
 	snapshot := newInformerCache(
-		inventories.Lister(), profiles.Lister(), rackInformer.GetIndexer(), nodeCatalog, nodes,
+		inventories.Lister(), profiles.Lister(), rackInformer.GetIndexer(), nodeCatalog, nodes, mokkaClient.MokkaV1alpha1().SGPURacks(),
 		options,
 	)
 	projection := sgpuprojection.NewController(snapshot, nodes)

@@ -879,6 +879,7 @@ func TestProjectionStateConcurrentAccess(t *testing.T) {
 }
 
 type fakeCache struct {
+	liveRack         func(context.Context, string) (*mokkav1alpha1.SGPURack, error)
 	nodes            map[string]*corev1.Node
 	racks            map[string]*mokkav1alpha1.SGPURack
 	nodeLookup       func(context.Context, string) (*corev1.Node, error)
@@ -919,6 +920,13 @@ func (f *fakeCache) Rack(name string) (*mokkav1alpha1.SGPURack, error) {
 		return nil, apierrors.NewNotFound(mokkav1alpha1.Resource("sgpuracks"), name)
 	}
 	return rack, nil
+}
+
+func (f *fakeCache) LiveRack(ctx context.Context, name string) (*mokkav1alpha1.SGPURack, error) {
+	if f.liveRack != nil {
+		return f.liveRack(ctx, name)
+	}
+	return f.Rack(name)
 }
 
 func (f *fakeCache) RacksByNodeUID(uid types.UID) ([]*mokkav1alpha1.SGPURack, error) {
@@ -1152,6 +1160,101 @@ func assertStateIndexesExact(t *testing.T, controller *Controller) {
 		require.True(t, exists)
 		require.Equal(t, coordinate, coordinateKeyForBinding(key))
 	}
+}
+
+func TestCleanupKeepsRevisionWhileCliqueLabelIsShared(t *testing.T) {
+	t.Parallel()
+	rack := testRack()
+	node := testNode("node", "node-uid")
+	setExactProjection(t, node, rack)
+	setManagedFields(node, FieldManager, []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
+	setManagedFields(node, "other", []string{sgpumetadata.CliqueLabel}, nil)
+	// SSA keeps the shared label when Mokka relinquishes its ownership.
+	partial := node.DeepCopy()
+	delete(partial.Labels, sgpumetadata.AssignedLabel)
+	partial.ManagedFields = nil
+	setManagedFields(partial, FieldManager, nil, []string{sgpumetadata.AssignmentAnnotation})
+	setManagedFields(partial, "other", []string{sgpumetadata.CliqueLabel}, nil)
+	patcher := &recordingPatcher{response: partial}
+	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
+	controller := NewController(cache, patcher)
+	cleanup := cleanupFor(rack)
+	_, err := controller.Cleanup(t.Context(), cleanup)
+	var conflict *MetadataConflictError
+	require.ErrorAs(t, err, &conflict)
+	require.Len(t, patcher.calls, 1)
+	var patch corev1.Node
+	require.NoError(t, json.Unmarshal(patcher.calls[0].data, &patch))
+	require.Equal(t, node.Annotations, patch.Annotations)
+	require.Empty(t, patch.Labels)
+	require.False(t, controller.Ready(cleanup))
+
+	cache.nodes[node.Name] = partial
+	_, err = controller.Cleanup(t.Context(), cleanup)
+	require.ErrorAs(t, err, &conflict)
+	require.Len(t, patcher.calls, 1)
+
+	// The foreign manager now removes its label.
+	free := partial.DeepCopy()
+	delete(free.Labels, sgpumetadata.CliqueLabel)
+	free.ManagedFields = nil
+	setManagedFields(free, FieldManager, nil, []string{sgpumetadata.AssignmentAnnotation})
+	cache.nodes[node.Name] = free
+	patcher.node, patcher.response = free, nil
+	_, err = controller.Cleanup(t.Context(), cleanup)
+	require.NoError(t, err)
+	require.True(t, controller.Ready(cleanup))
+	require.Len(t, patcher.calls, 2)
+	released := applyNodePayload(free, node.Name, patcher.calls[1].data)
+	a, err := sgpuassignment.DecodeAssignment(released.Annotations[sgpumetadata.AssignmentAnnotation])
+	require.NoError(t, err)
+	require.False(t, a.Assigned)
+	require.EqualValues(t, 2, a.AssignmentRevision)
+}
+
+func TestCleanupChecksLiveRackWhenNodeRevisionIsNewer(t *testing.T) {
+	t.Parallel()
+	rack := testRack()
+	rack.Spec.Nodes[0].NodeRef.AssignmentRevision = 7
+	newer := rack.DeepCopy()
+	newer.Spec.Nodes[0].NodeRef.AssignmentRevision = 9
+	node := testNode("node", "node-uid")
+	setExactProjection(t, node, newer)
+	setManagedFields(node, FieldManager, []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
+	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
+	patcher := &recordingPatcher{node: node}
+	controller := NewController(cache, patcher)
+	cleanup := cleanupFor(rack)
+	readErr := errors.New("rack API unavailable")
+	live := newer
+	cache.liveRack = func(_ context.Context, name string) (*mokkav1alpha1.SGPURack, error) {
+		require.Equal(t, rack.Name, name)
+		return live, readErr
+	}
+
+	_, err := controller.Cleanup(t.Context(), cleanup)
+	require.ErrorIs(t, err, readErr)
+	require.False(t, controller.Ready(cleanup))
+	require.Empty(t, patcher.calls)
+
+	readErr = nil
+	_, err = controller.Cleanup(t.Context(), cleanup)
+	require.NoError(t, err)
+	require.False(t, controller.Ready(cleanup), "revision 7 cannot release the live binding at revision 9")
+	require.Empty(t, patcher.calls)
+
+	// If the API confirms the original binding, finish the pending release
+	// from the higher revision on the Node.
+	live = rack
+	_, err = controller.Cleanup(t.Context(), cleanup)
+	require.NoError(t, err)
+	require.True(t, controller.Ready(cleanup))
+	require.Len(t, patcher.calls, 1)
+	released := applyNodePayload(node, node.Name, patcher.calls[0].data)
+	a, err := sgpuassignment.DecodeAssignment(released.Annotations[sgpumetadata.AssignmentAnnotation])
+	require.NoError(t, err)
+	require.False(t, a.Assigned)
+	require.EqualValues(t, 10, a.AssignmentRevision)
 }
 
 func TestCleanupHonorsAssignmentRevision(t *testing.T) {

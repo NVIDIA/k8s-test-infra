@@ -6,12 +6,15 @@ package controller
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	k8stesting "k8s.io/client-go/testing"
 
 	api "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
@@ -293,6 +296,46 @@ func TestLeaderResumesAssignmentPublication(t *testing.T) {
 			require.Equal(t, 1, nodes.patchCalls())
 		})
 	}
+}
+
+func TestNewLeaderFinishesReleaseAfterTombstone(t *testing.T) {
+	t.Parallel()
+	profile, inventory := acceptanceProfile(1), acceptanceInventory()
+	client := mokkafake.NewSimpleClientset(profile, inventory)
+	installAcceptanceAPIReactors(t, client)
+	nodes := newAcceptanceNodeClient()
+	node := acceptanceNode("worker", "worker-uid", 1)
+	nodes.create(node)
+	rack := rackrender.RackName(inventory.Name, inventory.UID, "compute", 0)
+	// Leave the two API objects exactly as they would be if the first leader
+	// stopped after publishing the release and before saving the empty slot.
+	var holdClear atomic.Bool
+	client.PrependReactor("update", "sgpuracks", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		r := action.(k8stesting.UpdateAction).GetObject().(*api.SGPURack)
+		if holdClear.Load() && action.GetSubresource() == "" && r.Spec.Nodes[0].NodeRef == nil {
+			return true, nil, apierrors.NewServiceUnavailable("rack write interrupted")
+		}
+		return false, nil, nil
+	})
+	stop, _ := startPublicationLeader(t, nodes, client, false)
+	waitForNodePublication(t, nodes, node.Name, 1, rack)
+	holdClear.Store(true)
+	nodes.update(node.Name, func(n *corev1.Node) { n.Labels["pool"] = "outside" })
+	released := waitForNodePublication(t, nodes, node.Name, 2, "")
+	stop()
+	ref := getAcceptanceRack(t.Context(), t, client, rack).Spec.Nodes[0].NodeRef
+	require.NotNil(t, ref)
+	require.EqualValues(t, 1, ref.AssignmentRevision)
+	writes := nodes.patchCalls()
+
+	holdClear.Store(false)
+	stop, _ = startPublicationLeader(t, nodes, client, false)
+	waitForRackDelivery(t, client, rack, func(r *api.SGPURack) bool { return r.Spec.Nodes[0].NodeRef == nil })
+	require.Equal(t, writes, nodes.patchCalls())
+	require.Equal(t, released.ResourceVersion, nodes.snapshot(node.Name).ResourceVersion)
+	nodes.update(node.Name, func(n *corev1.Node) { n.Labels["pool"] = "acceptance" })
+	waitForNodePublication(t, nodes, node.Name, 3, rack)
+	stop()
 }
 
 func startPublicationLeader(t *testing.T, nodes *acceptanceNodeClient, client *mokkafake.Clientset, holdPublication bool) (func(), <-chan struct{}) {

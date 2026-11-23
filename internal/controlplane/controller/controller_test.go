@@ -381,7 +381,7 @@ func TestSameTimestampInventoryAddQueuesDisplacedAdmissionParticipant(t *testing
 		mokkalisters.NewSGPURackProfileLister(profiles),
 		racks,
 		nodecatalog.New(),
-		nil,
+		nil, nil,
 		DefaultOptions(),
 	)
 	allocation := sgpuinventory.NewAllocationCache(snapshot)
@@ -456,7 +456,7 @@ func TestRackCapacityReleaseQueuesAndPromotesRejectedCandidate(t *testing.T) {
 		mokkalisters.NewSGPURackProfileLister(profiles),
 		racks,
 		nodecatalog.New(),
-		nil,
+		nil, nil,
 		DefaultOptions(),
 	)
 	allocation := sgpuinventory.NewAllocationCache(snapshot)

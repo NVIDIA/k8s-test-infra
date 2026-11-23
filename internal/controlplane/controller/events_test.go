@@ -74,7 +74,7 @@ func TestRackBindingReleaseWakesDestinationAfterEarlierWorkDrains(t *testing.T) 
 	}
 	snapshot := newInformerCache(
 		mokkalisters.NewSGPUInventoryLister(inventories), mokkalisters.NewSGPURackProfileLister(profiles),
-		racks, catalog, liveNodes, DefaultOptions(),
+		racks, catalog, liveNodes, mokka.MokkaV1alpha1().SGPURacks(), DefaultOptions(),
 	)
 	allocation := sgpuinventory.NewAllocationCache(snapshot)
 	projection := sgpuprojection.NewController(snapshot, liveNodes)

@@ -24,6 +24,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
 	sgpuprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
 	sgpustatus "github.com/NVIDIA/k8s-test-infra/internal/sgpu/status"
+	mokkaclient "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/typed/api/v1alpha1"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
 )
 
@@ -32,6 +33,7 @@ type informerCache struct {
 	profiles    mokkalisters.SGPURackProfileLister
 	racks       cache.Indexer
 	nodes       *nodecatalog.Catalog
+	liveRacks   mokkaclient.SGPURackInterface
 	liveNodes   corev1client.NodeInterface
 	liveTimeout time.Duration
 }
@@ -45,10 +47,11 @@ func newInformerCache(
 	racks cache.Indexer,
 	nodes *nodecatalog.Catalog,
 	liveNodes corev1client.NodeInterface,
+	liveRacks mokkaclient.SGPURackInterface,
 	options Options,
 ) *informerCache {
 	return &informerCache{
-		inventories: inventories, profiles: profiles, racks: racks, nodes: nodes, liveNodes: liveNodes,
+		inventories: inventories, profiles: profiles, racks: racks, nodes: nodes, liveNodes: liveNodes, liveRacks: liveRacks,
 		liveTimeout: options.liveNodeGetTimeout(),
 	}
 }
@@ -78,6 +81,13 @@ func (c *informerCache) Rack(name string) (*mokkav1alpha1.SGPURack, error) {
 		return nil, fmt.Errorf("rack cache contained %T", object)
 	}
 	return rack, nil
+}
+
+// LiveRack verifies the authoritative binding when the Node is ahead of the rack cache.
+func (c *informerCache) LiveRack(ctx context.Context, name string) (*mokkav1alpha1.SGPURack, error) {
+	requestCtx, cancel := context.WithTimeout(ctx, c.liveTimeout)
+	defer cancel()
+	return c.liveRacks.Get(requestCtx, name, metav1.GetOptions{})
 }
 
 func (c *informerCache) Racks() ([]*mokkav1alpha1.SGPURack, error) {

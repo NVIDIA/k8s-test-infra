@@ -341,7 +341,9 @@ the rack delivery without a Node write.
 When a live Node leaves a slot, the leader removes the assignment labels and
 writes `assigned: false` with the next revision before it clears the binding.
 The annotation stays on the Node. A later assignment advances the same counter.
-Cleanup preserves fields owned by other controllers. If the exact
+If another controller shares an assignment label, the leader keeps the assignment
+annotation until it can finish the release. If the Node carries a newer active
+revision, the leader checks the binding on the API server before it writes. If the exact
 Node UID no longer exists, cleanup may proceed without touching a same-name
 replacement. The singleton ClusterRoleBinding ensures only the owning release
 has cluster permissions. Within that release, its namespace-local Lease
