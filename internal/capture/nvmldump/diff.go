@@ -60,6 +60,9 @@ var readingParts = []string{
 	`Get(?:MemoryInfo(?:_v[0-9]+)?|ConfComputeProtectedMemoryUsage)\.(?:Free|Used)`,
 	`GetBAR1MemoryInfo\.Bar1(?:Free|Used)`,
 	`GetThermalSettings\([0-9]+\)\.Sensor\[[0-9]+\]\.CurrentTemp`,
+	// The banks remapped so far, as GetRemappedRows counts rows; the spare
+	// capacity the histogram reports is compared, as GetRowRemapperHistogram is.
+	`GetBankRemapperStatus_v1\.(?:ActiveRemappings|InactiveRemappings|BPending)`,
 	// The struct version a versioned getter is called with, which the answer
 	// carries back. It belongs to the API, not to the GPU.
 	`.+\.Version`,
@@ -91,6 +94,7 @@ var liveFieldIDs = [][2]int{
 	{nvml.FI_DEV_NVLINK_COUNT_RAW_ERRORS_LANE0, nvml.FI_DEV_NVLINK_PLR_XMIT_RETRY_BLOCKS},    // NVLink lane errors and retries
 	{nvml.FI_DEV_MMA_STALL_PERCENT, nvml.FI_DEV_MMA_STALL_PERCENT},                           // utilisation
 	{nvml.FI_DEV_REMAPPED_ROWS_COR_INACTIVE, nvml.FI_DEV_INACTIVE_BANK_REMAPPINGS},           // remapped rows and banks
+	{nvml.FI_DEV_PENDING_BANK_REMAPPING, nvml.FI_DEV_PENDING_BANK_REMAPPING},                 // pending bank remap
 }
 
 // defaultIgnore matches a call name (Get<name>, optionally with a version suffix

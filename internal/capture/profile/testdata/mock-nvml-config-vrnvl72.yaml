@@ -280,6 +280,13 @@ device_defaults:
       partial: 0                    # GetRowRemapperHistogram.Partial, idle reading
       low: 0                        # GetRowRemapperHistogram.Low, idle reading
       none: 0                       # GetRowRemapperHistogram.None, idle reading
+  bank_remapper:
+    active_remappings: 0            # GetBankRemapperStatus_v1.ActiveRemappings, idle reading
+    inactive_remappings: 0          # GetBankRemapperStatus_v1.InactiveRemappings, idle reading
+    pending: false                  # GetBankRemapperStatus_v1.BPending = 0, idle reading
+    histogram:
+      max_spare_groups: 252         # GetBankRemapperStatus_v1.Histogram.MaxSpareGroupCount, idle reading
+      no_spare_groups: 0            # GetBankRemapperStatus_v1.Histogram.NoSpareGroupCount, idle reading
   display:
     mode: "enabled"                 # GetDisplayMode = 1
     active: "disabled"              # GetDisplayActive = 0
