@@ -58,6 +58,7 @@ func bridgeTests(deviceCount int) []testResult {
 	results = append(results, testInternalExportTable()...)
 	results = append(results, testFabricHealth(deviceCount)...)
 	results = append(results, testFabricCliques(deviceCount)...)
+	results = append(results, testBankRemapper(deviceCount)...)
 	results = append(results, testThrottleCounters(deviceCount)...)
 	results = append(results, testConfComputeMemory(deviceCount)...)
 	results = append(results, testPowerLimitSetters(deviceCount)...)
@@ -1125,6 +1126,96 @@ func testFabricCliques(deviceCount int) []testResult {
 	return results
 }
 
+// --- Bank remapper tests ---
+
+// testBankRemapper drives nvmlDeviceGetBankRemapperStatus_v1 and the field ids
+// that read the same state through the built library. The struct has no
+// version tag, so the bridge writes all 20 bytes of it: a histogram written at
+// the wrong offset only shows on this side of the C boundary.
+//
+// Device 7 is the fixture's one Rubin board, with a remap pending and a bank
+// group out of spares; every other device is an Ampere board and must decline.
+// As for fabric_v4, the call is newer than every 580 driver, so the fixture's
+// own driver must report it absent and the Makefile runs this suite again on
+// a 615 copy of the fixture.
+func testBankRemapper(deviceCount int) []testResult {
+	const rubin = 7
+	if deviceCount <= rubin {
+		return []testResult{skippedResult("bank_remapper", fmt.Sprintf("needs device %d, the fixture's Rubin board", rubin))}
+	}
+	driver, ret := nvml.SystemGetDriverVersion()
+	if ret != nvml.SUCCESS {
+		return []testResult{{"bank_remapper", false, fmt.Sprintf("SystemGetDriverVersion: %v", nvml.ErrorString(ret))}}
+	}
+	var major int
+	if _, err := fmt.Sscanf(driver, "%d", &major); err != nil {
+		return []testResult{{"bank_remapper", false, fmt.Sprintf("driver version %q: %v", driver, err)}}
+	}
+
+	var results []testResult
+	for _, index := range []int{0, rubin} {
+		name := fmt.Sprintf("bank_remapper/gpu%d", index)
+		device, ret := nvml.DeviceGetHandleByIndex(index)
+		if ret != nvml.SUCCESS {
+			results = append(results, testResult{name, false, fmt.Sprintf("GetHandleByIndex(%d) failed: %v", index, nvml.ErrorString(ret))})
+			continue
+		}
+		status, ret := device.GetBankRemapperStatus_v1()
+		switch {
+		case major < 615:
+			results = append(results, testResult{name + "/absent_before_615", ret == nvml.ERROR_FUNCTION_NOT_FOUND,
+				fmt.Sprintf("on driver %s -> %v; want FUNCTION_NOT_FOUND, the call arrived with r615", driver, nvml.ErrorString(ret))})
+			continue
+		case index != rubin:
+			results = append(results, testResult{name + "/before_rubin", ret == nvml.ERROR_NOT_SUPPORTED,
+				fmt.Sprintf("-> %v; want NOT_SUPPORTED, the bank remapper is Rubin and later", nvml.ErrorString(ret))})
+			continue
+		case ret != nvml.SUCCESS:
+			results = append(results, testResult{name, false, fmt.Sprintf("GetBankRemapperStatus_v1 failed: %v", nvml.ErrorString(ret))})
+			continue
+		}
+		want := nvml.EccBankRemapperStatus_v1{
+			ActiveRemappings:   3,
+			InactiveRemappings: 1,
+			BPending:           1,
+			Histogram:          nvml.EccBankRemapperHistogram_v1{MaxSpareGroupCount: 250, NoSpareGroupCount: 2},
+		}
+		results = append(results, testResult{name + "/status", status == want, fmt.Sprintf("%+v, want %+v", status, want)})
+
+		fields := []struct {
+			id   uint32
+			want uint64
+		}{
+			{nvml.FI_DEV_ACTIVE_BANK_REMAPPINGS, 3},
+			{nvml.FI_DEV_INACTIVE_BANK_REMAPPINGS, 1},
+			{nvml.FI_DEV_BANK_REMAPPER_HISTOGRAM_MAX, 250},
+			{nvml.FI_DEV_BANK_REMAPPER_HISTOGRAM_NONE, 2},
+			{nvml.FI_DEV_PENDING_BANK_REMAPPING, 1},
+		}
+		values := make([]nvml.FieldValue, len(fields))
+		for i, f := range fields {
+			values[i].FieldId = f.id
+		}
+		if ret := device.GetFieldValues(values); ret != nvml.SUCCESS {
+			results = append(results, testResult{name + "/fields", false, fmt.Sprintf("GetFieldValues failed: %v", nvml.ErrorString(ret))})
+			continue
+		}
+		for i, f := range fields {
+			fv := values[i]
+			fieldName := fmt.Sprintf("%s/field_%d", name, f.id)
+			switch {
+			case nvml.Return(fv.NvmlReturn) != nvml.SUCCESS:
+				results = append(results, testResult{fieldName, false, fmt.Sprintf("declined with %v", nvml.ErrorString(nvml.Return(fv.NvmlReturn)))})
+			case fv.ValueType != valueTypeUnsignedLongLong:
+				results = append(results, testResult{fieldName, false, fmt.Sprintf("valueType = %d, want UNSIGNED_LONG_LONG (%d)", fv.ValueType, valueTypeUnsignedLongLong)})
+			default:
+				results = append(results, testResult{fieldName, fieldValueULL(fv) == f.want, fmt.Sprintf("%d, want %d", fieldValueULL(fv), f.want)})
+			}
+		}
+	}
+	return results
+}
+
 // --- Event set wait tests ---
 
 // eventWaitSlack absorbs scheduler jitter in the container.
@@ -1500,7 +1591,8 @@ func runBridgeTests(deviceCount int) int {
 // suites are the tests that can run alone, by the name given on the command
 // line.
 var suites = map[string]func(deviceCount int) []testResult{
-	"fabric_v4": testFabricCliques,
+	"fabric_v4":     testFabricCliques,
+	"bank_remapper": testBankRemapper,
 }
 
 // report logs each result and returns how many failed.
