@@ -29,7 +29,9 @@ func (c *Controller) ReadRacks(requests []state.RackRequest) ([]state.RackResult
 	}
 	results := make([]state.RackResult, 0, len(requests))
 	for _, request := range requests {
-		results = append(results, reader.resolve(request))
+		result := reader.resolve(request)
+		result.Reference = request.Object
+		results = append(results, result)
 	}
 	return results, nil
 }
@@ -53,8 +55,12 @@ func (r *rackReader) resolve(request state.RackRequest) state.RackResult {
 	if !r.inventoryMatches(rack) {
 		return state.RackResult{Status: state.NotReady}
 	}
+	return r.compilePublished(rack)
+}
+
+func (r *rackReader) compilePublished(rack *api.SGPURack) state.RackResult {
 	profile := r.profile(rack.Spec.ProfileRef.Name)
-	cleanups, revisions, ready := c.publishedSlots(rack)
+	cleanups, revisions, ready := r.controller.publishedSlots(rack)
 	if !ready {
 		return state.RackResult{Status: state.NotReady}
 	}
