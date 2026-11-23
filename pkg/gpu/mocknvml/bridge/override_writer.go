@@ -61,7 +61,7 @@ func (overrideWriter) SetNvlinkBwMode(index int, mode uint8, allDevices bool) er
 
 // SetNvlinkBwModeAsync records the mode nvmlDeviceSetNvlinkBwModeAsync_v1
 // applied and when the set completes.
-func (overrideWriter) SetNvlinkBwModeAsync(index int, mode uint8, settleAt time.Time) error {
+func (overrideWriter) SetNvlinkBwModeAsync(index int, mode uint8, settleAt func() time.Time) (time.Time, error) {
 	return mockctl.SetNvlinkBwModeAsync(engine.ConfigOverridePath(), index, mode, settleAt)
 }
 

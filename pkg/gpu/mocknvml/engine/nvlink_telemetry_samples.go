@@ -50,10 +50,11 @@ func (d *ConfigurableDevice) supportsNvlinkTelemetry() bool {
 
 // GetMockNvLinkTelemetrySamples backs nvmlDeviceGetNvLinkTelemetrySamples_v1.
 //
-// Each sample is the link's raw flit counter at a point on a 100 ms grid
-// ending at the current interval, read from the same epoch-anchored counters
-// NVML_FI_DEV_NVLINK_THROUGHPUT_RAW_TX/RX report, so the newest sample and
-// the field value agree and the history is monotonic across processes.
+// Each sample is the link's raw flit counter, 100 ms apart and ending now,
+// read from the same epoch-anchored counters
+// NVML_FI_DEV_NVLINK_THROUGHPUT_RAW_TX/RX report, so the newest sample equals
+// the field value read at the same moment and the history is monotonic
+// across processes.
 //
 // A slot that breaks one of the header's argument rules fails the whole batch
 // with INVALID_ARGUMENT; only the offending slots carry a non-SUCCESS Return,
@@ -83,7 +84,7 @@ func (d *ConfigurableDevice) GetMockNvLinkTelemetrySamples(reqs []NvLinkTelemetr
 		return results, nvml.ERROR_INVALID_ARGUMENT
 	}
 
-	newest := d.fabric.now().Truncate(nvlinkTelemetrySampleInterval)
+	newest := d.fabric.now()
 	for i, r := range reqs {
 		results[i] = d.nvLinkTelemetrySlot(r, newest)
 	}

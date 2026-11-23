@@ -106,12 +106,42 @@ func TestSetNvlinkBwModeAsync_RecordsModeAndSettleTime(t *testing.T) {
 	path := overridePath(t)
 	settleAt := time.UnixMilli(1_800_000_002_000)
 
-	require.NoError(t, SetNvlinkBwModeAsync(path, 1, 3, settleAt))
+	got, err := SetNvlinkBwModeAsync(path, 1, 3, func() time.Time { return settleAt })
+	require.NoError(t, err)
+	require.Equal(t, settleAt, got, "the recorded time is returned")
 
 	doc, err := Load(path)
 	require.NoError(t, err)
 	require.EqualValues(t, 3, doc.Devices["1"]["nvlink_bw_mode"])
 	require.EqualValues(t, settleAt.UnixMilli(), doc.Devices["1"]["nvlink_bw_mode_settle_at_ms"])
+}
+
+// TestSetNvlinkBwModeAsync_DeadlineTakenUnderLock pins that the settle time is
+// computed only once the lock is held. Taken before a long wait on the lock,
+// it could already have passed when written, and no reader would ever see
+// the set in flight.
+func TestSetNvlinkBwModeAsync_DeadlineTakenUnderLock(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	unlock, err := LockOverride(path)
+	require.NoError(t, err)
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		close(released)
+		unlock()
+	}()
+
+	_, err = SetNvlinkBwModeAsync(path, 0, 3, func() time.Time {
+		select {
+		case <-released:
+		default:
+			t.Error("settle time computed before the lock was acquired")
+		}
+		return time.UnixMilli(1)
+	})
+	require.NoError(t, err)
 }
 
 // TestSetNvlinkBwMode_NodeWideTargetsAllBucket pins where the node-wide NVML

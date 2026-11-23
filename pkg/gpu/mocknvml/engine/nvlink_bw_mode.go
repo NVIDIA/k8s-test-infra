@@ -262,14 +262,20 @@ func (d *ConfigurableDevice) SetMockNvlinkBwModeAsync(mode uint32, setBest bool)
 		return 0, ret
 	}
 
-	settleAt := d.now().Add(nvlinkBwModeAsyncSettle)
+	var settledAt time.Time
 	ret = recordSetterWrite(
-		fmt.Sprintf("nvmlDeviceSetNvlinkBwModeAsync_v1 -> mode=%d settleAt=%s", resolved, settleAt.Format(time.RFC3339Nano)),
-		func(w OverrideWriter) error { return w.SetNvlinkBwModeAsync(d.PhysicalIndex(), resolved, settleAt) },
+		fmt.Sprintf("nvmlDeviceSetNvlinkBwModeAsync_v1 -> mode=%d", resolved),
+		func(w OverrideWriter) error {
+			var err error
+			settledAt, err = w.SetNvlinkBwModeAsync(d.PhysicalIndex(), resolved,
+				func() time.Time { return d.now().Add(nvlinkBwModeAsyncSettle) })
+			return err
+		},
 	)
 	if ret != nvml.SUCCESS {
 		return 0, ret
 	}
+	debugLog("[NVML] nvmlDeviceSetNvlinkBwModeAsync_v1 settles at %s\n", settledAt.Format(time.RFC3339Nano))
 	return nvlinkBwModeAsyncPollTimeoutMs, nvml.SUCCESS
 }
 

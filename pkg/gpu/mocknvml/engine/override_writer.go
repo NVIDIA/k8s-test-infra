@@ -54,8 +54,10 @@ type OverrideWriter interface {
 
 	// SetNvlinkBwModeAsync records a per-device bandwidth mode together with
 	// the time the asynchronous set completes, in one write so a reader never
-	// sees the new mode without its in-flight state.
-	SetNvlinkBwModeAsync(index int, mode uint8, settleAt time.Time) error
+	// sees the new mode without its in-flight state. settleAt is called with
+	// the document locked, so waiting on the lock does not eat into the
+	// settle period; the recorded time is returned.
+	SetNvlinkBwModeAsync(index int, mode uint8, settleAt func() time.Time) (time.Time, error)
 
 	// SetNvlinkLowPowerThreshold records an NVLink low-power threshold for one
 	// device. A nil threshold clears the recorded value, which is what the

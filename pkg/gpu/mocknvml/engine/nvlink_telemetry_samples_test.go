@@ -61,34 +61,46 @@ func TestGetMockNvLinkTelemetrySamples_PreRubinNotSupported(t *testing.T) {
 
 // TestGetMockNvLinkTelemetrySamples_History pins the sample series: oldest
 // first, 100 ms apart, rising, and ending at the value the THROUGHPUT_RAW
-// field reports, so the two views of one counter agree.
+// field reports at the same moment, so the two views of one counter agree.
+// The clock is checked both on and between 100 ms boundaries, since a series
+// anchored to a boundary would lag the field value in between.
 func TestGetMockNvLinkTelemetrySamples_History(t *testing.T) {
 	dev := rubinSwitchFabricDevice(t, "rubin")
-	fixed := dev.fabric.epoch.Add(time.Hour).Truncate(nvlinkTelemetrySampleInterval)
-	dev.fabric.now = func() time.Time { return fixed }
+	boundary := dev.fabric.epoch.Add(time.Hour).Truncate(nvlinkTelemetrySampleInterval)
 
-	results, ret := dev.GetMockNvLinkTelemetrySamples([]NvLinkTelemetryRequest{
-		telemetryReq(0, nvml.NVLINK_TELEMETRY_SAMPLE_TYPE_THROUGHPUT_RAW_TX, 20),
-		telemetryReq(1, nvml.NVLINK_TELEMETRY_SAMPLE_TYPE_THROUGHPUT_RAW_RX, 5),
-	})
-	require.Equal(t, nvml.SUCCESS, ret)
-	require.Len(t, results, 2)
+	for name, at := range map[string]time.Time{
+		"on a boundary":      boundary,
+		"between boundaries": boundary.Add(37 * time.Millisecond),
+	} {
+		t.Run(name, func(t *testing.T) {
+			dev.fabric.now = func() time.Time { return at }
 
-	tx := results[0]
-	require.Equal(t, nvml.SUCCESS, tx.Return)
-	require.Equal(t, uint32(20), tx.Count)
-	require.Len(t, tx.Samples, 20)
-	for i := 1; i < len(tx.Samples); i++ {
-		require.Greater(t, tx.Samples[i], tx.Samples[i-1], "sample %d must exceed its predecessor", i)
+			results, ret := dev.GetMockNvLinkTelemetrySamples([]NvLinkTelemetryRequest{
+				telemetryReq(0, nvml.NVLINK_TELEMETRY_SAMPLE_TYPE_THROUGHPUT_RAW_TX, 20),
+				telemetryReq(1, nvml.NVLINK_TELEMETRY_SAMPLE_TYPE_THROUGHPUT_RAW_RX, 5),
+			})
+			require.Equal(t, nvml.SUCCESS, ret)
+			require.Len(t, results, 2)
+
+			tx := results[0]
+			require.Equal(t, nvml.SUCCESS, tx.Return)
+			require.Equal(t, uint32(20), tx.Count)
+			require.Len(t, tx.Samples, 20)
+			for i := 1; i < len(tx.Samples); i++ {
+				require.Greater(t, tx.Samples[i], tx.Samples[i-1], "sample %d must exceed its predecessor", i)
+			}
+			_, oldestTx := dev.fabric.NvLinkCounters(dev.index, 0, at.Add(-19*nvlinkTelemetrySampleInterval))
+			require.Equal(t, oldestTx, tx.Samples[0], "oldest TX sample is 19 intervals back")
+			_, fieldTx, _ := dev.GetNvLinkFieldValue(fiNvlinkThroughputRawTx, 0)
+			require.Equal(t, fieldTx, tx.Samples[len(tx.Samples)-1], "newest TX sample is the field value")
+
+			rx := results[1]
+			require.Equal(t, nvml.SUCCESS, rx.Return)
+			require.Len(t, rx.Samples, 5)
+			_, fieldRx, _ := dev.GetNvLinkFieldValue(fiNvlinkThroughputRawRx, 1)
+			require.Equal(t, fieldRx, rx.Samples[len(rx.Samples)-1], "newest RX sample is the field value")
+		})
 	}
-	_, fieldTx, _ := dev.GetNvLinkFieldValue(fiNvlinkThroughputRawTx, 0)
-	require.Equal(t, fieldTx, tx.Samples[len(tx.Samples)-1], "newest TX sample is the field value")
-
-	rx := results[1]
-	require.Equal(t, nvml.SUCCESS, rx.Return)
-	require.Len(t, rx.Samples, 5)
-	_, fieldRx, _ := dev.GetNvLinkFieldValue(fiNvlinkThroughputRawRx, 1)
-	require.Equal(t, fieldRx, rx.Samples[len(rx.Samples)-1], "newest RX sample is the field value")
 }
 
 func TestGetMockNvLinkTelemetrySamples_CountQuery(t *testing.T) {

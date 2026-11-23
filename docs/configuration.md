@@ -1159,8 +1159,9 @@ that polls for completion sees the transition. The call reports an
 
 Rubin boards with NVLink also answer `nvmlDeviceGetNvLinkTelemetrySamples_v1`.
 Each requested link returns up to 32 raw TX or RX throughput samples, oldest
-first and 100 ms apart. The newest sample equals the
-`NVML_FI_DEV_NVLINK_THROUGHPUT_RAW_TX` or `_RX` field value. A `sampleCount` of
+first and 100 ms apart, ending at the moment of the call. The newest sample
+therefore equals the `NVML_FI_DEV_NVLINK_THROUGHPUT_RAW_TX` or `_RX` field
+value read at the same time. A `sampleCount` of
 0 asks for the supported depth (32). A link that is not up returns
 `NVML_ERROR_NOT_SUPPORTED` in its own slot. Earlier architectures answer
 `NVML_ERROR_NOT_SUPPORTED`.
