@@ -1197,9 +1197,7 @@ func (c *acceptanceNodeClient) List(context.Context, metav1.ListOptions) (*corev
 	defer c.mu.Unlock()
 	list := &corev1.NodeList{}
 	for _, node := range c.nodes {
-		if node.Labels[allocate.EligibleNodeLabel] == "true" {
-			list.Items = append(list.Items, *node.DeepCopy())
-		}
+		list.Items = append(list.Items, *node.DeepCopy())
 	}
 	return list, nil
 }
@@ -1213,9 +1211,7 @@ func (c *acceptanceNodeClient) Watch(_ context.Context, options metav1.ListOptio
 	initial := make([]*corev1.Node, 0, len(c.nodes))
 	if options.SendInitialEvents != nil && *options.SendInitialEvents {
 		for _, node := range c.nodes {
-			if node.Labels[allocate.EligibleNodeLabel] == "true" {
-				initial = append(initial, node.DeepCopy())
-			}
+			initial = append(initial, node.DeepCopy())
 		}
 	}
 	c.mu.Unlock()
@@ -1329,7 +1325,7 @@ func (c *acceptanceNodeClient) create(node *corev1.Node) {
 	setAcceptanceManagedFields(c.nodes[node.Name], c.ownedLabels[node.Name], c.ownedAnnotations[node.Name])
 	watcher := c.watcher
 	c.mu.Unlock()
-	if watcher != nil && node.Labels[allocate.EligibleNodeLabel] == "true" {
+	if watcher != nil {
 		watcher.Add(node.DeepCopy())
 	}
 }
@@ -1340,7 +1336,7 @@ func (c *acceptanceNodeClient) replace(name string, replacement *corev1.Node) {
 	delete(c.nodes, name)
 	watcher := c.watcher
 	c.mu.Unlock()
-	if watcher != nil && old != nil && old.Labels[allocate.EligibleNodeLabel] == "true" {
+	if watcher != nil && old != nil {
 		watcher.Delete(old.DeepCopy())
 	}
 	c.create(replacement)
@@ -1375,7 +1371,7 @@ func (c *acceptanceNodeClient) delete(name string) {
 	delete(c.foreignAnnotations, name)
 	watcher := c.watcher
 	c.mu.Unlock()
-	if watcher != nil && old != nil && old.Labels[allocate.EligibleNodeLabel] == "true" {
+	if watcher != nil && old != nil {
 		watcher.Delete(old.DeepCopy())
 	}
 }

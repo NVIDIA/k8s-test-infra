@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,7 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
@@ -30,6 +29,7 @@ import (
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
@@ -235,6 +235,7 @@ type Controller struct {
 	waitForCacheSync func(context.Context) bool
 	snapshot         *informerCache
 	runtimePolicies  *runtimePolicyView
+	publicationNodes cache.Store
 
 	reconcileInventory  func(context.Context, string) error
 	reconcileGroup      func(context.Context, allocate.RackGroupKey) error
@@ -274,7 +275,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	if err := runtimePolicyInformer.AddIndexers(runtimePolicyIndexers()); err != nil {
 		return nil, fmt.Errorf("add runtime policy indexes: %w", err)
 	}
-	nodeInformer, err := newFilteredNodeInformer(nodes)
+	nodeInformer, err := newPublicationNodeInformer(nodes)
 	if err != nil {
 		return nil, err
 	}
@@ -307,11 +308,12 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	runtimePolicyStatus := sgpustatus.NewRuntimePolicyReconciler(mokkaClient.MokkaV1alpha1().SGPURuntimePolicies(), nil)
 
 	controller := &Controller{
-		options:         options,
-		queues:          newQueuesWithStatusIntervals(options.StatusDebounce, options.statusProgressInterval()),
-		cachesSynced:    make(chan struct{}),
-		snapshot:        snapshot,
-		runtimePolicies: runtimePolicies,
+		options:          options,
+		queues:           newQueuesWithStatusIntervals(options.StatusDebounce, options.statusProgressInterval()),
+		cachesSynced:     make(chan struct{}),
+		snapshot:         snapshot,
+		runtimePolicies:  runtimePolicies,
+		publicationNodes: nodeInformer.GetStore(),
 	}
 	// Test environments use short-lived controller instances and only a few inventories,
 	// so per-name locks and results intentionally live for the controller's lifetime.
@@ -573,7 +575,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		},
 		{
 			informer: nodeInformer,
-			handler: cache.ResourceEventHandlerFuncs{
+			handler: cache.FilteringResourceEventHandler{FilterFunc: eligibleNodeEvent, Handler: cache.ResourceEventHandlerFuncs{
 				AddFunc: func(object any) {
 					node, ok := eventObject[*corev1.Node](object)
 					if !ok {
@@ -598,7 +600,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 					nodeCatalog.Delete(node.Name, node.UID)
 					router.nodeDelete(node)
 				},
-			},
+			}},
 		},
 		{
 			informer: runtimePolicyInformer,
@@ -948,9 +950,16 @@ func (s *resultStore) get(name string, uid types.UID) sgpuinventory.Result {
 	return result
 }
 
-func newFilteredNodeInformer(nodes corev1client.NodeInterface) (cache.SharedIndexInformer, error) {
+// The serving cache must observe tombstones even after the eligibility label is removed.
+// Keep the leader's allocation catalog and event routing restricted to eligible Nodes.
+func eligibleNodeEvent(obj any) bool {
+	node, ok := eventObject[*corev1.Node](obj)
+	return ok && node.Labels[allocate.EligibleNodeLabel] == "true"
+}
+
+func newPublicationNodeInformer(nodes corev1client.NodeInterface) (cache.SharedIndexInformer, error) {
 	informer := cache.NewSharedIndexInformer(
-		newFilteredNodeListWatch(nodes),
+		newPublicationNodeListWatch(nodes),
 		&corev1.Node{},
 		0,
 		cache.Indexers{},
@@ -965,6 +974,14 @@ func compactNodeObject(object any) (any, error) {
 	node, ok := object.(*corev1.Node)
 	if !ok {
 		return nil, fmt.Errorf("compact Node received %T", object)
+	}
+	// Unselected Nodes can still carry a release tombstone. Keep just the
+	// fields a reader uses until the Node becomes eligible again.
+	if node.Labels[allocate.EligibleNodeLabel] != "true" {
+		return &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+			Name: node.Name, UID: node.UID, ResourceVersion: node.ResourceVersion,
+			Annotations: map[string]string{sgpumetadata.AssignmentAnnotation: node.Annotations[sgpumetadata.AssignmentAnnotation]},
+		}}, nil
 	}
 	annotations := make(map[string]string, 1)
 	if assignment := node.Annotations[sgpumetadata.AssignmentAnnotation]; assignment != "" {
@@ -989,15 +1006,12 @@ type nodeListerWatcher interface {
 	Watch(context.Context, metav1.ListOptions) (watch.Interface, error)
 }
 
-func newFilteredNodeListWatch(nodes nodeListerWatcher) *cache.ListWatch {
-	selector := labels.SelectorFromSet(labels.Set{allocate.EligibleNodeLabel: "true"}).String()
+func newPublicationNodeListWatch(nodes nodeListerWatcher) *cache.ListWatch {
 	return &cache.ListWatch{
 		ListWithContextFunc: func(ctx context.Context, options metav1.ListOptions) (runtime.Object, error) {
-			options.LabelSelector = selector
 			return nodes.List(ctx, options)
 		},
 		WatchFuncWithContext: func(ctx context.Context, options metav1.ListOptions) (watch.Interface, error) {
-			options.LabelSelector = selector
 			return nodes.Watch(ctx, options)
 		},
 	}
