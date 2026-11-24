@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  mokka-capture: `diff nic` compares two captured nodes' NIC surfaces, one check per surface, with identifiers compared through their relations and every difference counted by cause (schema gap, rule bug, capture blind spot, by design); a causes file explains known differences, `-report` writes a Markdown summary, and an unexplained difference exits 1.
+time: 2026-11-24T02:00:00Z

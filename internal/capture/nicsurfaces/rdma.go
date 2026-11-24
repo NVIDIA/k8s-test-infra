@@ -431,11 +431,6 @@ func (n *Node) keyByDevice() {
 		if tail != "" {
 			renamed += "/" + tail
 		}
-		for a, v := range n.Records[o] {
-			n.set(n.source[o+"\t"+a], renamed, a, v)
-			delete(n.source, o+"\t"+a)
-		}
-		delete(n.Records, o)
-		delete(n.first, o)
+		n.rename(o, renamed)
 	}
 }

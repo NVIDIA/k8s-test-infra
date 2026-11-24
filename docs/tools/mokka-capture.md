@@ -17,6 +17,7 @@ go build -o bin/mokka-capture ./cmd/mokka-capture
 | [`nic-surfaces`](#nic-surfaces) | Lists a captured node's NIC surfaces as one normalized list |
 | [`diff smi`](#diff-smi) | Compares two `nvidia-smi -q -x` documents |
 | [`diff nvml`](#diff-nvml) | Compares two NVML recordings |
+| [`diff nic`](#diff-nic) | Compares two captured nodes' NIC surfaces, one check per surface |
 | [`dump`](#dump) | Records the NVML library on the loader path; `collect` runs it in the driver container |
 
 `mokka-capture <command> --help` lists a command's flags and arguments. A flag
@@ -486,6 +487,86 @@ entries listed per kind (`-max 100000` lists every value left out); a listed
 difference shows only the parts that were compared. Devices pair by index, which holds when both sides expose the same
 GPUs in the same order. Gzipped recordings (`.json.gz`) are read directly, which
 is how a committed capture is stored.
+
+## diff nic
+
+```bash
+mokka-capture diff nic [-causes file] [-failed] [-json | -report] <real node directory> <mock node directory>
+```
+
+Reads both capture node directories through [`nic-surfaces`](#nic-surfaces)
+and reports one check per object and attribute, so the result reads like a
+test run:
+
+```text
+PASS  port.state  port/0000:03:00.0/dev/1  = 4: ACTIVE
+FAIL  port.rate  port/0000:03:00.0/dev/1  real="800 Gb/sec (2X XDR)" simulated="400 Gb/sec (4X NDR)"  [schema gap: …]
+SKIP  rdma.name  rdma/0000:03:00.0/smi  only on the real node (smi0)  [by design: …]
+SKIP  rdma.node_guid  rdma/0000:03:00.0/dev  [by design: an identifier; compared through relations]
+SKIP  fw.NUM_OF_PLANES_P1  fw/0000:03:00.0  [capture blind spot: fw-mlxconfig.txt was not captured on the simulated node: the capturing pod lacks the tool]
+```
+
+There is one check per attribute either side has. An attribute only one side
+has fails, so an object Mokka doesn't render fails once per attribute, and
+rendering it can only lower the failures. Otherwise each attribute is
+compared by its rule (`internal/capture/nicdiff/rules.go`): exactly by
+default; as a set for lists of files, counters and GID types, with the
+probe numbers of auxiliary devices (`mlx5_core.rdma.0`) dropped from a PCI
+function's files; by count for
+lists of identifiers such as GIDs and partition keys; by major number and mode
+for device numbers, whose minor follows probe order; and by its `MLNX` marker
+for a VPD `VU` field. A Mokka RDMA device that is no PCI function is compared
+with the real device of the same name, and its `pci_function` attribute
+records the difference.
+
+**Identifiers are compared as relations, never as values.** GUIDs, MACs, LIDs,
+serials, VPD IDs and switch IDs are not compared. What they relate is: the
+relations inside one value that `nic-surfaces` records, and these, as
+`rel/<relation>/<subject>` checks:
+
+| Relation | Holds when |
+| --- | --- |
+| `smi_node_guid`, `smi_lid` | an SMI plane device shares its parent's node GUID, and each of its ports the parent port's LID |
+| `sys_image_guid` | whose node GUID a device's system image GUID is: its own (`self`), another device's (its PCI address), or no device's (`none`) |
+| `node_guids` | no two devices share a node GUID |
+| `vf_sys_image_guid` | a VF shares its PF's system image GUID |
+| `vu_serial` | a function's VPD `VU` field starts with its serial number, as a BlueField's does |
+| `board` | which ASICs share a board serial number |
+| `data_direct` | the Data Direct function each network PF shares its VPD `V3` UUID with (`by_v3`, as rdma-core's `rdma_topo` pairs them), the GPU under it (`gpu`), and the pairing by the `VU` field (`by_vu`) |
+| `switch_id` | which functions' interfaces share a switch ID |
+| `devnode` | each device file in `/dev/infiniband` carries the number its sysfs entry gives |
+
+A scrub gives equal values equal placeholders and keeps the relations inside a
+value, so the relations hold in scrubbed captures too.
+
+**Every failure and every check not made is counted by cause:**
+
+| Cause | Meaning | Assigned by |
+| --- | --- | --- |
+| schema gap | Mokka cannot show the surface yet | the causes file |
+| rule bug | `diff nic` compares it wrongly | the causes file |
+| capture blind spot | one side could not capture it: the file it comes from is absent or marked `FAILED` in that side's `errors.log` (its pod lacked the tool, or the connection dropped), `rdma-sysfs.txt`, which keys everything per RDMA device, is missing, or the pod could not see `/dev/infiniband` | `diff nic` |
+| by design | out of scope, so not a failure: a value that is not comparable (an identifier, a name cluster software chooses, the host's CPUs), or a difference the causes file says Mokka does not aim to show, such as a DPU it does not simulate. Listed as `SKIP` with what differed, and counted as not compared | `diff nic`, or the causes file |
+| unclassified | nothing explains it yet | — |
+
+The causes file is a YAML list. Each entry's `match` is a regular expression
+over the check's rule and object, `"<rule> <object>"`; the first entry that
+matches a difference gives its cause and note:
+
+```yaml
+- match: '^\S+ \S*/smi(/|$)|^rel\.smi_'
+  cause: by design
+  note: SMI plane devices come from the cluster's rdma-smi-sub-device DaemonSet
+```
+
+`-failed` lists only the failures; `-json` writes one JSON object per check and
+then the summary. `-report` writes a Markdown page to review instead of a line
+per check: the checks by surface (PCI functions, RDMA ports, device files and
+so on), then every failure and every check not made grouped by cause, with the
+rules each group covers, then the rules that pass. The command exits `1` when
+a failure is unclassified, so a new difference fails it until it has a cause.
+An entry that matches no difference, because its gap was fixed or an earlier
+entry takes its matches, is named on standard error.
 
 ## dump
 

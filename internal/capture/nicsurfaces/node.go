@@ -236,6 +236,54 @@ func (n *Node) Set(obj, attr, value, source string) { n.set(source, obj, attr, v
 // Get returns a record's value.
 func (n *Node) Get(obj, attr string) (string, bool) { return n.get(obj, attr) }
 
+// BindUnbound gives the RDMA devices of n that are no PCI function the key of
+// other's device of the same name and role, along with their ports, device
+// nodes and tool records, so their values compare. Their pci_function record
+// still shows the difference.
+func (n *Node) BindUnbound(other *Node) {
+	keyOf := map[string]string{} // "name/role" -> "bus ID/role" in other
+	for _, o := range other.Objects("rdma") {
+		key := strings.TrimPrefix(o, "rdma/")
+		if strings.HasPrefix(key, "unbound/") {
+			continue
+		}
+		if name, ok := other.get(o, "name"); ok {
+			keyOf[name+"/"+key[strings.LastIndex(key, "/")+1:]] = key
+		}
+	}
+	objs := make([]string, 0, len(n.Records))
+	for o := range n.Records {
+		objs = append(objs, o)
+	}
+	sort.Strings(objs)
+	for _, o := range objs {
+		kind, rest, _ := strings.Cut(o, "/")
+		parts := strings.SplitN(strings.TrimPrefix(rest, "unbound/"), "/", 3) // name, role, the rest
+		if !strings.HasPrefix(rest, "unbound/") || len(parts) < 2 {
+			continue
+		}
+		key, ok := keyOf[parts[0]+"/"+parts[1]]
+		if !ok {
+			continue
+		}
+		renamed := kind + "/" + key
+		if len(parts) == 3 {
+			renamed += "/" + parts[2]
+		}
+		n.rename(o, renamed)
+	}
+}
+
+// rename moves an object's records, with their sources, to another name.
+func (n *Node) rename(from, to string) {
+	for a, v := range n.Records[from] {
+		n.set(n.source[from+"\t"+a], to, a, v)
+		delete(n.source, from+"\t"+a)
+	}
+	delete(n.Records, from)
+	delete(n.first, from)
+}
+
 // Objects returns the objects of a kind, such as "rdma", sorted.
 func (n *Node) Objects(kind string) []string {
 	var out []string

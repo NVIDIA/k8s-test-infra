@@ -27,6 +27,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/cmdline"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/collect"
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/nicdiff"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/nicsurfaces"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/nvmldump"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/profile"
@@ -56,8 +57,8 @@ func newCLI() *cli.Command {
 			profile.Command(),
 			{
 				Name:     "diff",
-				Usage:    "compare a real node's nvidia-smi document or NVML recording with the mock's",
-				Commands: []*cli.Command{smidiff.Command(), nvmldump.DiffCommand()},
+				Usage:    "compare a real node's nvidia-smi document, NVML recording or NIC surfaces with the mock's",
+				Commands: []*cli.Command{smidiff.Command(), nvmldump.DiffCommand(), nicdiff.Command()},
 				Action:   cmdline.UnknownCommand,
 			},
 			nvmldump.DumpCommand(),
