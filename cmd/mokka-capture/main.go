@@ -27,6 +27,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/cmdline"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/collect"
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/nicsurfaces"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/nvmldump"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/profile"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/scrub"
@@ -60,6 +61,7 @@ func newCLI() *cli.Command {
 				Action:   cmdline.UnknownCommand,
 			},
 			nvmldump.DumpCommand(),
+			nicsurfaces.Command(),
 		},
 		Action: cmdline.UnknownCommand,
 	}

@@ -14,6 +14,7 @@ go build -o bin/mokka-capture ./cmd/mokka-capture
 | [`collect`](#collect) | Captures nodes and the cluster through `kubectl` |
 | [`scrub`](#scrub) | Replaces identifiers in a capture, or checks that none are left |
 | [`profile`](#profile) | Writes a mock NVML profile from a scrubbed capture |
+| [`nic-surfaces`](#nic-surfaces) | Lists a captured node's NIC surfaces as one normalized list |
 | [`diff smi`](#diff-smi) | Compares two `nvidia-smi -q -x` documents |
 | [`diff nvml`](#diff-nvml) | Compares two NVML recordings |
 | [`dump`](#dump) | Records the NVML library on the loader path; `collect` runs it in the driver container |
@@ -344,6 +345,39 @@ same bytes. `internal/capture/profile/testdata/` holds the profile generated
 from each committed capture; the tests fail when a rule change alters it, check
 that it loads in the mock engine, and check that every key is one the engine
 reads. `go test ./internal/capture/profile -update` rewrites it.
+
+## nic-surfaces
+
+```bash
+mokka-capture nic-surfaces <capture node directory>
+```
+
+Reads the files `collect network` wrote for one node (and `smi-topo-m.txt`
+from `collect driver`) and prints every NIC surface in them as one record per
+line: object, attribute, value and the file it came from, separated by tabs.
+Objects are keyed by what the hardware fixes, not by names cluster software or
+probe order chooses, so a renamed device keeps its key and two nodes' lists
+compare record by record:
+
+| Object | Key | From |
+| --- | --- | --- |
+| `pci/<bus ID>`, `bridge/<bus ID>` | a NIC function, a bridge of its PCIe switch | `pci-nic-sysfs.txt`, `pci-vpd-fields.txt`, `host-lspci-mellanox-vv.txt` |
+| `gpu/<bus ID>` | a GPU, for pairing it with a NIC | `pci-all-functions.txt` |
+| `rdma/<bus ID>/<role>`, `port/<bus ID>/<role>/<port>` | an RDMA device by its function, `smi` for a plane sub-device and `dev` otherwise | `rdma-sysfs.txt` |
+| `uverbs/…`, `mad/…`, `devnode/<name>` | a device file, by the RDMA device and port it serves | `rdma-char-devices.txt` |
+| `net/<bus ID>/<port name>` | an interface on a NIC function, by the driver's port name or its device port, and an IPoIB interface also by its partition key | `net-sysfs.txt`, `net-ecn-qos.txt`, `net-ethtool*.txt` |
+| `module/<name>` | a kernel module | `sys-module-rdma.txt` |
+| `ibv/…`, `ibstat/…`, `rdmalink/…`, `topo/…` | a tool's view of an RDMA device, keyed like `rdma` | `host-ibv-devinfo.txt`, `host-ibstat.txt`, `rdma-link.txt`, `smi-topo-m.txt` |
+| `devlink/<bus ID>`, `fw/<bus ID>`, `cable/<bus ID>` | a NIC function's devlink view, firmware and cable | `devlink-*.txt`, `fw-*.txt`, `cable-mlxlink.txt` |
+
+An RDMA device that is no PCI function, as on a Mokka node, is keyed
+`unbound/<name>/<role>`. Identifiers are kept as captured, but three relations
+inside a value are added as records, because a scrub keeps them:
+`gid0_is_node_guid` (an InfiniBand port's GID 0 carries the port GUID),
+`link_local_gid_from_mac` (a RoCE link-local GID carries its interface's MAC)
+and `address_has_node_guid` (an IPoIB address ends in the port GUID). A first
+comment line names the files the capture lacks, absent or marked `FAILED` in
+`errors.log`.
 
 ## diff smi
 
