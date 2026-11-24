@@ -109,8 +109,11 @@ func TestDevicesAreKeyedByTheirFunctionNotTheirName(t *testing.T) {
 		pciNICSysfs: ibPCISysfs,
 		rdmaSysfs:   ibRDMASysfs,
 		ibstat:      "CA 'mlx5_7'\n\tCA type: MT4131\n\tNode GUID: 0x0000000000000001\n\tPort 1:\n\t\tState: Active\n\t\tBase lid: 18\n\t\tRate: 800\n",
-		ibvDevinfo:  "hca_id:\tmlx5_7\n\ttransport:\t\t\tInfiniBand (0)\n\tnode_guid:\t\t\t0000:0000:0000:0001\n\t\tport:\t1\n\t\t\tstate:\t\t\tPORT_ACTIVE (4)\n\t\t\tGID[  0]:\t\tfe80:0000:0000:0000:0000:0000:0000:0001\n",
-		rdmaLink:    "link mlx5_7/1 subnet_prefix fe80:0000:0000:0000 lid 18 sm_lid 1 lmc 0 state ACTIVE physical_state LINK_UP\nlink smi0/1 state ACTIVE physical_state LINK_UP\n",
+		ibvDevinfo: "hca_id:\tmlx5_7\n\ttransport:\t\t\tInfiniBand (0)\n\tnode_guid:\t\t\t0000:0000:0000:0001\n" +
+			"\tdevice_cap_flags:\t\t0x21361c36\n\t\t\t\t\tBAD_PKEY_CNTR\n\t\t\t\t\tAUTO_PATH_MIG\n" +
+			"\trc_odp_caps:\n\t\t\t\t\tSUPPORT_SEND\n\t\t\t\t\tSUPPORT_READ\n\tud_odp_caps:\n\t\t\t\t\tNO SUPPORT\n" +
+			"\t\tport:\t1\n\t\t\tstate:\t\t\tPORT_ACTIVE (4)\n\t\t\tGID[  0]:\t\tfe80:0000:0000:0000:0000:0000:0000:0001\n",
+		rdmaLink: "link mlx5_7/1 subnet_prefix fe80:0000:0000:0000 lid 18 sm_lid 1 lmc 0 state ACTIVE physical_state LINK_UP\nlink smi0/1 state ACTIVE physical_state LINK_UP\n",
 	})
 
 	require.Equal(t, "mlx5_7", n.Records["rdma/0000:03:00.0/dev"]["name"])
@@ -123,6 +126,9 @@ func TestDevicesAreKeyedByTheirFunctionNotTheirName(t *testing.T) {
 	require.Equal(t, "PORT_ACTIVE (4)", n.Records["ibv/0000:03:00.0/dev"]["port.1.state"])
 	require.Equal(t, "InfiniBand (0)", n.Records["ibv/0000:03:00.0/dev"]["transport"])
 	require.NotContains(t, n.Records["ibv/0000:03:00.0/dev"], "node_guid")
+	require.Equal(t, "0x21361c36,BAD_PKEY_CNTR,AUTO_PATH_MIG", n.Records["ibv/0000:03:00.0/dev"]["device_cap_flags"])
+	require.Equal(t, "SUPPORT_SEND,SUPPORT_READ", n.Records["ibv/0000:03:00.0/dev"]["rc_odp_caps"])
+	require.Equal(t, "NO SUPPORT", n.Records["ibv/0000:03:00.0/dev"]["ud_odp_caps"])
 	require.NotContains(t, n.Records["ibv/0000:03:00.0/dev"], "port.1.GID[  0]")
 	require.Equal(t, "ACTIVE", n.Records["rdmalink/0000:03:00.0/dev/1"]["state"])
 	require.Equal(t, "no", n.Records["rdmalink/0000:03:00.0/dev/1"]["netdev"])

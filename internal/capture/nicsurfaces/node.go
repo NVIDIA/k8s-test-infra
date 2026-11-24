@@ -80,7 +80,9 @@ type Node struct {
 	// where the surface it reads does not exist, counts as captured.
 	Missing map[string]string
 
-	source map[string]string // object + "\t" + attribute -> source
+	// source lists, per object + "\t" + attribute, the capture files a record
+	// was read or derived from, the one it was read from first.
+	source map[string][]string
 	first  map[string]string // object -> the source that first gave it a record
 
 	// Filled while reading, for keying and relating records across sources.
@@ -94,7 +96,7 @@ type Node struct {
 func newNode() *Node {
 	return &Node{
 		Records: map[string]map[string]string{}, Missing: map[string]string{},
-		source: map[string]string{}, first: map[string]string{},
+		source: map[string][]string{}, first: map[string]string{},
 		nicFunctions: map[string]bool{}, rdmaKeys: map[string]string{},
 		netKeys: map[string]string{}, netFunction: map[string]string{}, macs: map[string]string{},
 	}
@@ -205,16 +207,20 @@ func failureReason(stderr []string) string {
 	return ""
 }
 
-func (n *Node) set(src, obj, attr, value string) {
+func (n *Node) set(src, obj, attr, value string) { n.setFrom([]string{src}, obj, attr, value) }
+
+// setFrom sets a record derived from several capture files, such as a
+// relation between a GID and an interface's MAC: without any one of them the
+// record can't be derived, so its absence is a blind spot, not a difference.
+func (n *Node) setFrom(srcs []string, obj, attr, value string) {
 	if n.Records[obj] == nil {
 		n.Records[obj] = map[string]string{}
-		n.first[obj] = src
+		n.first[obj] = srcs[0]
 	}
 	n.Records[obj][attr] = value
-	n.source[obj+"\t"+attr] = src
+	n.source[obj+"\t"+attr] = srcs
 }
 
-// get returns a record's value.
 func (n *Node) get(obj, attr string) (string, bool) {
 	v, ok := n.Records[obj][attr]
 	return v, ok
@@ -226,14 +232,20 @@ func (n *Node) Source(obj, attr string) string {
 	if attr == "" {
 		return n.first[obj]
 	}
-	return n.source[obj+"\t"+attr]
+	if srcs := n.source[obj+"\t"+attr]; len(srcs) > 0 {
+		return srcs[0]
+	}
+	return ""
 }
 
-// Set adds a record that no capture file holds, such as a relation between
-// records, with what it was derived from as its source.
-func (n *Node) Set(obj, attr, value, source string) { n.set(source, obj, attr, value) }
+// Sources names every capture file a record was read or derived from.
+func (n *Node) Sources(obj, attr string) []string { return n.source[obj+"\t"+attr] }
 
-// Get returns a record's value.
+// Set adds a record that no capture file holds, such as a relation between
+// records, with the files it was derived from.
+func (n *Node) Set(obj, attr, value string, sources ...string) { n.setFrom(sources, obj, attr, value) }
+
+// Get gives diff nic's relations the records to relate.
 func (n *Node) Get(obj, attr string) (string, bool) { return n.get(obj, attr) }
 
 // BindUnbound gives the RDMA devices of n that are no PCI function the key of
@@ -274,10 +286,11 @@ func (n *Node) BindUnbound(other *Node) {
 	}
 }
 
-// rename moves an object's records, with their sources, to another name.
+// rename keeps each record's sources, so a record renamed to its device's key
+// still names the files it came from.
 func (n *Node) rename(from, to string) {
 	for a, v := range n.Records[from] {
-		n.set(n.source[from+"\t"+a], to, a, v)
+		n.setFrom(n.source[from+"\t"+a], to, a, v)
 		delete(n.source, from+"\t"+a)
 	}
 	delete(n.Records, from)
@@ -303,7 +316,8 @@ func Kind(obj string) string {
 }
 
 // Write prints the records, one per line, as object, attribute, value and
-// source separated by tabs, after a comment naming the sources not captured.
+// source files (joined by + where a record was derived from several)
+// separated by tabs, after a comment naming the sources not captured.
 func (n *Node) Write(w io.Writer) error {
 	bw := bufio.NewWriter(w)
 	var missing []string
@@ -327,7 +341,7 @@ func (n *Node) Write(w io.Writer) error {
 		}
 		sort.Strings(attrs)
 		for _, a := range attrs {
-			_, _ = fmt.Fprintf(bw, "%s\t%s\t%s\t%s\n", o, a, oneLine(n.Records[o][a]), n.Source(o, a))
+			_, _ = fmt.Fprintf(bw, "%s\t%s\t%s\t%s\n", o, a, oneLine(n.Records[o][a]), strings.Join(n.Sources(o, a), "+"))
 		}
 	}
 	return bw.Flush()

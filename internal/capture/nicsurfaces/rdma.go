@@ -148,7 +148,7 @@ func (n *Node) relateGIDs(o, nodeGUID, linkLayer string, gids []gid, ndevs int) 
 			related = true
 		}
 	}
-	n.set(rdmaSysfs, o, "link_local_gid_from_mac", yesNo(related))
+	n.setFrom([]string{rdmaSysfs, netSysfs}, o, "link_local_gid_from_mac", yesNo(related))
 }
 
 // interfaceID returns the last 64 bits of a GID in GUID form.
@@ -194,7 +194,7 @@ func (n *Node) relateIPoIB() {
 				related = true
 			}
 		}
-		n.set(netSysfs, o, "address_has_node_guid", yesNo(related))
+		n.setFrom([]string{netSysfs, rdmaSysfs}, o, "address_has_node_guid", yesNo(related))
 	}
 }
 
@@ -353,29 +353,42 @@ func (n *Node) readRDMATool(system, link string) {
 }
 
 // readIBVDevinfo reads ibv_devinfo -v: one record per field, per device and
-// port, leaving out the identifiers and GIDs.
+// port, leaving out the identifiers and GIDs. A field such as rc_odp_caps or
+// device_cap_flags lists its flags on the lines that follow it; they join its
+// value, comma-separated, so a different capability shows as a difference.
 func (n *Node) readIBVDevinfo(text string) {
-	dev, port := "", ""
+	dev, port, last := "", "", ""
 	for _, l := range strings.Split(text, "\n") {
 		k, v, ok := colonValue(l)
 		switch {
 		case !ok:
+			if flag := strings.TrimSpace(l); flag != "" && last != "" {
+				n.set(ibvDevinfo, "ibv/"+dev, last, joinFlag(n.Records["ibv/"+dev][last], flag))
+			}
 			continue
 		case k == "hca_id":
-			dev, port = v, ""
+			dev, port, last = v, "", ""
 			continue
 		case k == "port" && dev != "":
-			port = v
+			port, last = v, ""
 			continue
 		case dev == "", strings.HasPrefix(k, "GID["), k == "node_guid", k == "sys_image_guid", k == "port_lid", k == "sm_lid":
+			last = ""
 			continue
 		}
-		attr := k
+		last = k
 		if port != "" {
-			attr = "port." + port + "." + k
+			last = "port." + port + "." + k
 		}
-		n.set(ibvDevinfo, "ibv/"+dev, attr, v)
+		n.set(ibvDevinfo, "ibv/"+dev, last, v)
 	}
+}
+
+func joinFlag(value, flag string) string {
+	if value == "" {
+		return flag
+	}
+	return value + "," + flag
 }
 
 var (

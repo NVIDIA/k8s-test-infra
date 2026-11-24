@@ -355,7 +355,8 @@ mokka-capture nic-surfaces <capture node directory>
 
 Reads the files `collect network` wrote for one node (and `smi-topo-m.txt`
 from `collect driver`) and prints every NIC surface in them as one record per
-line: object, attribute, value and the file it came from, separated by tabs.
+line: object, attribute, value and the file it came from (or, for a record
+derived from several files, all of them joined by `+`), separated by tabs.
 Objects are keyed by what the hardware fixes, not by names cluster software or
 probe order chooses, so a renamed device keeps its key and two nodes' lists
 compare record by record:
