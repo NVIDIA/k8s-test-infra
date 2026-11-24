@@ -278,7 +278,7 @@ efa:
   systemImageGUID: rdma-b0    # the node GUID of RDMA device rdma-b0, on host link B's first PF
 ```
 
-Identifiers (GUIDs, MACs, serial numbers, VPD `V3`, switch IDs) are hashes of where something sits: the node's coordinates, then slot, board, ASIC and function. So:
+Identifiers (GUIDs, MACs, serial numbers, VPD `V3`, switch IDs) are hashes of where something sits: the node's coordinates, then the slot, and within it the PCI device, function number and port number, or the board and board position. So:
 - the same declaration gives the same identifiers on every run;
 - removing one NIC doesn't change the others';
 - different nodes get different identifiers;
@@ -458,6 +458,7 @@ spec:
     gpus:
       pci: {vendorID, deviceID}     # existing; pairs GPUs with NICs in the GPU records
     topology:
+      network: removed              # MEP-0001's out-of-band adapter block; nics replaces it
       rootPorts:                    # new: the platform's PCIe root ports, once per node
         - address: string           # such as "0009:00:00.0"
           rootComplex: string       # pciDDDD:BB
@@ -487,6 +488,8 @@ spec:
               vpdPosition: string?  # suffix of the VPD product name, such as -Prime or -Aux[1]
 ```
 
+`nics` replaces `topology.network`, the out-of-band adapter block MEP-0001 defined (adapter model, link speed, adapters per GPU). Keeping both would let one rack profile describe its NICs twice, so the block is removed; Mokka has no users who depend on it.
+
 #### `SGPUInventory` (existing; new field)
 
 File mode takes the same shape from Helm values (`nics.overrides`).
@@ -500,7 +503,7 @@ spec:
       profileRef: {name: string}    # existing
       nicOverrides:                 # new: applied in order; a later override wins per field
         - slots: [string]           # slot names the override applies to; at least one, each an existing slot
-          profile: string?          # replaces the slot's profile, and drops the slot's configuration
+          profile: string?          # replaces the slot's profile, and drops the slot's configuration, firmwareVersion and vpd
           configuration: string?    # replaces the slot's configuration
           firmwareVersion: string?
           vpd: {string: string}?    # merged into the slot's VPD keywords
@@ -522,9 +525,9 @@ The CRD checks field shapes. These rules need more than one field, so the loader
 
 - **Decoding:** strict; an unknown field is an error.
 - **Profile:** VPD scopes are `board`, `asic` or `boardPosition`, and a keyword is either a model value or an identity. Every function type has a driver. `rdmaOmit` and `rdmaEmpty` name only `fw_ver`, `hca_type`, `board_id` or `hw_rev`, and no attribute is in both. A `vfType` names another function type, on a function type with `totalVFs`. Configuration names are unique, and the default is one of them.
-- **Configuration:** port and function IDs are unique. Technology and lane speed come from the lists above; width is positive and planes aren't negative. A function's type exists, its PCI device is named, and each device and function number is used once. The class is `0x` plus six hex digits. Every port has an owner, and at most one per PCI device. An RDMA device names a function and at least one port.
+- **Configuration:** port and function IDs are unique. Technology and lane speed come from the lists above; width is positive and planes aren't negative. A function's type exists, its PCI device is named, and each device and function number is used once. The class is `0x` plus six hex digits. Every port has an owner, and at most one per PCI device. An RDMA device names a function and at least one port, and its ports are ports that function owns.
 - **Rack profile:** slot names, GPU slots and PCI addresses are unique. One board holds one NIC model. A slot's GPUs and profile exist. A per-board VPD identity needs a `board`, and a per-board-position one needs a `vpdPosition`. `systemImageGUID` is `distinct` or an RDMA device of the selected configuration. Root ports are unique and inside their root complex. Addresses are well-formed and inside their root complex. Every parent, of a GPU slot, a NIC device or a switch port, names a root port or a switch port of the node in the same root complex, and switch ports form no cycle. Bridges need the profile's `switchPort`. Every PCI device a configuration uses is placed.
-- **Overrides:** overrides apply in order, and a later one wins per field; VPD keywords merge. An override that sets a new profile drops the slot's configuration, unless it also sets one. An override that names an unknown slot is an error. The rack-profile rules then run on the effective selection, so an override that selects a profile or configuration whose PCI devices the slot doesn't place is rejected.
+- **Overrides:** overrides apply in order, and a later one wins per field; VPD keywords merge. An override that sets a new profile drops the slot's configuration, firmware version and VPD overrides, which belonged to the old model, unless the same override sets them. An override that names an unknown slot is an error. The rack-profile rules then run on the effective selection, so an override that selects a profile or configuration whose PCI devices the slot doesn't place is rejected.
 
 #### Samples by feature
 
@@ -558,12 +561,12 @@ Generation has two halves. **Resolve** turns the declaration into a typed NIC st
 | G9 Device files | `uverbs` per RDMA device and one `rdma_cm` always; `umad` per port when `software.rdma.umad`; `issm` per `ib` port without planes, also only with `umad` | Device files and their modes | `software.rdma` |
 | G10 Verbs | Each RDMA device | `ibv_devinfo` fields | As G4, G6 and G7 |
 | G11 ethtool | Each netdev from G8 or G12 | Driver, firmware and board ID, bus address | Function type, identity, placement |
-| G12 IPoIB | Each `ib` port, when `software.rdma.ipoib` | An IPoIB netdev | Port, RDMA device |
+| G12 IPoIB | Each `ib` port, when `software.rdma.ipoib` | An IPoIB netdev: its name, from the PCI address, and its 20-byte address ending in the port GUID | Port, RDMA device |
 | G13 GPUs | Each GPU slot | GPU PCI records and their NIC association | GPU slots, and each NIC instance's `gpus` |
 
-Rules that decide values (G1–G5, G13 and the values in G7 and G8) belong to resolve; rules that format values (G6, G9–G12) belong to render.
+Rules that decide values (G1–G5, G13, and the values in G7, G8 and G12) belong to resolve; rules that format values (G6, G9–G11, and the rest of G12) belong to render. So the state names every netdev, Ethernet and IPoIB alike, with its address.
 
-Identifiers are name-based (UUIDv5) hashes of coordinates, using the scheme GPU UUIDs already use (`internal/sgpu/rackrender/identity.go`), shared so NICs and GPUs have one identity function. Control-plane mode names a node by its inventory UID, rack group, rack index and node index. File mode names it by an empty inventory UID followed by the node name; no control-plane node has an empty inventory UID, so the two modes never produce the same name. Then come the slot, board, ASIC and function. Each kind of identifier (GUID, MAC, 128-bit ID) hashes in its own domain, so a GUID and a MAC of the same object are unrelated, and MACs are locally administered.
+Identifiers are name-based (UUIDv5) hashes of coordinates, using the scheme GPU UUIDs already use (`internal/sgpu/rackrender/identity.go`), shared so NICs and GPUs have one identity function. Control-plane mode names a node by its inventory UID, rack group, rack index and node index. File mode names it by an empty inventory UID followed by the node name; no control-plane node has an empty inventory UID, so the two modes never produce the same name. Then comes where the object sits within the node: the slot, then the PCI device, function number and port number for values per function or port, or the board and board position for VPD identities. The profile's ID strings for functions, ports and RDMA devices never enter an identifier, so renaming them changes nothing; a configuration switch keeps a function's GUIDs and MACs when the function keeps its position, as on hardware. Each kind of identifier (GUID, MAC, 128-bit ID) hashes in its own domain, so a GUID and a MAC of the same object are unrelated, and MACs are locally administered.
 
 ### Node agent
 
@@ -607,7 +610,7 @@ type NICs struct {
 	Bridges   []Bridge     // address, parent, root complex, IDs, slot
 	Functions []Function   // address, IDs, class, revision, driver, placement, upstream IDs, NUMA node, SR-IOV and VF type, link, VPD
 	Devices   []RDMADevice // name, function, node type, node and system image GUIDs, attributes, firmware, ports
-	Netdevs   []Netdev     // name, function, port, MAC
+	Netdevs   []Netdev     // Ethernet and IPoIB: name, function, port, MAC or IPoIB address
 }
 ```
 
@@ -698,9 +701,9 @@ The chart fails the render on mistakes it can see: an override without `slots`, 
 
 ### Test plan
 
-- **Schema.** Every shipped profile decodes strictly into the Go type and passes validation. The NIC slots, GPU slots and root ports in each GPU profile equal those of the matching rack profile, so the capture checks cover the addresses file mode uses.
+- **Schema.** Every shipped profile decodes strictly into the Go type and passes validation. Every shipped profile and every invalid case from the validation tests also goes through the generated CRD schema, which must give the same answer, so file mode and the API server can't drift apart. The NIC slots, GPU slots and root ports in each GPU profile equal those of the matching rack profile, so the capture checks cover the addresses file mode uses.
 - **Declaration level.** For each capture, the generator's output is compared with `diff nic`; every difference must match a cause. Deliberate breakages, such as swapping two NICs' Data Direct functions, dropping planes or putting both of a card's ports on one link, must each be caught.
-- **Determinism.** Generating twice gives identical output, and removing one NIC leaves the others' identifiers unchanged.
+- **Determinism.** Generating twice gives identical output, removing one NIC leaves the others' identifiers unchanged, and renaming every function, port and RDMA device ID in a profile leaves every identifier unchanged.
 - **Configuration switch.** Changing only a slot's configuration changes its functions and nothing in its placement or Data Direct pairing.
 - **Rendered level.** The simulators stage a node into a temporary host root; `collect nic` reads it through the path redirection a Mokka node uses, and `diff nic` compares the result with the same capture and causes. No cluster is needed.
 - **Both modes.** File mode and control-plane mode give the same `State.NICs` for the same declaration and node coordinates.
