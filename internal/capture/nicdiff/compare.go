@@ -16,6 +16,7 @@ package nicdiff
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -104,15 +105,14 @@ func compareAttr(o, a string, r, s map[string]string, hw, sim node) check {
 }
 
 // blindSpot says why a record cannot be compared because one side could not
-// capture it, or "" when both could: the capture file it comes from is missing
-// on a side, or a side's capturing pod could not see /dev/infiniband.
+// capture it, or "" when both could: a capture file it comes from or is
+// derived from is missing on a side, or a side's capturing pod could not see
+// /dev/infiniband.
 func blindSpot(o, a string, hw, sim node) string {
-	src := hw.Source(o, a)
-	if src == "" {
-		src = sim.Source(o, a)
-	}
-	if why := notCaptured(src, "", hw, sim); why != "" {
-		return why
+	for _, src := range slices.Concat(hw.Sources(o, a), sim.Sources(o, a)) {
+		if why := notCaptured(src, "", hw, sim); why != "" {
+			return why
+		}
 	}
 	// Without rdma-sysfs.txt a side cannot key what is keyed by RDMA device:
 	// its records stay under device names and pair with nothing.

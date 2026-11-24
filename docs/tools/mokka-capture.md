@@ -546,7 +546,7 @@ value, so the relations hold in scrubbed captures too.
 | --- | --- | --- |
 | schema gap | Mokka cannot show the surface yet | the causes file |
 | rule bug | `diff nic` compares it wrongly | the causes file |
-| capture blind spot | one side could not capture it: the file it comes from is absent or marked `FAILED` in that side's `errors.log` (its pod lacked the tool, or the connection dropped), `rdma-sysfs.txt`, which keys everything per RDMA device, is missing, or the pod could not see `/dev/infiniband` | `diff nic` |
+| capture blind spot | one side could not capture it: a file it comes from or is derived from is absent or marked `FAILED` in that side's `errors.log` (its pod lacked the tool, or the connection dropped), `rdma-sysfs.txt`, which keys everything per RDMA device, is missing, or the pod could not see `/dev/infiniband` | `diff nic` |
 | by design | out of scope, so not a failure: a value that is not comparable (an identifier, a name cluster software chooses, the host's CPUs), or a difference the causes file says Mokka does not aim to show, such as a DPU it does not simulate. Listed as `SKIP` with what differed, and counted as not compared | `diff nic`, or the causes file |
 | unclassified | nothing explains it yet | — |
 

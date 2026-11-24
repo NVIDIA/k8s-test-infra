@@ -21,29 +21,41 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/nicsurfaces"
 )
 
-// The capture files each relation is derived from; a relation one side could
-// not derive is a capture blind spot, as its inputs are.
+// The capture files the relations are derived from. A relation names every
+// file it reads, so a side that lacks any of them makes it a capture blind
+// spot rather than a difference.
 const (
 	srcRDMA = "rdma-sysfs.txt"
+	srcPCI  = "pci-nic-sysfs.txt"
+	srcAll  = "pci-all-functions.txt"
 	srcVPD  = "pci-vpd-fields.txt"
 	srcNet  = "net-sysfs.txt"
 	srcChar = "rdma-char-devices.txt"
 )
 
+var (
+	fromRDMA       = []string{srcRDMA}
+	fromVF         = []string{srcRDMA, srcPCI}
+	fromVPD        = []string{srcVPD}
+	fromBoard      = []string{srcVPD, srcPCI}
+	fromDataDirect = []string{srcVPD, srcPCI, srcAll}
+	fromNet        = []string{srcNet}
+	fromChar       = []string{srcChar}
+)
+
 // node is a node's NIC surfaces with the relations between its records added.
 type node struct{ *nicsurfaces.Node }
 
-func (c node) objects(kind string) []string        { return c.Objects(kind) }
-func (c node) get(obj, attr string) (string, bool) { return c.Get(obj, attr) }
-func (c node) set(src, obj, attr, value string)    { c.Set(obj, attr, value, src) }
+func (c node) objects(kind string) []string               { return c.Objects(kind) }
+func (c node) get(obj, attr string) (string, bool)        { return c.Get(obj, attr) }
+func (c node) set(srcs []string, obj, attr, value string) { c.Set(obj, attr, value, srcs...) }
 
 // Identifiers (GUIDs, MACs, serials, VPD IDs, switch IDs) differ between any
 // two nodes, so they are compared through what they relate, not by value. Each
 // relation becomes a "rel/<name>/<subject>" object whose value is compared
-// like any other. The relations inside one value, such as GID 0 carrying the
-// port GUID, are taken by the capture script before a scrub could break them;
-// these span objects, and a scrub keeps them, since it gives equal values the
-// same placeholder.
+// like any other. nic-surfaces records the relations inside one value, such as
+// GID 0 carrying the port GUID; these span objects. A scrub keeps both, since
+// it gives equal values the same placeholder.
 func (c node) addRelations() {
 	c.relateSMI()
 	c.relateGUIDs()
@@ -72,7 +84,7 @@ func (c node) relateSMI() {
 		parent := "rdma/" + bdf + "dev"
 		g, _ := c.get(o, "node_guid")
 		pg, ok := c.get(parent, "node_guid")
-		c.set(srcRDMA, "rel/smi_node_guid/"+strings.TrimSuffix(bdf, "/"), "is_parent_node_guid", yesNo(ok && g == pg))
+		c.set(fromRDMA, "rel/smi_node_guid/"+strings.TrimSuffix(bdf, "/"), "is_parent_node_guid", yesNo(ok && g == pg))
 	}
 	for _, o := range c.objects("port") {
 		key := strings.TrimPrefix(o, "port/")
@@ -83,7 +95,7 @@ func (c node) relateSMI() {
 		}
 		lid, _ := c.get(o, "lid")
 		plid, ok := c.get("port/"+bdf+"dev/1", "lid")
-		c.set(srcRDMA, "rel/smi_lid/"+bdf+port, "is_parent_lid", yesNo(ok && lid == plid))
+		c.set(fromRDMA, "rel/smi_lid/"+bdf+port, "is_parent_lid", yesNo(ok && lid == plid))
 	}
 }
 
@@ -107,7 +119,7 @@ func (c node) relateGUIDs() {
 		g, okG := c.get(o, "node_guid")
 		s, okS := c.get(o, "sys_image_guid")
 		if okS {
-			c.set(srcRDMA, "rel/sys_image_guid/"+bdf, "is_node_guid_of", guidOwner(owner, s, bdf))
+			c.set(fromRDMA, "rel/sys_image_guid/"+bdf, "is_node_guid_of", guidOwner(owner, s, bdf))
 		}
 		if okG {
 			seen[g]++
@@ -119,7 +131,7 @@ func (c node) relateGUIDs() {
 		for _, n := range seen {
 			distinct = distinct && n == 1
 		}
-		c.set(srcRDMA, "rel/node_guids", "distinct", yesNo(distinct))
+		c.set(fromRDMA, "rel/node_guids", "distinct", yesNo(distinct))
 	}
 }
 
@@ -143,7 +155,7 @@ func (c node) relateVUSerial() {
 		vu, okU := c.get(o, "vpd.VU")
 		sn, okS := c.get(o, "vpd.SN")
 		if okU && okS && sn != "" {
-			c.set(srcVPD, "rel/vu_serial/"+strings.TrimPrefix(o, "pci/"), "starts_with_serial", yesNo(strings.HasPrefix(vu, sn)))
+			c.set(fromVPD, "rel/vu_serial/"+strings.TrimPrefix(o, "pci/"), "starts_with_serial", yesNo(strings.HasPrefix(vu, sn)))
 		}
 	}
 }
@@ -156,7 +168,7 @@ func (c node) relateVF(bdf, sysImage string, ok bool) {
 		return
 	}
 	ps, okP := c.get("rdma/"+pf+"/dev", "sys_image_guid")
-	c.set(srcRDMA, "rel/vf_sys_image_guid/"+bdf, "is_pf_sys_image_guid", yesNo(ok && okP && sysImage == ps))
+	c.set(fromVF, "rel/vf_sys_image_guid/"+bdf, "is_pf_sys_image_guid", yesNo(ok && okP && sysImage == ps))
 }
 
 // networkFunctions returns the NIC's network PFs: Ethernet or InfiniBand
@@ -193,7 +205,7 @@ func (c node) relateBoards() {
 				partners = append(partners, other)
 			}
 		}
-		c.set(srcVPD, "rel/board/"+pf, "shares_serial_with", strings.Join(partners, ","))
+		c.set(fromBoard, "rel/board/"+pf, "shares_serial_with", strings.Join(partners, ","))
 	}
 }
 
@@ -240,9 +252,9 @@ func (c node) pairDataDirect(pf, v3 string, dds []string, gpuOn map[string]strin
 			byVU = dd
 		}
 	}
-	c.set(srcVPD, "rel/data_direct/"+pf, "by_v3", byV3)
-	c.set(srcVPD, "rel/data_direct/"+pf, "gpu", gpu)
-	c.set(srcVPD, "rel/data_direct/"+pf, "by_vu", byVU)
+	c.set(fromDataDirect, "rel/data_direct/"+pf, "by_v3", byV3)
+	c.set(fromDataDirect, "rel/data_direct/"+pf, "gpu", gpu)
+	c.set(fromDataDirect, "rel/data_direct/"+pf, "by_vu", byVU)
 }
 
 func (c node) vpdVU(bdf string) string {
@@ -288,7 +300,7 @@ func (c node) relateSwitchIDs() {
 			partners = append(partners, p)
 		}
 		sort.Strings(partners)
-		c.set(srcNet, "rel/switch_id/"+strings.TrimPrefix(o, "net/"), "shared_with", strings.Join(partners, ","))
+		c.set(fromNet, "rel/switch_id/"+strings.TrimPrefix(o, "net/"), "shared_with", strings.Join(partners, ","))
 	}
 }
 
@@ -303,7 +315,7 @@ func (c node) relateDeviceNodes() {
 			}
 			dev, _ := c.get(o, "dev")
 			number, _, _ := strings.Cut(node, " ")
-			c.set(srcChar, "rel/devnode/"+o, "matches_sysfs", yesNo(number == dev))
+			c.set(fromChar, "rel/devnode/"+o, "matches_sysfs", yesNo(number == dev))
 		}
 	}
 }

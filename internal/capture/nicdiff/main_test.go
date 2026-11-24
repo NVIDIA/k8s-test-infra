@@ -16,6 +16,7 @@ package nicdiff
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -351,4 +352,26 @@ func TestRenderingAMissingObjectNeverRaisesTheFailures(t *testing.T) {
 	rendered := failures(map[string]string{"pci-nic-sysfs.txt": "== 0000:03:00.0\nclass=0x020700\ndevice=0x1021\nnuma_node=0\n"})
 	require.Greater(t, missing, rendered)
 	require.Equal(t, 1, rendered, "only the device ID differs")
+}
+
+// A relation read from several capture files is a blind spot when a side lacks
+// any of them: an incomplete capture is not a broken mock.
+func TestARelationIsABlindSpotWhenASideLacksAFileItReads(t *testing.T) {
+	t.Parallel()
+	roce := map[string]string{
+		"pci-nic-sysfs.txt": "== 0000:03:00.0\nclass=0x020000\n",
+		"rdma-sysfs.txt": "== mlx5_0\ndevpath=/sys/devices/pci0000:00/0000:03:00.0\n-- port 1\nlink_layer=Ethernet\n" +
+			"gid[0]=fe80:0000:0000:0000:0000:00ff:fe00:0001 type=RoCE v2 ndev=eth0\n",
+		"net-sysfs.txt": "== eth0\naddress=02:00:00:00:00:01\ndevice=/sys/devices/pci0000:00/0000:03:00.0\n",
+	}
+	withoutNet := map[string]string{"pci-nic-sysfs.txt": roce["pci-nic-sysfs.txt"], "rdma-sysfs.txt": roce["rdma-sysfs.txt"]}
+	c := compareFiles(t, roce, withoutNet)["port.link_local_gid_from_mac port/0000:03:00.0/dev/1"]
+	require.Equal(t, notCompared, c.Status, "yes against no")
+	require.Equal(t, "net-sysfs.txt was not captured on the simulated node: no such file", c.Note)
+
+	withoutGPUs := maps.Clone(realFiles)
+	delete(withoutGPUs, "pci-all-functions.txt")
+	c = compareFiles(t, realFiles, withoutGPUs)["rel.data_direct.gpu rel/data_direct/0000:03:00.0"]
+	require.Equal(t, notCompared, c.Status, "a GPU against none")
+	require.Equal(t, causeBlindSpot, c.Cause)
 }
