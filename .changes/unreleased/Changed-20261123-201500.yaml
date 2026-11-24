@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  profiles: `gb300` and `vrnvl72` also declare their NICs as NIC slots (MEP-0016), which the node agent resolves into its NIC state and reports, while their `infiniband` block still drives what a node shows until the ib simulator renders that state; `gb300` GPUs sit at their captured PCI addresses, one root complex each, and its NVSwitches move off the NIC addresses. A NIC declaration the node agent can't resolve keeps the NICs it last accepted while they fit the node's PCI tree, and is recorded as a Warning Event on its pod, for which the chart adds a Role that allows recording Events. See the chart guide's NIC slots section.
+time: 2026-11-24T03:15:00Z
+custom:
+  Issue: "1266"

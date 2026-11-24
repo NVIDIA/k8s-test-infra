@@ -37,12 +37,41 @@ tests:
           path: metadata.labels["app.kubernetes.io/managed-by"]
           value: Helm
 
-  # The chart grants no cluster permissions: nothing in the pod calls the K8s
-  # API, and GPU node labels belong to NFD and GFD.
-  - it: should render only the ServiceAccount
+  # The chart grants no cluster permissions, since GPU node labels belong to
+  # NFD and GFD. The node agent may only record Events in its namespace.
+  - it: should render the ServiceAccount and the node agent's Events Role
     asserts:
       - hasDocuments:
-          count: 1
+          count: 3
+
+  - it: should let the node agent record Events and nothing else
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: Role
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [events]
+              verbs: [create, patch]
+
+  - it: should bind the Events Role to the ServiceAccount
+    documentIndex: 2
+    release:
+      namespace: mokka
+    asserts:
+      - isKind:
+          of: RoleBinding
+      - equal:
+          path: roleRef.name
+          value: RELEASE-NAME-nvml-mock-node-agent
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: RELEASE-NAME-nvml-mock
+              namespace: mokka
 
   - it: should respect fullnameOverride across all RBAC resources
     set:

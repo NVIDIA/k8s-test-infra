@@ -20,6 +20,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	ibconfig "github.com/NVIDIA/k8s-test-infra/internal/ib/config"
+	nicstate "github.com/NVIDIA/k8s-test-infra/internal/nic/state"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
@@ -50,6 +51,10 @@ type FileSource struct {
 	topologyPath   string
 	resyncInterval time.Duration
 	log            *zap.Logger
+	// accepted is the NIC state of the last NIC declaration that resolved;
+	// nil until one does, and in memory only, so a restarted agent starts
+	// like a fresh node.
+	accepted *nicstate.NICs
 }
 
 // NewFileSource returns a FileSource that watches configPath and topologyPath.
@@ -211,7 +216,7 @@ func (f *FileSource) reload(ctx context.Context, ch chan<- agent.Update, lastHas
 	}
 	*lastHash = h
 
-	state, err := compileState(data, f.configPath)
+	state, err := compileStateWith(data, f.configPath, f.accepted)
 	if err != nil {
 		f.send(ctx, ch, agent.Update{Err: fmt.Errorf("%s: %w", f.configPath, err), At: time.Now()})
 		return
@@ -219,8 +224,23 @@ func (f *FileSource) reload(ctx context.Context, ch chan<- agent.Update, lastHas
 	state.ConfigRaw = data
 	state.TopologyRaw = topology
 	state.MIGProfilesRaw = migTable
+	f.remember(state)
 	f.log.Info("state updated from config", zap.String("config", f.configPath))
 	f.send(ctx, ch, agent.Update{State: state, At: time.Now()})
+}
+
+// remember keeps the NIC state of a declaration that resolved, for failOpen
+// to fall back on when a later one doesn't. A node without NICs has none to
+// keep.
+func (f *FileSource) remember(state *agent.State) {
+	switch {
+	case state.NICError != "":
+	case state.NICs.Empty():
+		f.accepted = nil
+	default:
+		nics := state.NICs
+		f.accepted = &nics
+	}
 }
 
 func (f *FileSource) send(ctx context.Context, ch chan<- agent.Update, u agent.Update) {
@@ -337,6 +357,12 @@ func compileIMEX(nvlink *engine.NVLinkConfig) agent.IMEXState {
 // is resolved relative to it. Callers with a config that carries its own table
 // inline pass "".
 func compileState(data []byte, configPath string) (*agent.State, error) {
+	return compileStateWith(data, configPath, nil)
+}
+
+// compileStateWith is compileState on a node whose last accepted NIC state is
+// retained, which a NIC declaration that doesn't resolve may fall back on.
+func compileStateWith(data []byte, configPath string, retained *nicstate.NICs) (*agent.State, error) {
 	cfg, err := parseProfile(data, configPath)
 	if err != nil {
 		return nil, err
@@ -403,11 +429,9 @@ func compileState(data []byte, configPath string) (*agent.State, error) {
 	// starts the daemon, so it is the one signal that both exist on this node.
 	state.Fabric.ManagerStateDir = strings.TrimSpace(os.Getenv(engine.EnvFabricStateDir))
 
-	network, err := compileNetwork(data, numDevices)
-	if err != nil {
+	if err := compileNetworking(data, &cfg, state, numDevices, retained); err != nil {
 		return nil, err
 	}
-	state.NodeShape.Network = network
 
 	state.IMEX = compileIMEX(cfg.NVLink)
 
@@ -459,13 +483,7 @@ const defaultCapsMajor = 236
 // bootstrap shim — runtime overrides should flow through a dedicated Runtime
 // state populated by MEP-0001 CP and nvml-mock-ctl, not via env vars here.
 func resolveDeviceCount(cfg engine.YAMLConfig) int {
-	n := len(cfg.Devices)
-	if n == 0 {
-		n = 8
-	}
-	if cfg.System.NumDevices > 0 {
-		n = cfg.System.NumDevices
-	}
+	n := declaredDeviceCount(cfg)
 	if v, err := strconv.Atoi(os.Getenv("GPU_COUNT")); err == nil && v > 0 {
 		if v > n {
 			// Silently capping would leave an operator who asked for more GPUs
@@ -475,6 +493,19 @@ func resolveDeviceCount(cfg engine.YAMLConfig) int {
 		} else {
 			n = v
 		}
+	}
+	return n
+}
+
+// declaredDeviceCount is the GPU count the profile declares, before GPU_COUNT
+// trims it.
+func declaredDeviceCount(cfg engine.YAMLConfig) int {
+	n := len(cfg.Devices)
+	if n == 0 {
+		n = 8
+	}
+	if cfg.System.NumDevices > 0 {
+		n = cfg.System.NumDevices
 	}
 	return n
 }

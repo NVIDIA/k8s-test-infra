@@ -235,8 +235,64 @@ RPATH can redirect that.
 | `b200`  | yes | ConnectX-7 (`MT4129`) | NDR 400 Gb/s | 1 |
 | `gb200` | yes | ConnectX-7 (`MT4129`) | NDR 400 Gb/s | 1 |
 | `gb300` | yes | ConnectX-7 (`MT4129`) | NDR 400 Gb/s | 1 |
+| `vrnvl72` | yes, RoCE | ConnectX-9 (`MT4133`) | 200 Gb/s | 3 |
 | `l40s`  | no  | — | — | — |
 | `t4`    | no  | — | — | — |
+
+### NIC slots
+
+A profile with a captured NIC layout, `gb300` or `vrnvl72`, also declares its
+NICs as data (MEP-0016). The node agent resolves them into its NIC state and
+reports it, but doesn't render it yet: until the `ib` simulator renders that
+state ([#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355)), the
+`infiniband:` block still decides what a node shows, and changing the NIC
+declaration changes nothing a workload sees. Each NIC model is an
+`SNICProfile` in the chart's `nics/` directory: its PCI identity, firmware, and every firmware configuration it can
+run, each declared as the ports, PCI functions and RDMA devices it produces.
+The GPU profile's `nics.slots` places NIC instances on the node, each naming a
+profile, a PCI placement and, optionally, a configuration. GPUs, NIC devices
+and NIC switch ports share one PCIe tree: `nics.rootPorts` lists the root
+ports, and `nics.gpuParents` names the root port or NIC switch port each GPU
+sits below. The [CRD reference](crd-reference.md#snicprofile) lists the
+fields.
+
+The chart appends the NIC profiles the slots name to the node agent's
+configuration. Values change the selection without a new profile, and
+`nics.rdma` changes the profile's RDMA software, field by field:
+
+```bash
+# GB300's four ConnectX-8 NICs in their Ethernet multi-plane configuration
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --namespace mokka --create-namespace \
+  --set gpu.profile=gb300 \
+  --set 'nics.overrides[0].slots={nic0,nic1,nic2,nic3}' \
+  --set 'nics.overrides[0].configuration=eth-multiplane'
+```
+
+`nics.customProfiles` adds NIC models the chart doesn't ship, under names of
+their own. `nics.slots` replaces the profile's slots, root ports and GPU
+parents, which name each other's addresses; set `nics.rootPorts` and
+`nics.gpuParents` with it. The render fails, listing the valid choices, on a
+slot naming an unknown NIC profile or configuration, an override naming a slot
+the node doesn't have, a custom profile whose default configuration it doesn't
+define, and a GPU profile document that repeats a top-level NIC key. Any
+change to the document rolls the node agents.
+
+A declaration the node agent still can't resolve, such as a PCI device placed
+outside its root complex, a NIC on an address a GPU or NVSwitch already has,
+or a ConfigMap edited by hand, doesn't stop the node. The agent checks the
+node's whole PCI tree, GPUs and NICs together: it keeps the NICs it last
+accepted if they still form a valid tree with the current GPUs and
+NVSwitches, and otherwise runs without NICs, a GPU below a NIC switch port
+then placed directly below its root port. Its GPUs are simulated as usual
+either way. The agent logs the error, records it as a Warning Event on its
+pod (`NICDeclarationIgnored`), and `/readyz` names it under `nics` while the
+probe stays OK. A fixed declaration applies on the same pod, without a
+restart. The kept state lives in the agent's memory only, so a restarted
+agent starts like a new node.
+
+The node agent resolves each slot into PCI functions, RDMA devices and netdevs
+with identifiers derived from the node's name.
 
 ### `infiniband:` block schema
 
@@ -337,7 +393,7 @@ $ cat /var/lib/nvml-mock/sys/devices/pci0000:00/0000:07:00.0/numa_node
 | `h100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 | 4 |
 | `b200`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 | 0 |
 | `gb200` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 | 0 |
-| `gb300` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 | 0 |
+| `gb300` | 4 (`pci0008:00`, `pci0009:00`, `pci0018:00`, `pci0019:00`) | 2 (one per Grace CPU) | 1 | 0 |
 | `l40s`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 | 0 |
 | `t4`    | 1 (`pci0000:00`) | 1 | 4 | 0 |
 
@@ -871,7 +927,8 @@ and nothing nvml-mock can do supplies it without editing a third party's
 DaemonSet, which is why the local source is the route the chart uses.
 
 Writing a feature file rather than the label is why the DaemonSet needs no
-cluster RBAC at all: nothing in the pod calls the Kubernetes API.
+cluster RBAC: the only API call in the pod is the node agent recording Events
+on itself.
 
 ### GPU Profiles
 
@@ -1223,7 +1280,9 @@ The chart deploys:
    `MOCK_MIG_PROFILES_CONFIG`. Rendered only for the five MIG-capable
    profiles, and never with `gpu.customConfig`, whose table is the user's —
    see [where the table lives](mig.md#where-the-table-lives)
-3. **ServiceAccount** — no cluster RBAC; nothing in the pod calls the API
+3. **ServiceAccount** — no cluster RBAC. A Role lets the node agent record
+   Events in the release namespace, and only the node-agent container mounts
+   a token
 
 Consumer components (DRA driver, device plugin) mount `/var/lib/nvml-mock`
 and use `--nvidia-driver-root=/var/lib/nvml-mock/driver` to discover GPUs

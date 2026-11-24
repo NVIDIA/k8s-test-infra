@@ -20,6 +20,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/numatopology"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/nvlink"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/pcibus"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/podevents"
 	"github.com/urfave/cli/v3"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -302,6 +303,16 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		enrichers = append(enrichers, numatopology.NewEnricher(h))
 	}
 
+	// Events on the agent's own pod surface what it degrades without failing,
+	// such as an ignored NIC declaration. Without API access it only logs.
+	var events agent.Events
+	if rec, err := podevents.FromEnv(os.Getenv("NODE_NAME")); err != nil {
+		log.Info("not recording Kubernetes Events", zap.Error(err))
+	} else {
+		defer rec.Shutdown()
+		events = rec
+	}
+
 	a := agent.New(agent.Config{
 		Simulators: []agent.Simulator{
 			numaSimulator,
@@ -330,6 +341,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,
 		StagingLockPath: cmd.String("staging-lock-path"),
+		Events:          events,
 	})
 
 	healthSrv.SetLiveness(a.Liveness)

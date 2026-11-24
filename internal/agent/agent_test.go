@@ -6,6 +6,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -643,4 +644,63 @@ func TestRequeueRestagesTheLatestState(t *testing.T) {
 
 	cancel()
 	require.NoError(t, <-done)
+}
+
+// A NIC declaration the source couldn't resolve degrades the node: readiness
+// stays up, because the GPUs still serve, and says what the node does instead.
+// The change is recorded as an Event once, not on every reconcile, and the
+// next state that resolves clears it.
+func TestReadinessReportsAnIgnoredNICDeclaration(t *testing.T) {
+	t.Parallel()
+
+	const reason = `slot nic0: profile cx8-c8280z has no configuration "eth"`
+	updates := make(chan Update, 3)
+	updates <- Update{State: &State{NICError: reason, NICsKept: true}, At: time.Now()}
+	events := &recordedEvents{}
+	a := New(Config{
+		Simulators: []Simulator{readySim{"gpudriver", true}}, Source: &chanSource{ch: updates},
+		Log: zap.NewNop(), Events: events,
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+
+	require.Eventually(t, func() bool { return a.Staged().OK }, time.Second, time.Millisecond)
+	probe := a.Readiness()
+	require.True(t, probe.OK)
+	require.True(t, probe.Components["nics"].OK)
+	want := "NIC declaration ignored, keeping the NICs last resolved: " + reason
+	require.Equal(t, want, probe.Components["nics"].Reason)
+
+	updates <- Update{State: &State{NICError: reason, NICsKept: true, NodeShape: NodeShape{NumGPUs: 1}}, At: time.Now()}
+	updates <- Update{State: &State{}, At: time.Now()}
+	require.Eventually(t, func() bool { _, ok := a.Readiness().Components["nics"]; return !ok }, time.Second, time.Millisecond)
+	require.Equal(t, []string{
+		"Warning " + ReasonNICDeclarationIgnored + ": " + want,
+		"Normal " + ReasonNICDeclarationResolved + ": NIC declaration resolved",
+	}, events.list())
+
+	cancel()
+	require.NoError(t, <-done)
+}
+
+// recordedEvents keeps the Events an agent records.
+type recordedEvents struct {
+	mu     sync.Mutex
+	events []string
+}
+
+func (r *recordedEvents) Warning(reason, message string) { r.add("Warning", reason, message) }
+func (r *recordedEvents) Normal(reason, message string)  { r.add("Normal", reason, message) }
+
+func (r *recordedEvents) add(kind, reason, message string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, kind+" "+reason+": "+message)
+}
+
+func (r *recordedEvents) list() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.events)
 }

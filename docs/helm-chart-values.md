@@ -71,6 +71,11 @@ Kubernetes: `>= 1.28.0-0`
 | gpu.mig.enabled | bool | `false` | Enable MIG partitioning for profiles that support it. |
 | gpu.mig.gpuInstances | list | `[]` | GPU instance layout to create on each simulated device. |
 | gpu.profile | string | `"gb300"` | GPU profile and per-device simulation settings. |
+| gpu.vgpu.guest | object | `{}` |  |
+| gpu.vgpu.hostVgpuMode | string | `"sriov"` |  |
+| gpu.vgpu.instances | list | `[]` |  |
+| gpu.vgpu.mode | string | `""` |  |
+| gpu.vgpu.types | list | `[]` |  |
 | hic | list | `[]` | Host interface cards `nvidia-smi -q -u` reports, as `{id, firmwareVersion}` entries. |
 | image.digest | string | `""` | Immutable image digest; when set, it takes precedence over the tag. |
 | image.pullPolicy | string | `"IfNotPresent"` | Kubernetes image pull policy. |
@@ -93,6 +98,18 @@ Kubernetes: `>= 1.28.0-0`
 | integrations.fakeGpuOperator.enabled | bool | `false` | Enable fake-gpu-operator profile integration. |
 | integrations.fakeGpuOperator.profileLabels."run.ai/gpu-profile" | string | `"true"` | Additional label applied to generated fake-gpu-operator profiles. |
 | integrations.fakeGpuOperator.targetNamespace | string | `""` | Namespace where fake-gpu-operator reads profile ConfigMaps. |
+| nics.customProfiles | list | `[]` | SNICProfiles for NIC models the chart doesn't ship, in the schema of the files in nics/, `apiVersion` included. A name must not repeat a shipped profile's. |
+| nics.gpuParents | object | `{}` | Where each GPU sits for `nics.slots`, by GPU index: a root port or a NIC switch port, for example `{0: "0008:05:00.0"}`. A GPU left out has no parent. |
+| nics.overrides | list | `[]` | Changes to NIC slots, applied in order: each entry names `slots` and sets any of `profile`, `configuration`, `firmwareVersion` and `vpd`. For example `[{slots: [nic0, nic1, nic2, nic3], configuration: eth-multiplane}]` runs GB300's ConnectX-8 NICs on Ethernet. |
+| nics.rdma | object | `{}` | Changes to the GPU profile's `software.rdma`, merged over it field by field: `umad`, `ipoib`, `umadMode` and `driverVersion`. For example `{ipoib: false}` keeps ib_ipoib unloaded on a profile that loads it. |
+| nics.rootPorts | list | `[]` | PCIe root ports for `nics.slots`, which their devices and switch ports name as parents. Same schema as `nics.rootPorts` in profiles/gb300.yaml. |
+| nics.slots | list | `[]` | NIC slots that replace the GPU profile's, for a platform the profile doesn't describe. Same schema as `nics.slots` in profiles/gb300.yaml. Setting them also drops the profile's `nics.rootPorts` and `nics.gpuParents`, whose addresses belong to its own slots. |
+| nodeAgent.containerRuntime.containerd.configDir | string | `"/etc/containerd/conf.d"` |  |
+| nodeAgent.containerRuntime.containerd.configPath | string | `"/etc/containerd/config.toml"` |  |
+| nodeAgent.containerRuntime.containerd.systemdUnit | string | `"containerd"` |  |
+| nodeAgent.containerRuntime.enabled | bool | `true` |  |
+| nodeAgent.containerRuntime.restartMode | string | `"systemd"` |  |
+| nodeAgent.containerRuntime.type | string | `"containerd"` |  |
 | nodeAgent.kernelLog.enabled | bool | `false` | Announce injected Xids through the host kernel log. |
 | nodeAgent.livenessProbe | object | `{"httpGet":{"path":"/healthz","port":"health"}}` | Liveness probe; /healthz fails when the last Stage wave failed. Set to null to disable. |
 | nodeAgent.livenessProbe.httpGet.path | string | `"/healthz"` | Liveness probe endpoint path. |
@@ -114,7 +131,7 @@ Kubernetes: `>= 1.28.0-0`
 | nri.cdiSpecDir | string | `"/var/run/cdi"` | Host directory containing staged CDI specifications. |
 | nri.deviceAnnotation | string | `"nvml-mock.nvidia.com/devices"` | Pod annotation enabling mock GPU device injection. |
 | nri.deviceInjectionMode | string | `"raw"` | Device injection mode: raw nodes or CDI references. |
-| nri.enabled | bool | `true` | Enable node-wide container injection through the NRI plugin. Inject the mock into containers that hold a GPU allocation or opt in by annotation. Needs containerd NRI enabled on the node: containerd 2.x enables it by default, containerd 1.7 does not. Set false where it is off; otherwise the node pod stays NotReady. |
+| nri.enabled | bool | `true` | Enable node-wide container injection through the NRI plugin. Inject the mock into containers that hold a GPU allocation or opt in by annotation. Needs containerd NRI enabled on the node, which nodeAgent.containerRuntime turns on. Without it, containerd 2.x enables NRI by default and 1.7 does not: set false where it is off, or the node pod stays NotReady. |
 | nri.excludedNamespaces | list | `[]` | Namespaces excluded from NRI injection. |
 | nri.healthPort | int | `8080` | NRI plugin health and readiness port. |
 | nri.image | object | `{}` | Optional container image overrides for the NRI plugin. |

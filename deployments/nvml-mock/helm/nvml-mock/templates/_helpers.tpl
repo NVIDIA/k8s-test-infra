@@ -495,9 +495,13 @@ and key order) or round-trip it through fromYaml/toYaml for overlays.
 {{/*
 Return "true" when the rendered GPU config enables InfiniBand.
 The chart uses the same config content that is mounted into the pod, so built-in
-profiles and gpu.customConfig follow one source of truth.
+profiles and gpu.customConfig follow one source of truth. Only the infiniband
+block counts: NIC slots (MEP-0016) are resolved but not rendered until the ib
+simulator renders them (#1355). The NIC declaration is still checked first, so
+a mistake the chart can see fails the render before any gate is computed.
 */}}
 {{- define "nvml-mock.infinibandEnabled" -}}
+{{- $_ := include "nvml-mock.nodeConfig" . -}}
 {{- $cfg := fromYaml (include "nvml-mock.gpuConfig" .) -}}
 {{- if hasKey $cfg "Error" -}}
 {{- fail (printf "nvml-mock.infinibandEnabled: failed to parse GPU config: %s" (get $cfg "Error")) -}}
@@ -507,6 +511,173 @@ profiles and gpu.customConfig follow one source of truth.
 true
 {{- else -}}
 false
+{{- end -}}
+{{- end }}
+
+{{/*
+The node's NIC slots (MEP-0016), as YAML under "slots": nics.slots from values
+when set, otherwise the GPU profile's.
+*/}}
+{{- define "nvml-mock.nicSlots" -}}
+{{- $nics := .Values.nics | default dict -}}
+{{- if $nics.slots -}}
+{{- toYaml (dict "slots" $nics.slots) -}}
+{{- else -}}
+{{- $cfg := fromYaml (include "nvml-mock.gpuConfig" .) -}}
+{{- if hasKey $cfg "Error" -}}
+{{- fail (printf "nvml-mock.nicSlots: failed to parse GPU config: %s" (get $cfg "Error")) -}}
+{{- end -}}
+{{- toYaml (dict "slots" (dig "nics" "slots" list $cfg)) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Each NIC slot's profile and configuration once nics.overrides apply, as YAML
+under "slots". The node agent applies the overrides the same way: in order, a
+later one winning, and a new profile dropping the slot's configuration, whose
+name belongs to the old profile. An override naming a slot the node doesn't
+have fails the render with the slots it does.
+*/}}
+{{- define "nvml-mock.nicSelection" -}}
+{{- $nics := .Values.nics | default dict -}}
+{{- $slots := get (fromYaml (include "nvml-mock.nicSlots" .)) "slots" | default list -}}
+{{- $names := list -}}
+{{- range $s := $slots -}}
+{{- $names = append $names $s.slot -}}
+{{- end -}}
+{{- range $i, $o := $nics.overrides -}}
+{{- range $name := $o.slots | default list -}}
+{{- if and $names (not (has $name $names)) -}}
+{{- fail (printf "nics.overrides[%d] names NIC slot %q, which the node doesn't have. NIC slots: %s" $i $name (join ", " $names)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $selected := list -}}
+{{- range $s := $slots -}}
+{{- $sel := dict "slot" $s.slot "profile" $s.profile "configuration" ($s.configuration | default "") -}}
+{{- range $o := $nics.overrides -}}
+{{- if has $s.slot ($o.slots | default list) -}}
+{{- if and $o.profile (ne $o.profile (get $sel "profile")) -}}
+{{- $_ := set $sel "profile" $o.profile -}}
+{{- $_ := set $sel "configuration" "" -}}
+{{- end -}}
+{{- if $o.configuration -}}
+{{- $_ := set $sel "configuration" $o.configuration -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $selected = append $selected $sel -}}
+{{- end -}}
+{{- toYaml (dict "slots" $selected) -}}
+{{- end }}
+
+{{/*
+Every NIC profile a slot may name, as YAML keyed by name: the chart's nics/
+files and nics.customProfiles. A custom profile can't reuse a shipped name, as
+an SNICProfile object couldn't in control-plane mode.
+*/}}
+{{- define "nvml-mock.nicProfiles" -}}
+{{- $nics := .Values.nics | default dict -}}
+{{- $profiles := dict -}}
+{{- range $path, $_ := .Files.Glob "nics/*.yaml" -}}
+{{- $p := $.Files.Get $path | fromYaml -}}
+{{- $_ := set $profiles $p.metadata.name $p -}}
+{{- end -}}
+{{- range $p := $nics.customProfiles -}}
+{{- if hasKey $profiles $p.metadata.name -}}
+{{- fail (printf "nics.customProfiles: %q is a NIC profile the chart ships; give the custom profile a name of its own" $p.metadata.name) -}}
+{{- end -}}
+{{- $configurations := list -}}
+{{- range $c := dig "spec" "configurations" list $p -}}
+{{- $configurations = append $configurations $c.name -}}
+{{- end -}}
+{{- $default := dig "spec" "defaultConfiguration" "" $p -}}
+{{- if not (has $default $configurations) -}}
+{{- fail (printf "nics.customProfiles: %s's defaultConfiguration %q is not one of its configurations: %s" $p.metadata.name $default (join ", " $configurations)) -}}
+{{- end -}}
+{{- $_ := set $profiles $p.metadata.name $p -}}
+{{- end -}}
+{{- toYaml $profiles -}}
+{{- end }}
+
+{{/*
+The NIC part of the node agent's config document, as YAML: nic_profiles, the
+NIC profiles the slots name once the overrides apply, and nic_overrides. Empty
+for a node without NIC slots. A slot naming a profile the chart doesn't have,
+or a configuration its profile doesn't have, fails the render with the ones
+it does.
+*/}}
+{{- define "nvml-mock.nicConfig" -}}
+{{- $nics := .Values.nics | default dict -}}
+{{- $slots := get (fromYaml (include "nvml-mock.nicSelection" .)) "slots" | default list -}}
+{{- if $slots -}}
+{{- $available := fromYaml (include "nvml-mock.nicProfiles" .) -}}
+{{- $names := list -}}
+{{- range $s := $slots -}}
+{{- if not (hasKey $available $s.profile) -}}
+{{- fail (printf "NIC slot %s names unknown NIC profile %q. Available NIC profiles: %s. Or add it to nics.customProfiles." $s.slot $s.profile (join ", " (keys $available | sortAlpha))) -}}
+{{- end -}}
+{{- if $s.configuration -}}
+{{- $configurations := list -}}
+{{- range $c := dig "spec" "configurations" list (get $available $s.profile) -}}
+{{- $configurations = append $configurations $c.name -}}
+{{- end -}}
+{{- if not (has $s.configuration $configurations) -}}
+{{- fail (printf "NIC slot %s: NIC profile %s has no configuration %q. Configurations: %s" $s.slot $s.profile $s.configuration (join ", " $configurations)) -}}
+{{- end -}}
+{{- end -}}
+{{- $names = append $names $s.profile -}}
+{{- end -}}
+{{- $profiles := list -}}
+{{- range $name := $names | uniq | sortAlpha -}}
+{{- $profiles = append $profiles (get $available $name) -}}
+{{- end -}}
+{{- toYaml (dict "nic_profiles" $profiles "nic_overrides" ($nics.overrides | default list)) -}}
+{{- else if $nics.overrides -}}
+{{- fail "nics.overrides is set, but the node has no NIC slots: the GPU profile declares none and nics.slots is empty" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The node agent's config document: the GPU config, then the NIC part. The GPU
+config stays as written unless values change its NIC part: nics.slots
+replaces the profile's NIC tree, its slots, root ports and GPU parents, which
+name each other's addresses, so they are replaced together; nics.rdma is
+merged over the profile's software.rdma, field by field.
+*/}}
+{{- define "nvml-mock.nodeConfig" -}}
+{{- $nics := .Values.nics | default dict -}}
+{{- if and (or $nics.rootPorts $nics.gpuParents) (not $nics.slots) -}}
+{{- fail "nics.rootPorts and nics.gpuParents place the root ports and GPUs for nics.slots; set nics.slots too, or leave them empty to keep the GPU profile's" -}}
+{{- end -}}
+{{- /* Converting the document to a map keeps the last of a repeated key, so a repeated top-level NIC key would be dropped silently. GPU overlays convert it, so the raw profile is checked. */ -}}
+{{- range $key := list "nics" "software" "nic_overrides" "nic_profiles" -}}
+{{- if gt (len (regexFindAll (printf "(?m)^%s:" $key) (include "nvml-mock.gpuConfigBase" $) -1)) 1 -}}
+{{- fail (printf "the GPU profile document repeats the top-level key %q; merge the two" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- $nic := include "nvml-mock.nicConfig" . -}}
+{{- if not $nic -}}
+{{- include "nvml-mock.gpuConfig" . -}}
+{{- else if or $nics.slots $nics.rdma -}}
+{{- $cfg := fromYaml (include "nvml-mock.gpuConfig" .) -}}
+{{- if $nics.slots -}}
+{{- $tree := dict "slots" $nics.slots -}}
+{{- with $nics.rootPorts }}{{ $_ := set $tree "rootPorts" . }}{{ end -}}
+{{- with $nics.gpuParents }}{{ $_ := set $tree "gpuParents" . }}{{ end -}}
+{{- $_ := set $cfg "nics" $tree -}}
+{{- end -}}
+{{- if $nics.rdma -}}
+{{- $software := get $cfg "software" | default dict -}}
+{{- $rdma := deepCopy (get $software "rdma" | default dict) -}}
+{{- range $k, $v := $nics.rdma }}{{ $_ := set $rdma $k $v }}{{ end -}}
+{{- $_ := set $software "rdma" $rdma -}}
+{{- $_ := set $cfg "software" $software -}}
+{{- end -}}
+{{- toYaml (mergeOverwrite $cfg (fromYaml $nic)) -}}
+{{- else -}}
+{{- include "nvml-mock.gpuConfig" . | trimSuffix "\n" }}
+{{ $nic }}
 {{- end -}}
 {{- end }}
 

@@ -6,3 +6,31 @@ metadata:
   name: {{ include "nvml-mock.fullname" . }}
   labels:
     {{- include "nvml-mock.labels" . | nindent 4 }}
+---
+# The node agent records Events on its own pod, such as an ignored NIC
+# declaration. That is all it may do with the API.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "nvml-mock.fullname" . }}-node-agent
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "nvml-mock.fullname" . }}-node-agent
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "nvml-mock.fullname" . }}-node-agent
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "nvml-mock.fullname" . }}
+    namespace: {{ .Release.Namespace }}

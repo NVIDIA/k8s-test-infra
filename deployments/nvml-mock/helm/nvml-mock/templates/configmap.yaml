@@ -8,4 +8,4 @@ metadata:
     {{- include "nvml-mock.labels" . | nindent 4 }}
 data:
   config.yaml: |
-    {{- include "nvml-mock.gpuConfig" . | nindent 4 }}
+    {{- include "nvml-mock.nodeConfig" . | nindent 4 }}

@@ -36,6 +36,8 @@ type Agent struct {
 	live             atomic.Pointer[health.Probe] // last Stage wave outcome, served on /healthz
 	staged           atomic.Bool                  // latest Stage wave completed; false while restaging and during teardown
 	applied          atomic.Bool                  // an Apply wave has returned, successfully or not
+	nicStatus        atomic.Pointer[string]       // what the node does about an ignored NIC declaration, if one was
+	events           Events
 
 	// Daemons launch into this group from reconcile but bind to supervisorCtx,
 	// so they outlive the reconcile that started them.
@@ -54,7 +56,27 @@ type Config struct {
 	Log             *zap.Logger
 	ShutdownTimeout time.Duration
 	StagingLockPath string
+	// Events records what an operator should see on the node agent's pod.
+	// Nil records nothing.
+	Events Events
 }
+
+// Events records Kubernetes Events on the node agent's pod.
+type Events interface {
+	Warning(reason, message string)
+	Normal(reason, message string)
+}
+
+// Event reasons the agent records.
+const (
+	ReasonNICDeclarationIgnored  = "NICDeclarationIgnored"
+	ReasonNICDeclarationResolved = "NICDeclarationResolved"
+)
+
+type noEvents struct{}
+
+func (noEvents) Warning(string, string) {}
+func (noEvents) Normal(string, string)  {}
 
 // New returns an Agent from cfg.
 func New(cfg Config) *Agent {
@@ -69,7 +91,11 @@ func New(cfg Config) *Agent {
 		shutdownTimeout:  cfg.ShutdownTimeout,
 		stagingLockPath:  cfg.StagingLockPath,
 		enrichRetryFirst: enrichRetryFirst,
+		events:           cfg.Events,
 		started:          make(map[string]bool),
+	}
+	if a.events == nil {
+		a.events = noEvents{}
 	}
 	a.setLive(health.OK())
 	return a
@@ -114,6 +140,11 @@ func (a *Agent) Readiness() health.Probe {
 			probe.OK = false
 		}
 		probe.Components[sim.Name()] = health.Probe{OK: ready}
+	}
+	// A bad NIC declaration degrades the node rather than failing it: its GPUs
+	// still serve, so readiness stays up and says what the node does instead.
+	if status := a.nicStatus.Load(); status != nil && *status != "" {
+		probe.Components["nics"] = health.Probe{OK: true, Reason: *status}
 	}
 	return probe
 }
@@ -237,6 +268,7 @@ func (a *Agent) requeues(ctx context.Context) <-chan struct{} {
 // Stage holds the staging lock while replacing the tree NRI injects,
 // while the daemons and Apply publish nothing NRI reads when it decides.
 func (a *Agent) reconcile(ctx context.Context, state *State) error {
+	a.reportNICs(state)
 	if err := a.withStagingLock(ctx, func() error {
 		return a.stage(ctx, state)
 	}); err != nil {
@@ -416,4 +448,21 @@ func applierName(a Applier) string {
 		return n.Name()
 	}
 	return fmt.Sprintf("%T", a)
+}
+
+// reportNICs publishes what the node does about its NIC declaration on
+// /readyz, and logs and records an Event when that changes, so a bad edit is
+// reported once rather than on every reconcile.
+func (a *Agent) reportNICs(state *State) {
+	status := state.NICStatus()
+	prev := a.nicStatus.Swap(&status)
+	switch {
+	case prev != nil && *prev == status:
+	case status != "":
+		a.log.Error(status)
+		a.events.Warning(ReasonNICDeclarationIgnored, status)
+	case prev != nil && *prev != "":
+		a.log.Info("NIC declaration resolved")
+		a.events.Normal(ReasonNICDeclarationResolved, "NIC declaration resolved")
+	}
 }

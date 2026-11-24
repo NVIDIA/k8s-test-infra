@@ -611,6 +611,155 @@
         }
       }
     },
+    "nics": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "NICs as data (MEP-0016): NIC slots, changes to them, and NIC profiles the chart doesn't ship. The node agent validates them in full.",
+      "properties": {
+        "slots": {
+          "type": "array",
+          "description": "NIC slots that replace the GPU profile's, with its root ports and GPU parents.",
+          "items": {
+            "type": "object",
+            "required": [
+              "slot",
+              "profile",
+              "devices"
+            ],
+            "properties": {
+              "slot": {
+                "type": "string",
+                "minLength": 1
+              },
+              "profile": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "rootPorts": {
+          "type": "array",
+          "description": "PCIe root ports for nics.slots.",
+          "items": {
+            "type": "object",
+            "required": [
+              "address",
+              "rootComplex"
+            ],
+            "properties": {
+              "address": {
+                "type": "string",
+                "minLength": 1
+              },
+              "rootComplex": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "gpuParents": {
+          "type": "object",
+          "description": "Each GPU's parent in the PCIe tree for nics.slots, by GPU index.",
+          "propertyNames": {
+            "pattern": "^[0-9]+$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "rdma": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Changes to the GPU profile's software.rdma, merged over it.",
+          "properties": {
+            "umad": {
+              "type": "boolean"
+            },
+            "ipoib": {
+              "type": "boolean"
+            },
+            "umadMode": {
+              "type": "string",
+              "pattern": "^[0-7]{3,4}$"
+            },
+            "driverVersion": {
+              "type": "string"
+            }
+          }
+        },
+        "overrides": {
+          "type": "array",
+          "description": "Changes to NIC slots, applied in order.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "slots"
+            ],
+            "properties": {
+              "slots": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "profile": {
+                "type": "string"
+              },
+              "configuration": {
+                "type": "string"
+              },
+              "firmwareVersion": {
+                "type": "string"
+              },
+              "vpd": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "customProfiles": {
+          "type": "array",
+          "description": "SNICProfiles for NIC models the chart doesn't ship.",
+          "items": {
+            "type": "object",
+            "required": [
+              "apiVersion",
+              "kind",
+              "metadata",
+              "spec"
+            ],
+            "properties": {
+              "apiVersion": {
+                "const": "mokka.nvidia.com/v1alpha1"
+              },
+              "kind": {
+                "const": "SNICProfile"
+              },
+              "metadata": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "controlPlane": {
       "type": "object",
       "additionalProperties": true,
