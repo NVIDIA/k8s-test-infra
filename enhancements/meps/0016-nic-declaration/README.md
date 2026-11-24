@@ -302,24 +302,24 @@ Each NIC model is one file in the nvml-mock chart, holding a full `SNICProfile`.
 
 ### Checking declarations against hardware
 
-`mokka-capture collect nic` records a node's NIC surfaces into `nic-surfaces.tsv`, one line per object, attribute and value; `mokka-capture diff nic` compares two such files ([#1353](https://github.com/NVIDIA/k8s-test-infra/pull/1353), in review). The generator writes the same format, so a declaration is checked against a real node with the unchanged `diff nic`.
+`mokka-capture collect network` records a node's network surfaces as plain-text files, one per source (RDMA sysfs, the NIC functions' PCI sysfs, VPD fields, RDMA character devices, firmware configuration and others), in the node's capture directory. `mokka-capture nic-surfaces <node dir>` turns them into one list of object, attribute, value and source file, keyed by what the hardware fixes, such as a PCI function's address. `mokka-capture diff nic <real node dir> <mock node dir>` compares two capture directories ([#1353](https://github.com/NVIDIA/k8s-test-infra/pull/1353), in review). How the generator's output reaches `diff nic` is still open ([Open Questions](#comparing-a-declaration-with-a-capture)).
 
 ```
-# tests/hardware-captures/gb300-ib/node-a/nic-surfaces.tsv (scrubbed)
-pci/0000:03:00.0	class	0x020700
-pci/0000:03:00.0	upstream	0x10de:0x22b2,0x15b3:0x197c,0x15b3:0x197c
-pci/0000:03:00.0	vpd.V3	00000000000000000000000000000001
-pci/0009:03:00.0	class	0x080100
-pci/0009:03:00.0	upstream	0x10de:0x22b1,0x15b3:0x197c,0x15b3:0x197c
-pci/0009:03:00.0	vpd.V3	00000000000000000000000000000001
+# mokka-capture nic-surfaces tests/hardware-captures/gb300-ib/node-a (scrubbed capture)
+pci/0000:03:00.0	class	0x020700	pci-nic-sysfs.txt
+pci/0000:03:00.0	upstream	0x10de:0x22b2,0x15b3:0x197c,0x15b3:0x197c	pci-nic-sysfs.txt
+pci/0000:03:00.0	vpd.V3	00000000000000000000000000000001	pci-vpd-fields.txt
+pci/0009:03:00.0	class	0x080100	pci-nic-sysfs.txt
+pci/0009:03:00.0	upstream	0x10de:0x22b1,0x15b3:0x197c,0x15b3:0x197c	pci-nic-sysfs.txt
+pci/0009:03:00.0	vpd.V3	00000000000000000000000000000001	pci-vpd-fields.txt
 ```
 
-The comparison checks relations, not identifier values: that a Data Direct function's `V3` equals its PF's, that both ASICs on a board share one serial number. Every difference needs a cause in a causes file per capture:
+The comparison checks relations, not identifier values: that a Data Direct function's `V3` equals its PF's, that both ASICs on a board share one serial number, whose node GUID a system image GUID is (its own, another function's or none), and whether a BlueField's VPD `VU` starts with its serial number. It makes one check per attribute that either side has. Every difference needs a cause in a causes file per capture:
 - **schema gap:** the schema can't express it yet;
 - **rule bug:** a generation rule is wrong;
-- **capture blind spot:** the capture doesn't record it;
+- **capture blind spot:** the capture doesn't record it: the capturing pod lacked the tool, the connection dropped, or the source file is absent. A tool that ran and failed counts as captured;
 - **by design:** outside the declaration on purpose: cluster software, network state;
-- **deferred:** compared later, at the rendered level or once a planned feature exists, such as the attributes the node agent renders. `diff nic` needs this fifth cause.
+- **deferred:** compared later, at the rendered level or once a planned feature exists, such as the attributes the node agent renders. `diff nic` has the first four today; [#1268](https://github.com/NVIDIA/k8s-test-infra/issues/1268) adds this one.
 
 An accepted gap and a planned feature can both explain a difference, but they are different commitments, so they get different causes.
 
@@ -340,7 +340,7 @@ A platform team simulates two GB300 clusters, one on InfiniBand and one on Ether
 
 #### Story 2: adding a NIC model
 
-A developer brings up a node with a NIC Mokka doesn't ship. They run `mokka-capture collect nic` on it, write an `SNICProfile` and a slot, and run the conformance check until every difference has a cause. The profile then ships as built-in.
+A developer brings up a node with a NIC Mokka doesn't ship. They run `mokka-capture collect network` on it, or capture read-only through a pod the cluster already runs with `-exec-in`, write an `SNICProfile` and a slot, and run the conformance check until every difference has a cause. The profile then ships as built-in.
 
 #### Story 3: an OEM variant
 
@@ -354,8 +354,8 @@ An SR-IOV operator runs against a simulated node. It finds the PFs in their boot
 
 - **Slots exist in two places.** File mode has no rack profile, so its slots live in the GPU profile; control-plane mode has them in the rack profile. A unit test keeps the two equal until built-in rack profiles exist.
 - **Names aren't identities.** Linux-visible names follow the node: netdev names come from the image's naming scheme, and RDMA device names from probe order, so they shift when an earlier NIC is removed, as on real nodes. Stable identity is the coordinate-derived identifiers (GUIDs, MACs, serial numbers). Names aren't compared. The generator uses predictable names; a per-image naming setting can come later.
-- **Capture coverage.** `collect nic` records ConnectX functions only (PCI vendor `0x15b3`), so it misses EFA today. It also records a missing sysfs file as an empty value, so a capture can't show that a driver doesn't create an attribute. Captures of GB200 and of an InfiniBand cluster without SMI devices don't exist yet.
-- **GPU parents in captures.** `collect nic` doesn't record a GPU's parent yet, so the samples take it from bus numbers and the captured PCI hierarchy. The GPU profiles place GPUs at their captured addresses (on `gb300`, domains `0008`, `0009`, `0018` and `0019`), so file mode builds the same tree.
+- **Capture coverage.** `collect network` records PCI, VPD and interface records only for ConnectX functions (PCI vendor `0x15b3`), so EFA functions are missing; RDMA devices are captured whatever their vendor. A missing sysfs file is recorded as absent and an empty one as empty. [#1268](https://github.com/NVIDIA/k8s-test-infra/issues/1268) tracks the remaining gaps. Captures of GB200 and of an InfiniBand cluster without SMI devices don't exist yet.
+- **GPU parents in captures.** `collect network` doesn't record a GPU's parent yet (GPU records hold the device, NUMA node and root complex; #1268), so the samples take it from bus numbers and the captured PCI hierarchy. The GPU profiles place GPUs at their captured addresses (on `gb300`, domains `0008`, `0009`, `0018` and `0019`), so file mode builds the same tree.
 - **GPU slots and `GPU_COUNT`.** In file mode a slot's `gpus` may name any GPU the profile declares, so lowering `GPU_COUNT` never invalidates a slot. A NIC can then be associated with a GPU the node doesn't show.
 - **Platforms without a captured NIC.** A GPU profile moves to slots once its NICs have a captured profile. Until then it keeps today's `infiniband` block, and the node agent keeps the current path for it, so those platforms keep their NICs and the IB end-to-end tests keep running.
 
@@ -712,10 +712,10 @@ To record those Events, the chart gives the node agent a Role that only allows c
 ### Test plan
 
 - **Schema.** Every shipped profile decodes strictly into the Go type and passes validation. Every shipped profile also passes the generated CRD schema, and every invalid case for a rule the CRD can enforce (field types, enums, patterns, required fields) fails both, so file mode and the API server can't drift apart. Rules that span fields or objects, such as a slot naming a profile that exists, can't live in a CRD; file mode and the controller run them from one validation package, and a test gives both the same cases. The NIC slots, GPU slots and root ports in each GPU profile equal those of the matching rack profile, so the capture checks cover the addresses file mode uses.
-- **Declaration level.** For each capture, the generator's output is compared with `diff nic`; every difference must match a cause. Deliberate breakages, such as swapping two NICs' Data Direct functions, dropping planes or putting both of a card's ports on one link, must each be caught.
+- **Declaration level.** For each capture, the generator's output is compared with the capture through `diff nic`; every difference must match a cause. Deliberate breakages, such as swapping two NICs' Data Direct functions, dropping planes or putting both of a card's ports on one link, must each be caught.
 - **Determinism.** Generating twice gives identical output, removing one NIC leaves the others' identifiers unchanged, and renaming every function, port and RDMA device ID in a profile leaves every identifier unchanged.
 - **Configuration switch.** Changing only a slot's configuration changes its functions and nothing in its placement or Data Direct pairing.
-- **Rendered level.** The simulators stage a node into a temporary host root; `collect nic` reads it through the path redirection a Mokka node uses, and `diff nic` compares the result with the same capture and causes. No cluster is needed.
+- **Rendered level.** The simulators stage a node into a temporary host root, the capture scripts read it, and `diff nic` compares the result with the same capture and causes. No cluster is needed. The `collect network` scripts read `/sys` and `/dev` directly today; a root-directory option for a staged tree is in #1268.
 - **Both modes.** File mode and control-plane mode give the same `State.NICs` for the same declaration and node coordinates.
 - **Consumer level.** Real tools find and use the simulated NICs in a Mokka pod: `lspci`, `ibv_devinfo`, `ethtool`, `nvidia-smi topo -m`, and later `rdma link`, `ip link` and the network operator's components. The declaration level shows the model is right and the rendered level that the files are there; only this level shows applications can use them.
 
@@ -729,7 +729,15 @@ To record those Events, the chart gives the node agent a Role that only allows c
 
 ## Open Questions
 
-These depend on topics this MEP doesn't settle: how a node attaches to a fabric (MEP-0015), and how driver reactions work. They're recorded so the design leaves room for them; the answers belong in follow-up changes to this MEP or in their own proposals.
+The first is a tooling choice still to make. The others depend on topics this MEP doesn't settle: how a node attaches to a fabric (MEP-0015), and how driver reactions work. They're recorded so the design leaves room for them; the answers belong in follow-up changes to this MEP or in their own proposals.
+
+### Comparing a declaration with a capture
+
+`diff nic` compares two capture directories, and the generator's output has to reach it in one of two ways:
+- the generator writes a capture directory in the layout `collect network` writes, so `diff nic` runs unchanged on both sides;
+- `diff nic` also reads `nic-surfaces` output for one side, so the generator writes that normalized list.
+
+The first tests the capture layout end to end; the second keeps the generator independent of the per-source files. Undecided.
 
 ### Reconciling boot, runtime and network state
 
@@ -791,15 +799,15 @@ A prototype implements the schema, the validation, the generator, and the declar
 | GB300 InfiniBand | 935 | 669 | 266 by design: SMI devices, partitions, IPoIB MTU, kernel modules, rendered attributes |
 | GB300 Ethernet, at a cloud provider | 1,715 | 936 | 779 by design: a VF, its representor, switchdev with a multiport eswitch, MTU, rendered attributes |
 | AWS GB300 instance | 385 | 123 | 242 blind spots of a trimmed listing, 20 by design (VF netdevs moved into pods, an IPv4-mapped GID) |
-| AWS EFA (`c5n.9xlarge`) | 58 | 52 | 3 by design: host kernel and architecture, udev directories. 3 capture blind spots: attributes the driver doesn't create, which `collect nic` records as empty |
+| AWS EFA (`c5n.9xlarge`) | 58 | 52 | 3 by design: host kernel and architecture, udev directories. 3 capture blind spots: attributes the driver doesn't create, which the converted capture recorded as empty |
 
-No difference is a schema gap or a rule bug. Fifteen deliberate breakages are each caught. The by-design differences are surfaces the declaration leaves out on purpose. Of those, the VF can come from Mokka's driver emulation (MEP-0011), but the SMI devices, switchdev and representors need devlink and RDMA netlink, so a simulated node can't produce them yet; they're known gaps, not planned work. The AWS sources predate `collect nic` and were converted into its format.
+No difference is a schema gap or a rule bug. Fifteen deliberate breakages are each caught. The by-design differences are surfaces the declaration leaves out on purpose. Of those, the VF can come from Mokka's driver emulation (MEP-0011), but the SMI devices, switchdev and representors need devlink and RDMA netlink, so a simulated node can't produce them yet; they're known gaps, not planned work. The AWS sources predate `collect network` and were converted into the prototype's format.
 
-The counts come from the version of `diff nic` the prototype used. The version in [#1353](https://github.com/NVIDIA/k8s-test-infra/pull/1353) reports by-design differences as not compared rather than failed, so its totals are smaller; the same checks pass. Its newer GB300 captures also record more attributes: PCI power and reset files, ECN and QoS directories, and udev links for the verbs devices. They're classified as by design, because the node agent renders them.
+These counts come from the prototype's comparison tool and its single-file captures. [#1353](https://github.com/NVIDIA/k8s-test-infra/pull/1353)'s `diff nic` reads capture directories and makes one check per attribute either side has, so an object one side lacks fails once per attribute; its totals aren't comparable with these. It also adds two relations: whose node GUID a system image GUID is, and whether a BlueField's VPD `VU` starts with its serial number.
 
 Not covered yet:
 - GB200's ConnectX-7 on InfiniBand, and an InfiniBand cluster without SMI devices: no captures.
-- `collect nic` captures of the AWS instances.
+- `collect network` captures of the AWS instances.
 - Node coordinates in identifiers: the prototype hashes declaration coordinates only, so it models one node.
 - `nicOverrides`, the rendered level and control-plane mode, which need the implementation.
 
