@@ -445,8 +445,9 @@ func (r *resolver) ports(pd *pendingDevice, netdevs map[string]Netdev) []Port {
 // addIPoIB adds the IPoIB netdev of the RDMA device's InfiniBand port k and
 // returns its name: the predictable ib name of the function, with the port's
 // dev_port after the first, and the 20-byte hardware address, whose last 16
-// bytes are the port's GID. The leading queue pair number is 0, as captures
-// show it once scrubbed.
+// bytes are the port's GID. The leading queue pair number is the driver's and
+// varies on hardware; 0 stands in for it, since nothing relates it to the
+// declaration.
 func (r *resolver) addIPoIB(pd *pendingDevice, k int, p v1alpha1.NICPort, guid string) string {
 	suffix := ""
 	if k > 0 {
