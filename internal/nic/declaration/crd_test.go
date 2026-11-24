@@ -75,15 +75,23 @@ func TestShapesMatchTheCRD(t *testing.T) {
 		"VPD scope unknown": func(p *v1alpha1.SNICProfile) {
 			p.Spec.VPD = &v1alpha1.NICVPD{Identities: map[string]v1alpha1.VPDScope{"SN": "chip"}}
 		},
-		"no function types":       func(p *v1alpha1.SNICProfile) { p.Spec.FunctionTypes = nil },
-		"vendor ID uppercase":     func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.VendorID = "15B3" }) },
-		"subsystem ID too short":  func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.SubsystemDeviceID = "208" }) },
-		"driver empty":            func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.Driver = "" }) },
-		"revision one digit":      func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.Revision = "0x0" }) },
-		"RDMA attribute unknown":  func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.RDMAOmit = []v1alpha1.RDMAAttribute{"node_guid"} }) },
-		"total VFs negative":      func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.TotalVFs = -1 }) },
-		"link width negative":     func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.PCIeLink = &v1alpha1.NICPCIeLink{Speed: "x", Width: -1} }) },
-		"link speed empty":        func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.PCIeLink = &v1alpha1.NICPCIeLink{Width: 1} }) },
+		"no function types":   func(p *v1alpha1.SNICProfile) { p.Spec.FunctionTypes = nil },
+		"vendor ID uppercase": func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.VendorID = "15B3" }) },
+		"subsystem ID too short": func(p *v1alpha1.SNICProfile) {
+			setType(p, func(f *v1alpha1.NICFunctionType) { f.SubsystemDeviceID = "208" })
+		},
+		"driver empty":       func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.Driver = "" }) },
+		"revision one digit": func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.Revision = "0x0" }) },
+		"RDMA attribute unknown": func(p *v1alpha1.SNICProfile) {
+			setType(p, func(f *v1alpha1.NICFunctionType) { f.RDMAOmit = []v1alpha1.RDMAAttribute{"node_guid"} })
+		},
+		"total VFs negative": func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.TotalVFs = -1 }) },
+		"link width negative": func(p *v1alpha1.SNICProfile) {
+			setType(p, func(f *v1alpha1.NICFunctionType) { f.PCIeLink = &v1alpha1.NICPCIeLink{Speed: "x", Width: -1} })
+		},
+		"link speed empty": func(p *v1alpha1.SNICProfile) {
+			setType(p, func(f *v1alpha1.NICFunctionType) { f.PCIeLink = &v1alpha1.NICPCIeLink{Width: 1} })
+		},
 		"default configuration":   func(p *v1alpha1.SNICProfile) { p.Spec.DefaultConfiguration = "" },
 		"no configurations":       func(p *v1alpha1.SNICProfile) { p.Spec.Configurations = nil },
 		"technology unknown":      func(p *v1alpha1.SNICProfile) { port(p).Technology = "ethernet" },
@@ -125,6 +133,7 @@ func TestSlotShapesMatchTheCRD(t *testing.T) {
 		var r v1alpha1.SGPURackProfile
 		require.NoError(t, yaml.UnmarshalStrict(data, &r))
 		r.Spec.Software.RDMA = &v1alpha1.RDMASoftware{UMAD: true, UMADMode: "666"}
+		r.Spec.Node.Topology.RootPorts = []v1alpha1.RootPort{{Address: "0000:20:00.0", RootComplex: "pci0000:20"}}
 		r.Spec.Node.Topology.NICs = []v1alpha1.NICSlot{{
 			Slot: "efa0", Profile: "efa-c5n", Board: ptr[int32](0), GPUs: []int32{0},
 			Devices: map[string]v1alpha1.NICDevicePlacement{
@@ -146,17 +155,25 @@ func TestSlotShapesMatchTheCRD(t *testing.T) {
 		r.Spec.Node.Topology.NICs[0].Devices["efa"] = d
 	}
 	for name, mutate := range map[string]func(*v1alpha1.SGPURackProfile){
-		"slot name empty":          func(r *v1alpha1.SGPURackProfile) { r.Spec.Node.Topology.NICs[0].Slot = "" },
-		"profile empty":            func(r *v1alpha1.SGPURackProfile) { r.Spec.Node.Topology.NICs[0].Profile = "" },
-		"board negative":           func(r *v1alpha1.SGPURackProfile) { r.Spec.Node.Topology.NICs[0].Board = ptr[int32](-1) },
-		"no devices":               func(r *v1alpha1.SGPURackProfile) { r.Spec.Node.Topology.NICs[0].Devices = nil },
-		"root complex malformed":   func(r *v1alpha1.SGPURackProfile) { device(r, func(d *v1alpha1.NICDevicePlacement) { d.RootComplex = "pci0:00" }) },
-		"address malformed":        func(r *v1alpha1.SGPURackProfile) { device(r, func(d *v1alpha1.NICDevicePlacement) { d.Address = "0000:0:1f" }) },
-		"NUMA node below -1":       func(r *v1alpha1.SGPURackProfile) { device(r, func(d *v1alpha1.NICDevicePlacement) { d.NUMANode = -2 }) },
-		"root port malformed":      func(r *v1alpha1.SGPURackProfile) { device(r, func(d *v1alpha1.NICDevicePlacement) { d.RootPort = "0000:00:00" }) },
-		"umad mode not octal":      func(r *v1alpha1.SGPURackProfile) { r.Spec.Software.RDMA.UMADMode = "rw" },
+		"slot name empty": func(r *v1alpha1.SGPURackProfile) { r.Spec.Node.Topology.NICs[0].Slot = "" },
+		"profile empty":   func(r *v1alpha1.SGPURackProfile) { r.Spec.Node.Topology.NICs[0].Profile = "" },
+		"board negative":  func(r *v1alpha1.SGPURackProfile) { r.Spec.Node.Topology.NICs[0].Board = ptr[int32](-1) },
+		"no devices":      func(r *v1alpha1.SGPURackProfile) { r.Spec.Node.Topology.NICs[0].Devices = nil },
+		"root complex malformed": func(r *v1alpha1.SGPURackProfile) {
+			device(r, func(d *v1alpha1.NICDevicePlacement) { d.RootComplex = "pci0:00" })
+		},
+		"address malformed": func(r *v1alpha1.SGPURackProfile) {
+			device(r, func(d *v1alpha1.NICDevicePlacement) { d.Address = "0000:0:1f" })
+		},
+		"NUMA node below -1":  func(r *v1alpha1.SGPURackProfile) { device(r, func(d *v1alpha1.NICDevicePlacement) { d.NUMANode = -2 }) },
+		"root port malformed": func(r *v1alpha1.SGPURackProfile) { r.Spec.Node.Topology.RootPorts[0].Address = "0000:01:00" },
+		"parent malformed": func(r *v1alpha1.SGPURackProfile) {
+			device(r, func(d *v1alpha1.NICDevicePlacement) { d.Parent = "0000:01:00" })
+		},
+		"GPU parent malformed": func(r *v1alpha1.SGPURackProfile) { r.Spec.Node.Topology.GPUSlots[0].Parent = "0000:01:00" },
+		"umad mode not octal":  func(r *v1alpha1.SGPURackProfile) { r.Spec.Software.RDMA.UMADMode = "rw" },
 		"root port ID uppercase": func(r *v1alpha1.SGPURackProfile) {
-			device(r, func(d *v1alpha1.NICDevicePlacement) { d.RootPortID = &v1alpha1.PCIID{VendorID: "10DE", DeviceID: "22b2"} })
+			r.Spec.Node.Topology.RootPorts[0].ID = &v1alpha1.PCIID{VendorID: "10DE", DeviceID: "22b2"}
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

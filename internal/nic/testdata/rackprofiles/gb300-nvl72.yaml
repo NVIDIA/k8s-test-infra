@@ -5,7 +5,8 @@
 #
 # The capture records each bridge's IDs and the IDs above each function, not
 # the bridges' parents: the parents below are inferred from the layout the VR
-# NVL72 capture shows in full.
+# NVL72 capture shows in full. GPU parents come from bus numbers and the
+# captured PCI hierarchy, since collect nic doesn't record them yet.
 apiVersion: mokka.nvidia.com/v1alpha1
 kind: SGPURackProfile
 metadata:
@@ -19,11 +20,21 @@ spec:
       count: 4
       pci: {vendorID: "10de", deviceID: "31c2"}
     topology:
+      rootPorts:
+        - {address: "0000:00:00.0", rootComplex: pci0000:00, id: {vendorID: "10de", deviceID: "22b2"}}
+        - {address: "0002:00:00.0", rootComplex: pci0002:00, id: {vendorID: "10de", deviceID: "22b2"}}
+        - {address: "0008:00:00.0", rootComplex: pci0008:00, id: {vendorID: "10de", deviceID: "22b1"}}
+        - {address: "0009:00:00.0", rootComplex: pci0009:00, id: {vendorID: "10de", deviceID: "22b1"}}
+        - {address: "0010:00:00.0", rootComplex: pci0010:00, id: {vendorID: "10de", deviceID: "22b2"}}
+        - {address: "0012:00:00.0", rootComplex: pci0012:00, id: {vendorID: "10de", deviceID: "22b2"}}
+        - {address: "0016:00:00.0", rootComplex: pci0016:00, id: {vendorID: "10de", deviceID: "22b2"}}
+        - {address: "0018:00:00.0", rootComplex: pci0018:00, id: {vendorID: "10de", deviceID: "22b1"}}
+        - {address: "0019:00:00.0", rootComplex: pci0019:00, id: {vendorID: "10de", deviceID: "22b1"}}
       gpuSlots:
-        - {index: 0, rootComplex: "pci0008:00", pciAddress: "0008:06:00.0", numaNode: 0}
-        - {index: 1, rootComplex: "pci0009:00", pciAddress: "0009:06:00.0", numaNode: 0}
-        - {index: 2, rootComplex: "pci0018:00", pciAddress: "0018:06:00.0", numaNode: 1}
-        - {index: 3, rootComplex: "pci0019:00", pciAddress: "0019:06:00.0", numaNode: 1}
+        - {index: 0, rootComplex: "pci0008:00", pciAddress: "0008:06:00.0", parent: "0008:05:00.0", numaNode: 0}
+        - {index: 1, rootComplex: "pci0009:00", pciAddress: "0009:06:00.0", parent: "0009:05:00.0", numaNode: 0}
+        - {index: 2, rootComplex: "pci0018:00", pciAddress: "0018:06:00.0", parent: "0018:05:00.0", numaNode: 1}
+        - {index: 3, rootComplex: "pci0019:00", pciAddress: "0019:06:00.0", parent: "0019:05:00.0", numaNode: 1}
       nics:
         - slot: nic0
           profile: cx8-c8280z
@@ -32,8 +43,6 @@ spec:
           devices:
             network:
               rootComplex: pci0000:00
-              rootPort: "0000:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b2"}
               bridges:
                 - {address: "0000:01:00.0", parent: "0000:00:00.0"}
                 - {address: "0000:02:00.0", parent: "0000:01:00.0"}
@@ -47,8 +56,6 @@ spec:
               vpdPosition: "-Prime"
             dataDirect:
               rootComplex: pci0009:00
-              rootPort: "0009:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b1"}
               bridges:
                 - {address: "0009:01:00.0", parent: "0009:00:00.0"}
                 - {address: "0009:02:00.0", parent: "0009:01:00.0"}
@@ -67,8 +74,6 @@ spec:
           devices:
             network:
               rootComplex: pci0002:00
-              rootPort: "0002:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b2"}
               bridges:
                 - {address: "0002:01:00.0", parent: "0002:00:00.0"}
                 - {address: "0002:02:00.0", parent: "0002:01:00.0"}
@@ -82,8 +87,6 @@ spec:
               vpdPosition: "-Aux[1]"
             dataDirect:
               rootComplex: pci0008:00
-              rootPort: "0008:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b1"}
               bridges:
                 - {address: "0008:01:00.0", parent: "0008:00:00.0"}
                 - {address: "0008:02:00.0", parent: "0008:01:00.0"}
@@ -101,8 +104,6 @@ spec:
           devices:
             network:
               rootComplex: pci0010:00
-              rootPort: "0010:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b2"}
               bridges:
                 - {address: "0010:01:00.0", parent: "0010:00:00.0"}
                 - {address: "0010:02:00.0", parent: "0010:01:00.0"}
@@ -116,8 +117,6 @@ spec:
               vpdPosition: "-Prime"
             dataDirect:
               rootComplex: pci0019:00
-              rootPort: "0019:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b1"}
               bridges:
                 - {address: "0019:01:00.0", parent: "0019:00:00.0"}
                 - {address: "0019:02:00.0", parent: "0019:01:00.0"}
@@ -136,8 +135,6 @@ spec:
           devices:
             network:
               rootComplex: pci0012:00
-              rootPort: "0012:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b2"}
               bridges:
                 - {address: "0012:01:00.0", parent: "0012:00:00.0"}
                 - {address: "0012:02:00.0", parent: "0012:01:00.0"}
@@ -151,8 +148,6 @@ spec:
               vpdPosition: "-Aux[1]"
             dataDirect:
               rootComplex: pci0018:00
-              rootPort: "0018:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b1"}
               bridges:
                 - {address: "0018:01:00.0", parent: "0018:00:00.0"}
                 - {address: "0018:02:00.0", parent: "0018:01:00.0"}
@@ -168,8 +163,6 @@ spec:
           devices:
             host:
               rootComplex: pci0016:00
-              rootPort: "0016:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b2"}
               address: "0016:01:00"
               parent: "0016:00:00.0"
               numaNode: 1

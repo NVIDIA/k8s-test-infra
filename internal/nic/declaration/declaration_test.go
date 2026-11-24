@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -147,13 +148,33 @@ func TestSubsystemIDsAreOptionalOnTheirOwn(t *testing.T) {
 	require.ErrorContains(t, ValidateProfile(p), `subsystemDeviceID "208"`)
 }
 
+func rootPort(domain string) v1alpha1.RootPort {
+	return v1alpha1.RootPort{Address: domain + ":00:00.0", RootComplex: "pci" + domain + ":00"}
+}
+
 func singleSlot() *v1alpha1.SGPUTopology {
-	return &v1alpha1.SGPUTopology{NICs: []v1alpha1.NICSlot{{
-		Slot: "nic0", Profile: "nic",
-		Devices: map[string]v1alpha1.NICDevicePlacement{"network": {
-			RootComplex: "pci0003:00", RootPort: "0003:00:00.0", Address: "0003:01:00", Parent: "0003:00:00.0",
+	return &v1alpha1.SGPUTopology{
+		RootPorts: []v1alpha1.RootPort{rootPort("0003"), rootPort("0004")},
+		NICs: []v1alpha1.NICSlot{{
+			Slot: "nic0", Profile: "nic",
+			Devices: map[string]v1alpha1.NICDevicePlacement{"network": {
+				RootComplex: "pci0003:00", Address: "0003:01:00", Parent: "0003:00:00.0",
+			}},
 		}},
-	}}}
+	}
+}
+
+// withSwitch gives the profile a PCIe switch, and slot nic0's device two of
+// its ports, the second leading to the device.
+func withSwitch(p Profiles, r *v1alpha1.SGPUTopology) {
+	p["nic"].Spec.SwitchPort = &v1alpha1.PCIID{VendorID: "15b3", DeviceID: "197c"}
+	setDevice(r, 0, "network", func(d *v1alpha1.NICDevicePlacement) {
+		d.Bridges = []v1alpha1.PCIBridge{
+			{Address: "0003:01:00.0", Parent: "0003:00:00.0"},
+			{Address: "0003:02:00.0", Parent: "0003:01:00.0"},
+		}
+		d.Address, d.Parent = "0003:03:00", "0003:02:00.0"
+	})
 }
 
 func setDevice(topo *v1alpha1.SGPUTopology, slot int, name string, mutate func(*v1alpha1.NICDevicePlacement)) {
@@ -177,7 +198,7 @@ func TestNodeValidate(t *testing.T) {
 		{"duplicate slot", func(r *v1alpha1.SGPUTopology) {
 			s := *r.NICs[0].DeepCopy()
 			s.Devices = map[string]v1alpha1.NICDevicePlacement{"network": {
-				RootComplex: "pci0004:00", RootPort: "0004:00:00.0", Address: "0004:01:00", Parent: "0004:00:00.0",
+				RootComplex: "pci0004:00", Address: "0004:01:00", Parent: "0004:00:00.0",
 			}}
 			r.NICs = append(r.NICs, s)
 		}, `slot name "nic0" is empty or used twice`},
@@ -186,37 +207,51 @@ func TestNodeValidate(t *testing.T) {
 		}, "doesn't place"},
 		{"bad parent", func(r *v1alpha1.SGPUTopology) {
 			setDevice(r, 0, "network", func(d *v1alpha1.NICDevicePlacement) { d.Parent = "0003:09:00.0" })
-		}, "not the root port or a bridge"},
+		}, `parent "0003:09:00.0" is not a root port or a switch port of the node`},
+		{"parent in another root complex", func(r *v1alpha1.SGPUTopology) {
+			setDevice(r, 0, "network", func(d *v1alpha1.NICDevicePlacement) { d.Parent = "0004:00:00.0" })
+		}, "parent 0004:00:00.0 is in pci0004:00, not pci0003:00"},
 		{"bridge without switch port", func(r *v1alpha1.SGPUTopology) {
 			setDevice(r, 0, "network", func(d *v1alpha1.NICDevicePlacement) {
 				d.Bridges = []v1alpha1.PCIBridge{{Address: "0003:01:00.0", Parent: "0003:00:00.0"}}
 			})
 		}, "no switchPort"},
-		{"bridge before its parent", func(r *v1alpha1.SGPUTopology) {
+		{"switch ports in a cycle", func(r *v1alpha1.SGPUTopology) {
 			setDevice(r, 0, "network", func(d *v1alpha1.NICDevicePlacement) {
 				d.Bridges = []v1alpha1.PCIBridge{
-					{Address: "0003:02:00.0", Parent: "0003:01:00.0"},
-					{Address: "0003:01:00.0", Parent: "0003:00:00.0"},
+					{Address: "0003:05:00.0", Parent: "0003:06:00.0"},
+					{Address: "0003:06:00.0", Parent: "0003:05:00.0"},
 				}
 			})
-		}, "not the root port or an earlier bridge"},
+		}, "switch port 0003:05:00.0: its parents form a cycle"},
+		{"root port declared twice", func(r *v1alpha1.SGPUTopology) {
+			r.RootPorts = append(r.RootPorts, rootPort("0003"))
+		}, "PCI address 0003:00:00.0 is used by root port 0003:00:00.0 and root port 0003:00:00.0"},
+		{"root port outside its root complex", func(r *v1alpha1.SGPUTopology) {
+			r.RootPorts[1].RootComplex = "pci0005:00"
+		}, "root port 0004:00:00.0: not a PCI address in pci0005:00"},
 		{"address used twice", func(r *v1alpha1.SGPUTopology) {
 			s := *r.NICs[0].DeepCopy()
 			s.Slot = "nic1"
 			r.NICs = append(r.NICs, s)
 		}, "used by slot nic0 and slot nic1"},
-		{"GPU on a NIC's root port", func(r *v1alpha1.SGPUTopology) {
+		{"GPU on a root port", func(r *v1alpha1.SGPUTopology) {
 			r.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:00:00.0"}}
-		}, "PCI address 0003:00:00.0 is used by GPU 0 and is a root port of slot nic0"},
+		}, "PCI address 0003:00:00.0 is used by root port 0003:00:00.0 and GPU 0"},
+		{"GPU below an unknown parent", func(r *v1alpha1.SGPUTopology) {
+			r.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:09:00.0", Parent: "0003:08:00.0"}}
+		}, `GPU slot 0: parent "0003:08:00.0" is not a root port or a switch port of the node`},
 		{"NIC on a GPU's address", func(r *v1alpha1.SGPUTopology) {
 			r.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:01:00.0"}}
 		}, "used by GPU 0 and slot nic0"},
 		{"device outside its root complex", func(r *v1alpha1.SGPUTopology) {
 			setDevice(r, 0, "network", func(d *v1alpha1.NICDevicePlacement) { d.Address = "0004:01:00" })
 		}, "in pci0003:00"},
-		{"device on the root bus with a parent", func(r *v1alpha1.SGPUTopology) {
-			setDevice(r, 0, "network", func(d *v1alpha1.NICDevicePlacement) { d.RootPort = "" })
-		}, "a device on the root bus has no parent"},
+		{"device on the root bus with switch ports", func(r *v1alpha1.SGPUTopology) {
+			setDevice(r, 0, "network", func(d *v1alpha1.NICDevicePlacement) {
+				d.Parent, d.Bridges = "", []v1alpha1.PCIBridge{{Address: "0003:01:00.0", Parent: "0003:00:00.0"}}
+			})
+		}, "a device on the root bus has no switch ports"},
 		{"NUMA node below unknown", func(r *v1alpha1.SGPUTopology) {
 			setDevice(r, 0, "network", func(d *v1alpha1.NICDevicePlacement) { d.NUMANode = -2 })
 		}, "numaNode -2"},
@@ -238,11 +273,12 @@ func TestVPDAndPlacementValidate(t *testing.T) {
 			"SN": v1alpha1.VPDScopeBoard, "VU": v1alpha1.VPDScopeBoardPosition,
 		}}
 		topo := &v1alpha1.SGPUTopology{
-			GPUSlots: []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0008:00", PCIAddress: "0008:06:00.0"}},
+			RootPorts: []v1alpha1.RootPort{rootPort("0003")},
+			GPUSlots:  []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0008:00", PCIAddress: "0008:06:00.0"}},
 			NICs: []v1alpha1.NICSlot{{
 				Slot: "nic0", Profile: "nic", Board: ptr[int32](0), GPUs: []int32{0},
 				Devices: map[string]v1alpha1.NICDevicePlacement{"network": {
-					RootComplex: "pci0003:00", RootPort: "0003:00:00.0", Address: "0003:01:00",
+					RootComplex: "pci0003:00", Address: "0003:01:00",
 					Parent: "0003:00:00.0", VPDPosition: "-Prime",
 				}},
 			}},
@@ -303,6 +339,24 @@ func TestRootPortsAreShared(t *testing.T) {
 	require.NoError(t, ValidateNode(topo, nil, Profiles{"nic": validProfile()}))
 }
 
+// TestGPUBelowANICSwitchPort checks that a GPU may sit below a switch port a
+// NIC slot declares, as GB300 GPUs sit below their NIC's switch, and that the
+// order of switch ports doesn't matter.
+func TestGPUBelowANICSwitchPort(t *testing.T) {
+	t.Parallel()
+	profiles, topo := Profiles{"nic": validProfile()}, singleSlot()
+	withSwitch(profiles, topo)
+	topo.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:06:00.0", Parent: "0003:01:00.0"}}
+	require.NoError(t, ValidateNode(topo, nil, profiles))
+
+	d := topo.NICs[0].Devices["network"]
+	slices.Reverse(d.Bridges)
+	require.NoError(t, ValidateNode(topo, nil, profiles), "switch ports may come in any order")
+
+	topo.GPUSlots[0].RootComplex, topo.GPUSlots[0].PCIAddress = "pci0004:00", "0004:06:00.0"
+	require.ErrorContains(t, ValidateNode(topo, nil, profiles), "GPU slot 0: parent 0003:01:00.0 is in pci0003:00, not pci0004:00")
+}
+
 // TestMultiHostPorts checks that one port may belong to one function per PCI
 // device, as on a NIC with several host links, but not to two functions of
 // one device.
@@ -326,10 +380,13 @@ func TestBoardHoldsOneModel(t *testing.T) {
 	profiles := Profiles{"nic": validProfile(), "other": other}
 	slot := func(name, profile, domain string) v1alpha1.NICSlot {
 		return v1alpha1.NICSlot{Slot: name, Profile: profile, Board: ptr[int32](0), Devices: map[string]v1alpha1.NICDevicePlacement{"network": {
-			RootComplex: "pci" + domain + ":00", RootPort: domain + ":00:00.0", Address: domain + ":01:00", Parent: domain + ":00:00.0",
+			RootComplex: "pci" + domain + ":00", Address: domain + ":01:00", Parent: domain + ":00:00.0",
 		}}}
 	}
-	topo := &v1alpha1.SGPUTopology{NICs: []v1alpha1.NICSlot{slot("a", "nic", "0003"), slot("b", "nic", "0004")}}
+	topo := &v1alpha1.SGPUTopology{
+		RootPorts: []v1alpha1.RootPort{rootPort("0003"), rootPort("0004")},
+		NICs:      []v1alpha1.NICSlot{slot("a", "nic", "0003"), slot("b", "nic", "0004")},
+	}
 	require.NoError(t, ValidateNode(topo, nil, profiles))
 	topo.NICs[1].Profile = "other"
 	require.ErrorContains(t, ValidateNode(topo, nil, profiles), "board 0 holds both nic and other")

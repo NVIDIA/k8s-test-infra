@@ -69,8 +69,9 @@ func ValidateNode(topology *v1alpha1.SGPUTopology, overrides []v1alpha1.NICOverr
 	slots, err := Select(topology.NICs, overrides)
 	var pr problems
 	pr.add(err)
-	book := newAddressBook(&pr)
-	gpus := validateGPUSlots(&pr, topology.GPUSlots, book)
+	place := newNodePlacement(&pr)
+	place.addRootPorts(topology.RootPorts)
+	gpus := validateGPUSlots(&pr, topology.GPUSlots, place)
 
 	names := map[string]bool{}
 	boards := map[int32]string{} // board -> profile
@@ -88,9 +89,10 @@ func ValidateNode(topology *v1alpha1.SGPUTopology, overrides []v1alpha1.NICOverr
 			pr.check(gpus[g], "%s: GPU %d has no GPU slot", where, g)
 		}
 		if p, c := selected(&pr, where, s, profiles); c != nil {
-			validateSlot(&pr, where, s, p, c, book)
+			validateSlot(&pr, where, s, p, c, place)
 		}
 	}
+	place.checkTree()
 	return pr.err()
 }
 
@@ -102,44 +104,18 @@ func ValidateRDMA(rdma *v1alpha1.RDMASoftware) error {
 	return nil
 }
 
-// addressBook makes sure no two things on a Node claim one PCI address. A
-// root port may sit above several devices, so it is shared, but nothing else
-// may take its address.
-type addressBook struct {
-	owners    map[string]string
-	rootPorts map[string]string
-	pr        *problems
-}
-
-func newAddressBook(pr *problems) addressBook {
-	return addressBook{owners: map[string]string{}, rootPorts: map[string]string{}, pr: pr}
-}
-
-func (a addressBook) claim(addr, owner string) {
-	prev, taken := a.owners[addr]
-	a.pr.check(!taken, "PCI address %s is used by %s and %s", addr, prev, owner)
-	port, isRootPort := a.rootPorts[addr]
-	a.pr.check(!isRootPort, "PCI address %s is a root port of %s and used by %s", addr, port, owner)
-	a.owners[addr] = owner
-}
-
-func (a addressBook) rootPort(addr, owner string) {
-	prev, taken := a.owners[addr]
-	a.pr.check(!taken, "PCI address %s is used by %s and is a root port of %s", addr, prev, owner)
-	if _, seen := a.rootPorts[addr]; !seen {
-		a.rootPorts[addr] = owner
-	}
-}
-
 // validateGPUSlots checks the GPU slots and returns their indexes.
-func validateGPUSlots(pr *problems, slots []v1alpha1.GPUSlot, book addressBook) map[int32]bool {
+func validateGPUSlots(pr *problems, slots []v1alpha1.GPUSlot, place *nodePlacement) map[int32]bool {
 	indexes := map[int32]bool{}
 	for _, g := range slots {
 		pr.check(!indexes[g.Index], "GPU slot %d is declared twice", g.Index)
 		indexes[g.Index] = true
 		pr.check(bdf.MatchString(g.PCIAddress), "GPU slot %d: pciAddress %q is not a PCI address", g.Index, g.PCIAddress)
 		pr.check(rootComplex.MatchString(g.RootComplex), "GPU slot %d: rootComplex %q is not pciDDDD:BB", g.Index, g.RootComplex)
-		book.claim(g.PCIAddress, fmt.Sprintf("GPU %d", g.Index))
+		place.claim(g.PCIAddress, fmt.Sprintf("GPU %d", g.Index))
+		if g.Parent != "" {
+			place.addParent(fmt.Sprintf("GPU slot %d", g.Index), g.Parent, g.RootComplex)
+		}
 	}
 	return indexes
 }
@@ -170,7 +146,7 @@ func selected(pr *problems, where string, s *v1alpha1.NICSlot, profiles Profiles
 }
 
 func validateSlot(pr *problems, where string, s *v1alpha1.NICSlot, p *v1alpha1.SNICProfile, c *v1alpha1.NICConfiguration,
-	book addressBook) {
+	place *nodePlacement) {
 	validateSlotVPD(pr, where, s, p.Spec.VPD)
 	g := s.SystemImageGUID
 	pr.check(g == "" || g == v1alpha1.SystemImageGUIDDistinct || hasRDMADevice(c, g),
@@ -178,14 +154,14 @@ func validateSlot(pr *problems, where string, s *v1alpha1.NICSlot, p *v1alpha1.S
 		where, g, v1alpha1.SystemImageGUIDDistinct, c.Name)
 
 	for _, name := range slices.Sorted(maps.Keys(s.Devices)) {
-		validatePlacement(pr, fmt.Sprintf("%s: device %s", where, name), s.Devices[name], p, where, book)
+		validatePlacement(pr, fmt.Sprintf("%s: device %s", where, name), s.Devices[name], p, where, place)
 	}
 	for _, f := range c.Functions {
 		d, ok := s.Devices[f.PCIDevice]
 		pr.check(ok, "%s: configuration %s puts function %s on PCI device %q, which the slot doesn't place",
 			where, c.Name, f.ID, f.PCIDevice)
 		if ok {
-			book.claim(fmt.Sprintf("%s.%d", d.Address, f.Function), where)
+			place.claim(fmt.Sprintf("%s.%d", d.Address, f.Function), where)
 		}
 	}
 }
@@ -213,31 +189,21 @@ func validateSlotVPD(pr *problems, where string, s *v1alpha1.NICSlot, v *v1alpha
 }
 
 func validatePlacement(pr *problems, where string, d v1alpha1.NICDevicePlacement, p *v1alpha1.SNICProfile, owner string,
-	book addressBook) {
+	place *nodePlacement) {
 	domain := domainOf(d.RootComplex)
 	pr.check(rootComplex.MatchString(d.RootComplex), "%s: rootComplex %q is not pciDDDD:BB", where, d.RootComplex)
-	pr.check(d.RootPort != "" || (d.Parent == "" && len(d.Bridges) == 0),
-		"%s: a device on the root bus has no parent or bridges", where)
-	pr.check(d.RootPort == "" || inDomain(bdf, d.RootPort, domain),
-		"%s: rootPort %q is not a PCI address in %s", where, d.RootPort, d.RootComplex)
-	if d.RootPortID != nil {
-		checkPCIID(pr, where+": rootPortID", *d.RootPortID)
-	}
-	if d.RootPort != "" {
-		book.rootPort(d.RootPort, owner)
-	}
+	pr.check(d.Parent != "" || len(d.Bridges) == 0, "%s: a device on the root bus has no switch ports", where)
 	pr.check(len(d.Bridges) == 0 || p.Spec.SwitchPort != nil,
 		"%s: bridges are declared, but profile %s has no switchPort", where, p.Name)
-
-	parents := map[string]bool{d.RootPort: true}
 	for _, b := range d.Bridges {
 		pr.check(inDomain(bdf, b.Address, domain), "%s: bridge %q is not a PCI address in %s", where, b.Address, d.RootComplex)
-		pr.check(parents[b.Parent], "%s: bridge %s: parent %q is not the root port or an earlier bridge", where, b.Address, b.Parent)
-		parents[b.Address] = true
-		book.claim(b.Address, owner)
+		place.claim(b.Address, owner)
+		place.addSwitchPort(b, d.RootComplex, where)
 	}
 	pr.check(inDomain(deviceAddr, d.Address, domain), "%s: address %q is not DDDD:BB:DD in %s", where, d.Address, d.RootComplex)
-	pr.check(parents[d.Parent], "%s: parent %q is not the root port or a bridge", where, d.Parent)
+	if d.Parent != "" {
+		place.addParent(where, d.Parent, d.RootComplex)
+	}
 	pr.check(d.NUMANode >= -1, "%s: numaNode %d is below -1", where, d.NUMANode)
 }
 

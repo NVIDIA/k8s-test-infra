@@ -352,6 +352,7 @@ _Appears in:_
 | `rootComplex` _string_ | RootComplex identifies the PCI root complex connected to this GPU. |  | Pattern: `^pci[0-9a-f]\{4\}:[0-9a-f]\{2\}$` <br />Required: \{\} <br /> |
 | `numaNode` _integer_ | NumaNode is the host NUMA node associated with this GPU. |  | Optional: \{\} <br /> |
 | `hostProcessorIndex` _integer_ | HostProcessorIndex is the host CPU index associated with this GPU. |  | Optional: \{\} <br /> |
+| `parent` _string_ | Parent is the root port or NIC switch port the GPU sits below, from<br />any slot; empty when unknown. |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}\.[0-7]$` <br />Optional: \{\} <br /> |
 
 
 #### GPUThermal
@@ -534,11 +535,9 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `rootComplex` _string_ | RootComplex is the root complex, such as pci0009:00. A GPU slot naming<br />the same root complex shares it. |  | Pattern: `^pci[0-9a-f]\{4\}:[0-9a-f]\{2\}$` <br /> |
-| `rootPort` _string_ | RootPort is the root port's address; empty for a device on the root bus. |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}\.[0-7]$` <br />Optional: \{\} <br /> |
-| `rootPortID` _[PCIID](#pciid)_ | RootPortID is the root port's PCI IDs. It is platform data, repeated<br />here until the rack profile lists its root ports. |  | Optional: \{\} <br /> |
-| `bridges` _[PCIBridge](#pcibridge) array_ | Bridges are the NIC's switch ports above or beside the device, parents<br />first. |  | Optional: \{\} <br /> |
+| `bridges` _[PCIBridge](#pcibridge) array_ | Bridges are the NIC's switch ports above or beside the device, parents<br />first. A GPU slot may name one as its parent. |  | Optional: \{\} <br /> |
 | `address` _string_ | Address is the device's DDDD:BB:DD address. |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}$` <br /> |
-| `parent` _string_ | Parent is the root port or a bridge; empty for a device on the root<br />bus. |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}\.[0-7]$` <br />Optional: \{\} <br /> |
+| `parent` _string_ | Parent is a root port or a switch port; empty for a device on the root<br />bus. |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}\.[0-7]$` <br />Optional: \{\} <br /> |
 | `numaNode` _integer_ | NUMANode is the device's NUMA node; -1 means unknown. |  | Minimum: -1 <br /> |
 | `vpdPosition` _string_ | VPDPosition is the suffix of the VPD product name, such as -Prime or<br />-Aux[1]. |  | Optional: \{\} <br /> |
 
@@ -772,7 +771,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `address` _string_ | Address is the bridge's address. |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}\.[0-7]$` <br /> |
-| `parent` _string_ | Parent is the root port or an earlier bridge. |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}\.[0-7]$` <br /> |
+| `parent` _string_ | Parent is a root port or another switch port. |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}\.[0-7]$` <br /> |
 
 
 #### PCIID
@@ -784,7 +783,7 @@ PCIID is a PCI vendor and device ID pair.
 
 
 _Appears in:_
-- [NICDevicePlacement](#nicdeviceplacement)
+- [RootPort](#rootport)
 - [SNICProfileSpec](#snicprofilespec)
 
 | Field | Description | Default | Validation |
@@ -994,6 +993,24 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#labelselector-v1-meta)_ | NodeSelector restricts placement to Nodes matching these labels. |  | Optional: \{\} <br /> |
+
+
+#### RootPort
+
+
+
+RootPort is one PCIe root port of the platform.
+
+
+
+_Appears in:_
+- [SGPUTopology](#sgputopology)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `address` _string_ | Address is the root port's address, such as "0009:00:00.0". |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}\.[0-7]$` <br /> |
+| `rootComplex` _string_ | RootComplex is the root complex the port belongs to, such as pci0009:00. |  | Pattern: `^pci[0-9a-f]\{4\}:[0-9a-f]\{2\}$` <br /> |
+| `id` _[PCIID](#pciid)_ | ID is the root port's PCI IDs. The IDs above a device are generated<br />only where they are known. |  | Optional: \{\} <br /> |
 
 
 #### RuntimeModes
@@ -1492,6 +1509,8 @@ _Appears in:_
 
 
 SGPUTopology is the PCIe slots, GPU fabric and NICs visible to the node.
+GPUs and NICs share one PCIe tree: root ports are declared once, and every
+GPU slot, NIC device and NIC switch port names its parent in that tree.
 
 
 
@@ -1500,6 +1519,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `rootPorts` _[RootPort](#rootport) array_ | RootPorts are the platform's PCIe root ports, once per Node. |  | MaxItems: 256 <br />Optional: \{\} <br /> |
 | `gpuSlots` _[GPUSlot](#gpuslot) array_ | GPUSlots maps each GPU index to its PCI and host topology coordinates. |  | MaxItems: 64 <br />MinItems: 1 <br /> |
 | `gpuFabric` _[GPUFabric](#gpufabric)_ | GPUFabric describes optional NVLink/NVSwitch connectivity. |  | Optional: \{\} <br /> |
 | `nics` _[NICSlot](#nicslot) array_ | NICs places one NIC instance per entry on the Node: an SNICProfile, the<br />configuration it runs and where each of its PCI devices sits. |  | MaxItems: 64 <br />Optional: \{\} <br /> |

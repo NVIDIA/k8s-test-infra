@@ -706,6 +706,12 @@ spec:
                                 with this GPU.
                               format: int32
                               type: integer
+                            parent:
+                              description: |-
+                                Parent is the root port or NIC switch port the GPU sits below, from
+                                any slot; empty when unknown.
+                              pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
+                              type: string
                             pciAddress:
                               description: PCIAddress is the PCI bus address of this
                                 GPU.
@@ -762,7 +768,7 @@ spec:
                                   bridges:
                                     description: |-
                                       Bridges are the NIC's switch ports above or beside the device, parents
-                                      first.
+                                      first. A GPU slot may name one as its parent.
                                     items:
                                       description: PCIBridge is one exposed port of
                                         a NIC's PCIe switch.
@@ -772,8 +778,8 @@ spec:
                                           pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
                                           type: string
                                         parent:
-                                          description: Parent is the root port or
-                                            an earlier bridge.
+                                          description: Parent is a root port or another
+                                            switch port.
                                           pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
                                           type: string
                                       required:
@@ -790,7 +796,7 @@ spec:
                                     type: integer
                                   parent:
                                     description: |-
-                                      Parent is the root port or a bridge; empty for a device on the root
+                                      Parent is a root port or a switch port; empty for a device on the root
                                       bus.
                                     pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
                                     type: string
@@ -800,30 +806,6 @@ spec:
                                       the same root complex shares it.
                                     pattern: ^pci[0-9a-f]{4}:[0-9a-f]{2}$
                                     type: string
-                                  rootPort:
-                                    description: RootPort is the root port's address;
-                                      empty for a device on the root bus.
-                                    pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
-                                    type: string
-                                  rootPortID:
-                                    description: |-
-                                      RootPortID is the root port's PCI IDs. It is platform data, repeated
-                                      here until the rack profile lists its root ports.
-                                    properties:
-                                      deviceID:
-                                        description: DeviceID is four lowercase hex
-                                          digits, without 0x.
-                                        pattern: ^[0-9a-f]{4}$
-                                        type: string
-                                      vendorID:
-                                        description: VendorID is four lowercase hex
-                                          digits, without 0x.
-                                        pattern: ^[0-9a-f]{4}$
-                                        type: string
-                                    required:
-                                    - deviceID
-                                    - vendorID
-                                    type: object
                                   vpdPosition:
                                     description: |-
                                       VPDPosition is the suffix of the VPD product name, such as -Prime or
@@ -886,6 +868,50 @@ spec:
                         type: array
                         x-kubernetes-list-map-keys:
                         - slot
+                        x-kubernetes-list-type: map
+                      rootPorts:
+                        description: RootPorts are the platform's PCIe root ports,
+                          once per Node.
+                        items:
+                          description: RootPort is one PCIe root port of the platform.
+                          properties:
+                            address:
+                              description: Address is the root port's address, such
+                                as "0009:00:00.0".
+                              pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
+                              type: string
+                            id:
+                              description: |-
+                                ID is the root port's PCI IDs. The IDs above a device are generated
+                                only where they are known.
+                              properties:
+                                deviceID:
+                                  description: DeviceID is four lowercase hex digits,
+                                    without 0x.
+                                  pattern: ^[0-9a-f]{4}$
+                                  type: string
+                                vendorID:
+                                  description: VendorID is four lowercase hex digits,
+                                    without 0x.
+                                  pattern: ^[0-9a-f]{4}$
+                                  type: string
+                              required:
+                              - deviceID
+                              - vendorID
+                              type: object
+                            rootComplex:
+                              description: RootComplex is the root complex the port
+                                belongs to, such as pci0009:00.
+                              pattern: ^pci[0-9a-f]{4}:[0-9a-f]{2}$
+                              type: string
+                          required:
+                          - address
+                          - rootComplex
+                          type: object
+                        maxItems: 256
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - address
                         x-kubernetes-list-type: map
                     required:
                     - gpuSlots

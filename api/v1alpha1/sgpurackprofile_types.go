@@ -431,7 +431,16 @@ type HostMemory struct {
 }
 
 // SGPUTopology is the PCIe slots, GPU fabric and NICs visible to the node.
+// GPUs and NICs share one PCIe tree: root ports are declared once, and every
+// GPU slot, NIC device and NIC switch port names its parent in that tree.
 type SGPUTopology struct {
+	// +optional
+	// +kubebuilder:validation:MaxItems=256
+	// +listType=map
+	// +listMapKey=address
+	// RootPorts are the platform's PCIe root ports, once per Node.
+	RootPorts []RootPort `json:"rootPorts,omitempty"`
+
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
 	// +listType=map
@@ -517,19 +526,9 @@ type NICDevicePlacement struct {
 	RootComplex string `json:"rootComplex"`
 
 	// +optional
-	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`
-	// RootPort is the root port's address; empty for a device on the root bus.
-	RootPort string `json:"rootPort,omitempty"`
-
-	// +optional
-	// RootPortID is the root port's PCI IDs. It is platform data, repeated
-	// here until the rack profile lists its root ports.
-	RootPortID *PCIID `json:"rootPortID,omitempty"`
-
-	// +optional
 	// +listType=atomic
 	// Bridges are the NIC's switch ports above or beside the device, parents
-	// first.
+	// first. A GPU slot may name one as its parent.
 	Bridges []PCIBridge `json:"bridges,omitempty"`
 
 	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}$`
@@ -538,7 +537,7 @@ type NICDevicePlacement struct {
 
 	// +optional
 	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`
-	// Parent is the root port or a bridge; empty for a device on the root
+	// Parent is a root port or a switch port; empty for a device on the root
 	// bus.
 	Parent string `json:"parent,omitempty"`
 
@@ -559,8 +558,24 @@ type PCIBridge struct {
 	Address string `json:"address"`
 
 	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`
-	// Parent is the root port or an earlier bridge.
+	// Parent is a root port or another switch port.
 	Parent string `json:"parent"`
+}
+
+// RootPort is one PCIe root port of the platform.
+type RootPort struct {
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`
+	// Address is the root port's address, such as "0009:00:00.0".
+	Address string `json:"address"`
+
+	// +kubebuilder:validation:Pattern=`^pci[0-9a-f]{4}:[0-9a-f]{2}$`
+	// RootComplex is the root complex the port belongs to, such as pci0009:00.
+	RootComplex string `json:"rootComplex"`
+
+	// +optional
+	// ID is the root port's PCI IDs. The IDs above a device are generated
+	// only where they are known.
+	ID *PCIID `json:"id,omitempty"`
 }
 
 // GPUSlot pins one GPU to a PCI address + NUMA/root-complex/host CPU.
@@ -587,6 +602,12 @@ type GPUSlot struct {
 	// +optional
 	// HostProcessorIndex is the host CPU index associated with this GPU.
 	HostProcessorIndex int32 `json:"hostProcessorIndex,omitempty"`
+
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`
+	// Parent is the root port or NIC switch port the GPU sits below, from
+	// any slot; empty when unknown.
+	Parent string `json:"parent,omitempty"`
 }
 
 // GPUFabric is NVLink/NVSwitch fabric.
