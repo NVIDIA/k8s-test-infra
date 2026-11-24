@@ -281,7 +281,7 @@ efa:
 Identifiers (GUIDs, MACs, serial numbers, VPD `V3`, switch IDs) are hashes of where something sits: the node's coordinates, then the slot, and within it the PCI device, function number and port number, or the board and board position. So:
 - the same declaration gives the same identifiers on every run;
 - removing one NIC doesn't change the others';
-- different nodes get different identifiers;
+- different nodes in one cluster get different identifiers. That's checked for 4,608 nodes. MACs have 46 random bits, so 100,000 nodes with 16 RoCE ports each have about a 2% chance of one collision, and separate file-mode installs that reuse node names reuse identifiers;
 - things at the same coordinate share an identifier. The profile says which VPD keyword is shared at which level: one serial number per board, one `V3` per ASIC (its PF and its Data Direct function), one `VU` per board position.
 
 ```yaml
@@ -295,10 +295,10 @@ vpd:
 Each NIC model is one file in the nvml-mock chart, holding a full `SNICProfile`. Both modes read that file, and there is no other copy.
 
 - **Built-in or custom.** A profile shipped in the chart is built-in; one an administrator adds is custom. They share the schema and validation. The only difference is ownership: Helm owns built-in profiles, so `helm upgrade` resets edits to them, and a lasting change uses a custom profile under its own name. For example, a cluster whose front-end ConnectX-7 is an OEM variant, with the OEM's part number and board ID, adds its own profile.
-- **File mode.** A GPU profile, such as `gb300`, carries the node's NIC slots, its root ports and each GPU's parent (`nics.slots`, `nics.rootPorts`, `nics.gpuParents`) in place of today's `infiniband` block; the GPU addresses stay where the GPU profile already declares them. Helm values override a slot's profile or configuration and add custom profiles.
+- **File mode.** A GPU profile, such as `gb300`, carries the node's NIC slots, its root ports and each GPU's parent (`nics.slots`, `nics.rootPorts`, `nics.gpuParents`) and its RDMA software (`software.rdma`, which Helm values can override through `nics.rdma`). The GPU addresses stay where the GPU profile already declares them. Until `ib` and `pcibus` render from the resolved state ([#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355), [#1354](https://github.com/NVIDIA/k8s-test-infra/issues/1354)), the profile also keeps its `infiniband` block, which still drives what the node shows. Helm values override a slot's profile or configuration and add custom profiles.
 - **Control-plane mode.** The chart renders the files as `SNICProfile` objects. A rack profile's slots name them, and a rack group in `SGPUInventory` may override a slot (`nicOverrides`), so clusters with the same GPU nodes can use different NICs or modes without a new rack profile.
 - **Selection order.** The rack group's override, then the slot's configuration, then the profile's default. The fabric doesn't choose a configuration, because one technology can have several; it only validates the choice.
-- **Changes.** Profiles are mutable. An edit reaches every rack that uses the profile, as an `SGPURackProfile` edit does. Selecting another configuration is a simulated firmware reset: the node's NIC functions are removed and created again in the new layout. Placement doesn't change, so the GPU association and Data Direct pairing stay. As on real hardware, the reset clears what cluster software created, and the operators create it again.
+- **Changes.** Profiles are mutable. An edit reaches every rack that uses the profile, as an `SGPURackProfile` edit does. Selecting another configuration is a simulated firmware reset. For now it re-probes all the node's NICs, like a reboot: every NIC disappears and returns, and RDMA device names are reassigned in PCI order. Keeping the names and device files of unaffected NICs through one slot's reset, as Linux does, comes later. Placement doesn't change, so the GPU association and Data Direct pairing stay. As on real hardware, the reset clears what cluster software created, and the operators create it again.
 
 ### Checking declarations against hardware
 
@@ -321,7 +321,7 @@ The comparison checks relations, not identifier values: that a Data Direct funct
 - **by design:** outside the declaration on purpose: cluster software, network state;
 - **deferred:** compared later, at the rendered level or once a planned feature exists, such as the attributes the node agent renders. `diff nic` has the first four today; [#1268](https://github.com/NVIDIA/k8s-test-infra/issues/1268) adds this one.
 
-An accepted gap and a planned feature can both explain a difference, but they are different commitments, so they get different causes.
+An accepted gap and a planned feature can both explain a difference, but they are different commitments, so they get different causes. A schema gap or a rule bug fails the check: those causes record a known defect while it's fixed, they don't make a difference pass.
 
 ```yaml
 # The first matching entry gives a difference its cause
@@ -357,7 +357,7 @@ An SR-IOV operator runs against a simulated node. It finds the PFs in their boot
 - **Capture coverage.** `collect network` records PCI, VPD and interface records only for ConnectX functions (PCI vendor `0x15b3`), so EFA functions are missing; RDMA devices are captured whatever their vendor. A missing sysfs file is recorded as absent and an empty one as empty. [#1268](https://github.com/NVIDIA/k8s-test-infra/issues/1268) tracks the remaining gaps. Captures of GB200 and of an InfiniBand cluster without SMI devices don't exist yet.
 - **GPU parents in captures.** `collect network` doesn't record a GPU's parent yet (GPU records hold the device, NUMA node and root complex; #1268), so the samples take it from bus numbers and the captured PCI hierarchy. The GPU profiles place GPUs at their captured addresses (on `gb300`, domains `0008`, `0009`, `0018` and `0019`), so file mode builds the same tree.
 - **GPU slots and `GPU_COUNT`.** In file mode a slot's `gpus` may name any GPU the profile declares, so lowering `GPU_COUNT` never invalidates a slot. A NIC can then be associated with a GPU the node doesn't show.
-- **Platforms without a captured NIC.** A GPU profile moves to slots once its NICs have a captured profile. Until then it keeps today's `infiniband` block, and the node agent keeps the current path for it, so those platforms keep their NICs and the IB end-to-end tests keep running.
+- **Rendering during the transition.** Until `ib` renders from `State.NICs` ([#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355)) and `pcibus` renders NIC functions ([#1354](https://github.com/NVIDIA/k8s-test-infra/issues/1354)), every GPU profile keeps rendering NICs through today's `infiniband` block. `gb300` and `vrnvl72` also declare slots, so their resolved NIC state exists for those changes to build on, but slots and overrides don't change what a node shows until then. A temporary shape derived from the resolved state was considered and rejected: it can show one model and link layer per node, so a mixed tray or a single-slot override would show devices other than the declared ones. A GPU profile without captured NICs moves to slots once a capture backs its NIC profile.
 
 ### Risks and Mitigations
 
@@ -396,7 +396,7 @@ spec:
   switchPort: {vendorID, deviceID}? # IDs of the NIC's own PCIe switch ports, which slots place as bridges
   vpd:                              # optional: vital product data, on function types with vpd: true
     keywords: {string: string}?     # model values by keyword (PN, EC, V2…); "name" is the product name, to which a device's vpdPosition is appended
-    identities: {string: scope}?    # keywords whose value is a generated identifier, and which scope shares one value: board | asic | boardPosition
+    identities: {string: scope}?    # keywords whose value is a generated identifier, and which scope shares one value: board | asic | boardPosition, or another identity keyword whose generated value this one reuses before its function suffix (BlueField-3's VU starts with its SN)
   functionTypes:                    # kinds of PCI function, keyed by a name configurations use
     <name>:
       vendorID: string              # four lowercase hex digits, no 0x
@@ -421,7 +421,7 @@ spec:
   defaultConfiguration: string      # used when neither the cluster nor the slot selects one
   configurations:                   # firmware configurations, each declared as its result
     - name: string
-      ports:                        # optional: logical network ports
+      ports:                        # optional: logical network ports, in physical order: a port's position is its number (p0 first), which names it and keys its identifiers
         - id: string
           technology: ib | roce | efa
           width: int                # lanes in the rate text, such as 4 in "800 Gb/sec (4X XDR)"
@@ -503,10 +503,11 @@ spec:
       profileRef: {name: string}    # existing
       nicOverrides:                 # new: applied in order; a later override wins per field
         - slots: [string]           # slot names the override applies to; at least one, each an existing slot
-          profile: string?          # replaces the slot's profile, and drops the slot's configuration, firmwareVersion and vpd
+          profile: string?          # replaces the slot's profile, and drops the slot's configuration, firmwareVersion, vpd and a named systemImageGUID
           configuration: string?    # replaces the slot's configuration
           firmwareVersion: string?
           vpd: {string: string}?    # merged into the slot's VPD keywords
+          systemImageGUID: string?  # replaces the slot's systemImageGUID
 ```
 
 ```yaml
@@ -523,11 +524,11 @@ rackGroups:
 
 The CRD checks field shapes. These rules need more than one field, so the loader checks them in file mode, and the controller checks them and reports failures in status in control-plane mode:
 
-- **Decoding:** strict; an unknown field is an error.
-- **Profile:** VPD scopes are `board`, `asic` or `boardPosition`, and a keyword is either a model value or an identity. Every function type has a driver. `rdmaOmit` and `rdmaEmpty` name only `fw_ver`, `hca_type`, `board_id` or `hw_rev`, and no attribute is in both. A `vfType` names another function type, on a function type with `totalVFs`. Configuration names are unique, and the default is one of them.
-- **Configuration:** port and function IDs are unique. Technology and lane speed come from the lists above; width is positive and planes aren't negative. A function's type exists, its PCI device is named, and each device and function number is used once. The class is `0x` plus six hex digits. Every port has an owner, and at most one per PCI device. An RDMA device names a function and at least one port, and its ports are ports that function owns. A function has at most one RDMA device, since its identifiers come from the function's position.
-- **Rack profile:** slot names, GPU slots and PCI addresses are unique. One board holds one NIC model. A slot's GPUs and profile exist. A per-board VPD identity needs a `board`, and a per-board-position one needs a `vpdPosition`. `systemImageGUID` is `distinct` or an RDMA device of the selected configuration. Root ports are unique and inside their root complex. Addresses are well-formed and inside their root complex. Every parent, of a GPU slot, a NIC device or a switch port, names a root port or a switch port of the node in the same root complex, and switch ports form no cycle. A NIC device without a parent sits on its root complex's root bus, so its address is on that bus and it has no switch ports, as the EFA device in `aws-c5n` shows. Bridges need the profile's `switchPort`. Every PCI device a configuration uses is placed.
-- **Overrides:** overrides apply in order, and a later one wins per field; VPD keywords merge. An override that sets a new profile drops the slot's configuration, firmware version and VPD overrides, which belonged to the old model, unless the same override sets them. An override that names an unknown slot is an error. The rack-profile rules then run on the effective selection, so an override that selects a profile or configuration whose PCI devices the slot doesn't place is rejected.
+- **Decoding:** strict, on the raw document: an unknown field, a missing required field or a repeated item in a set or map list is an error in file mode too, as the API server would reject it; zero values aren't filled in.
+- **Profile:** VPD scopes are `board`, `asic`, `boardPosition` or another identity keyword that has a scope, and a keyword is either a model value or an identity. Every function type has a driver. `rdmaOmit` and `rdmaEmpty` name only `fw_ver`, `hca_type`, `board_id` or `hw_rev`, and no attribute is in both. A `vfType` names another function type, on a function type with `totalVFs`. Configuration names are unique, and the default is one of them.
+- **Configuration:** port and function IDs are unique. Technology and lane speed come from the lists above; width is positive and planes aren't negative. A function's type exists, its PCI device is named, and each device and function number is used once. The class is `0x` plus six hex digits. Every port has an owner, and at most one per PCI device. An RDMA device names a function and at least one port, and its ports are ports that function owns, each listed once. A function has at most one RDMA device, since its identifiers come from the function's position.
+- **Rack profile:** slot names, GPU slots and PCI addresses are unique. One board holds one NIC model. A slot's GPUs and profile exist. A per-board VPD identity needs a `board`, and a per-board-position one needs a `vpdPosition`. `systemImageGUID` is `distinct` or an RDMA device of the selected configuration. Root ports are unique and inside their root complex. Addresses are well-formed and inside their root complex. Every parent, of a GPU slot, a NIC device or a switch port, names a root port or a switch port of the node in the same root complex, and switch ports form no cycle. Every address is in its root complex's PCI domain. A root port, and a NIC device without a parent, sit on the root complex's bus, and a switch port's children sit on its downstream bus. Root ports are exempt from that last check while platform bridges aren't modeled: a cloud VM's capture doesn't record them, so `aws-gb300` names root ports as parents. A NIC device without a parent sits on its root complex's root bus, so its address is on that bus and it has no switch ports, as the EFA device in `aws-c5n` shows. Bridges need the profile's `switchPort`. Every PCI device a configuration uses is placed.
+- **Overrides:** overrides apply in order, and a later one wins per field; VPD keywords merge. An override that sets a new profile drops the slot's configuration, firmware version, VPD overrides and a `systemImageGUID` that names an RDMA device, which all belonged to the old model, unless the same override sets them; `distinct` carries over. An override that names an unknown slot is an error. The rack-profile rules then run on the effective selection, so an override that selects a profile or configuration whose PCI devices the slot doesn't place is rejected.
 
 #### Samples by feature
 
@@ -556,7 +557,7 @@ Generation has two halves. **Resolve** turns the declaration into a typed NIC st
 | G4 RDMA device | Each RDMA device of the selected configuration. Attributes in `rdmaOmit` are left out; those in `rdmaEmpty` are empty | Node type, node and system image GUIDs, firmware, board ID, HCA type, hardware revision | Function type, identity, slot `systemImageGUID` and overrides |
 | G5 Names | All RDMA devices on the node, in PCI address order, numbered per prefix as the kernel numbers them per driver | RDMA device names, such as `mlx5_0` and `efa_0` | `rdmaNamePrefix` |
 | G6 Rate | Each port of each RDMA device | Rate text, link layer | Width, lane speed, technology |
-| G7 Ports | Each port of each RDMA device, by technology: `ib` gets its capability mask and a port GUID (the node GUID on port 1, its own on each later port), with GID 0 from the port GUID; `roce` gets a GID from its netdev's MAC; `efa` gets LID 0 and one link-local GID with no netdev | LIDs, capability mask, P_Keys, GIDs | Port |
+| G7 Ports | Each port of each RDMA device, by technology: `ib` gets its capability mask and a port GUID (the node GUID on port 1, its own on each later port), with GID 0 from the port GUID; `roce` gets GIDs 0 and 1, the same link-local address from its netdev's MAC, typed RoCE v1 and RoCE v2 and both tied to that netdev; `efa` gets LID 0 and one link-local GID with no netdev | LIDs, capability mask, P_Keys, GIDs | Port |
 | G8 Netdevs | Each `roce` port. `ib` ports get netdevs only from G12; `efa` ports get none | Netdev names, MACs, one switch ID per NIC | Port, function, placement |
 | G9 Device files | `uverbs` per RDMA device and one `rdma_cm` always; `umad` per port when `software.rdma.umad`; `issm` per `ib` port without planes, also only with `umad` | Device files and their modes | `software.rdma` |
 | G10 Verbs | Each RDMA device | `ibv_devinfo` fields | As G4, G6 and G7 |
@@ -566,7 +567,7 @@ Generation has two halves. **Resolve** turns the declaration into a typed NIC st
 
 Rules that decide values (G1–G5, G13, and the values in G7, G8 and G12) belong to resolve; rules that format values (G6, G9–G11, and the rest of G12) belong to render. So the state names every netdev, Ethernet and IPoIB alike, with its address.
 
-Identifiers are name-based (UUIDv5) hashes of coordinates, using the scheme GPU UUIDs already use (`internal/sgpu/rackrender/identity.go`), shared so NICs and GPUs have one identity function. Control-plane mode names a node by its inventory UID, rack group, rack index and node index. File mode names it by an empty inventory UID followed by the node name; no control-plane node has an empty inventory UID, so the two modes never produce the same name. Then comes where the object sits within the node: the slot, then the PCI device, function number and port number for values per function or port, or the board and board position for VPD identities. The profile's ID strings for functions, ports and RDMA devices never enter an identifier, so renaming them changes nothing; a configuration switch keeps a function's GUIDs and MACs when the function keeps its position, as on hardware. Each kind of identifier (GUID, MAC, 128-bit ID) hashes in its own domain, so a GUID and a MAC of the same object are unrelated, and MACs are locally administered.
+Identifiers are name-based (UUIDv5) hashes of coordinates, using the scheme GPU UUIDs already use (`internal/sgpu/rackrender/identity.go`), shared so NICs and GPUs have one identity function. Control-plane mode names a node by its inventory UID, rack group, rack index and node index. File mode names it by an empty inventory UID followed by the node name; no control-plane node has an empty inventory UID, so the two modes never produce the same name. Then comes where the object sits within the node: the slot, then the PCI device, function number and port number (the port's position in the configuration's port list) for values per function or port, or the board and board position for VPD identities. The profile's ID strings for functions, ports and RDMA devices never enter an identifier, so renaming them changes nothing; a configuration switch keeps a function's GUIDs and MACs when the function keeps its position, as on hardware. Each kind of identifier (GUID, MAC, 128-bit ID) hashes in its own domain, so a GUID and a MAC of the same object are unrelated, and MACs are locally administered.
 
 ### Node agent
 
@@ -602,11 +603,11 @@ nic_overrides:             # appended by the chart from values
   - {slots: [nic0, nic1, nic2, nic3], configuration: eth-multiplane}
 ```
 
-**Compile.** `compileNICs` joins `compileState` (`internal/agent/source/file.go`) and handles profiles with slots; `compileNetwork` stays for profiles that still use the `infiniband` block. Like `compileNetwork`, it parses the same bytes through its own schema, since the NVML engine never reads NICs. It validates them, applies the selection order, and resolves with the node's coordinates.
+**Compile.** `compileNICs` joins `compileState` (`internal/agent/source/file.go`) and resolves the slots into `State.NICs`; `compileNetwork` keeps turning the `infiniband` block into `NodeShape.Network`, which drives rendering until [#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355). Like `compileNetwork`, it parses the same bytes through its own schema, since the NVML engine never reads NICs. It validates them, applies the selection order, and resolves with the node's coordinates.
 
-**Failing open.** An invalid NIC declaration neither takes NICs away from a running node nor blocks a new one. A node that resolved its NICs before keeps its last resolved NIC state; a node that never did starts without NICs. Either way its GPUs render as usual, and the error is logged, recorded as a Warning Event on the node agent's pod, with a Normal Event once the declaration resolves again, and shown in `/readyz` under `nics` while the probe stays OK. Fixing the declaration applies on the same pod, without a restart. Control-plane mode follows the same rule.
+**Failing open.** The agent accepts a node's whole PCI tree, GPUs and NICs together, since GPUs can sit below a NIC's switch ports. A candidate is accepted only if its combined tree validates. When the NIC declaration is invalid, the agent keeps its last accepted NIC state if that state still forms a valid tree with the new GPU state. Otherwise, and on a node that never accepted one, it runs without NICs, and a GPU whose parent was a NIC switch port is placed directly below its root port. Either way the GPUs render. The error is logged, recorded as a Warning Event on the node agent's pod (with a Normal Event once a declaration is accepted again), and shown in `/readyz` under `nics` while the probe stays OK. The kept state lives in the agent's memory, so a restarted agent starts like a fresh node. A Helm change to the profile document rolls the node agents, so the chart's render-time checks are the first line of defense: everything the chart can check fails `helm template` before any pod changes. Control-plane mode follows the same rule.
 
-**State.** `State.NICs` takes over from `NodeShape.Network`, which remains only for the `infiniband` block and goes with it. Every value is resolved, so simulators never derive anything and a change is detected by comparing states. Nothing downstream reads the NIC YAML, so there is no raw copy of it.
+**State.** `State.NICs` takes over from `NodeShape.Network` once `ib` renders from it ([#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355)); the `infiniband` block and `NodeShape.Network` go then. Every value is resolved, so simulators never derive anything and a change is detected by comparing states. Nothing downstream reads the NIC YAML, so there is no raw copy of it.
 
 ```go
 // NICs is a node's resolved NIC state. Every value is decided.
@@ -620,14 +621,14 @@ type NICs struct {
 }
 ```
 
-**Kernel modules.** `gpudriver` lists the NIC driver's modules when the node has RDMA devices, or when the legacy block enables InfiniBand. `ib_umad` and `ib_ipoib` will follow `software.rdma`'s `umad` and `ipoib` when [#1358](https://github.com/NVIDIA/k8s-test-infra/issues/1358) adds them, so the module list and the device files agree.
+**Kernel modules.** `gpudriver` follows the `infiniband` block until `ib` renders from `State.NICs`, then the node's resolved RDMA devices and their drivers. `ib_umad` and `ib_ipoib` will follow `software.rdma`'s `umad` and `ipoib` when [#1358](https://github.com/NVIDIA/k8s-test-infra/issues/1358) adds them, so the module list and the device files agree.
 
 **Simulators.**
 
 | Simulator | Change |
 |---|---|
 | `pcibus` | Renders NIC functions and bridges into the same `/sys/bus/pci` tree as the GPUs; GPUs, NIC functions and switch ports form one tree, each under its declared parent. Its NFD feature file gains the NIC vendors |
-| `ib` | Renders `class/infiniband`, `infiniband_mad`, `infiniband_verbs`, `/dev/infiniband` and RoCE netdevs from `State.NICs`, and from `NetworkShape` for profiles that still use the `infiniband` block. `mock-ib` reloads when the NIC state changes, as today |
+| `ib` | Renders `class/infiniband`, `infiniband_mad`, `infiniband_verbs`, `/dev/infiniband` and RoCE netdevs from `NetworkShape` (the `infiniband` block) today, and from `State.NICs` with [#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355). `mock-ib` reloads when the NIC state changes, as today |
 | Driver reactions (new) | Emulates the driver's response to the operator actions Mokka can see, starting with `sriov_numvfs` writes (MEP-0011). Switchdev mode and SMI devices go through devlink and RDMA netlink, which Mokka can't answer yet. A daemon, since operators act after staging. The behavior belongs to a driver, so it lives in a module per declared `driver`, starting with `mlx5_core`; it isn't described by declaration fields. Its state is runtime only; a configuration change clears it |
 | Netdevs (new, if needed) | IPoIB netdevs and `ethtool` answers, if they don't fit in `ib`. `ethtool` uses ioctl and netlink, so it needs a shim like the IB tools |
 
@@ -640,13 +641,13 @@ A new state from a profile edit or a configuration change runs `Stage` again: th
 | Area | Change |
 |---|---|
 | Watches | A new `SNICProfile` informer and RBAC (`get`, `list`, `watch`). NIC profile events re-route inventories as `SGPURackProfile` events do. Slots are part of the rack profile's spec, so they already change its revision; `nicOverrides` counts as a rendering input |
-| Rack rendering | The rack records the revision of each `SNICProfile` its slots name, next to the rack profile's, and renders again when one changes. It validates the NIC references and the cross-field rules. No NIC state is stored in `SGPURack`: it is deterministic |
-| Per-node view | When a node agent asks for its state, the control plane resolves the node's NICs with the same code file mode uses, from the pinned revisions only |
+| Rack rendering | A rack's NIC inputs, each `SNICProfile` revision its slots name and the inventory revision that supplies `nicOverrides`, join the accepted inputs MEP-0001's delivery generation records, and an accepted change advances it. The rack validates the NIC references and the cross-field rules; a rejected change becomes a condition, and the last accepted inputs keep being delivered. The revision ignores the order of unordered lists (root ports, NIC slots, a slot's GPUs). No NIC state is stored in `SGPURack`: it is deterministic |
+| Per-node view | When a node agent asks for its state, the control plane resolves the node's NICs with the same code file mode uses, from the exact accepted revisions only. A replica that doesn't have one yet answers with retry, as MEP-0001 specifies for its other inputs |
 | Status | A missing or invalid `SNICProfile` becomes a condition on the inventory and rack. Nothing is blocked: a node keeps its last applied NIC state, and a node that never had one starts without NICs, as in file mode |
 | Unchanged | Allocation, capacity, Node projection and runtime policies |
 
 ```yaml
-# SGPURack spec
+# SGPURack: the accepted NIC inputs, recorded with MEP-0001's delivery generation
 profileRef: {name: gb300-nvl72, uid: …, generation: 3, revision: …}   # existing
 nicProfileRefs:                                                         # new
   - {name: cx8-c8280z, uid: …, generation: 1, revision: …}
@@ -691,6 +692,7 @@ File-mode values:
 
 ```yaml
 nics:
+  rdma: {}                         # overrides the GPU profile's software.rdma, such as {umadMode: "666", driverVersion: 26.01-1.0.0}
   overrides:                       # the file-mode nicOverrides
     - slots: [nic0, nic1, nic2, nic3]
       configuration: eth-multiplane
@@ -705,7 +707,7 @@ nics:
   gpuParents: {}                   # each GPU's parent by index, such as {0: "0008:05:00.0"}
 ```
 
-The chart fails the render on mistakes it can see: an override without `slots`, or naming an unknown slot or configuration; a custom profile without `apiVersion`, or reusing a shipped profile's name.
+The chart fails the render on mistakes it can see: an override without `slots`, or naming an unknown slot or configuration; a custom profile without `apiVersion`, reusing a shipped profile's name, or with a default configuration it doesn't define; a profile document with a repeated NIC key.
 
 To record those Events, the chart gives the node agent a Role that only allows creating Events, and mounts an API token only in the node-agent container.
 
@@ -722,7 +724,7 @@ To record those Events, the chart gives the node agent a Role that only allows c
 ### Implementation order
 
 1. API types, CRD, chart profile files, validation.
-2. Node agent in file mode: `compileNICs`, `State.NICs`, `pcibus` and `ib` changes, the rendered-level check. Until `ib` renders from `State.NICs` ([#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355)), a compatibility shape derived from it keeps today's `ib` rendering working.
+2. Node agent in file mode: `compileNICs`, `State.NICs`, the rendered-level check; rendering stays on the `infiniband` block. `pcibus` (#1354) and `ib` (#1355) then render from `State.NICs`, which retires the block for `gb300` and `vrnvl72`.
 3. Control plane: watches, pins, status; the per-node view once delivery exists.
 4. Driver reactions for the operations Mokka can see, starting with VFs (MEP-0011). Switchdev mode and SMI devices wait for devlink and RDMA netlink support.
 5. Captures and profiles for the remaining platforms, then removal of the `infiniband` block, `compileNetwork` and `NetworkShape`.
@@ -990,7 +992,7 @@ spec:
       V2: 900-9D3B6-00CN-PA0
       VA: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=D3B6
       V0: PCIeGen5 x16
-    identities: {SN: asic, V3: asic, VU: asic}
+    identities: {SN: asic, V3: asic, VU: SN}
   functionTypes:
     network:
       vendorID: "15b3"
