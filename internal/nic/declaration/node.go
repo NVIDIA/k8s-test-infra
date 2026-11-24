@@ -88,7 +88,9 @@ func ValidateNode(topology *v1alpha1.SGPUTopology, overrides []v1alpha1.NICOverr
 		for _, g := range s.GPUs {
 			pr.check(gpus[g], "%s: GPU %d has no GPU slot", where, g)
 		}
-		if p, c := selected(&pr, where, s, profiles); c != nil {
+		p, c := selected(&pr, where, s, profiles)
+		validateSlotPlacement(&pr, where, s, p, place)
+		if c != nil {
 			validateSlot(&pr, where, s, p, c, place)
 		}
 	}
@@ -153,9 +155,6 @@ func validateSlot(pr *problems, where string, s *v1alpha1.NICSlot, p *v1alpha1.S
 		"%s: systemImageGUID %q is neither %q nor an RDMA device of configuration %s",
 		where, g, v1alpha1.SystemImageGUIDDistinct, c.Name)
 
-	for _, name := range slices.Sorted(maps.Keys(s.Devices)) {
-		validatePlacement(pr, fmt.Sprintf("%s: device %s", where, name), s.Devices[name], p, where, place)
-	}
 	for _, f := range c.Functions {
 		d, ok := s.Devices[f.PCIDevice]
 		pr.check(ok, "%s: configuration %s puts function %s on PCI device %q, which the slot doesn't place",
@@ -188,13 +187,25 @@ func validateSlotVPD(pr *problems, where string, s *v1alpha1.NICSlot, v *v1alpha
 	}
 }
 
+// validateSlotPlacement checks where the slot puts its PCI devices and adds
+// its switch ports to the Node's tree. Placement doesn't depend on the
+// profile, so a slot whose profile or configuration is unknown (p nil) still
+// places its switch ports, and what sits below them reports nothing more.
+func validateSlotPlacement(pr *problems, where string, s *v1alpha1.NICSlot, p *v1alpha1.SNICProfile, place *nodePlacement) {
+	for _, name := range slices.Sorted(maps.Keys(s.Devices)) {
+		validatePlacement(pr, fmt.Sprintf("%s: device %s", where, name), s.Devices[name], p, where, place)
+	}
+}
+
 func validatePlacement(pr *problems, where string, d v1alpha1.NICDevicePlacement, p *v1alpha1.SNICProfile, owner string,
 	place *nodePlacement) {
 	domain := domainOf(d.RootComplex)
 	pr.check(rootComplex.MatchString(d.RootComplex), "%s: rootComplex %q is not pciDDDD:BB", where, d.RootComplex)
 	pr.check(d.Parent != "" || len(d.Bridges) == 0, "%s: a device on the root bus has no switch ports", where)
-	pr.check(len(d.Bridges) == 0 || p.Spec.SwitchPort != nil,
-		"%s: bridges are declared, but profile %s has no switchPort", where, p.Name)
+	if p != nil {
+		pr.check(len(d.Bridges) == 0 || p.Spec.SwitchPort != nil,
+			"%s: bridges are declared, but profile %s has no switchPort", where, p.Name)
+	}
 	for _, b := range d.Bridges {
 		pr.check(inDomain(bdf, b.Address, domain), "%s: bridge %q is not a PCI address in %s", where, b.Address, d.RootComplex)
 		place.claim(b.Address, owner)

@@ -120,6 +120,20 @@ func TestShapesMatchTheCRD(t *testing.T) {
 	}
 }
 
+// TestRackExampleDeclaresValidNICs checks the shipped rack profile example's
+// NICs against the CRD and the Go rules, with the chart's NIC profiles.
+func TestRackExampleDeclaresValidNICs(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile(rackExample)
+	require.NoError(t, err)
+	r, err := DecodeRackProfile(data)
+	require.NoError(t, err)
+	require.NotEmpty(t, r.Spec.Node.Topology.NICs)
+	require.NoError(t, crdValidator(t, "mokka.nvidia.com_sgpurackprofiles.yaml")(r))
+	require.NoError(t, ValidateNode(r.Spec.Node.Topology, nil, loadChartProfiles(t)))
+	require.NoError(t, ValidateRDMA(r.Spec.Software.RDMA))
+}
+
 // TestSlotShapesMatchTheCRD does the same for NIC slots and the RDMA software
 // in a rack profile.
 func TestSlotShapesMatchTheCRD(t *testing.T) {
@@ -133,7 +147,7 @@ func TestSlotShapesMatchTheCRD(t *testing.T) {
 		var r v1alpha1.SGPURackProfile
 		require.NoError(t, yaml.UnmarshalStrict(data, &r))
 		r.Spec.Software.RDMA = &v1alpha1.RDMASoftware{UMAD: true, UMADMode: "666"}
-		r.Spec.Node.Topology.RootPorts = []v1alpha1.RootPort{{Address: "0000:20:00.0", RootComplex: "pci0000:20"}}
+		r.Spec.Node.Topology.RootPorts = append(r.Spec.Node.Topology.RootPorts, v1alpha1.RootPort{Address: "0000:20:00.0", RootComplex: "pci0000:20"})
 		r.Spec.Node.Topology.NICs = []v1alpha1.NICSlot{{
 			Slot: "efa0", Profile: "efa-c5n", Board: ptr[int32](0), GPUs: []int32{0},
 			Devices: map[string]v1alpha1.NICDevicePlacement{

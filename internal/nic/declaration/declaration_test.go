@@ -357,6 +357,21 @@ func TestGPUBelowANICSwitchPort(t *testing.T) {
 	require.ErrorContains(t, ValidateNode(topo, nil, profiles), "GPU slot 0: parent 0003:01:00.0 is in pci0003:00, not pci0004:00")
 }
 
+// TestUnknownConfigurationKeepsThePlacement checks that a slot whose
+// configuration is unknown still places its switch ports, so a GPU below
+// them isn't reported too: the one error is the configuration.
+func TestUnknownConfigurationKeepsThePlacement(t *testing.T) {
+	t.Parallel()
+	profiles, topo := Profiles{"nic": validProfile()}, singleSlot()
+	withSwitch(profiles, topo)
+	topo.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:06:00.0", Parent: "0003:01:00.0"}}
+	err := ValidateNode(topo, []v1alpha1.NICOverride{{Slots: []string{topo.NICs[0].Slot}, Configuration: "missing"}}, profiles)
+	require.EqualError(t, err, `slot `+topo.NICs[0].Slot+` (with NIC overrides): profile nic has no configuration "missing"`)
+
+	topo.NICs[0].Profile = "missing"
+	require.EqualError(t, ValidateNode(topo, nil, profiles), `slot `+topo.NICs[0].Slot+`: unknown profile "missing"`)
+}
+
 // TestMultiHostPorts checks that one port may belong to one function per PCI
 // device, as on a NIC with several host links, but not to two functions of
 // one device.
