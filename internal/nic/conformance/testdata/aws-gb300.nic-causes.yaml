@@ -1,0 +1,26 @@
+# Causes of the differences between the Node declared by the aws-gb300 rack
+# fixture and converted/aws-gb300-vf.nic-surfaces.tsv, in the format
+# `mokka-capture diff nic -causes` reads. The source listing trims its outputs,
+# so most entries are blind spots, each scoped to what the listing leaves out.
+
+- match: '^pci\.(subsystem_vendor|subsystem_device|virtfn_count|modalias) '
+  cause: capture blind spot
+  note: the listing doesn't record these PCI attributes
+- match: '^pci\.vpd\.PN pci/0000:(b9|be|bf|c4|c9|ca):00\.0$|^pci\.vpd\.VU pci/0000:(b9|c4):00\.0$'
+  cause: capture blind spot
+  note: the listing prints the VPD of the first six functions only, and the Data Direct marker of the first two
+- match: '^(rdma\.\S+ rdma|port\.\S+ port)/0000:(a2|ac|ad|be|bf|c9|ca):00\.0/dev(/1)?$'
+  cause: capture blind spot
+  note: the listing prints the first RDMA device in full and the other seven only by name and link state
+- match: '^(rdma\.(ports|node_desc|hw_rev|board_id) rdma|port\.(sm_sl|pkeys|link_local_gid_from_mac|lid_mask_count|cap_mask) port)/0000:a1:00\.0/dev(/1)?$'
+  cause: capture blind spot
+  note: attributes the listing of the first RDMA device doesn't print
+- match: '^(uverbs|mad|rel\.devnode|rel\.sys_image_guid|rel\.node_guids)(\.\S+)? |^rdma\.(node_guid|sys_image_guid) rdma/0000:a1:00\.0/dev$|^node(\.(dev_infiniband|mad_abi_version|verbs_abi_version))? node$'
+  cause: capture blind spot
+  note: the listing trims /dev/infiniband and the uverbs listing, doesn't print GUIDs, and doesn't record the ABI versions
+- match: '^(net|rel\.switch_id)(\.\S+)? \S+/0000:[0-9a-f]{2}:00\.0/p[01]$'
+  cause: by design
+  note: the VFs' netdevs live in pods; AWS's DRA driver moved them out of the host namespace
+- match: '^port\.(gids|gid_ndevs) port/0000:a1:00\.0/dev/1$'
+  cause: by design
+  note: the interface's IPv4 address adds an IPv4-mapped GID
