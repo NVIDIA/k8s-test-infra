@@ -24,6 +24,13 @@ those as per-node fields in a profile. The node was idle when captured.
   device; `nvml-dump diff` reads it as it is; identifiers in it are redacted by
   field name), `proc-*` is `/proc/driver/nvidia`, `host-*` and `pci-*` are host
   topology and devices, `rdma-*` and `net-*` are NICs, `cdi-*` are CDI specs.
+- `node-a/nic-surfaces.tsv`: the tray's NIC surfaces as `mokka-capture
+  nic-surfaces` lists them, converted from the files above by
+  `internal/nic/capture`, so `mokka-capture diff nic` can compare them.
+  `TestConvertedCapturesAreCurrent` keeps it in step. It lacks what the older
+  files don't record, such as PCI link speeds, modalias, P_Keys, counters and
+  which uverbs file serves which device, and its first line names the capture
+  files it has no counterpart of.
 - `cluster/`: the Kubernetes view of the whole cluster, so it still covers both
   nodes (labels, capacity, a second DCGM exporter for GPUs 4-7, the compute domain); only
   the node-level files in `node-a/` are limited to one tray. `nodes-labels-capacity.yaml` holds each node's

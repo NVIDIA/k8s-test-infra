@@ -1,0 +1,10 @@
+# Causes of the differences between the Node declared by the aws-c5n rack
+# fixture and converted/aws-c5n-efa.nic-surfaces.tsv, in the format
+# `mokka-capture diff nic -causes` reads.
+
+- match: '^node\.dev_infiniband node$'
+  cause: by design
+  note: udev's by-ibdev and by-path directories; each device file is compared on its own
+- match: '^rdma\.(hca_type|board_id|hw_rev) rdma/0000:00:1f\.0/dev$'
+  cause: capture blind spot
+  note: the efa driver doesn't create these files, and the converted listing records a missing file as an empty value

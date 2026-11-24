@@ -1,0 +1,41 @@
+# Causes of the differences between the Node declared by the gb300-nvl72 rack
+# fixture and the capture in tests/hardware-captures/gb300-ib/node-a, in the
+# format `mokka-capture diff nic -causes` reads. The first entry that matches a
+# failure gives its cause.
+
+- match: '^\S+ \S*/smi(/|$)|^rel\.smi_'
+  cause: by design
+  note: SMI plane devices, their ports and device files come from the cluster's rdma-smi-sub-device DaemonSet
+- match: '^module(\.\S+)? '
+  cause: by design
+  note: kernel modules belong to the node image; the declaration says only whether ib_umad and ib_ipoib load
+- match: '^(pci\.(files|aux|hwmon|ptp|irqs|local_cpulist|iommu_group|roce_enable|mlx5_num_vfs|ari_enabled|d3cold_allowed|power_state|reset_method|uevent)|rdma\.files|port\.(files|counters|hw_counters)|net\.(files|ecn|qos)(\.\S+)?|uverbs\.(by_ibdev|by_path|function_backlink)) '
+  cause: by design
+  note: rendered by the node agent, not decided by the declaration; compared at the rendered level
+- match: '^port\.pkeys \S+$|^net(\.\S+)? net/\S+/port\d+/pkey0x(8003|ffff)$'
+  cause: by design
+  note: partitions, which the subnet manager sets. An IPoIB interface is keyed by its partition, 0x8003 on this fabric and the default, 0xffff, on a declared node, so the two interfaces don't pair
+- match: '^(net\.mtu net/0016:01:00\.1/p1|ibv\.port\.N\.active_mtu ibv/0016:01:00\.1/dev|port\.(gids|gid_ndevs|link_local_gid_from_mac) port/0016:01:00\.[01]/dev/1)$'
+  cause: by design
+  note: front-end network configuration on the BlueField-3, MTU 9000 and IP addresses, whose GIDs the kernel adds; in this capture its link-local GIDs don't carry the interfaces' MACs
+- match: '^node\.dev_infiniband node$'
+  cause: by design
+  note: udev's by-ibdev and by-path directories and the SMI devices' issm files; each device file is compared on its own
+- match: '^ibv\.(Unknown flags|atomic_cap|completion timestamp_mask|cq moderation caps|device_cap_flags(_ex)?|general_odp_caps|hca_core_clock|local_ca_ack_delay|max_\S+|maximum available device memory|num_comp_vectors|packet_pacing_caps|page_size_cap|qp_rate_limit_(max|min)|raw packet caps|(rc|uc|ud|xrc)_odp_caps|rss_caps|rx_hash_(fields_mask|function)|supported_qp|tso_caps|port\.N\.(active_speed|active_width|bad_pkey_cntr|gid_tbl_len|init_type_reply|max_msg_sz|max_vl_num|phys_state|pkey_tbl_len|port_cap_flags2?|qkey_viol_cntr|sm_sl|subnet_timeout)) '
+  cause: schema gap
+  note: verbs device capabilities and port attributes beyond the ones render rule G10 formats; the declaration has no field for them yet
+- match: '^ibstat(\.\S+)? '
+  cause: schema gap
+  note: ibstat's view of the RDMA devices; no render rule formats it yet
+- match: '^cable(\.\S+)? '
+  cause: by design
+  note: cables and optical modules, which the declaration leaves out
+- match: '^fw(\.\S+)? '
+  cause: by design
+  note: the firmware tools' view, mlxconfig parameters and the flint image query; the declaration doesn't interpret firmware parameters
+- match: '^pci\.lspci\.\S+ '
+  cause: by design
+  note: lspci's view of config space, which the pcibus simulator renders from the same IDs and link; compared at the rendered level
+- match: '^rel\.vu_serial\.starts_with_serial rel/vu_serial/0016:01:00\.[01]$'
+  cause: schema gap
+  note: a BlueField's VPD VU starts with its board serial number; the declaration can only make VU a hash of where the function sits
