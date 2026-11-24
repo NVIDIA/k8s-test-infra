@@ -527,10 +527,10 @@ func TestSlotVPDWithoutProfileVPD(t *testing.T) {
 	require.Equal(t, "OEM-0001", functionAt(t, resolve(t, in), "0002:03:00.0").VPD["PN"])
 }
 
-// TestPortOrderDecidesNothing reverses every function's and RDMA device's port
-// list, which are sets, and the order of the slots and of each slot's GPUs:
-// the state stays the same. A port's identifiers and names follow its
-// physical number, its position in the configuration's ports.
+// TestPortOrderDecidesNothing reverses every function's port list, a set,
+// and the order of the slots and of each slot's GPUs: the state stays the
+// same. A port's identifiers and names follow its physical number, its
+// position in the configuration's ports.
 func TestPortOrderDecidesNothing(t *testing.T) {
 	t.Parallel()
 	for _, rack := range []string{"gb300-ethernet", "vr-nvl72", "gb300-nvl72"} {
@@ -545,9 +545,6 @@ func TestPortOrderDecidesNothing(t *testing.T) {
 				for j := range c.Functions {
 					slices.Reverse(c.Functions[j].Ports)
 				}
-				for j := range c.RDMADevices {
-					slices.Reverse(c.RDMADevices[j].Ports)
-				}
 			}
 			shuffled.Profiles[name] = p
 		}
@@ -560,9 +557,10 @@ func TestPortOrderDecidesNothing(t *testing.T) {
 	}
 }
 
-// TestPortsNumberPhysically gives an RDMA device two ports listed out of
-// physical order: port 1 is still the configuration's first.
-func TestPortsNumberPhysically(t *testing.T) {
+// TestPortsNumberInDeviceOrder gives an RDMA device two ports listed out of
+// physical order: the device numbers them as listed, port 1 taking the node
+// GUID, while each port's other identifiers follow its physical number.
+func TestPortsNumberInDeviceOrder(t *testing.T) {
 	t.Parallel()
 	in := input(t, "gb300-nvl72", FileNode("node-a"))
 	p := in.Profiles["cx8-c8280z"].DeepCopy()
@@ -574,9 +572,18 @@ func TestPortsNumberPhysically(t *testing.T) {
 	c.RDMADevices[0].Ports = []string{"p1", "p0"}
 	in.Profiles["cx8-c8280z"] = p
 	d := deviceOn(t, resolve(t, in), "0002:03:00.0")
-	require.Equal(t, "p0", d.Ports[0].ID)
+	require.Equal(t, "p1", d.Ports[0].ID)
 	require.Equal(t, 1, d.Ports[0].Number)
 	require.Equal(t, d.NodeGUID, d.Ports[0].GUID)
+	require.Equal(t, "p0", d.Ports[1].ID)
+
+	// Listing the ports the other way swaps which one is port 1; the second
+	// port's GUID follows its physical number either way.
+	c.RDMADevices[0].Ports = []string{"p0", "p1"}
+	e := deviceOn(t, resolve(t, in), "0002:03:00.0")
+	require.Equal(t, "p0", e.Ports[0].ID)
+	require.Equal(t, d.NodeGUID, e.Ports[0].GUID)
+	require.NotEqual(t, d.Ports[0].GUID, e.Ports[1].GUID, "p1's own GUID differs from the node GUID it took as port 1")
 }
 
 // TestBlueFieldVUStartsWithItsSerial checks a VPD identity that reuses
