@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  mokka-capture: `collect network` also takes each NIC function's sysfs attributes and vital product data, the RDMA device files and kernel modules, ECN and QoS settings, `ethtool`, `devlink`, and where present the NIC's firmware configuration, firmware image and cable, and `scrub` replaces the serials and IDs they print.
+time: 2026-11-24T00:10:00Z

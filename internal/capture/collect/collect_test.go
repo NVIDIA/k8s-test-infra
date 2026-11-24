@@ -81,7 +81,7 @@ func TestAllCapturesNodeAndClusterAndCleansUp(t *testing.T) {
 
 	for _, f := range []string{
 		"node-a/smi-q.xml", "node-a/smi-q-d-FABRIC.txt", "node-a/nvml-dump.json", "node-a/host-ibstat.txt",
-		"node-a/rdma-sysfs.txt", "node-a/cdi-toolkit-list.txt", "cluster/nodes.yaml",
+		"node-a/rdma-sysfs.txt", "node-a/pci-vpd-fields.txt", "node-a/fw-flint.txt", "node-a/cdi-toolkit-list.txt", "cluster/nodes.yaml",
 		"cluster/dcgm-nvidia-dcgm-exporter-z.txt", "cluster/versions.txt",
 	} {
 		require.FileExists(t, filepath.Join(out, f))

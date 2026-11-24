@@ -34,7 +34,7 @@ mokka-capture collect [flags] build-dump
 | --- | --- | --- |
 | `driver <node>...` | in the GPU Operator driver container, or with `-mock` a stand-in pod | `nvidia-smi`, the NVML dump, `/proc/driver/nvidia` |
 | `host <node>...` | in a temporary privileged pod | PCI, NUMA, device files, NICs, CDI specs |
-| `network <node>...` | in the same pod | only the NIC, interface and RDMA surfaces, plus the cluster's network objects and the nodes' NFD `NodeFeature`s |
+| `network <node>...` | in the same pod | only the NIC, interface and RDMA surfaces (below), plus the cluster's network objects and the nodes' NFD `NodeFeature`s |
 | `cluster` | on your machine | node labels, ResourceSlices, `ClusterPolicy`, DCGM metrics |
 | `all <node>...` | all of the above | `driver` and `host` for each node, then `cluster` |
 | `build-dump` | Docker, on your machine | a Linux `mokka-capture` for the NVML dump (below) |
@@ -51,7 +51,29 @@ files.
 
 The host pod is named `capture-<node>-<pid>` and is deleted when the command
 finishes, is interrupted, or fails. It is privileged, mounts the node's root
-filesystem, and installs `pciutils`, `rdma-core` and other tools with `apt`.
+filesystem, and installs `pciutils`, `rdma-core`, `mstflint` and other tools
+with `apt`.
+
+`network`, and `host` with it, takes each NIC surface a workload or operator
+can read, as plain text, one file per source:
+
+- PCI: every function with its config space (`host-lspci-mellanox-vv.txt`),
+  each NIC function's sysfs attributes and the bridges above it
+  (`pci-nic-sysfs.txt`), and its vital product data decoded from sysfs, as
+  `lspci` prints it (`pci-vpd-fields.txt`).
+- RDMA: devices and ports with GIDs, partition keys and counter names
+  (`rdma-sysfs.txt`), `/dev/infiniband` with each node's type and number and
+  the verbs and MAD classes behind it (`rdma-char-devices.txt`), `rdma dev`,
+  `link` and `system`, `ibstat`, `ibv_devinfo -v`, and the RDMA kernel
+  modules with their parameters (`sys-module-rdma.txt`).
+- Interfaces: `ip -d link`, sysfs (`net-sysfs.txt`), ECN and QoS settings
+  (`net-ecn-qos.txt`), `ethtool` with `-i` and `-m` (`net-ethtool*.txt`).
+- The NIC itself: `devlink` dev info, ports, eswitch mode and health reporters
+  (`devlink-*.txt`), and where MFT or mstflint is present the firmware
+  configuration (`fw-mlxconfig.txt`), firmware image (`fw-flint.txt`) and each
+  port's link and cable (`cable-mlxlink.txt`).
+
+A file whose tool the pod lacks is marked `FAILED` in `errors.log`.
 
 On a cluster where a new privileged pod is not welcome, `-exec-in
 namespace/name-part[/container]` runs the `host` and `network` commands in a pod

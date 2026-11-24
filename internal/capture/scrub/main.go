@@ -230,6 +230,14 @@ var (
 	// and phys_port_id.
 	switchIDRE = regexp.MustCompile(`(\bswitchid |\bphys_switch_id=|\bphys_port_id=)([0-9a-fA-F]{8,64})\b`)
 
+	// A PCI function's Device Serial Number, which lspci prints with dashes
+	// and a ConnectX makes from its GUID.
+	dsnRE = regexp.MustCompile(`(Device Serial Number )([0-9a-fA-F]{2}(?:-[0-9a-fA-F]{2}){7})\b`)
+
+	// flint prints a NIC's GUIDs and MACs as bare hex: Base GUID, Base MAC
+	// and, on a ConnectX-8, System, Node, Port and Allocated GUID.
+	baseIDRE = regexp.MustCompile(`(?m)^((?:Orig )?(?:[A-Z][a-z]+ )?(GUID|MAC):\s+)([0-9a-fA-F]{12,16})\b`)
+
 	// GUIDs that stand alone, not inside a longer address: in colon form or
 	// as 0x and 16 digits.
 	guidAloneRE = regexp.MustCompile(`(?:^|[^0-9a-fA-F:])([0-9a-fA-F]{4}(?::[0-9a-fA-F]{4}){3})(?:$|[^0-9a-fA-F:])|\b0x([0-9a-fA-F]{16})\b`)
@@ -289,8 +297,46 @@ var (
 		{kindChassis, regexp.MustCompile(`(?m)^platform\.chassis_serial_number: (\S+)$`), true},
 		{kindSerial, regexp.MustCompile(`"GetSerial":\{"ret":"SUCCESS","value":"([^"]+)"`), false},
 		{kindSerial, regexp.MustCompile(`\[SN\] Serial number: (\S+)`), false},
+		// devlink dev info; a cable's or transceiver's EEPROM, as mlxlink and
+		// ethtool -m print it.
+		{kindSerial, regexp.MustCompile(`(?m)^\s*(?:board\.)?serial_number\s+(\S+)$`), false},
+		{kindSerial, regexp.MustCompile(`(?m)^\s*Vendor (?:Serial Number|SN)\s*:\s*(\S+)`), false},
 	}
 )
+
+// scrubBareIDs replaces the GUIDs and MACs printed without colons. Each takes
+// the placeholder its colon form would, written the same way as the original,
+// so a function's serial number still matches its RDMA device's GUID and a
+// NIC's base MAC its first interface's.
+func (s *scrubber) scrubBareIDs(text string) string {
+	text = dsnRE.ReplaceAllStringFunc(text, func(m string) string {
+		p := dsnRE.FindStringSubmatch(m)
+		guid := groupHex(strings.ReplaceAll(p[2], "-", ""), 4, ":")
+		if notAnID(guid) {
+			return m
+		}
+		return p[1] + groupHex(strings.ReplaceAll(s.guidPlaceholder(guid), ":", ""), 2, "-")
+	})
+	return baseIDRE.ReplaceAllStringFunc(text, func(m string) string {
+		p := baseIDRE.FindStringSubmatch(m)
+		switch {
+		case p[2] == "GUID" && len(p[3]) == 16 && !notAnID(groupHex(p[3], 4, ":")):
+			return p[1] + strings.ReplaceAll(s.guidPlaceholder(groupHex(p[3], 4, ":")), ":", "")
+		case p[2] == "MAC" && len(p[3]) == 12 && !isPlaceholder("mac", groupHex(p[3], 2, ":")) && !isAbsent(p[3]):
+			return p[1] + strings.ReplaceAll(s.placeholder(kindMAC, strings.ToLower(groupHex(p[3], 2, ":"))), ":", "")
+		}
+		return m
+	})
+}
+
+// groupHex splits hex into groups of n digits joined by sep.
+func groupHex(hex string, n int, sep string) string {
+	var parts []string
+	for i := 0; i < len(hex); i += n {
+		parts = append(parts, hex[i:min(i+n, len(hex))])
+	}
+	return strings.Join(parts, sep)
+}
 
 // learnGUIDs records the GUIDs that stand alone in text, so a link-local GID
 // that carries one takes that GUID's placeholder wherever the two appear.
@@ -364,6 +410,8 @@ func (s *scrubber) scrub(text string) string {
 		}
 		return p[1] + s.placeholder(kindMachine, p[2])
 	})
+
+	text = s.scrubBareIDs(text)
 
 	text = xmlElementRE.ReplaceAllStringFunc(text, func(m string) string {
 		p := xmlElementRE.FindStringSubmatch(m)

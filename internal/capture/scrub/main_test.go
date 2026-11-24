@@ -600,3 +600,47 @@ func TestDumpPDIAndFabricGUIDFollowTheTextFiles(t *testing.T) {
 	require.Equal(t, []int{3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, d.Devices[0].Calls.GetPlatformInfo.Value.IbGUID,
 		"the fabric GUID is the first 8 bytes of IbGuid, little-endian")
 }
+
+func TestBareNICIdentifiersKeepTheirColonFormsPlaceholders(t *testing.T) {
+	// lspci's Device Serial Number and flint's base GUID are a ConnectX's
+	// GUID, and flint's base MAC its first port's MAC, written without
+	// colons. Each takes the placeholder of its colon form, in its own
+	// notation, so the relation survives.
+	in := "node_guid=0a1b:2c03:00d4:e5f6\n" +
+		"address=0a:1b:2c:d4:e5:f6\n" +
+		"\tCapabilities: [1c0 v1] Device Serial Number 0a-1b-2c-03-00-d4-e5-f6\n" +
+		"Base GUID:             0a1b2c0300d4e5f6        4\n" +
+		"Base MAC:              0a1b2cd4e5f6            4\n" +
+		"System GUID:           0a1b2c0300d4e5f6\n" +
+		"Node GUID:             0a1b2c0300d4e5f7\n" +
+		"Allocated GUID:        0000000000000000\n"
+	out := newScrubber(nil).scrub(in)
+
+	require.Equal(t, "node_guid=0000:0000:0000:0001\n"+
+		"address=02:00:00:00:00:01\n"+
+		"\tCapabilities: [1c0 v1] Device Serial Number 00-00-00-00-00-00-00-01\n"+
+		"Base GUID:             0000000000000001        4\n"+
+		"Base MAC:              020000000001            4\n"+
+		"System GUID:           0000000000000001\n"+
+		"Node GUID:             0000000000000002\n"+
+		"Allocated GUID:        0000000000000000\n", out)
+	require.Equal(t, out, newScrubber(nil).scrub(out), "scrubbing the output again changes nothing")
+}
+
+func TestNICSerialsAreLearned(t *testing.T) {
+	// devlink dev info, mlxlink -m and ethtool -m name a board's, a cable's
+	// and a transceiver's serial; each is then scrubbed wherever it appears.
+	s := newScrubber(nil)
+	text := "pci/0000:03:00.0:\n  driver mlx5_core\n  serial_number MT2423XZ0ABC\n  board.serial_number MT2423XZ0ABC\n" +
+		"Vendor Serial Number               : MT2342FT01234\n" +
+		"\tVendor SN                                 : AB2342FT05678\n"
+	s.learn(text)
+	out := s.scrub(text + "dmesg: MT2423XZ0ABC MT2342FT01234 AB2342FT05678\n")
+
+	for _, serial := range []string{"MT2423XZ0ABC", "MT2342FT01234", "AB2342FT05678"} {
+		require.NotContains(t, out, serial)
+	}
+	// Longer values are numbered first, so none is replaced inside another.
+	require.Contains(t, out, "  serial_number 1650000000003\n  board.serial_number 1650000000003\n")
+	require.Contains(t, out, "dmesg: 1650000000003 1650000000001 1650000000002\n")
+}
