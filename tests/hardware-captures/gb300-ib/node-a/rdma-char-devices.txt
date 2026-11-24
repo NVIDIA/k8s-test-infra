@@ -1,0 +1,108 @@
+== /dev/infiniband
+by-ibdev type=dir
+by-path type=dir
+issm10 type=char dev=e7:4a mode=600
+issm11 type=char dev=e7:4b mode=600
+issm12 type=char dev=e7:4c mode=600
+issm13 type=char dev=e7:4d mode=600
+issm14 type=char dev=e7:4e mode=600
+issm15 type=char dev=e7:4f mode=600
+issm16 type=char dev=e7:50 mode=600
+issm17 type=char dev=e7:51 mode=600
+issm18 type=char dev=e7:52 mode=600
+issm19 type=char dev=e7:53 mode=600
+issm20 type=char dev=e7:54 mode=600
+issm21 type=char dev=e7:55 mode=600
+issm6 type=char dev=e7:46 mode=600
+issm7 type=char dev=e7:47 mode=600
+issm8 type=char dev=e7:48 mode=600
+issm9 type=char dev=e7:49 mode=600
+rdma_cm type=char dev=a:10a mode=666
+umad0 type=char dev=e7:0 mode=600
+umad1 type=char dev=e7:1 mode=600
+umad10 type=char dev=e7:a mode=600
+umad11 type=char dev=e7:b mode=600
+umad12 type=char dev=e7:c mode=600
+umad13 type=char dev=e7:d mode=600
+umad14 type=char dev=e7:e mode=600
+umad15 type=char dev=e7:f mode=600
+umad16 type=char dev=e7:10 mode=600
+umad17 type=char dev=e7:11 mode=600
+umad18 type=char dev=e7:12 mode=600
+umad19 type=char dev=e7:13 mode=600
+umad2 type=char dev=e7:2 mode=600
+umad20 type=char dev=e7:14 mode=600
+umad21 type=char dev=e7:15 mode=600
+umad3 type=char dev=e7:3 mode=600
+umad4 type=char dev=e7:4 mode=600
+umad5 type=char dev=e7:5 mode=600
+umad6 type=char dev=e7:6 mode=600
+umad7 type=char dev=e7:7 mode=600
+umad8 type=char dev=e7:8 mode=600
+umad9 type=char dev=e7:9 mode=600
+uverbs0 type=char dev=e7:c0 mode=666
+uverbs1 type=char dev=e7:c1 mode=666
+uverbs2 type=char dev=e7:c2 mode=666
+uverbs3 type=char dev=e7:c3 mode=666
+uverbs4 type=char dev=e7:c4 mode=666
+uverbs5 type=char dev=e7:c5 mode=666
+by-ibdev/uverbs-mlx5_0 type=link target=../uverbs0
+by-ibdev/uverbs-mlx5_1 type=link target=../uverbs1
+by-ibdev/uverbs-mlx5_2 type=link target=../uverbs2
+by-ibdev/uverbs-mlx5_3 type=link target=../uverbs3
+by-ibdev/uverbs-mlx5_4 type=link target=../uverbs4
+by-ibdev/uverbs-mlx5_5 type=link target=../uverbs5
+by-path/pci-0000:03:00.0 type=link target=../uverbs0
+by-path/pci-0002:03:00.0 type=link target=../uverbs1
+by-path/pci-0010:03:00.0 type=link target=../uverbs2
+by-path/pci-0012:03:00.0 type=link target=../uverbs3
+by-path/pci-0016:01:00.0 type=link target=../uverbs4
+by-path/pci-0016:01:00.1 type=link target=../uverbs5
+== /sys/class/infiniband_verbs
+abi_version=6
+uverbs0 ibdev=mlx5_0 dev=231:192 abi_version=1 backlink=231:192
+uverbs1 ibdev=mlx5_1 dev=231:193 abi_version=1 backlink=231:193
+uverbs2 ibdev=mlx5_2 dev=231:194 abi_version=1 backlink=231:194
+uverbs3 ibdev=mlx5_3 dev=231:195 abi_version=1 backlink=231:195
+uverbs4 ibdev=mlx5_4 dev=231:196 abi_version=1 backlink=231:196
+uverbs5 ibdev=mlx5_5 dev=231:197 abi_version=1 backlink=231:197
+== /sys/class/infiniband_mad
+abi_version=5
+issm10 ibdev=smi1 dev=231:74 port=1 backlink=231:74
+issm11 ibdev=smi1 dev=231:75 port=2 backlink=231:75
+issm12 ibdev=smi1 dev=231:76 port=3 backlink=231:76
+issm13 ibdev=smi1 dev=231:77 port=4 backlink=231:77
+issm14 ibdev=smi2 dev=231:78 port=1 backlink=231:78
+issm15 ibdev=smi2 dev=231:79 port=2 backlink=231:79
+issm16 ibdev=smi2 dev=231:80 port=3 backlink=231:80
+issm17 ibdev=smi2 dev=231:81 port=4 backlink=231:81
+issm18 ibdev=smi3 dev=231:82 port=1 backlink=231:82
+issm19 ibdev=smi3 dev=231:83 port=2 backlink=231:83
+issm20 ibdev=smi3 dev=231:84 port=3 backlink=231:84
+issm21 ibdev=smi3 dev=231:85 port=4 backlink=231:85
+issm6 ibdev=smi0 dev=231:70 port=1 backlink=231:70
+issm7 ibdev=smi0 dev=231:71 port=2 backlink=231:71
+issm8 ibdev=smi0 dev=231:72 port=3 backlink=231:72
+issm9 ibdev=smi0 dev=231:73 port=4 backlink=231:73
+umad0 ibdev=mlx5_0 dev=231:0 port=1 backlink=231:0
+umad1 ibdev=mlx5_1 dev=231:1 port=1 backlink=231:1
+umad10 ibdev=smi1 dev=231:10 port=1 backlink=231:10
+umad11 ibdev=smi1 dev=231:11 port=2 backlink=231:11
+umad12 ibdev=smi1 dev=231:12 port=3 backlink=231:12
+umad13 ibdev=smi1 dev=231:13 port=4 backlink=231:13
+umad14 ibdev=smi2 dev=231:14 port=1 backlink=231:14
+umad15 ibdev=smi2 dev=231:15 port=2 backlink=231:15
+umad16 ibdev=smi2 dev=231:16 port=3 backlink=231:16
+umad17 ibdev=smi2 dev=231:17 port=4 backlink=231:17
+umad18 ibdev=smi3 dev=231:18 port=1 backlink=231:18
+umad19 ibdev=smi3 dev=231:19 port=2 backlink=231:19
+umad2 ibdev=mlx5_2 dev=231:2 port=1 backlink=231:2
+umad20 ibdev=smi3 dev=231:20 port=3 backlink=231:20
+umad21 ibdev=smi3 dev=231:21 port=4 backlink=231:21
+umad3 ibdev=mlx5_3 dev=231:3 port=1 backlink=231:3
+umad4 ibdev=mlx5_4 dev=231:4 port=1 backlink=231:4
+umad5 ibdev=mlx5_5 dev=231:5 port=1 backlink=231:5
+umad6 ibdev=smi0 dev=231:6 port=1 backlink=231:6
+umad7 ibdev=smi0 dev=231:7 port=2 backlink=231:7
+umad8 ibdev=smi0 dev=231:8 port=3 backlink=231:8
+umad9 ibdev=smi0 dev=231:9 port=4 backlink=231:9

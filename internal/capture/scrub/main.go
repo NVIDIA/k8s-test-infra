@@ -59,6 +59,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -93,8 +94,11 @@ type scrubber struct {
 	seen         map[string]map[string]string
 	next         map[string]int
 	learned      map[string]string // serial value -> kind, found by learn
-	log          []substitution
-	counts       map[string]int
+	// knownGUIDs holds the GUIDs learn found standing alone (guidKey form), so
+	// a link-local GID that carries one keeps that GUID's placeholder.
+	knownGUIDs map[string]bool
+	log        []substitution
+	counts     map[string]int
 }
 
 type substitution struct{ kind, from, to string }
@@ -109,6 +113,7 @@ func newScrubber(replacements [][2]string) *scrubber {
 		seen:         map[string]map[string]string{},
 		next:         map[string]int{},
 		counts:       map[string]int{},
+		knownGUIDs:   map[string]bool{},
 		learned:      map[string]string{},
 	}
 }
@@ -160,7 +165,10 @@ func (s *scrubber) placeholder(kind, value string) string {
 	case kindGUID:
 		out = fmt.Sprintf("0x%016x", n)
 	case kindIPv6:
-		out = fmt.Sprintf("fe80:0000:0000:0000:0000:0000:0000:%04x", n)
+		// In the documentation range, which no capture holds, and never equal
+		// to a link-local GID built from a GUID or MAC placeholder (see
+		// linkLocalPlaceholder).
+		out = fmt.Sprintf("2001:0db8:0000:0000:0000:0000:0000:%04x", n)
 	case kindMAC:
 		out = fmt.Sprintf("02:00:00:00:%02x:%02x", n>>8, n&0xff)
 	case kindIPv4:
@@ -196,6 +204,10 @@ var (
 		`(?P<uuid>\b` + uuidPat + `\b)`,
 		`(?P<ipv6>\b[0-9a-fA-F]{4}(?::[0-9a-fA-F]{4}){7}\b)`,
 		`(?P<enx>\benx[0-9a-f]{12}\b)`,
+		// An IPoIB hardware address: 4 bytes of flags and queue pair, then the
+		// port's GID, which carries its GUID. Taken whole before a MAC could
+		// match its first six bytes and leave the GUID.
+		`(?P<ipoib>\b[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){19}\b)`,
 		`(?P<mac>\b[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}\b)`,
 		`(?P<hex16>\b0x[0-9a-fA-F]{16}\b)`,
 		`(?P<guid>\b[0-9a-fA-F]{4}(?::[0-9a-fA-F]{4}){3}\b)`,
@@ -208,7 +220,27 @@ var (
 
 	groupNames = tokenRE.SubexpNames()
 
-	vpdRE = regexp.MustCompile(`(\[(?:VU|V3)\] Vendor specific: )([0-9a-fA-F]{16,32})(\S*)`)
+	// lspci prints a unit's VPD IDs; ConnectX-8 writes 64 digits in VU,
+	// followed by a marker (MLNXS0D0F0, MLNXDDIS0D0F0) that says which
+	// function holds it.
+	vpdRE = regexp.MustCompile(`(\[(?:VU|V3)\] Vendor specific: )([0-9a-fA-F]{16,64})(\S*)`)
+
+	// A NIC's switch and port IDs: hex derived from its GUID, with no 0x that
+	// would mark them. ip -d link prints switchid; sysfs has phys_switch_id
+	// and phys_port_id.
+	switchIDRE = regexp.MustCompile(`(\bswitchid |\bphys_switch_id=|\bphys_port_id=)([0-9a-fA-F]{8,64})\b`)
+
+	// A PCI function's Device Serial Number, which lspci prints with dashes
+	// and a ConnectX makes from its GUID.
+	dsnRE = regexp.MustCompile(`(Device Serial Number )([0-9a-fA-F]{2}(?:-[0-9a-fA-F]{2}){7})\b`)
+
+	// flint prints a NIC's GUIDs and MACs as bare hex: Base GUID, Base MAC
+	// and, on a ConnectX-8, System, Node, Port and Allocated GUID.
+	baseIDRE = regexp.MustCompile(`(?m)^((?:Orig )?(?:[A-Z][a-z]+ )?(GUID|MAC):\s+)([0-9a-fA-F]{12,16})\b`)
+
+	// GUIDs that stand alone, not inside a longer address: in colon form or
+	// as 0x and 16 digits.
+	guidAloneRE = regexp.MustCompile(`(?:^|[^0-9a-fA-F:])([0-9a-fA-F]{4}(?::[0-9a-fA-F]{4}){3})(?:$|[^0-9a-fA-F:])|\b0x([0-9a-fA-F]{16})\b`)
 
 	xmlElementRE = regexp.MustCompile(
 		`(<(serial|chassis_serial_number|pdi|gpu_fabric_guid)>)([^<]*)(</(?:serial|chassis_serial_number|pdi|gpu_fabric_guid)>)`)
@@ -265,11 +297,60 @@ var (
 		{kindChassis, regexp.MustCompile(`(?m)^platform\.chassis_serial_number: (\S+)$`), true},
 		{kindSerial, regexp.MustCompile(`"GetSerial":\{"ret":"SUCCESS","value":"([^"]+)"`), false},
 		{kindSerial, regexp.MustCompile(`\[SN\] Serial number: (\S+)`), false},
+		// devlink dev info; a cable's or transceiver's EEPROM, as mlxlink and
+		// ethtool -m print it.
+		{kindSerial, regexp.MustCompile(`(?m)^\s*(?:board\.)?serial_number\s+(\S+)$`), false},
+		{kindSerial, regexp.MustCompile(`(?m)^\s*Vendor (?:Serial Number|SN)\s*:\s*(\S+)`), false},
 	}
 )
 
+// scrubBareIDs replaces the GUIDs and MACs printed without colons. Each takes
+// the placeholder its colon form would, written the same way as the original,
+// so a function's serial number still matches its RDMA device's GUID and a
+// NIC's base MAC its first interface's.
+func (s *scrubber) scrubBareIDs(text string) string {
+	text = dsnRE.ReplaceAllStringFunc(text, func(m string) string {
+		p := dsnRE.FindStringSubmatch(m)
+		guid := groupHex(strings.ReplaceAll(p[2], "-", ""), 4, ":")
+		if notAnID(guid) {
+			return m
+		}
+		return p[1] + groupHex(strings.ReplaceAll(s.guidPlaceholder(guid), ":", ""), 2, "-")
+	})
+	return baseIDRE.ReplaceAllStringFunc(text, func(m string) string {
+		p := baseIDRE.FindStringSubmatch(m)
+		switch {
+		case p[2] == "GUID" && len(p[3]) == 16 && !notAnID(groupHex(p[3], 4, ":")):
+			return p[1] + strings.ReplaceAll(s.guidPlaceholder(groupHex(p[3], 4, ":")), ":", "")
+		case p[2] == "MAC" && len(p[3]) == 12 && !isPlaceholder("mac", groupHex(p[3], 2, ":")) && !isAbsent(p[3]):
+			return p[1] + strings.ReplaceAll(s.placeholder(kindMAC, strings.ToLower(groupHex(p[3], 2, ":"))), ":", "")
+		}
+		return m
+	})
+}
+
+// groupHex splits hex into groups of n digits joined by sep.
+func groupHex(hex string, n int, sep string) string {
+	var parts []string
+	for i := 0; i < len(hex); i += n {
+		parts = append(parts, hex[i:min(i+n, len(hex))])
+	}
+	return strings.Join(parts, sep)
+}
+
+// learnGUIDs records the GUIDs that stand alone in text, so a link-local GID
+// that carries one takes that GUID's placeholder wherever the two appear.
+func (s *scrubber) learnGUIDs(text string) {
+	for _, m := range guidAloneRE.FindAllStringSubmatch(text, -1) {
+		if v := m[1] + m[2]; !notAnID(v) {
+			s.knownGUIDs[guidKey(v)] = true
+		}
+	}
+}
+
 // learn records the serial numbers in text, so scrub can find them elsewhere.
 func (s *scrubber) learn(text string) {
+	s.learnGUIDs(text)
 	for _, p := range learnPatterns {
 		for _, m := range p.re.FindAllStringSubmatch(text, -1) {
 			values := []string{m[1]}
@@ -287,6 +368,7 @@ func (s *scrubber) learn(text string) {
 
 //nolint:cyclop // one branch per kind of identifier; splitting it would hide the order the rules apply in
 func (s *scrubber) scrub(text string) string {
+	s.learnGUIDs(text)
 	for _, r := range s.replacements {
 		text = strings.ReplaceAll(text, r[0], r[1])
 	}
@@ -316,11 +398,20 @@ func (s *scrubber) scrub(text string) string {
 	// the unit; the part numbers describe the model and stay.
 	text = vpdRE.ReplaceAllStringFunc(text, func(m string) string {
 		p := vpdRE.FindStringSubmatch(m)
-		if isAbsent(p[2]) {
+		if isAbsent(p[2]) || isPlaceholder("machine", p[2]) {
 			return m
 		}
 		return p[1] + s.placeholder(kindMachine, p[2]) + p[3]
 	})
+	text = switchIDRE.ReplaceAllStringFunc(text, func(m string) string {
+		p := switchIDRE.FindStringSubmatch(m)
+		if isAbsent(p[2]) || isPlaceholder("machine", p[2]) {
+			return m
+		}
+		return p[1] + s.placeholder(kindMachine, p[2])
+	})
+
+	text = s.scrubBareIDs(text)
 
 	text = xmlElementRE.ReplaceAllStringFunc(text, func(m string) string {
 		p := xmlElementRE.FindStringSubmatch(m)
@@ -404,6 +495,8 @@ func (s *scrubber) replaceToken(group, match, text string, start, end int) (stri
 		return "enx" + strings.ReplaceAll(s.placeholder(kindMAC, colon), ":", ""), true
 	case "mac":
 		return s.placeholder(kindMAC, match), true
+	case "ipoib":
+		return s.ipoibPlaceholder(match)
 	case "hex16":
 		// Kernel virtual addresses (module load addresses) look like GUIDs.
 		if strings.HasPrefix(strings.ToLower(match), "0xffff") {
@@ -438,7 +531,56 @@ func (s *scrubber) ipv6Placeholder(match, text string, start, end int) (string, 
 	if isPlaceholder("ipv6", expanded) {
 		return "", false
 	}
+	if p, ok := s.linkLocalPlaceholder(addr); ok {
+		return lead + p + trail, true
+	}
 	return lead + s.placeholder(kindIPv6, expanded) + trail, true
+}
+
+// linkLocalPlaceholder scrubs a link-local address, such as an RDMA GID, into
+// one built from the placeholder of the GUID or MAC its interface ID carries,
+// so the relation survives: GID 0 of an InfiniBand port is the port GUID, and
+// a RoCE link-local GID is its interface's MAC in EUI-64 form. An ID found
+// elsewhere as a GUID is a GUID (ConnectX GUIDs are built from a MAC too); an
+// ID with ff:fe in its middle is a MAC; any other is taken as a GUID.
+func (s *scrubber) linkLocalPlaceholder(addr netip.Addr) (string, bool) {
+	b := addr.As16()
+	if b[0] != 0xfe || b[1] != 0x80 || b[2]|b[3]|b[4]|b[5]|b[6]|b[7] != 0 {
+		return "", false
+	}
+	id := fmt.Sprintf("%02x%02x:%02x%02x:%02x%02x:%02x%02x", b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15])
+	if notAnID(id) {
+		return "", false
+	}
+	if s.knownGUIDs[guidKey(id)] || b[11] != 0xff || b[12] != 0xfe {
+		return "fe80:0000:0000:0000:" + s.guidPlaceholder(id), true
+	}
+	mac := fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x", b[8]^2, b[9], b[10], b[13], b[14], b[15])
+	m, err := net.ParseMAC(s.placeholder(kindMAC, mac))
+	if err != nil {
+		return "", false
+	}
+	return fmt.Sprintf("fe80:0000:0000:0000:%02x%02x:%02xff:fe%02x:%02x%02x", m[0]^2, m[1], m[2], m[3], m[4], m[5]), true
+}
+
+// ipoibPlaceholder scrubs an IPoIB hardware address: its last 8 bytes are the
+// port GUID, which takes that GUID's placeholder. An address that carries no
+// link-local GID, such as the broadcast address, names no port and stays.
+func (s *scrubber) ipoibPlaceholder(match string) (string, bool) {
+	b := strings.Split(strings.ToLower(match), ":")
+	if b[4] != "fe" || b[5] != "80" {
+		return "", false
+	}
+	id := strings.Join([]string{b[12] + b[13], b[14] + b[15], b[16] + b[17], b[18] + b[19]}, ":")
+	if notAnID(id) {
+		return "", false
+	}
+	g := strings.ReplaceAll(s.guidPlaceholder(id), ":", "")
+	out := b[:12]
+	for i := 0; i < len(g); i += 2 {
+		out = append(out, g[i:i+2])
+	}
+	return strings.Join(out, ":"), true
 }
 
 // trimAddrPunct splits off punctuation the pattern takes in but an address does
@@ -532,7 +674,12 @@ func isPlaceholder(group, v string) bool {
 	case "hex16", "guid":
 		return notAnID(v)
 	case "ipv6":
-		return strings.HasPrefix(strings.ToLower(v), "fe80:0000:0000:0000:0000:0000:0000:")
+		v = strings.ToLower(v)
+		return strings.HasPrefix(v, "fe80:0000:0000:0000:0000:0000:0000:") || // a GUID's, or an older scrub's
+			strings.HasPrefix(v, "fe80:0000:0000:0000:0000:00ff:fe") || // a MAC's
+			strings.HasPrefix(v, "2001:0db8:0000:0000:0000:0000:0000:")
+	case "ipoib":
+		return strings.HasPrefix(strings.ToLower(v)[12*3:], "00:00:00:00:00:00:")
 	case "machine":
 		return strings.HasPrefix(v, "0000000000000000000000000000")
 	case "ipv4":

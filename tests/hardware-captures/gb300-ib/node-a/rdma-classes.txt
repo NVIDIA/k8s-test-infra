@@ -1,0 +1,61 @@
+== /sys/class/infiniband
+mlx5_0
+mlx5_1
+mlx5_2
+mlx5_3
+mlx5_4
+mlx5_5
+smi0
+smi1
+smi2
+smi3
+== /sys/class/infiniband_verbs
+abi_version
+uverbs0
+uverbs1
+uverbs2
+uverbs3
+uverbs4
+uverbs5
+== /sys/class/infiniband_mad
+abi_version
+issm10
+issm11
+issm12
+issm13
+issm14
+issm15
+issm16
+issm17
+issm18
+issm19
+issm20
+issm21
+issm6
+issm7
+issm8
+issm9
+umad0
+umad1
+umad10
+umad11
+umad12
+umad13
+umad14
+umad15
+umad16
+umad17
+umad18
+umad19
+umad2
+umad20
+umad21
+umad3
+umad4
+umad5
+umad6
+umad7
+umad8
+umad9
+== /sys/class/infiniband_cm
+ls: cannot access '/sys/class/infiniband_cm': No such file or directory

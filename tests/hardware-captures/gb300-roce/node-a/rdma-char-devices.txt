@@ -1,0 +1,40 @@
+== /dev/infiniband
+mlx5_perm_ctrl_local type=char dev=ea:0 mode=666
+mlx5_perm_ctrl_other_vhca type=char dev=ea:1 mode=666
+rdma_cm type=char dev=a:108 mode=666
+umad0 type=char dev=e7:0 mode=666
+umad1 type=char dev=e7:1 mode=666
+umad17 type=char dev=e7:11 mode=666
+umad2 type=char dev=e7:2 mode=666
+umad3 type=char dev=e7:3 mode=666
+umad8 type=char dev=e7:8 mode=666
+uverbs0 type=char dev=e7:c0 mode=666
+uverbs1 type=char dev=e7:c1 mode=666
+uverbs17 type=char dev=e7:d1 mode=666
+uverbs2 type=char dev=e7:c2 mode=666
+uverbs3 type=char dev=e7:c3 mode=666
+uverbs4 type=char dev=e7:c4 mode=666
+uverbs5 type=char dev=e7:c5 mode=666
+uverbs6 type=char dev=e7:c6 mode=666
+uverbs7 type=char dev=e7:c7 mode=666
+uverbs8 type=char dev=e7:c8 mode=666
+== /sys/class/infiniband_verbs
+abi_version=6
+uverbs0 ibdev=rdma_rail0 dev=231:192 abi_version=1 backlink=231:192
+uverbs1 ibdev=rdma_rail1 dev=231:193 abi_version=1 backlink=231:193
+uverbs17 ibdev=mlx5_17 dev=231:209 abi_version=1 backlink=231:209
+uverbs2 ibdev=rdma_rail2 dev=231:194 abi_version=1 backlink=231:194
+uverbs3 ibdev=rdma_rail3 dev=231:195 abi_version=1 backlink=231:195
+uverbs4 ibdev=rdma_vf_rail0 dev=231:196 abi_version=1 backlink=231:196
+uverbs5 ibdev=rdma_vf_rail1 dev=231:197 abi_version=1 backlink=231:197
+uverbs6 ibdev=rdma_vf_rail2 dev=231:198 abi_version=1 backlink=231:198
+uverbs7 ibdev=rdma_vf_rail3 dev=231:199 abi_version=1 backlink=231:199
+uverbs8 ibdev=mlx5_8 dev=231:200 abi_version=1 backlink=231:200
+== /sys/class/infiniband_mad
+abi_version=5
+umad0 ibdev=rdma_vf_rail0 dev=231:0 port=1 backlink=231:0
+umad1 ibdev=rdma_vf_rail1 dev=231:1 port=1 backlink=231:1
+umad17 ibdev=mlx5_17 dev=231:17 port=1 backlink=231:17
+umad2 ibdev=rdma_vf_rail2 dev=231:2 port=1 backlink=231:2
+umad3 ibdev=rdma_vf_rail3 dev=231:3 port=1 backlink=231:3
+umad8 ibdev=mlx5_8 dev=231:8 port=1 backlink=231:8

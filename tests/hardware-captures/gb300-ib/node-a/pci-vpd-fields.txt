@@ -1,0 +1,109 @@
+== 0000:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Prime
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000007
+[V3] Vendor specific: 00000000000000000000000000000001
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000002MLNXS0D0F0
+== 0002:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Aux[1]
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000007
+[V3] Vendor specific: 00000000000000000000000000000003
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000004MLNXS0D0F0
+== 0008:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Prime
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000007
+[V3] Vendor specific: 00000000000000000000000000000003
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000002MLNXDDIS0D0F0
+== 0009:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Aux[1]
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000007
+[V3] Vendor specific: 00000000000000000000000000000001
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000004MLNXDDIS0D0F0
+== 0010:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Prime
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000008
+[V3] Vendor specific: 00000000000000000000000000000005
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000006MLNXS0D0F0
+== 0012:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Aux[1]
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000008
+[V3] Vendor specific: 00000000000000000000000000000007
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000008MLNXS0D0F0
+== 0016:01:00.0
+Product Name: BlueField-3 B3240 P-Series FHHL DPU for Cold Aisle, 400GbE / NDR IB, Dual-port QSFP, PCIe Gen5.0 x16 with x16 PCIe extension option, 16 Arm cores, 32GB on-board DDR, integrated BMC
+[PN] Part number: 900-9D3B6-00CN-PA0
+[EC] Engineering changes: A5
+[V2] Vendor specific: 900-9D3B6-00CN-PA0
+[SN] Serial number: 1650000000009
+[V3] Vendor specific: 00000000000000000000000000000009
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=D3B6
+[V0] Vendor specific: PCIeGen5 x16
+[VU] Vendor specific: 1650000000009MLNXS0D0F0
+== 0016:01:00.1
+Product Name: BlueField-3 B3240 P-Series FHHL DPU for Cold Aisle, 400GbE / NDR IB, Dual-port QSFP, PCIe Gen5.0 x16 with x16 PCIe extension option, 16 Arm cores, 32GB on-board DDR, integrated BMC
+[PN] Part number: 900-9D3B6-00CN-PA0
+[EC] Engineering changes: A5
+[V2] Vendor specific: 900-9D3B6-00CN-PA0
+[SN] Serial number: 1650000000009
+[V3] Vendor specific: 00000000000000000000000000000009
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=D3B6
+[V0] Vendor specific: PCIeGen5 x16
+[VU] Vendor specific: 1650000000009MLNXS0D0F1
+== 0016:01:00.2
+Product Name: BlueField-3 B3240 P-Series FHHL DPU for Cold Aisle, 400GbE / NDR IB, Dual-port QSFP, PCIe Gen5.0 x16 with x16 PCIe extension option, 16 Arm cores, 32GB on-board DDR, integrated BMC
+[PN] Part number: 900-9D3B6-00CN-PA0
+[EC] Engineering changes: A5
+[V2] Vendor specific: 900-9D3B6-00CN-PA0
+[SN] Serial number: 1650000000009
+[V3] Vendor specific: 00000000000000000000000000000009
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=D3B6
+[V0] Vendor specific: PCIeGen5 x16
+== 0018:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Prime
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000008
+[V3] Vendor specific: 00000000000000000000000000000007
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000006MLNXDDIS0D0F0
+== 0019:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Aux[1]
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000008
+[V3] Vendor specific: 00000000000000000000000000000005
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000008MLNXDDIS0D0F0

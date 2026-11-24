@@ -54,7 +54,10 @@ const defaultHostPodImage = "ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3
 type config struct {
 	out, operatorNS, driverCtr, toolkitCtr, toolkitCTK string
 	hostPodNS, hostPodImage, dumpBinary                string
-	mock                                               bool
+	// execIn names a pod the cluster already runs on each node, as
+	// namespace/name-part[/container], to run the host commands in.
+	execIn string
+	mock   bool
 }
 
 type collector struct {
@@ -71,8 +74,12 @@ type collector struct {
 	// driverPod, driverNS and driverCtr name the container the driver commands
 	// run in: the GPU Operator's driver container, or with -mock the stand-in.
 	driverPod, driverNS, driverCtr string
-	hostPod                        string
-	standIn                        string // the -mock stand-in pod, deleted like the host pod
+	hostPod                        string // the host pod this run created, deleted when done
+	// hostExec, hostNS and hostCtr name the pod and container the host
+	// commands run in: the run's host pod, or with -exec-in a borrowed one.
+	hostExec, hostNS, hostCtr string
+	execIn                    *podTarget
+	standIn                   string // the -mock stand-in pod, deleted like the host pod
 }
 
 // Command is `mokka-capture collect`. Its flags apply to every command under
@@ -163,6 +170,12 @@ func newCommand(kubectl string) *cli.Command {
 				Usage:       "the nodes are Mokka nodes: run the driver commands in a temporary stand-in pod, and opt it and the host pod into the mock with the nvml-mock NRI annotations",
 				Destination: &cfg.mock,
 			},
+			&cli.StringFlag{
+				Name: "exec-in",
+				Usage: "run the host commands in a pod the cluster already runs on each node, given as namespace/name-part[/container] " +
+					"(the first pod on the node whose name contains name-part), instead of a temporary host pod; creates, installs and deletes nothing",
+				Destination: &cfg.execIn,
+			},
 		},
 		Commands: []*cli.Command{
 			onNodes("driver", "nvidia-smi, NVML dump and /proc/driver/nvidia, taken inside the GPU Operator driver container on each node"),
@@ -188,6 +201,13 @@ func (c *collector) run(command string, nodes []string, stdout io.Writer) int {
 		c.stopPod(c.ctx, &c.hostPod)
 		c.stopPod(c.ctx, &c.standIn)
 	}()
+
+	target, err := parseExecIn(c.cfg.execIn)
+	if err != nil {
+		c.logf("error: -exec-in: %v", err)
+		return 2
+	}
+	c.execIn = target
 
 	switch command {
 	case "driver", "host", "network", "all":
@@ -219,7 +239,7 @@ func (c *collector) run(command string, nodes []string, stdout io.Writer) int {
 			if command == "all" {
 				c.captureCluster()
 			}
-			c.captureClusterNetwork()
+			c.captureClusterNetwork(nodes)
 		}
 	case "cluster":
 		if err := c.requireCluster(); err != nil {
@@ -227,7 +247,7 @@ func (c *collector) run(command string, nodes []string, stdout io.Writer) int {
 			return 1
 		}
 		c.captureCluster()
-		c.captureClusterNetwork()
+		c.captureClusterNetwork(nil)
 	case "build-dump":
 		return c.buildDump(stdout)
 	}
@@ -256,24 +276,86 @@ type nopCloser struct{ io.Writer }
 func (nopCloser) Close() error { return nil }
 
 // capture runs argv and writes its standard output to file in the current
-// directory. A failure is noted in errors.log and does not stop the run.
+// directory. A failure is noted in errors.log and does not stop the run. A
+// command whose connection to the cluster dropped is run again, up to
+// captureAttempts times in all: every command only reads, and a lost
+// connection would otherwise leave a file that looks like a missing surface.
 func (c *collector) capture(file string, stdin io.Reader, argv ...string) {
 	if c.ctx.Err() != nil {
 		return
 	}
-	out, err := os.Create(filepath.Join(c.dir, file))
-	if err != nil {
-		c.logf("FAILED: %s: %v", file, err)
-		return
+	var input []byte
+	if stdin != nil {
+		var err error
+		if input, err = io.ReadAll(stdin); err != nil {
+			c.logf("FAILED: %s: %v", file, err)
+			return
+		}
 	}
-	defer func() { _ = out.Close() }()
 	errs := c.errorsLog()
 	defer func() { _ = errs.Close() }()
-	if err := c.exec(stdin, out, errs, argv...); err != nil {
-		_, _ = fmt.Fprintf(errs, "FAILED: %s\n", file)
-		c.logf("FAILED: %s", file)
+	for attempt := 1; ; attempt++ {
+		var stderr bytes.Buffer
+		err := c.captureOnce(file, input, stdin != nil, &stderr, argv)
+		// Each try that failed or printed to standard error gets its own
+		// heading, so a reader of errors.log never takes one try's errors,
+		// such as a dropped connection that a retry recovered from, for the
+		// cause of the next failure.
+		if err != nil || stderr.Len() > 0 {
+			_, _ = fmt.Fprintf(errs, "%s%s, try %d\n", tryHeading, file, attempt)
+			_, _ = errs.Write(stderr.Bytes())
+		}
+		if err == nil {
+			return
+		}
+		if !c.retry(file, attempt, stderr.Bytes()) {
+			_, _ = fmt.Fprintf(errs, "FAILED: %s\n", file)
+			c.logf("FAILED: %s", file)
+			return
+		}
 	}
 }
+
+// retry says whether to run a failed command again, after a pause: only when
+// its connection to the cluster dropped and attempts are left.
+func (c *collector) retry(file string, attempt int, stderr []byte) bool {
+	if attempt >= captureAttempts || c.ctx.Err() != nil || !connectionDropped.Match(stderr) {
+		return false
+	}
+	c.logf("%s: the connection to the cluster dropped; trying again", file)
+	select {
+	case <-c.ctx.Done():
+		return false
+	case <-time.After(retryDelay):
+		return true
+	}
+}
+
+// captureOnce runs argv once, replacing file with its standard output.
+func (c *collector) captureOnce(file string, input []byte, hasInput bool, stderr io.Writer, argv []string) error {
+	out, err := os.Create(filepath.Join(c.dir, file))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = out.Close() }()
+	var stdin io.Reader
+	if hasInput {
+		stdin = bytes.NewReader(input)
+	}
+	return c.exec(stdin, out, stderr, argv...)
+}
+
+const (
+	captureAttempts = 3
+	retryDelay      = 2 * time.Second
+	// tryHeading starts the errors.log heading of one try of a command.
+	tryHeading = "--- "
+)
+
+// connectionDropped matches what kubectl prints when it loses the cluster, as
+// a tunnel such as Teleport's does now and then, rather than an answer from
+// the node.
+var connectionDropped = regexp.MustCompile(`Unable to connect to the server|error dialing backend|TLS handshake timeout|connection reset by peer|i/o timeout`)
 
 // captureText writes text, or notes the error, as capture does.
 func (c *collector) captureText(file, text string, err error) {
@@ -316,7 +398,20 @@ func (c *collector) drv(argv ...string) []string {
 
 // host returns the argv that runs a command in the node's host pod.
 func (c *collector) host(argv ...string) []string {
-	return append([]string{"kubectl", "-n", c.cfg.hostPodNS, "exec", c.hostPod, "--"}, argv...)
+	return append(c.hostExecArgs(), argv...)
+}
+
+// hostStdin is host with standard input attached.
+func (c *collector) hostStdin(argv ...string) []string {
+	return append(c.hostExecArgs("-i"), argv...)
+}
+
+func (c *collector) hostExecArgs(flags ...string) []string {
+	args := append(append([]string{"kubectl", "-n", c.hostNS, "exec"}, flags...), c.hostExec)
+	if c.hostCtr != "" {
+		args = append(args, "-c", c.hostCtr)
+	}
+	return append(args, "--")
 }
 
 func sh(script string) []string { return []string{"sh", "-c", script} }
@@ -341,7 +436,12 @@ func (c *collector) enter(dir string) {
 // podOn returns the first pod in the operator namespace on node whose name
 // contains part.
 func (c *collector) podOn(node, part string) string {
-	out, err := c.kubectlOut("-n", c.cfg.operatorNS, "get", "pods", "-o", "name", "--field-selector", "spec.nodeName="+node)
+	return c.podIn(c.cfg.operatorNS, node, part)
+}
+
+// podIn is podOn in namespace ns.
+func (c *collector) podIn(ns, node, part string) string {
+	out, err := c.kubectlOut("-n", ns, "get", "pods", "-o", "name", "--field-selector", "spec.nodeName="+node)
 	if err != nil {
 		c.logf("%v", err)
 		return ""

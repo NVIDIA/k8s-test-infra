@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  mokka-capture: `scrub` no longer leaves half of a ConnectX-8 VPD `VU` ID, the port GUID inside an IPoIB address, or a NIC switch ID in a scrubbed capture, and keeps a GID's relation to its GUID or MAC.
+time: 2026-11-23T23:00:00Z

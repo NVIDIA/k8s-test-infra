@@ -1,0 +1,290 @@
+CA 'mlx5_0'
+	CA type: MT4131
+	Number of ports: 1
+	Firmware version: 40.47.3576
+	Hardware version: 0
+	Node GUID: 0x0000000000000001
+	System image GUID: 0x0000000000000001
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 800
+		Base lid: 2471
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa751ec48
+		Port GUID: 0x0000000000000001
+		Link layer: InfiniBand
+CA 'mlx5_1'
+	CA type: MT4131
+	Number of ports: 1
+	Firmware version: 40.47.3576
+	Hardware version: 0
+	Node GUID: 0x0000000000000003
+	System image GUID: 0x0000000000000002
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 800
+		Base lid: 2637
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa751ec48
+		Port GUID: 0x0000000000000003
+		Link layer: InfiniBand
+CA 'mlx5_2'
+	CA type: MT4131
+	Number of ports: 1
+	Firmware version: 40.47.3576
+	Hardware version: 0
+	Node GUID: 0x0000000000000004
+	System image GUID: 0x0000000000000004
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 800
+		Base lid: 2536
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa751ec48
+		Port GUID: 0x0000000000000004
+		Link layer: InfiniBand
+CA 'mlx5_3'
+	CA type: MT4131
+	Number of ports: 1
+	Firmware version: 40.47.3576
+	Hardware version: 0
+	Node GUID: 0x0000000000000006
+	System image GUID: 0x0000000000000005
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 800
+		Base lid: 980
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa751ec48
+		Port GUID: 0x0000000000000006
+		Link layer: InfiniBand
+CA 'mlx5_4'
+	CA type: MT41692
+	Number of ports: 1
+	Firmware version: 32.47.3576
+	Hardware version: 1
+	Node GUID: 0x0000000000000007
+	System image GUID: 0x0000000000000007
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 400
+		Base lid: 0
+		LMC: 0
+		SM lid: 0
+		Capability mask: 0x00010000
+		Port GUID: 0x0000000000000008
+		Link layer: Ethernet
+CA 'mlx5_5'
+	CA type: MT41692
+	Number of ports: 1
+	Firmware version: 32.47.3576
+	Hardware version: 1
+	Node GUID: 0x0000000000000009
+	System image GUID: 0x0000000000000007
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 400
+		Base lid: 0
+		LMC: 0
+		SM lid: 0
+		Capability mask: 0x00010000
+		Port GUID: 0x000000000000000a
+		Link layer: Ethernet
+CA 'smi0'
+	CA type: MT4131
+	Number of ports: 4
+	Firmware version: 40.47.3576
+	Hardware version: 0
+	Node GUID: 0x0000000000000001
+	System image GUID: 0x0000000000000001
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 2471
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000001
+		Link layer: InfiniBand
+	Port 2:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 2471
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000001
+		Link layer: InfiniBand
+	Port 3:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 2471
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000001
+		Link layer: InfiniBand
+	Port 4:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 2471
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000001
+		Link layer: InfiniBand
+CA 'smi1'
+	CA type: MT4131
+	Number of ports: 4
+	Firmware version: 40.47.3576
+	Hardware version: 0
+	Node GUID: 0x0000000000000003
+	System image GUID: 0x0000000000000002
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 2637
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000003
+		Link layer: InfiniBand
+	Port 2:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 2637
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000003
+		Link layer: InfiniBand
+	Port 3:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 2637
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000003
+		Link layer: InfiniBand
+	Port 4:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 2637
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000003
+		Link layer: InfiniBand
+CA 'smi2'
+	CA type: MT4131
+	Number of ports: 4
+	Firmware version: 40.47.3576
+	Hardware version: 0
+	Node GUID: 0x0000000000000004
+	System image GUID: 0x0000000000000004
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 2536
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000004
+		Link layer: InfiniBand
+	Port 2:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 2536
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000004
+		Link layer: InfiniBand
+	Port 3:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 2536
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000004
+		Link layer: InfiniBand
+	Port 4:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 2536
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000004
+		Link layer: InfiniBand
+CA 'smi3'
+	CA type: MT4131
+	Number of ports: 4
+	Firmware version: 40.47.3576
+	Hardware version: 0
+	Node GUID: 0x0000000000000006
+	System image GUID: 0x0000000000000005
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 980
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000006
+		Link layer: InfiniBand
+	Port 2:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 980
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000006
+		Link layer: InfiniBand
+	Port 3:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 980
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000006
+		Link layer: InfiniBand
+	Port 4:
+		State: Active
+		Physical state: LinkUp
+		Rate: 200
+		Base lid: 980
+		LMC: 0
+		SM lid: 1
+		Capability mask: 0xa750e848
+		Port GUID: 0x0000000000000006
+		Link layer: InfiniBand
