@@ -132,11 +132,15 @@ func TestResolveGB300(t *testing.T) {
 	require.NotEqual(t, second.NodeGUID, second.SystemImageGUID)
 	require.Equal(t, "mlx5_1", second.Name)
 
-	// Only RoCE ports get netdevs: the BlueField-3's two.
-	require.Len(t, n.Netdevs, 2)
-	require.Equal(t, "enP22p1s0f0np0", n.Netdevs[0].Name)
-	require.Equal(t, n.Netdevs[0].Name, deviceOn(t, n, "0016:01:00.0").Ports[0].Netdev)
-	require.Equal(t, instance(t, n, "frontend0").SwitchID, n.Netdevs[1].SwitchID)
+	// The BlueField-3's two RoCE ports get Ethernet netdevs, and with IPoIB
+	// loaded each ConnectX-8 port an IPoIB one, named as the capture shows.
+	names := make([]string, 0, len(n.Netdevs))
+	for _, nd := range n.Netdevs {
+		names = append(names, nd.Name)
+	}
+	require.Equal(t, []string{"ibp3s0", "ibP2p3s0", "ibP16p3s0", "ibP18p3s0", "enP22p1s0f0np0", "enP22p1s0f1np1"}, names)
+	require.Equal(t, "enP22p1s0f0np0", deviceOn(t, n, "0016:01:00.0").Ports[0].Netdev)
+	require.Equal(t, instance(t, n, "frontend0").SwitchID, n.Netdevs[5].SwitchID)
 }
 
 func TestResolveDeclaredAbsentAndEmptyAttributes(t *testing.T) {
@@ -225,7 +229,10 @@ func TestConfigurationSwitch(t *testing.T) {
 	}
 	require.Equal(t, functionAt(t, before, "0009:03:00.0"), functionAt(t, after, "0009:03:00.0"), "the Data Direct function doesn't move")
 	require.Equal(t, "0x020700", functionAt(t, after, "0002:03:00.0").Class, "the other NICs keep their configuration")
-	require.Len(t, after.Netdevs, len(before.Netdevs)+4)
+	// Four Ethernet netdevs replace PF0's IPoIB netdev.
+	require.Len(t, after.Netdevs, len(before.Netdevs)+3)
+	// PF0 sits where it sat, so its RDMA device keeps its GUID, as on hardware.
+	require.Equal(t, deviceOn(t, before, "0000:03:00.0").NodeGUID, deviceOn(t, after, "0000:03:00.0").NodeGUID)
 }
 
 // identifiers lists every generated identifier on a Node by kind.
@@ -235,7 +242,15 @@ func identifiers(n *NICs) map[string][]string {
 		out["node GUID"] = append(out["node GUID"], d.NodeGUID)
 	}
 	for _, nd := range n.Netdevs {
-		out["MAC"] = append(out["MAC"], nd.MAC)
+		kind := map[string]string{LinkLayerEthernet: "MAC", LinkLayerInfiniBand: "IPoIB address"}[nd.LinkLayer]
+		out[kind] = append(out[kind], nd.Address)
+	}
+	for _, d := range n.Devices {
+		for _, p := range d.Ports {
+			if p.GUID != "" {
+				out["port GUID"] = append(out["port GUID"], p.GUID)
+			}
+		}
 	}
 	for _, in := range n.Instances {
 		out["switch ID"] = append(out["switch ID"], in.SwitchID)
@@ -273,7 +288,11 @@ func TestIdentifiersAreDeterministic(t *testing.T) {
 	for _, f := range without.Functions {
 		require.Equal(t, functionAt(t, first, f.Address).VPD, f.VPD, f.Address)
 	}
-	require.Equal(t, first.Netdevs, without.Netdevs)
+	for _, n := range without.Netdevs {
+		i := slices.IndexFunc(first.Netdevs, func(m Netdev) bool { return m.Name == n.Name })
+		require.GreaterOrEqual(t, i, 0, n.Name)
+		require.Equal(t, first.Netdevs[i], n)
+	}
 
 	// Another Node gets other identifiers, in either mode.
 	other := in
@@ -348,12 +367,162 @@ func TestNoVendorOrModelLiterals(t *testing.T) {
 
 func TestFormatting(t *testing.T) {
 	t.Parallel()
-	require.Equal(t, "enP1p3s0np0", predictableName("0001:03:00", 0, false, "p0"))
-	require.Equal(t, "enP13p65s0f1np1", predictableName("000d:41:00", 1, true, "p1"))
-	require.Equal(t, "enp3s0f2np2", predictableName("0000:03:00", 2, true, "p2"))
+	require.Equal(t, "enP1p3s0np0", predictableName("en", "0001:03:00", 0, false, "np0"))
+	require.Equal(t, "enP13p65s0f1np1", predictableName("en", "000d:41:00", 1, true, "np1"))
+	require.Equal(t, "enp3s0f2np2", predictableName("en", "0000:03:00", 2, true, "np2"))
+	require.Equal(t, "ibp3s0", predictableName("ib", "0000:03:00", 0, false, ""))
+	require.Equal(t, "ibP16p3s0", predictableName("ib", "0010:03:00", 0, false, ""))
+	require.Equal(t, "00:00:00:00:fe:80:00:00:00:00:00:00:01:23:45:67:89:ab:cd:ef", ipoibAddress("0123:4567:89ab:cdef"))
 	require.Equal(t, "fe80:0000:0000:0000:0000:00ff:fe00:0001", linkLocalGID("02:00:00:00:00:01"))
 	require.Equal(t, PCIID{VendorID: "15b3", DeviceID: "0000"}, subsystem(v1alpha1.NICFunctionType{SubsystemVendorID: "15b3"}))
 	require.Equal(t, PCIID{VendorID: "0000", DeviceID: "0208"}, subsystem(v1alpha1.NICFunctionType{SubsystemDeviceID: "0208"}))
 	require.Equal(t, "0", sysfsHWRev("0x0"))
 	require.Equal(t, "efa0", sysfsHWRev("0xefa0"))
+}
+
+// TestIdentifiersIgnoreProfileIDs renames every function, port and RDMA
+// device in every NIC profile and checks that no identifier, name or
+// placement on any fixture's Node changes: identifiers hash where something
+// sits, as a NIC's come from its ASIC, never what a profile calls it.
+func TestIdentifiersIgnoreProfileIDs(t *testing.T) {
+	t.Parallel()
+	paths, err := filepath.Glob(filepath.Join(rackFixtures, "*.yaml"))
+	require.NoError(t, err)
+	for _, path := range paths {
+		rack := strings.TrimSuffix(filepath.Base(path), ".yaml")
+		t.Run(rack, func(t *testing.T) {
+			t.Parallel()
+			in := input(t, rack, FileNode("node-a"))
+			want := resolve(t, in)
+
+			renamed := input(t, rack, FileNode("node-a"))
+			for name, p := range renamed.Profiles {
+				renamed.Profiles[name] = renameIDs(p)
+			}
+			for i, slot := range renamed.Topology.NICs {
+				if g := slot.SystemImageGUID; g != "" && g != v1alpha1.SystemImageGUIDDistinct {
+					renamed.Topology.NICs[i].SystemImageGUID = "renamed-" + g
+				}
+			}
+			got := resolve(t, renamed)
+			require.NotEqual(t, want.Functions[0].ID, got.Functions[0].ID, "the rename must reach the state")
+			require.Equal(t, withoutIDs(want), withoutIDs(got))
+		})
+	}
+}
+
+// renameIDs gives every function, port and RDMA device of a profile another
+// ID, and every reference to it.
+func renameIDs(p *v1alpha1.SNICProfile) *v1alpha1.SNICProfile {
+	p = p.DeepCopy()
+	rename := func(ids []string) {
+		for i := range ids {
+			ids[i] = "renamed-" + ids[i]
+		}
+	}
+	for i := range p.Spec.Configurations {
+		c := &p.Spec.Configurations[i]
+		for j := range c.Ports {
+			c.Ports[j].ID = "renamed-" + c.Ports[j].ID
+		}
+		for j := range c.Functions {
+			c.Functions[j].ID = "renamed-" + c.Functions[j].ID
+			rename(c.Functions[j].Ports)
+		}
+		for j := range c.RDMADevices {
+			d := &c.RDMADevices[j]
+			d.ID, d.Function = "renamed-"+d.ID, "renamed-"+d.Function
+			rename(d.Ports)
+		}
+	}
+	return p
+}
+
+// withoutIDs is the state with the profile's IDs blanked.
+func withoutIDs(n *NICs) *NICs {
+	out := *n
+	out.Functions = slices.Clone(n.Functions)
+	for i := range out.Functions {
+		out.Functions[i].ID = ""
+	}
+	out.Devices = slices.Clone(n.Devices)
+	for i := range out.Devices {
+		out.Devices[i].ID = ""
+		out.Devices[i].Ports = slices.Clone(out.Devices[i].Ports)
+		for j := range out.Devices[i].Ports {
+			out.Devices[i].Ports[j].ID = ""
+		}
+	}
+	out.Netdevs = slices.Clone(n.Netdevs)
+	for i := range out.Netdevs {
+		out.Netdevs[i].Port = ""
+	}
+	return &out
+}
+
+// TestIPoIBNetdevs checks the netdev ib_ipoib gives each InfiniBand port: the
+// name a captured GB300 tray shows for the ConnectX-8 at 0002:03:00, and an
+// address ending in the port's GID.
+func TestIPoIBNetdevs(t *testing.T) {
+	t.Parallel()
+	in := input(t, "gb300-nvl72", FileNode("node-a"))
+	n := resolve(t, in)
+	d := deviceOn(t, n, "0002:03:00.0")
+	i := slices.IndexFunc(n.Netdevs, func(nd Netdev) bool { return nd.Function == "0002:03:00.0" })
+	require.GreaterOrEqual(t, i, 0)
+	nd := n.Netdevs[i]
+	require.Equal(t, "ibP2p3s0", nd.Name)
+	require.Equal(t, LinkLayerInfiniBand, nd.LinkLayer)
+	require.Equal(t, nd.Name, d.Ports[0].Netdev)
+	guid := strings.ReplaceAll(d.NodeGUID, ":", "")
+	var bytes []string
+	for k := 0; k < len(guid); k += 2 {
+		bytes = append(bytes, guid[k:k+2])
+	}
+	require.Equal(t, "00:00:00:00:fe:80:00:00:00:00:00:00:"+strings.Join(bytes, ":"), nd.Address)
+	require.Empty(t, nd.PhysPortName)
+
+	in.RDMA = in.RDMA.DeepCopy()
+	in.RDMA.IPoIB = false
+	n = resolve(t, in)
+	require.False(t, slices.ContainsFunc(n.Netdevs, func(nd Netdev) bool { return nd.LinkLayer == LinkLayerInfiniBand }))
+	require.Empty(t, deviceOn(t, n, "0002:03:00.0").Ports[0].Netdev)
+}
+
+// TestInfiniBandPortsHaveTheirOwnGUIDs gives an RDMA device a second
+// InfiniBand port: the first port's GUID is the node GUID, the second has its
+// own, and each has its own GID and IPoIB netdev.
+func TestInfiniBandPortsHaveTheirOwnGUIDs(t *testing.T) {
+	t.Parallel()
+	in := input(t, "gb300-nvl72", FileNode("node-a"))
+	p := in.Profiles["cx8-c8280z"].DeepCopy()
+	c := &p.Spec.Configurations[0]
+	second := c.Ports[0]
+	second.ID = "p1"
+	c.Ports = append(c.Ports, second)
+	c.Functions[0].Ports = append(c.Functions[0].Ports, "p1")
+	c.RDMADevices[0].Ports = append(c.RDMADevices[0].Ports, "p1")
+	in.Profiles["cx8-c8280z"] = p
+
+	d := deviceOn(t, resolve(t, in), "0002:03:00.0")
+	require.Len(t, d.Ports, 2)
+	require.Equal(t, d.NodeGUID, d.Ports[0].GUID)
+	require.NotEqual(t, d.Ports[0].GUID, d.Ports[1].GUID)
+	require.NotEqual(t, d.Ports[0].GID, d.Ports[1].GID)
+	require.Equal(t, "ibP2p3s0", d.Ports[0].Netdev)
+	require.Equal(t, "ibP2p3s0d1", d.Ports[1].Netdev)
+}
+
+// TestSlotVPDWithoutProfileVPD keeps a slot's VPD overrides on a profile that
+// declares no VPD block.
+func TestSlotVPDWithoutProfileVPD(t *testing.T) {
+	t.Parallel()
+	in := input(t, "gb300-nvl72", FileNode("node-a"))
+	p := in.Profiles["cx8-c8280z"].DeepCopy()
+	p.Spec.VPD = nil
+	in.Profiles["cx8-c8280z"] = p
+	in.Topology = in.Topology.DeepCopy()
+	i := slices.IndexFunc(in.Topology.NICs, func(s v1alpha1.NICSlot) bool { return s.Slot == "nic1" })
+	in.Topology.NICs[i].VPD = map[string]string{"PN": "OEM-0001"}
+	require.Equal(t, "OEM-0001", functionAt(t, resolve(t, in), "0002:03:00.0").VPD["PN"])
 }
