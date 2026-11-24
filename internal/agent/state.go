@@ -12,7 +12,8 @@ import (
 )
 
 // State is the compiled desired simulation state the agent reconciles toward.
-// It maps 1:1 to what MEP-0001's Control Plane will emit.
+// It maps 1:1 to what MEP-0001's Control Plane will emit, except for the
+// fields an Enricher fills from this node.
 type State struct {
 	Generation int64
 	Node       NodeMeta
@@ -287,6 +288,30 @@ type NodeShape struct {
 	NumGPUs     int
 	Topology    PCIeTopology
 	Network     NetworkShape
+	// NUMA is set by the NUMA enricher, never by a source. It is nil when
+	// NUMA simulation is disabled or the layout could not be resolved.
+	NUMA *NUMATopology
+}
+
+// NUMATopology is the shared host-resolved layout. Simulators must treat it as
+// read-only; CPU IDs and memory amounts come from the node, not invented capacity.
+type NUMATopology struct {
+	Zones []NUMAZone `json:"zones"`
+	GPUs  []NUMAGPU  `json:"gpus,omitempty"`
+}
+
+// NUMAGPU records the locality published for an active GPU's PCI function.
+// A NUMANode of -1 preserves the PCI renderer's unknown locality.
+type NUMAGPU struct {
+	PCIBusID string `json:"pciBusID"`
+	NUMANode int    `json:"numaNode"`
+}
+
+// NUMAZone describes one simulated zone using real online CPU IDs.
+type NUMAZone struct {
+	ID       int    `json:"id"`
+	CPUs     []int  `json:"cpus"`
+	MemoryKB uint64 `json:"memoryKB"`
 }
 
 // NetworkShape describes the simulated InfiniBand HCAs attached to the node.
