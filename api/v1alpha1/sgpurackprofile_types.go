@@ -446,6 +446,125 @@ type SGPUTopology struct {
 	// +optional
 	// Network describes optional out-of-band network adapters.
 	Network *NetworkTopology `json:"network,omitempty"`
+
+	// +optional
+	// +kubebuilder:validation:MaxItems=64
+	// +listType=map
+	// +listMapKey=slot
+	// NICs places one NIC instance per entry on the Node: an SNICProfile, the
+	// configuration it runs and where each of its PCI devices sits.
+	NICs []NICSlot `json:"nics,omitempty"`
+}
+
+// SystemImageGUIDDistinct gives a NIC's RDMA devices a system image GUID that
+// is no device's node GUID.
+const SystemImageGUIDDistinct = "distinct"
+
+// NICSlot is one NIC instance on a Node. It names the profile and selects one
+// of its configurations; configuration data never lives in the slot.
+type NICSlot struct {
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// Slot names the instance, unique per Node, such as nic0 or frontend0.
+	Slot string `json:"slot"`
+
+	// +kubebuilder:validation:MinLength=1
+	// Profile is the name of an SNICProfile.
+	Profile string `json:"profile"`
+
+	// +optional
+	// Configuration is one of the profile's configurations; empty means its
+	// default.
+	Configuration string `json:"configuration,omitempty"`
+
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// Board groups the slots whose ASICs share one physical board. Board
+	// numbers are Node-wide.
+	Board *int32 `json:"board,omitempty"`
+
+	// +optional
+	// SystemImageGUID is the system image GUID of the NIC's RDMA devices:
+	// empty for the node GUID of its lowest-addressed RDMA device, an RDMA
+	// device ID for that device's node GUID, or "distinct" for a GUID that is
+	// no device's node GUID.
+	SystemImageGUID string `json:"systemImageGUID,omitempty"`
+
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:items:Minimum=0
+	// +kubebuilder:validation:items:Maximum=63
+	// GPUs are the indexes of the GPUs the NIC serves. They record locality;
+	// they don't restrict which GPUs may use the NIC.
+	GPUs []int32 `json:"gpus,omitempty"`
+
+	// +optional
+	// FirmwareVersion overrides the profile's identity.firmwareVersion.
+	FirmwareVersion string `json:"firmwareVersion,omitempty"`
+
+	// +optional
+	// VPD overrides model VPD keywords, such as EC.
+	VPD map[string]string `json:"vpd,omitempty"`
+
+	// +kubebuilder:validation:MinProperties=1
+	// Devices places each PCI device the profile's configurations name. One
+	// NIC's devices may sit under different root complexes.
+	Devices map[string]NICDevicePlacement `json:"devices"`
+}
+
+// NICDevicePlacement places one PCI device of a NIC. Function numbers come
+// from the configuration, so switching configuration never moves a device.
+type NICDevicePlacement struct {
+	// +kubebuilder:validation:Pattern=`^pci[0-9a-f]{4}:[0-9a-f]{2}$`
+	// RootComplex is the root complex, such as pci0009:00. A GPU slot naming
+	// the same root complex shares it.
+	RootComplex string `json:"rootComplex"`
+
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`
+	// RootPort is the root port's address; empty for a device on the root bus.
+	RootPort string `json:"rootPort,omitempty"`
+
+	// +optional
+	// RootPortID is the root port's PCI IDs. It is platform data, repeated
+	// here until the rack profile lists its root ports.
+	RootPortID *PCIID `json:"rootPortID,omitempty"`
+
+	// +optional
+	// +listType=atomic
+	// Bridges are the NIC's switch ports above or beside the device, parents
+	// first.
+	Bridges []PCIBridge `json:"bridges,omitempty"`
+
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}$`
+	// Address is the device's DDDD:BB:DD address.
+	Address string `json:"address"`
+
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`
+	// Parent is the root port or a bridge; empty for a device on the root
+	// bus.
+	Parent string `json:"parent,omitempty"`
+
+	// +kubebuilder:validation:Minimum=-1
+	// NUMANode is the device's NUMA node; -1 means unknown.
+	NUMANode int32 `json:"numaNode"`
+
+	// +optional
+	// VPDPosition is the suffix of the VPD product name, such as -Prime or
+	// -Aux[1].
+	VPDPosition string `json:"vpdPosition,omitempty"`
+}
+
+// PCIBridge is one exposed port of a NIC's PCIe switch.
+type PCIBridge struct {
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`
+	// Address is the bridge's address.
+	Address string `json:"address"`
+
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`
+	// Parent is the root port or an earlier bridge.
+	Parent string `json:"parent"`
 }
 
 // GPUSlot pins one GPU to a PCI address + NUMA/root-complex/host CPU.
@@ -560,6 +679,37 @@ type SGPUSoftware struct {
 	// +optional
 	// CUDAVersion is the CUDA version.
 	CUDAVersion string `json:"cudaVersion,omitempty"`
+
+	// +optional
+	// RDMA describes the Node image's RDMA stack: which optional modules it
+	// loads and the version its NIC driver reports.
+	RDMA *RDMASoftware `json:"rdma,omitempty"`
+}
+
+// RDMASoftware is what the Node image decides about RDMA, beyond what the NIC
+// and its driver produce.
+type RDMASoftware struct {
+	// +optional
+	// UMAD reports whether ib_umad loads: umad and issm files and the
+	// infiniband_mad class exist.
+	UMAD bool `json:"umad,omitempty"`
+
+	// +optional
+	// IPoIB reports whether ib_ipoib loads: each InfiniBand port gets an IPoIB
+	// netdev.
+	IPoIB bool `json:"ipoib,omitempty"`
+
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-7]{3,4}$`
+	// UMADMode is the udev file mode of umad and issm files, such as "666";
+	// empty means the kernel's 600.
+	UMADMode string `json:"umadMode,omitempty"`
+
+	// +optional
+	// DriverVersion is the version the image's NIC driver module reports,
+	// such as 26.01-1.0.0 from a driver package. Empty means the module
+	// reports none.
+	DriverVersion string `json:"driverVersion,omitempty"`
 }
 
 // SGPURackProfileDefaults is initial runtime state for fresh sGPUs.

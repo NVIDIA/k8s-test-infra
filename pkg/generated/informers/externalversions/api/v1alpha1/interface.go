@@ -19,6 +19,8 @@ type Interface interface {
 	SGPURackProfiles() TypedSGPURackProfileInformer
 	// SGPURuntimePolicies returns a SGPURuntimePolicyInformer.
 	SGPURuntimePolicies() TypedSGPURuntimePolicyInformer
+	// SNICProfiles returns a SNICProfileInformer.
+	SNICProfiles() TypedSNICProfileInformer
 }
 
 type version struct {
@@ -50,4 +52,9 @@ func (v *version) SGPURackProfiles() TypedSGPURackProfileInformer {
 // SGPURuntimePolicies returns a TypedSGPURuntimePolicyInformer.
 func (v *version) SGPURuntimePolicies() TypedSGPURuntimePolicyInformer {
 	return &sGPURuntimePolicyInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// SNICProfiles returns a TypedSNICProfileInformer.
+func (v *version) SNICProfiles() TypedSNICProfileInformer {
+	return &sNICProfileInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }

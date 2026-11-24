@@ -78,6 +78,47 @@ spec:
                       maxLength: 63
                       minLength: 1
                       type: string
+                    nicOverrides:
+                      description: |-
+                        NICOverrides replace the profile, configuration, firmware or VPD of NIC
+                        slots for this group's racks, so groups sharing a rack profile can run
+                        other NICs or modes. Overrides apply in order; a later one wins for a
+                        field both set.
+                      items:
+                        description: NICOverride changes NIC slots of a rack profile
+                          for one rack group.
+                        properties:
+                          configuration:
+                            description: Configuration replaces the slot's configuration.
+                            type: string
+                          firmwareVersion:
+                            description: FirmwareVersion replaces the slot's firmware
+                              version.
+                            type: string
+                          profile:
+                            description: |-
+                              Profile replaces the slot's profile. Configuration names belong to a
+                              profile, so the slot's own configuration no longer applies.
+                            type: string
+                          slots:
+                            description: Slots are the names of the slots the override
+                              applies to.
+                            items:
+                              type: string
+                            minItems: 1
+                            type: array
+                            x-kubernetes-list-type: set
+                          vpd:
+                            additionalProperties:
+                              type: string
+                            description: VPD overrides model VPD keywords, on top
+                              of the slot's own overrides.
+                            type: object
+                        required:
+                        - slots
+                        type: object
+                      type: array
+                      x-kubernetes-list-type: atomic
                     placement:
                       description: Placement optionally restricts the Nodes eligible
                         for this rack group.

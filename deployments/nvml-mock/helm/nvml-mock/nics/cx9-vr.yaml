@@ -1,0 +1,36 @@
+# ConnectX-9 as fitted in a VR NVL72 compute tray.
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SNICProfile
+metadata:
+  name: cx9-vr
+spec:
+  identity:
+    model: ConnectX-9
+    hcaType: MT4133
+    boardID: MT_0000001658
+    firmwareVersion: "82.48.4222"
+    partNumber: 900-9X9BE-00PB-TS5EC
+    vendorOUI: "0x02c9"
+  sources:
+    - tests/hardware-captures/vr-nvl72/node-a
+  switchPort: {vendorID: "15b3", deviceID: "197c"}
+  functionTypes:
+    network:
+      vendorID: "15b3"
+      deviceID: "1025"
+      subsystemVendorID: "15b3"
+      subsystemDeviceID: "0671"
+      driver: mlx5_core
+      rdmaNamePrefix: mlx5_
+      totalVFs: 1
+      vpd: true
+  defaultConfiguration: eth-1x200
+  configurations:
+    # Firmware settings not read; the layout is what the capture shows.
+    - name: eth-1x200
+      ports:
+        - {id: p0, technology: roce, width: 1, laneSpeed: XDR, planes: 0}
+      functions:
+        - {id: pf0, type: network, pciDevice: network, function: 0, class: "0x020000", ports: [p0]}
+      rdmaDevices:
+        - {id: rdma0, function: pf0, ports: [p0]}
