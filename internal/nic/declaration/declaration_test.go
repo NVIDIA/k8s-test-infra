@@ -78,6 +78,12 @@ func TestProfileValidate(t *testing.T) {
 			c.Functions = append(c.Functions, v1alpha1.NICFunction{ID: "pf1", Type: "network", PCIDevice: "network", Function: 1, Class: "0x020000", Ports: []string{"p1"}})
 			c.RDMADevices[0].Ports = []string{"p1"}
 		}, "RDMA device r0: port p1 doesn't belong to function pf0"},
+		{"two rdma devices on one function", func(p *v1alpha1.SNICProfile) {
+			c := &p.Spec.Configurations[0]
+			second := c.RDMADevices[0]
+			second.ID = "r1"
+			c.RDMADevices = append(c.RDMADevices, second)
+		}, "RDMA devices r0 and r1 are both on function pf0, which has one"},
 		{"uppercase vendor OUI", func(p *v1alpha1.SNICProfile) { p.Spec.Identity.VendorOUI = "0x02C9" }, "vendorOUI"},
 		{"function type without a driver", func(p *v1alpha1.SNICProfile) {
 			ft := p.Spec.FunctionTypes["network"]

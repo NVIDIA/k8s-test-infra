@@ -165,13 +165,19 @@ func validatePortOwners(pr *problems, where string, c *v1alpha1.NICConfiguration
 }
 
 // validateRDMADevices checks the RDMA devices against the ports each
-// function owns: a device's ports are its function's.
+// function owns: a device's ports are its function's, and a function has one
+// device, as a PCI function has on hardware. An RDMA device's identifiers
+// come from its function's position, so two on one function would share them.
 func validateRDMADevices(pr *problems, where string, devices []v1alpha1.NICRDMADevice, ports map[string]bool,
 	functions map[string][]string) {
 	ids := map[string]bool{}
+	onFunction := map[string]string{} // function -> RDMA device
 	for _, d := range devices {
 		pr.check(d.ID != "" && !ids[d.ID], "%s: RDMA device ID %q is empty or used twice", where, d.ID)
 		ids[d.ID] = true
+		prev, taken := onFunction[d.Function]
+		pr.check(!taken, "%s: RDMA devices %s and %s are both on function %s, which has one", where, prev, d.ID, d.Function)
+		onFunction[d.Function] = d.ID
 		owned, known := functions[d.Function]
 		pr.check(known, "%s: RDMA device %s: unknown function %q", where, d.ID, d.Function)
 		pr.check(len(d.Ports) > 0, "%s: RDMA device %s has no ports", where, d.ID)
