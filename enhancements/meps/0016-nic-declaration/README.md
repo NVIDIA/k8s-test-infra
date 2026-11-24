@@ -584,7 +584,8 @@ nics:
   slots:
     # … from profiles/gb300.yaml
 nic_profiles:              # appended by the chart: the profiles the slots name
-  - kind: SNICProfile
+  - apiVersion: mokka.nvidia.com/v1alpha1
+    kind: SNICProfile
     metadata: {name: cx8-c8280z}
     spec:
       # …
@@ -685,14 +686,15 @@ nics:
     - slots: [nic0, nic1, nic2, nic3]
       configuration: eth-multiplane
   customProfiles:                  # SNICProfiles in the same schema as the shipped files
-    - kind: SNICProfile
+    - apiVersion: mokka.nvidia.com/v1alpha1
+      kind: SNICProfile
       metadata: {name: cx7-oem}
       spec:
         # …
   slots: []                        # replaces the GPU profile's slots, for a platform it doesn't describe
 ```
 
-A custom profile can't reuse a shipped profile's name, and an override without `slots` fails the render.
+The chart fails the render on mistakes it can see: an override without `slots`, or naming an unknown slot or configuration; a custom profile without `apiVersion`, or reusing a shipped profile's name.
 
 ### Test plan
 
