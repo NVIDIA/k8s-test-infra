@@ -515,7 +515,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `name` _string_ | Name is what slots and overrides select. |  | MinLength: 1 <br /> |
-| `ports` _[NICPort](#nicport) array_ | Ports are the configuration's logical network ports. |  | Optional: \{\} <br /> |
+| `ports` _[NICPort](#nicport) array_ | Ports are the configuration's logical network ports, in physical order:<br />a port's position is its number, p0 first, and its identifiers and<br />names follow from that number. |  | Optional: \{\} <br /> |
 | `functions` _[NICFunction](#nicfunction) array_ | Functions are the PCI functions the configuration produces. |  | MinItems: 1 <br /> |
 | `rdmaDevices` _[NICRDMADevice](#nicrdmadevice) array_ | RDMADevices are the RDMA devices the driver creates. |  | Optional: \{\} <br /> |
 
@@ -631,10 +631,11 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `slots` _string array_ | Slots are the names of the slots the override applies to. |  | MinItems: 1 <br /> |
-| `profile` _string_ | Profile replaces the slot's profile. The slot's configuration, firmware<br />version and VPD belong to the old model, so they no longer apply; the<br />new profile's own do, unless this override sets them. |  | Optional: \{\} <br /> |
+| `profile` _string_ | Profile replaces the slot's profile. The slot's configuration, firmware<br />version, VPD and a systemImageGUID that names an RDMA device belong to<br />the old model, so they no longer apply; the new profile's own do, unless<br />this override sets them. A distinct systemImageGUID carries over. |  | Optional: \{\} <br /> |
 | `configuration` _string_ | Configuration replaces the slot's configuration. |  | Optional: \{\} <br /> |
 | `firmwareVersion` _string_ | FirmwareVersion replaces the slot's firmware version. |  | Optional: \{\} <br /> |
 | `vpd` _object (keys:string, values:string)_ | VPD overrides model VPD keywords, on top of the slot's own overrides. |  | Optional: \{\} <br /> |
+| `systemImageGUID` _string_ | SystemImageGUID replaces the slot's systemImageGUID: "distinct", or an<br />RDMA device of the selected configuration. |  | Optional: \{\} <br /> |
 
 
 #### NICPCIeLink
@@ -1642,10 +1643,13 @@ _Appears in:_
 
 _Underlying type:_ _string_
 
-VPDScope names which NIC functions share one generated VPD value.
+VPDScope names which NIC functions share one generated VPD value: board,
+asic or boardPosition, or another identity keyword whose generated value
+this one reuses before its function suffix, as a BlueField's VU starts with
+its SN.
 
 _Validation:_
-- Enum: [board asic boardPosition]
+- Pattern: `^(board|asic|boardPosition|[A-Z0-9]{2})$`
 
 _Appears in:_
 - [NICVPD](#nicvpd)

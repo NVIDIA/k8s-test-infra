@@ -21,7 +21,7 @@ spec:
       V2: 900-9D3B6-00CN-PA0
       VA: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=D3B6
       V0: PCIeGen5 x16
-    identities: {SN: asic, V3: asic, VU: asic}
+    identities: {SN: asic, V3: asic, VU: SN}
   functionTypes:
     network:
       vendorID: "15b3"

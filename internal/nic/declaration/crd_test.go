@@ -8,11 +8,15 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	apixv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	structuralschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
+	"k8s.io/apiextensions-apiserver/pkg/apiserver/schema/listtype"
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
 	"sigs.k8s.io/yaml"
 
@@ -196,6 +200,116 @@ func TestSlotShapesMatchTheCRD(t *testing.T) {
 			mutate(r)
 			require.Error(t, crd(r), "the CRD should reject this; if the schema changed, update the case")
 			require.Error(t, goErr(r), "file mode accepts what the CRD rejects")
+		})
+	}
+}
+
+// crdRawValidator validates a raw object as the API server does on create:
+// against the CRD's schema, and the uniqueness of set and map list items.
+func crdRawValidator(t *testing.T, file string) func(raw map[string]any) error {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(crdDir, file))
+	require.NoError(t, err)
+	var crd apixv1.CustomResourceDefinition
+	require.NoError(t, yaml.Unmarshal(data, &crd))
+	var schema apiextensions.JSONSchemaProps
+	require.NoError(t, apixv1.Convert_v1_JSONSchemaProps_To_apiextensions_JSONSchemaProps(
+		crd.Spec.Versions[0].Schema.OpenAPIV3Schema, &schema, nil))
+	validator, _, err := validation.NewSchemaValidator(&schema)
+	require.NoError(t, err)
+	structural, err := structuralschema.NewStructural(&schema)
+	require.NoError(t, err)
+	return func(raw map[string]any) error {
+		errs := validation.ValidateCustomResource(nil, raw, validator)
+		errs = append(errs, listtype.ValidateListSetsAndMaps(nil, structural, raw)...)
+		return errs.ToAggregate()
+	}
+}
+
+// rawDoc reads a YAML file into the map the API server would validate, so a
+// test can drop or repeat keys that Go's types would fill in or merge.
+func rawDoc(t *testing.T, path string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var raw map[string]any
+	require.NoError(t, yaml.Unmarshal(data, &raw))
+	return raw
+}
+
+// get walks map keys and list indexes, such as "spec.configurations.0".
+func get(raw any, path string) any {
+	for _, f := range strings.Split(path, ".") {
+		switch v := raw.(type) {
+		case map[string]any:
+			raw = v[f]
+		case []any:
+			i, _ := strconv.Atoi(f)
+			raw = v[i]
+		}
+	}
+	return raw
+}
+
+// TestRawDocumentsMatchTheCRD runs the same raw documents through the CRD, as
+// the API server does, and through file mode's decoding: an omitted required
+// field, the same field set to zero, and repeated items of set and map lists
+// get the same answer from both.
+func TestRawDocumentsMatchTheCRD(t *testing.T) {
+	t.Parallel()
+	profileCRD := crdRawValidator(t, "mokka.nvidia.com_snicprofiles.yaml")
+	rackCRD := crdRawValidator(t, "mokka.nvidia.com_sgpurackprofiles.yaml")
+	profileFile := filepath.Join(chartNICs, "cx8-c8280z.yaml")
+	pf0 := "spec.configurations.0.functions.0"
+	port := "spec.configurations.0.ports.0"
+	slot := "spec.node.topology.nics.0"
+	for name, tc := range map[string]struct {
+		rack   bool
+		mutate func(raw map[string]any)
+		valid  bool
+	}{
+		"profile as shipped":         {valid: true, mutate: func(map[string]any) {}},
+		"function omitted":           {mutate: func(r map[string]any) { delete(get(r, pf0).(map[string]any), "function") }},
+		"function zero":              {valid: true, mutate: func(r map[string]any) { get(r, pf0).(map[string]any)["function"] = 0 }},
+		"planes omitted":             {mutate: func(r map[string]any) { delete(get(r, port).(map[string]any), "planes") }},
+		"planes zero":                {valid: true, mutate: func(r map[string]any) { get(r, port).(map[string]any)["planes"] = 0 }},
+		"a function's port repeated": {mutate: func(r map[string]any) { m := get(r, pf0).(map[string]any); m["ports"] = []any{"p0", "p0"} }},
+		"configuration repeated": {mutate: func(r map[string]any) {
+			s := get(r, "spec").(map[string]any)
+			s["configurations"] = append(s["configurations"].([]any), get(r, "spec.configurations.0"))
+		}},
+		"rack as shipped": {rack: true, valid: true, mutate: func(map[string]any) {}},
+		"numaNode omitted": {rack: true, mutate: func(r map[string]any) {
+			delete(get(r, slot+".devices.hostA").(map[string]any), "numaNode")
+		}},
+		"numaNode zero": {rack: true, valid: true, mutate: func(r map[string]any) {
+			get(r, slot+".devices.hostA").(map[string]any)["numaNode"] = 0
+		}},
+		"a slot's GPU repeated": {rack: true, mutate: func(r map[string]any) { get(r, slot).(map[string]any)["gpus"] = []any{0, 0} }},
+		"slot repeated": {rack: true, mutate: func(r map[string]any) {
+			t := get(r, "spec.node.topology").(map[string]any)
+			t["nics"] = append(t["nics"].([]any), get(r, slot))
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			path, crd, decode := profileFile, profileCRD, func(b []byte) error { _, err := DecodeProfile(b); return err }
+			if tc.rack {
+				path, crd = rackExample, rackCRD
+				decode = func(b []byte) error { _, err := DecodeRackProfile(b); return err }
+			}
+			raw := rawDoc(t, path)
+			tc.mutate(raw)
+			data, err := yaml.Marshal(raw)
+			require.NoError(t, err)
+			crdErr, fileErr := crd(raw), decode(data)
+			if tc.valid {
+				require.NoError(t, crdErr)
+				require.NoError(t, fileErr)
+				return
+			}
+			require.Error(t, crdErr, "the CRD should reject this")
+			require.Error(t, fileErr, "file mode accepts what the CRD rejects")
 		})
 	}
 }

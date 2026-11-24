@@ -165,6 +165,41 @@ func TestProfileRevisionCanonicalVector(t *testing.T) {
 	require.NotEqual(t, revision, changedRevision)
 }
 
+// TestProfileRevisionIgnoresNICOrder keeps a rack profile's revision when the
+// lists whose order means nothing are reordered: root ports, NIC slots and a
+// slot's GPUs. A changed parent is a changed topology, so it changes it.
+func TestProfileRevisionIgnoresNICOrder(t *testing.T) {
+	profile := validProfile()
+	topology := profile.Spec.Node.Topology
+	topology.RootPorts = []mokkav1alpha1.RootPort{
+		{Address: "0000:00:01.0", RootComplex: "pci0000:00"}, {Address: "0000:00:02.0", RootComplex: "pci0000:00"},
+	}
+	device := func(addr, parent string) map[string]mokkav1alpha1.NICDevicePlacement {
+		return map[string]mokkav1alpha1.NICDevicePlacement{"network": {RootComplex: "pci0000:00", Address: addr, Parent: parent}}
+	}
+	topology.NICs = []mokkav1alpha1.NICSlot{
+		{Slot: "nic0", Profile: "p", GPUs: []int32{1, 0}, Devices: device("0000:03:00", "0000:00:01.0")},
+		{Slot: "nic1", Profile: "p", GPUs: []int32{0}, Devices: device("0000:04:00", "0000:00:02.0")},
+	}
+	revision, err := ProfileRevision(profile.Spec)
+	require.NoError(t, err)
+
+	reordered := *profile.Spec.DeepCopy()
+	rt := reordered.Node.Topology
+	rt.RootPorts[0], rt.RootPorts[1] = rt.RootPorts[1], rt.RootPorts[0]
+	rt.NICs[0], rt.NICs[1] = rt.NICs[1], rt.NICs[0]
+	rt.NICs[1].GPUs = []int32{0, 1}
+	reorderedRevision, err := ProfileRevision(reordered)
+	require.NoError(t, err)
+	require.Equal(t, revision, reorderedRevision)
+
+	moved := *profile.Spec.DeepCopy()
+	moved.Node.Topology.NICs[0].Devices = device("0000:03:00", "0000:00:02.0")
+	movedRevision, err := ProfileRevision(moved)
+	require.NoError(t, err)
+	require.NotEqual(t, revision, movedRevision)
+}
+
 func TestRenderRack(t *testing.T) {
 	profile := validProfile()
 	profile.Spec.Node.Topology.GPUSlots[0], profile.Spec.Node.Topology.GPUSlots[1] =

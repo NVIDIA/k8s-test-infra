@@ -12,6 +12,7 @@
 package declaration
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -67,7 +68,7 @@ type Profiles map[string]*v1alpha1.SNICProfile
 // An unknown field is an error, so a typo can't silently drop a value.
 func DecodeProfile(data []byte) (*v1alpha1.SNICProfile, error) {
 	var p v1alpha1.SNICProfile
-	if err := decode(data, kindNICProfile, &p.TypeMeta, &p); err != nil {
+	if err := decode(data, kindNICProfile, &p.TypeMeta, &p, ""); err != nil {
 		return nil, err
 	}
 	if p.Name == "" {
@@ -79,22 +80,37 @@ func DecodeProfile(data []byte) (*v1alpha1.SNICProfile, error) {
 	return &p, nil
 }
 
+// rackNICPaths are the parts of a rack profile NIC declaration reads. Only
+// they are checked raw, so a fragment holding just them decodes.
+var rackNICPaths = []string{
+	"spec.node.topology.rootPorts", "spec.node.topology.gpuSlots", "spec.node.topology.nics", "spec.software.rdma",
+}
+
 // DecodeRackProfile strictly decodes one SGPURackProfile document. It doesn't
 // validate: ValidateNode does, against the NIC profiles the slots name.
 func DecodeRackProfile(data []byte) (*v1alpha1.SGPURackProfile, error) {
 	var r v1alpha1.SGPURackProfile
-	if err := decode(data, kindRackProfile, &r.TypeMeta, &r); err != nil {
+	if err := decode(data, kindRackProfile, &r.TypeMeta, &r, rackNICPaths...); err != nil {
 		return nil, err
 	}
 	return &r, nil
 }
 
-func decode(data []byte, kind string, meta *metav1.TypeMeta, into any) error {
+// decode reads a document of kind strictly: a repeated key, an unknown field,
+// a missing required key or a repeated item of a set or map list is an error,
+// as the API server would make it. paths are the parts checked raw, "" for
+// the whole document.
+func decode(data []byte, kind string, meta *metav1.TypeMeta, into any, paths ...string) error {
+	// An unknown field first: a misspelled key also leaves its field missing,
+	// and the misspelling is the useful message.
 	if err := yaml.UnmarshalStrict(data, into); err != nil {
 		return fmt.Errorf("decode %s: %w", kind, err)
 	}
 	if meta.Kind != kind || meta.APIVersion != v1alpha1.GroupVersion.String() {
 		return fmt.Errorf("got %s %s, want %s %s", meta.APIVersion, meta.Kind, v1alpha1.GroupVersion, kind)
+	}
+	if err := DecodeRaw(data, kind, paths...); err != nil {
+		return fmt.Errorf("decode %s: %w", kind, err)
 	}
 	return nil
 }
@@ -124,3 +140,26 @@ func checkPCIID(pr *problems, field string, id v1alpha1.PCIID) {
 
 // optional reports whether v is empty or matches re.
 func optional(v string, re *regexp.Regexp) bool { return v == "" || re.MatchString(v) }
+
+// DecodeRaw checks a YAML document, or the parts of it at paths, against the
+// CRD schema of kind before it is decoded into Go's types; see checkRaw. A
+// repeated key is an error too.
+func DecodeRaw(data []byte, kind string, paths ...string) error {
+	j, err := yaml.YAMLToJSONStrict(data)
+	if err != nil {
+		return err
+	}
+	var raw any
+	if err := json.Unmarshal(j, &raw); err != nil {
+		return err
+	}
+	var pr problems
+	for _, path := range paths {
+		if path == "" {
+			checkRaw(&pr, raw, schemas[kind], "")
+			continue
+		}
+		checkRawAt(&pr, raw, kind, path)
+	}
+	return pr.err()
+}

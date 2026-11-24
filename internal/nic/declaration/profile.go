@@ -47,7 +47,12 @@ func validateVPD(pr *problems, v *v1alpha1.NICVPD) {
 		return
 	}
 	for _, k := range slices.Sorted(maps.Keys(v.Identities)) {
-		pr.check(slices.Contains(vpdScopes, v.Identities[k]), "vpd.identities.%s: unknown scope %q", k, v.Identities[k])
+		scope := v.Identities[k]
+		// A scope may name another identity keyword whose value this one
+		// reuses, but only one with a scope of its own, so there's no chain.
+		ref, isRef := v.Identities[string(scope)]
+		pr.check(slices.Contains(vpdScopes, scope) || (isRef && string(scope) != k && slices.Contains(vpdScopes, ref)),
+			"vpd.identities.%s: scope %q is neither board, asic nor boardPosition, nor an identity keyword with one of them", k, scope)
 		_, both := v.Keywords[k]
 		pr.check(!both, "vpd keyword %s is both a model value and an identity", k)
 	}
@@ -181,7 +186,10 @@ func validateRDMADevices(pr *problems, where string, devices []v1alpha1.NICRDMAD
 		owned, known := functions[d.Function]
 		pr.check(known, "%s: RDMA device %s: unknown function %q", where, d.ID, d.Function)
 		pr.check(len(d.Ports) > 0, "%s: RDMA device %s has no ports", where, d.ID)
+		listed := map[string]bool{}
 		for _, port := range d.Ports {
+			pr.check(!listed[port], "%s: RDMA device %s lists port %s twice", where, d.ID, port)
+			listed[port] = true
 			pr.check(ports[port], "%s: RDMA device %s: unknown port %q", where, d.ID, port)
 			pr.check(!known || slices.Contains(owned, port),
 				"%s: RDMA device %s: port %s doesn't belong to function %s", where, d.ID, port, d.Function)

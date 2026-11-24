@@ -78,6 +78,10 @@ func TestProfileValidate(t *testing.T) {
 			c.Functions = append(c.Functions, v1alpha1.NICFunction{ID: "pf1", Type: "network", PCIDevice: "network", Function: 1, Class: "0x020000", Ports: []string{"p1"}})
 			c.RDMADevices[0].Ports = []string{"p1"}
 		}, "RDMA device r0: port p1 doesn't belong to function pf0"},
+		{"rdma port listed twice", func(p *v1alpha1.SNICProfile) {
+			d := &p.Spec.Configurations[0].RDMADevices[0]
+			d.Ports = append(d.Ports, d.Ports[0])
+		}, "RDMA device r0 lists port p0 twice"},
 		{"two rdma devices on one function", func(p *v1alpha1.SNICProfile) {
 			c := &p.Spec.Configurations[0]
 			second := c.RDMADevices[0]
@@ -302,7 +306,7 @@ func TestVPDAndPlacementValidate(t *testing.T) {
 	}{
 		{"unknown scope", func(p Profiles, _ *v1alpha1.SGPUTopology) {
 			p["nic"].Spec.VPD.Identities["V3"] = "chip"
-		}, "unknown scope"},
+		}, "is neither board"},
 		{"keyword both model and identity", func(p Profiles, _ *v1alpha1.SGPUTopology) {
 			p["nic"].Spec.VPD.Keywords = map[string]string{"SN": "x"}
 		}, "both a model value and an identity"},
@@ -352,15 +356,67 @@ func TestGPUBelowANICSwitchPort(t *testing.T) {
 	t.Parallel()
 	profiles, topo := Profiles{"nic": validProfile()}, singleSlot()
 	withSwitch(profiles, topo)
-	topo.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:06:00.0", Parent: "0003:01:00.0"}}
+	topo.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:03:01.0", Parent: "0003:02:00.0"}}
 	require.NoError(t, ValidateNode(topo, nil, profiles))
 
 	d := topo.NICs[0].Devices["network"]
 	slices.Reverse(d.Bridges)
 	require.NoError(t, ValidateNode(topo, nil, profiles), "switch ports may come in any order")
 
-	topo.GPUSlots[0].RootComplex, topo.GPUSlots[0].PCIAddress = "pci0004:00", "0004:06:00.0"
-	require.ErrorContains(t, ValidateNode(topo, nil, profiles), "GPU slot 0: parent 0003:01:00.0 is in pci0003:00, not pci0004:00")
+	topo.GPUSlots[0].RootComplex, topo.GPUSlots[0].PCIAddress = "pci0004:00", "0004:03:01.0"
+	require.ErrorContains(t, ValidateNode(topo, nil, profiles), "GPU slot 0: parent 0003:02:00.0 is in pci0003:00, not pci0004:00")
+}
+
+// TestPCIBuses checks where addresses may sit: in their root complex's
+// domain; a root port, and a device without a parent, on its root bus; and a
+// switch port's children on its one downstream bus, which no other port
+// shares. A root port's children may sit on any bus, since platform bridges
+// aren't modeled.
+func TestPCIBuses(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		mutate func(*v1alpha1.SGPUTopology)
+		want   string
+	}{
+		"valid": {mutate: func(*v1alpha1.SGPUTopology) {}},
+		"a root port's children on any bus": {mutate: func(r *v1alpha1.SGPUTopology) {
+			r.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:40:00.0", Parent: "0003:00:00.0"}}
+		}},
+		"device without a parent off the root bus": {mutate: func(r *v1alpha1.SGPUTopology) {
+			r.NICs[0].Devices = map[string]v1alpha1.NICDevicePlacement{"network": {RootComplex: "pci0003:00", Address: "0003:08:1f"}}
+		}, want: "has no parent, but 0003:08:1f isn't on pci0003:00's root bus"},
+		"root port off the root bus": {mutate: func(r *v1alpha1.SGPUTopology) {
+			r.RootPorts = append(r.RootPorts, v1alpha1.RootPort{Address: "0003:10:00.0", RootComplex: "pci0003:00"})
+		}, want: "root port 0003:10:00.0: not on pci0003:00's root bus"},
+		"GPU in another domain": {mutate: func(r *v1alpha1.SGPUTopology) {
+			r.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0009:06:00.0"}}
+		}, want: `GPU slot 0: pciAddress "0009:06:00.0" is not a PCI address in pci0003:00`},
+		"switch port's children on two buses": {mutate: func(r *v1alpha1.SGPUTopology) {
+			r.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:07:00.0", Parent: "0003:02:00.0"}}
+		}, want: "device network: on bus 0003:03, but 0003:02:00.0's other children are on bus 0003:07"},
+		"child on its switch port's own bus": {mutate: func(r *v1alpha1.SGPUTopology) {
+			r.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:02:01.0", Parent: "0003:02:00.0"}}
+		}, want: "GPU slot 0: on the bus of its parent 0003:02:00.0, not below it"},
+		"two switch ports above one bus": {mutate: func(r *v1alpha1.SGPUTopology) {
+			d := r.NICs[0].Devices["network"]
+			d.Bridges = append(d.Bridges, v1alpha1.PCIBridge{Address: "0003:02:01.0", Parent: "0003:01:00.0"})
+			r.NICs[0].Devices["network"] = d
+			r.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:03:01.0", Parent: "0003:02:01.0"}}
+		}, want: "bus 0003:03 is below both 0003:02:01.0 and 0003:02:00.0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			profiles, topo := Profiles{"nic": validProfile()}, singleSlot()
+			withSwitch(profiles, topo)
+			tc.mutate(topo)
+			err := ValidateNode(topo, nil, profiles)
+			if tc.want == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
 }
 
 // TestUnknownConfigurationKeepsThePlacement checks that a slot whose
@@ -370,7 +426,7 @@ func TestUnknownConfigurationKeepsThePlacement(t *testing.T) {
 	t.Parallel()
 	profiles, topo := Profiles{"nic": validProfile()}, singleSlot()
 	withSwitch(profiles, topo)
-	topo.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:06:00.0", Parent: "0003:01:00.0"}}
+	topo.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:03:01.0", Parent: "0003:02:00.0"}}
 	err := ValidateNode(topo, []v1alpha1.NICOverride{{Slots: []string{topo.NICs[0].Slot}, Configuration: "missing"}}, profiles)
 	require.EqualError(t, err, `slot `+topo.NICs[0].Slot+` (with NIC overrides): profile nic has no configuration "missing"`)
 
@@ -390,6 +446,45 @@ func TestMultiHostPorts(t *testing.T) {
 
 	c.Functions = append(c.Functions, v1alpha1.NICFunction{ID: "b1", Type: "network", PCIDevice: "hostB", Function: 1, Class: "0x020000", Ports: []string{"p0"}})
 	require.ErrorContains(t, ValidateProfile(p), "owned by b0 and b1")
+}
+
+// TestTwoPortRDMADevice checks that an RDMA device may list two ports its
+// function owns, each once.
+func TestTwoPortRDMADevice(t *testing.T) {
+	t.Parallel()
+	p := validProfile()
+	c := &p.Spec.Configurations[0]
+	second := c.Ports[0]
+	second.ID = "p1"
+	c.Ports = append(c.Ports, second)
+	c.Functions[0].Ports = append(c.Functions[0].Ports, "p1")
+	c.RDMADevices[0].Ports = append(c.RDMADevices[0].Ports, "p1")
+	require.NoError(t, ValidateProfile(p))
+}
+
+// TestVPDIdentityReusesAnother checks that an identity's scope may name
+// another identity keyword with a scope, as a BlueField's VU starts with its
+// SN, but not itself, an unknown keyword or one that names a third.
+func TestVPDIdentityReusesAnother(t *testing.T) {
+	t.Parallel()
+	for scopes, want := range map[string]string{
+		"SN=asic VU=SN":       "",
+		"SN=asic VU=VU":       `vpd.identities.VU: scope "VU"`,
+		"SN=asic VU=V3":       `vpd.identities.VU: scope "V3"`,
+		"SN=asic V3=SN VU=V3": `vpd.identities.VU: scope "V3"`,
+	} {
+		p := validProfile()
+		p.Spec.VPD = &v1alpha1.NICVPD{Identities: map[string]v1alpha1.VPDScope{}}
+		for _, kv := range strings.Fields(scopes) {
+			k, v, _ := strings.Cut(kv, "=")
+			p.Spec.VPD.Identities[k] = v1alpha1.VPDScope(v)
+		}
+		if want == "" {
+			require.NoError(t, ValidateProfile(p), scopes)
+		} else {
+			require.ErrorContains(t, ValidateProfile(p), want, scopes)
+		}
+	}
 }
 
 // TestBoardHoldsOneModel checks that board numbers are Node-wide: two slots
@@ -444,6 +539,24 @@ func TestSelect(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, v1alpha1.NICSlot{Slot: "nic0", Profile: "b", Configuration: "roce", FirmwareVersion: "2",
 		VPD: map[string]string{"EC": "B1"}}, got[0])
+
+	// A systemImageGUID that names an RDMA device belongs to the old model and
+	// goes with it, unless the override names one of the new; distinct names
+	// no device, so it carries over.
+	named := []v1alpha1.NICSlot{{Slot: "nic0", Profile: "a", SystemImageGUID: "rdma-b0"}}
+	got, err = Select(named, []v1alpha1.NICOverride{{Slots: []string{"nic0"}, Profile: "b"}})
+	require.NoError(t, err)
+	require.Empty(t, got[0].SystemImageGUID)
+	got, err = Select(named, []v1alpha1.NICOverride{{Slots: []string{"nic0"}, Profile: "b", SystemImageGUID: "r0"}})
+	require.NoError(t, err)
+	require.Equal(t, "r0", got[0].SystemImageGUID)
+	got, err = Select(named, []v1alpha1.NICOverride{{Slots: []string{"nic0"}, Configuration: "other"}})
+	require.NoError(t, err)
+	require.Equal(t, "rdma-b0", got[0].SystemImageGUID, "the same profile keeps its device IDs")
+	distinct := []v1alpha1.NICSlot{{Slot: "nic0", Profile: "a", SystemImageGUID: v1alpha1.SystemImageGUIDDistinct}}
+	got, err = Select(distinct, []v1alpha1.NICOverride{{Slots: []string{"nic0"}, Profile: "b"}})
+	require.NoError(t, err)
+	require.Equal(t, v1alpha1.SystemImageGUIDDistinct, got[0].SystemImageGUID)
 
 	_, err = Select(slots, []v1alpha1.NICOverride{{Slots: []string{"nic9"}, Configuration: "eth"}})
 	require.ErrorContains(t, err, `unknown slot "nic9"`)

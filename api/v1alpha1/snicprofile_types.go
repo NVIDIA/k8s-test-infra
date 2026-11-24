@@ -120,8 +120,11 @@ type NICIdentity struct {
 	VendorOUI string `json:"vendorOUI,omitempty"`
 }
 
-// VPDScope names which NIC functions share one generated VPD value.
-// +kubebuilder:validation:Enum=board;asic;boardPosition
+// VPDScope names which NIC functions share one generated VPD value: board,
+// asic or boardPosition, or another identity keyword whose generated value
+// this one reuses before its function suffix, as a BlueField's VU starts with
+// its SN.
+// +kubebuilder:validation:Pattern=`^(board|asic|boardPosition|[A-Z0-9]{2})$`
 type VPDScope string
 
 const (
@@ -271,9 +274,10 @@ type NICConfiguration struct {
 	Name string `json:"name"`
 
 	// +optional
-	// +listType=map
-	// +listMapKey=id
-	// Ports are the configuration's logical network ports.
+	// +listType=atomic
+	// Ports are the configuration's logical network ports, in physical order:
+	// a port's position is its number, p0 first, and its identifiers and
+	// names follow from that number.
 	Ports []NICPort `json:"ports,omitempty"`
 
 	// +kubebuilder:validation:MinItems=1

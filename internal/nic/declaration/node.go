@@ -16,9 +16,11 @@ import (
 
 // Select returns the slots as a rack group runs them: each override, in order,
 // replaces the fields it sets in the slots it names. An override that replaces
-// the profile also drops the slot's configuration, firmware version and VPD,
-// since those belong to the old model; the new profile's own apply unless the
-// override sets them. The slots passed in are left unchanged.
+// the profile also drops the slot's configuration, firmware version, VPD and a
+// systemImageGUID that names an RDMA device, since those belong to the old
+// model; the new profile's own apply unless the override sets them. A
+// distinct systemImageGUID names no device, so it carries over. The slots
+// passed in are left unchanged.
 func Select(slots []v1alpha1.NICSlot, overrides []v1alpha1.NICOverride) ([]v1alpha1.NICSlot, error) {
 	out := make([]v1alpha1.NICSlot, len(slots))
 	index := make(map[string]int, len(slots))
@@ -47,6 +49,12 @@ func Select(slots []v1alpha1.NICSlot, overrides []v1alpha1.NICOverride) ([]v1alp
 func applyOverride(s *v1alpha1.NICSlot, o *v1alpha1.NICOverride) {
 	if o.Profile != "" && o.Profile != s.Profile {
 		s.Profile, s.Configuration, s.FirmwareVersion, s.VPD = o.Profile, "", "", nil
+		if s.SystemImageGUID != v1alpha1.SystemImageGUIDDistinct {
+			s.SystemImageGUID = ""
+		}
+	}
+	if o.SystemImageGUID != "" {
+		s.SystemImageGUID = o.SystemImageGUID
 	}
 	if o.Configuration != "" {
 		s.Configuration = o.Configuration
@@ -112,11 +120,12 @@ func validateGPUSlots(pr *problems, slots []v1alpha1.GPUSlot, place *nodePlaceme
 	for _, g := range slots {
 		pr.check(!indexes[g.Index], "GPU slot %d is declared twice", g.Index)
 		indexes[g.Index] = true
-		pr.check(bdf.MatchString(g.PCIAddress), "GPU slot %d: pciAddress %q is not a PCI address", g.Index, g.PCIAddress)
 		pr.check(rootComplex.MatchString(g.RootComplex), "GPU slot %d: rootComplex %q is not pciDDDD:BB", g.Index, g.RootComplex)
+		pr.check(inDomain(bdf, g.PCIAddress, domainOf(g.RootComplex)),
+			"GPU slot %d: pciAddress %q is not a PCI address in %s", g.Index, g.PCIAddress, g.RootComplex)
 		place.claim(g.PCIAddress, fmt.Sprintf("GPU %d", g.Index))
 		if g.Parent != "" {
-			place.addParent(fmt.Sprintf("GPU slot %d", g.Index), g.Parent, g.RootComplex)
+			place.addParent(fmt.Sprintf("GPU slot %d", g.Index), g.Parent, g.RootComplex, g.PCIAddress)
 		}
 	}
 	return indexes
@@ -165,6 +174,16 @@ func validateSlot(pr *problems, where string, s *v1alpha1.NICSlot, p *v1alpha1.S
 	}
 }
 
+// EffectiveScope is the scope that shares one value of identity keyword k:
+// its own, or that of the identity keyword it reuses.
+func EffectiveScope(v *v1alpha1.NICVPD, k string) v1alpha1.VPDScope {
+	scope := v.Identities[k]
+	if ref, ok := v.Identities[string(scope)]; ok {
+		return ref
+	}
+	return scope
+}
+
 // validateSlotVPD checks that the slot gives each shared VPD identity what its
 // scope needs: a board, or a VPD position on every device.
 func validateSlotVPD(pr *problems, where string, s *v1alpha1.NICSlot, v *v1alpha1.NICVPD) {
@@ -172,7 +191,7 @@ func validateSlotVPD(pr *problems, where string, s *v1alpha1.NICSlot, v *v1alpha
 		return
 	}
 	for _, k := range slices.Sorted(maps.Keys(v.Identities)) {
-		scope := v.Identities[k]
+		scope := EffectiveScope(v, k)
 		// A board position is a position on a board, so both scopes need one;
 		// without it, two boardless slots would share an identity.
 		pr.check(scope == v1alpha1.VPDScopeASIC || s.Board != nil,
@@ -202,6 +221,8 @@ func validatePlacement(pr *problems, where string, d v1alpha1.NICDevicePlacement
 	domain := domainOf(d.RootComplex)
 	pr.check(rootComplex.MatchString(d.RootComplex), "%s: rootComplex %q is not pciDDDD:BB", where, d.RootComplex)
 	pr.check(d.Parent != "" || len(d.Bridges) == 0, "%s: a device on the root bus has no switch ports", where)
+	pr.check(d.Parent != "" || onRootBus(d.Address, d.RootComplex), "%s: has no parent, but %s isn't on %s's root bus",
+		where, d.Address, d.RootComplex)
 	if p != nil {
 		pr.check(len(d.Bridges) == 0 || p.Spec.SwitchPort != nil,
 			"%s: bridges are declared, but profile %s has no switchPort", where, p.Name)
@@ -213,7 +234,7 @@ func validatePlacement(pr *problems, where string, d v1alpha1.NICDevicePlacement
 	}
 	pr.check(inDomain(deviceAddr, d.Address, domain), "%s: address %q is not DDDD:BB:DD in %s", where, d.Address, d.RootComplex)
 	if d.Parent != "" {
-		place.addParent(where, d.Parent, d.RootComplex)
+		place.addParent(where, d.Parent, d.RootComplex, d.Address)
 	}
 	pr.check(d.NUMANode >= -1, "%s: numaNode %d is below -1", where, d.NUMANode)
 }
