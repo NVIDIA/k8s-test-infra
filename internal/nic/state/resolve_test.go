@@ -96,6 +96,14 @@ func TestResolveGB300(t *testing.T) {
 	require.Equal(t, "0x020700", pf.Class)
 	require.Equal(t, PCIID{VendorID: "15b3", DeviceID: "1023"}, pf.PCI)
 	require.Equal(t, []PCIID{{VendorID: "15b3", DeviceID: "197c"}, {VendorID: "15b3", DeviceID: "197c"}}, pf.Upstream)
+	require.Equal(t, "0000:00:00.0", pf.RootPort)
+	require.Equal(t, &PCIID{VendorID: "10de", DeviceID: "22b2"}, pf.RootPortID)
+	require.Len(t, n.RootPorts, 9)
+
+	// GPUs share the tree: GPU 1 sits below a switch port of nic0, the NIC
+	// whose Data Direct function is in its domain.
+	require.Equal(t, GPU{Index: 1, Address: "0009:06:00.0", RootComplex: "pci0009:00", NUMANode: 0, Parent: "0009:05:00.0"}, n.GPUs[1])
+	require.True(t, slices.ContainsFunc(n.Bridges, func(b Bridge) bool { return b.Address == "0009:05:00.0" && b.Slot == "nic0" }))
 	require.Equal(t, &VFType{PCI: PCIID{VendorID: "15b3", DeviceID: "101e"}, Subsystem: PCIID{VendorID: "15b3", DeviceID: "0208"},
 		Revision: "0x00", Driver: "mlx5_core"}, pf.VF)
 	require.True(t, strings.HasSuffix(pf.VPD["name"], " -Prime"))
@@ -255,6 +263,7 @@ func TestIdentifiersAreDeterministic(t *testing.T) {
 	fewer := in
 	fewer.Topology = in.Topology.DeepCopy()
 	fewer.Topology.NICs = slices.DeleteFunc(fewer.Topology.NICs, func(s v1alpha1.NICSlot) bool { return s.Slot == "nic1" })
+	fewer.Topology.GPUSlots[0].Parent = "" // GPU 0 sat below nic1's switch
 	without := resolve(t, fewer)
 	for _, d := range without.Devices {
 		before := deviceOn(t, first, d.Function)

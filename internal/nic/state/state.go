@@ -19,6 +19,11 @@ import "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 type NICs struct {
 	// RDMA is the Node image's RDMA stack.
 	RDMA RDMA
+	// RootPorts are the Node's PCIe root ports, by address.
+	RootPorts []RootPort
+	// GPUs are where the GPUs sit in the PCIe tree they share with the NICs,
+	// by index.
+	GPUs []GPU
 	// Instances are the NIC slots, in declaration order.
 	Instances []Instance
 	// Bridges are the NICs' PCIe switch ports, by address.
@@ -67,6 +72,25 @@ type Instance struct {
 // PCIID is a PCI vendor and device ID, four lowercase hex digits each.
 type PCIID = v1alpha1.PCIID
 
+// RootPort is one PCIe root port of the Node.
+type RootPort struct {
+	Address     string
+	RootComplex string
+	// ID is the root port's PCI IDs; nil when not declared.
+	ID *PCIID
+}
+
+// GPU is where one GPU sits in the Node's PCIe tree.
+type GPU struct {
+	Index       int32
+	Address     string
+	RootComplex string
+	NUMANode    int32
+	// Parent is the root port or NIC switch port above the GPU; empty when
+	// unknown.
+	Parent string
+}
+
 // Bridge is one exposed port of a NIC's PCIe switch.
 type Bridge struct {
 	Address     string
@@ -94,12 +118,12 @@ type Function struct {
 	Driver   string
 
 	RootComplex string
-	// RootPort is the root port's address; empty on the root bus.
+	// RootPort is the root port above the function; empty on the root bus.
 	RootPort string
 	// RootPortID is the root port's PCI IDs; nil when not declared.
 	RootPortID *PCIID
-	// Upstream are the IDs of the NIC switch ports between the root port and
-	// the function, top first.
+	// Upstream are the IDs of the switch ports between the root port and the
+	// function, top first.
 	Upstream []PCIID
 	// Parent is the root port or bridge the function's device sits under;
 	// empty on the root bus.
