@@ -159,6 +159,7 @@ nav:
           - NVSentinel: guides/nv-sentinel/README.md
           - Run.ai Fake GPU Operator: guides/runai-fgo/README.md
           - Topograph: guides/topograph/README.md
+          - Google GKE (DRA + JobSet): guides/mokka-gke-gpu-demo.md
       - Tasks:
           - Set Up NRI Injection: guides/nri-injection.md
           - MIG Partitioning: guides/mig/README.md

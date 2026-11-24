@@ -6,14 +6,12 @@ This guide walks through setting up [Mokka (`nvml-mock`)](https://github.com/NVI
 
 ## Prerequisites
 
-1. **Set environment variables** (fill in `PROJECT_ID` and `MOKKA_REPO` first):
+1. **Set environment variables** (fill in `PROJECT_ID` first):
    ```bash
    export PROJECT_ID=""   # Your GCP project ID
-   export MOKKA_REPO=""   # Local path for cloning https://github.com/NVIDIA/k8s-test-infra
 
    export ZONE="us-east1-b"
    export CLUSTER_NAME="mokka-demo"
-   export REGISTRY="us-docker.pkg.dev/${PROJECT_ID}/nvml-mock"
    export WORK_DIR="/tmp/mokka-demo"
    mkdir -p "${WORK_DIR}"
    ```
@@ -34,25 +32,6 @@ This guide walks through setting up [Mokka (`nvml-mock`)](https://github.com/NVI
    gcloud container clusters get-credentials "${CLUSTER_NAME}" \
      --zone="${ZONE}" \
      --project="${PROJECT_ID}"
-   ```
-
-3. **Create the Artifact Registry repository, clone Mokka, and build/push the `nvml-mock` image**:
-   ```bash
-   gcloud auth configure-docker us-docker.pkg.dev --quiet
-
-   gcloud artifacts repositories create nvml-mock \
-     --repository-format=docker \
-     --location=us \
-     --project="${PROJECT_ID}"
-
-   git clone https://github.com/NVIDIA/k8s-test-infra.git "${MOKKA_REPO}"
-
-   docker build --platform=linux/amd64 \
-     -f "${MOKKA_REPO}/deployments/nvml-mock/Dockerfile" \
-     -t "${REGISTRY}/nvml-mock:demo" \
-     "${MOKKA_REPO}"
-
-   docker push "${REGISTRY}/nvml-mock:demo"
    ```
 
 ---
@@ -93,16 +72,16 @@ This guide walks through setting up [Mokka (`nvml-mock`)](https://github.com/NVI
    ```
 
 3. **Install Mokka (`nvml-mock`) with 4 simulated GB200 GPUs per node**:
-   ```bash
-   cat <<EOF > "${WORK_DIR}/mokka-values.yaml"
-   image:
-     repository: ${REGISTRY}/nvml-mock
-     tag: demo
-     pullPolicy: IfNotPresent
+   Because this demo disables `computeDomains`, it also disables the `IMEXDownload` feature gate so each node skips downloading the IMEX archive in the background and does not restage the mock driver after `helm --wait` returns.
 
+   ```bash
+   cat <<'EOF' > "${WORK_DIR}/mokka-values.yaml"
    gpu:
      profile: gb200
      count: 4
+
+   featureGates:
+     IMEXDownload: false
 
    nodeSelector:
      mokka.nvidia.com/type: sgpu
@@ -117,7 +96,8 @@ This guide walks through setting up [Mokka (`nvml-mock`)](https://github.com/NVI
    EOF
 
    helm upgrade --install nvml-mock \
-     "${MOKKA_REPO}/deployments/nvml-mock/helm/nvml-mock" \
+     oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+     --version 0.7.0 \
      --namespace mokka --create-namespace \
      -f "${WORK_DIR}/mokka-values.yaml" \
      -f "${WORK_DIR}/topology-2cliques-18nodes.yaml" \
