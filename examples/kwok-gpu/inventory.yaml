@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SGPUInventory
+metadata:
+  name: mokka-kwok-gpu
+spec:
+  rackGroups:
+    - id: kwok
+      count: 1
+      profileRef:
+        name: example-a100
+      placement:
+        nodeSelector:
+          matchLabels:
+            mokka.nvidia.com/node-type: KWOK
+            mokka.nvidia.com/pool: kwok-gpu-poc

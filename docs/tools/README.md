@@ -1,13 +1,13 @@
 # Command-Line Tools
 
 Besides the mock libraries, Mokka ships a set of small binaries under `cmd/`.
-Three of the four below are workloads the chart runs for you; only
-`nvml-mock-ctl` is meant to be invoked by hand.
+The chart deploys the node agent, NRI plugin and control plane. The KWOK PoC runs separately.
 
 | Component | Purpose |
 |------|---------|
 | [`node-agent`](node-agent.md) | Compiles a mock NVML profile into on-host state and keeps it reconciled. The process the nvml-mock DaemonSet runs. |
 | [`nri-plugin`](nri-plugin.md) | containerd NRI plugin that injects the mock driver overlay, LD_PRELOAD shims and device nodes into containers at creation time. |
+| [`kwok-gpu`](kwok-gpu.md) | Local PoC for whole-GPU scheduling on existing KWOK nodes. |
 | [`control-plane`](control-plane.md) | Runs the [Mokka control plane](../control-plane.md) and serves liveness and controller-readiness probes. |
 | [`nvml-mock-ctl`](../nvml-mock-ctl.md) | Mutate the simulated GPU state of a running node without a restart. |
 

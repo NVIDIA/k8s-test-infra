@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  kwok-gpu: publish whole simulated GPUs from Mokka rack assignments on existing KWOK nodes and report each container’s GPU UUIDs. Scrape per-GPU utilization and memory through an optional PodMonitor.
+time: 2026-11-18T16:45:20Z
