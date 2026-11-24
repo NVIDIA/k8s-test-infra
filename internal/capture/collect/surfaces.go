@@ -214,10 +214,14 @@ func (c *collector) startPod(name, node, what string) bool {
 // and /proc. Its tools come from apt; if the cluster has no egress the sysfs
 // captures still work and the rest fail into errors.log.
 func (c *collector) startHostPod(node string) bool {
+	if c.execIn != nil {
+		return c.borrowPod(node)
+	}
 	c.hostPod = hostPodName(node, c.suffix)
 	if !c.startPod(c.hostPod, node, "host pod") {
 		return false
 	}
+	c.hostExec, c.hostNS, c.hostCtr = c.hostPod, c.cfg.hostPodNS, ""
 	errs := c.errorsLog()
 	defer func() { _ = errs.Close() }()
 	install := `apt-get update -qq && apt-get install -y -qq pciutils numactl rdma-core ibverbs-utils infiniband-diags iproute2 ethtool >/dev/null`
@@ -258,7 +262,7 @@ func (c *collector) stopPod(ctx context.Context, name *string) {
 
 func (c *collector) captureHost(node string) {
 	c.enter(node)
-	c.logf("== %s: host pod", node)
+	c.logf("== %s: host surfaces", node)
 	defer c.stopPod(c.ctx, &c.hostPod)
 	if !c.startHostPod(node) {
 		return
@@ -328,7 +332,7 @@ done
 // captureNetworkSurfaces runs inside the host pod: a privileged pod on the host
 // network sees the node's own interfaces, /sys/class/net and RDMA devices.
 func (c *collector) captureNetworkSurfaces() {
-	hostScript := []string{"kubectl", "-n", c.cfg.hostPodNS, "exec", "-i", c.hostPod, "--", "sh", "-s"}
+	hostScript := c.hostStdin("sh", "-s")
 	c.capture("host-lspci-mellanox-vv.txt", nil, c.host("lspci", "-nnvvv", "-d", "15b3:")...)
 	c.capture("net-ip-link.txt", nil, c.host("ip", "-d", "link", "show")...)
 	c.capture("rdma-dev.txt", nil, c.host("rdma", "dev", "show")...)
@@ -353,7 +357,7 @@ func (c *collector) captureNetworkSurfaces() {
 // capture.
 func (c *collector) captureNetwork(node string) {
 	c.enter(node)
-	c.logf("== %s: network surfaces (host pod)", node)
+	c.logf("== %s: network surfaces", node)
 	defer c.stopPod(c.ctx, &c.hostPod)
 	if !c.startHostPod(node) {
 		return
@@ -361,7 +365,14 @@ func (c *collector) captureNetwork(node string) {
 	c.captureNetworkSurfaces()
 }
 
-func (c *collector) captureClusterNetwork() {
+// nodeFeatureNodeLabel names the node each NFD NodeFeature describes; a node
+// can have several, from NFD's worker and from operators.
+const nodeFeatureNodeLabel = "nfd.node.kubernetes.io/node-name"
+
+// captureClusterNetwork takes the cluster's network objects. Of the NodeFeature
+// objects it takes those of nodes, or every node's when nodes is empty: one
+// per node and source, they run to a gigabyte on a cluster of thousands.
+func (c *collector) captureClusterNetwork(nodes []string) {
 	c.enter("cluster")
 	crds, err := c.kubectlOut("get", "crd", "-o", "name")
 	var matched []string
@@ -375,7 +386,11 @@ func (c *collector) captureClusterNetwork() {
 		text += "\n"
 	}
 	c.captureText("crds-network.txt", text, err)
-	c.capture("nodefeatures.yaml", nil, "kubectl", "get", "nodefeatures", "-A", "-o", "yaml")
+	nodeFeatures := []string{"kubectl", "get", "nodefeatures", "-A", "-o", "yaml"}
+	if len(nodes) > 0 {
+		nodeFeatures = append(nodeFeatures, "-l", nodeFeatureNodeLabel+" in ("+strings.Join(nodes, ",")+")")
+	}
+	c.capture("nodefeatures.yaml", nil, nodeFeatures...)
 	c.capture("nicclusterpolicy.yaml", nil, "kubectl", "get", "nicclusterpolicies.mellanox.com", "-o", "yaml")
 	c.capture("network-attachments.yaml", nil, "kubectl", "get", "network-attachment-definitions", "-A", "-o", "yaml")
 	c.capture("sriov-node-state.yaml", nil, "kubectl", "get", "sriovnetworknodestates", "-A", "-o", "yaml")

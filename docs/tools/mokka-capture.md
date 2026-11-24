@@ -34,21 +34,36 @@ mokka-capture collect [flags] build-dump
 | --- | --- | --- |
 | `driver <node>...` | in the GPU Operator driver container, or with `-mock` a stand-in pod | `nvidia-smi`, the NVML dump, `/proc/driver/nvidia` |
 | `host <node>...` | in a temporary privileged pod | PCI, NUMA, device files, NICs, CDI specs |
-| `network <node>...` | in the same pod | only the NIC, interface and RDMA surfaces, plus the cluster's network objects |
+| `network <node>...` | in the same pod | only the NIC, interface and RDMA surfaces, plus the cluster's network objects and the nodes' NFD `NodeFeature`s |
 | `cluster` | on your machine | node labels, ResourceSlices, `ClusterPolicy`, DCGM metrics |
 | `all <node>...` | all of the above | `driver` and `host` for each node, then `cluster` |
 | `build-dump` | Docker, on your machine | a Linux `mokka-capture` for the NVML dump (below) |
 
 Every command runs in the cluster and every output is written on your machine,
 one file per command under `-out`/`<node>/` or `-out`/`cluster/`. A command that
-fails does not stop the run: its error goes to `errors.log` beside the output.
+fails does not stop the run: its error goes to `errors.log` beside the output,
+under a `--- <file>, try <n>` heading for each try that failed or printed an
+error, and a failure ends with `FAILED: <file>`.
 The cluster connection is checked before each node, since a dropped connection
-leaves empty files that look like answers; the run ends by listing any empty
+leaves empty files that look like answers, and a command whose connection drops
+is run again, up to three times in all; the run ends by listing any empty
 files.
 
 The host pod is named `capture-<node>-<pid>` and is deleted when the command
 finishes, is interrupted, or fails. It is privileged, mounts the node's root
 filesystem, and installs `pciutils`, `rdma-core` and other tools with `apt`.
+
+On a cluster where a new privileged pod is not welcome, `-exec-in
+namespace/name-part[/container]` runs the `host` and `network` commands in a pod
+the cluster already runs on each node instead: the first pod on the node, in
+that namespace, whose name contains `name-part`. Nothing is created, installed
+or deleted. The pod should be privileged and on the host network to see the
+node's `/sys` and interfaces, and commands whose tools it lacks fail into
+`errors.log`. A node with no matching pod is skipped.
+
+```bash
+mokka-capture collect -exec-in nvidia-network-operator/nic-configuration-daemon -out real network <node>
+```
 
 The NVML dump has to run inside the driver container, which holds the driver's
 `libnvidia-ml.so.1`. `build-dump` builds `mokka-capture` for Linux in a `golang`
@@ -106,6 +121,7 @@ is a gap in the mock.
 | `-toolkit-ctk` | `/usr/local/nvidia/toolkit/nvidia-ctk` | `nvidia-ctk` in the toolkit container |
 | `-host-pod-namespace` | `default` | Namespace for the host pod |
 | `-host-pod-image` | `ubuntu:24.04` pinned by digest | Image for the host pod; pin it by digest |
+| `-exec-in` | none | Run the host commands in an existing pod, `namespace/name-part[/container]`, instead of a host pod |
 
 `kubectl` uses its own configuration (`KUBECONFIG`, the current context).
 

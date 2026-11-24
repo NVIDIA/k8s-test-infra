@@ -214,3 +214,87 @@ func TestPodOnPicksBySortedName(t *testing.T) {
 	require.Contains(t, log.String(), "2 pods matching")
 	require.Empty(t, c.podOn("node-a", "container-toolkit"))
 }
+
+func TestExecInTakesHostCapturesInAnExistingPod(t *testing.T) {
+	dir, log, kubectl := setup(t, "")
+	out := filepath.Join(dir, "capture")
+	require.Equal(t, 0, runCLI(kubectl, "-out", out, "-exec-in", "net-op/driver-daemonset/ctr", "network", "node-a"))
+
+	got := calls(t, log)
+	require.NotContains(t, got, "apply -f -", "-exec-in must not create a pod")
+	require.NotContains(t, got, "apt-get", "-exec-in must not install anything")
+	require.NotContains(t, got, "delete pod", "-exec-in must not delete the pod it borrowed")
+	require.Contains(t, got, "-n net-op get pods -o name --field-selector spec.nodeName=node-a")
+	require.Contains(t, got, "-n net-op exec nvidia-driver-daemonset-x -c ctr -- ip -d link show")
+	require.Contains(t, got, "-n net-op exec -i nvidia-driver-daemonset-x -c ctr -- sh -s")
+}
+
+func TestExecInSkipsANodeWithoutTheNamedPod(t *testing.T) {
+	dir, log, kubectl := setup(t, "")
+	out := filepath.Join(dir, "capture")
+	require.Equal(t, 0, runCLI(kubectl, "-out", out, "-exec-in", "net-op/no-such-pod", "host", "node-a"))
+	require.NotContains(t, calls(t, log), " exec ")
+}
+
+func TestExecInNeedsANamespaceAndAPodName(t *testing.T) {
+	for _, v := range []string{"pod-only", "/part", "ns/", "a/b/c/d"} {
+		_, err := parseExecIn(v)
+		require.Error(t, err, v)
+	}
+	target, err := parseExecIn("ns/part")
+	require.NoError(t, err)
+	require.Equal(t, &podTarget{namespace: "ns", part: "part"}, target)
+	dir, _, kubectl := setup(t, "")
+	require.Equal(t, 2, runCLI(kubectl, "-out", filepath.Join(dir, "c"), "-exec-in", "bad", "host", "node-a"))
+}
+
+// A dropped connection is retried, with the same standard input; an answer
+// from the node, even an error, is not.
+func TestACommandWhoseConnectionDroppedIsRunAgain(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	kubectl := filepath.Join(dir, "kubectl")
+	script := `#!/bin/sh
+echo "$*" >> "$0.log"
+n=$(grep -c . "$0.log")
+case "$*" in
+  *uname*) [ "$n" -ge 2 ] || { echo "Unable to connect to the server: net/http: TLS handshake timeout" >&2; exit 1; }; echo "Linux node";;
+  *" -i "*) [ "$n" -ge 4 ] || { echo "error dialing backend: EOF" >&2; exit 1; }; cat;;
+  *ibstat*) echo "Error from server: boom" >&2; exit 1;;
+esac
+`
+	require.NoError(t, os.WriteFile(kubectl, []byte(script), 0o755)) //nolint:gosec // an executable test double
+	c := &collector{ctx: context.Background(), stderr: io.Discard, kubectl: kubectl, dir: dir}
+
+	c.capture("host-uname.txt", nil, "kubectl", "exec", "--", "uname", "-a")
+	c.capture("rdma-sysfs.txt", strings.NewReader("echo script\n"), "kubectl", "exec", "-i", "--", "sh", "-s")
+	c.capture("host-ibstat.txt", nil, "kubectl", "exec", "--", "ibstat")
+
+	for file, want := range map[string]string{"host-uname.txt": "Linux node\n", "rdma-sysfs.txt": "echo script\n", "host-ibstat.txt": ""} {
+		got, err := os.ReadFile(filepath.Join(dir, file))
+		require.NoError(t, err)
+		require.Equal(t, want, string(got), file)
+	}
+	errs, err := os.ReadFile(filepath.Join(dir, "errors.log"))
+	require.NoError(t, err)
+	require.Contains(t, string(errs), "--- host-uname.txt, try 1\nUnable to connect to the server: net/http: TLS handshake timeout\n")
+	require.NotContains(t, string(errs), "host-uname.txt, try 2", "a try that succeeded quietly leaves no heading")
+	require.Contains(t, string(errs), "--- host-ibstat.txt, try 1\nError from server: boom\nFAILED: host-ibstat.txt\n")
+	require.NotContains(t, string(errs), "FAILED: host-uname.txt")
+	require.NotContains(t, string(errs), "FAILED: rdma-sysfs.txt")
+	require.Contains(t, string(errs), "FAILED: host-ibstat.txt")
+	calls, err := os.ReadFile(kubectl + ".log")
+	require.NoError(t, err)
+	require.Equal(t, 5, strings.Count(string(calls), "\n"), "two tries each for the dropped connections, one for the error")
+}
+
+// network reads the NodeFeatures of the nodes it captures, not every node's;
+// cluster reads them all.
+func TestNetworkTakesOnlyItsNodesNodeFeatures(t *testing.T) {
+	dir, log, kubectl := setup(t, "")
+	require.Equal(t, 0, runCLI(kubectl, "-out", filepath.Join(dir, "a"), "-exec-in", "ns/pod", "network", "node-a", "node-b"))
+	require.Contains(t, calls(t, log), "get nodefeatures -A -o yaml -l nfd.node.kubernetes.io/node-name in (node-a,node-b)\n")
+	require.NoError(t, os.Remove(log))
+	require.Equal(t, 0, runCLI(kubectl, "-out", filepath.Join(dir, "b"), "cluster"))
+	require.Contains(t, calls(t, log), "get nodefeatures -A -o yaml\n")
+}
