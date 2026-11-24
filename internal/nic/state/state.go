@@ -197,10 +197,26 @@ type Port struct {
 	// GUID is an InfiniBand port's GUID: the node GUID on the first port,
 	// one of its own on each other. Empty for other technologies.
 	GUID string
-	// GID is GID 0.
-	GID string
+	// GIDs are the port's GID table entries the resolver decides: GID 0 from
+	// the port GUID on InfiniBand, GIDs 0 and 1 on RoCE, and GID 0 on EFA.
+	GIDs []GID
 	// Netdev is the name of the port's netdev: Ethernet for RoCE, IPoIB for
 	// InfiniBand when it loads; empty for a port without one.
+	Netdev string
+}
+
+// GID types, as sysfs shows them.
+const (
+	GIDTypeIBRoCEv1 = "IB/RoCE v1"
+	GIDTypeRoCEv2   = "RoCE v2"
+)
+
+// GID is one entry of a port's GID table.
+type GID struct {
+	Index   int
+	Address string
+	Type    string
+	// Netdev is the netdev the entry is tied to; empty for none.
 	Netdev string
 }
 
