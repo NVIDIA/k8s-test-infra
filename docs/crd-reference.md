@@ -632,7 +632,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `slots` _string array_ | Slots are the names of the slots the override applies to. |  | MinItems: 1 <br /> |
-| `profile` _string_ | Profile replaces the slot's profile. Configuration names belong to a<br />profile, so the slot's own configuration no longer applies. |  | Optional: \{\} <br /> |
+| `profile` _string_ | Profile replaces the slot's profile. The slot's configuration, firmware<br />version and VPD belong to the old model, so they no longer apply; the<br />new profile's own do, unless this override sets them. |  | Optional: \{\} <br /> |
 | `configuration` _string_ | Configuration replaces the slot's configuration. |  | Optional: \{\} <br /> |
 | `firmwareVersion` _string_ | FirmwareVersion replaces the slot's firmware version. |  | Optional: \{\} <br /> |
 | `vpd` _object (keys:string, values:string)_ | VPD overrides model VPD keywords, on top of the slot's own overrides. |  | Optional: \{\} <br /> |
@@ -756,26 +756,6 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `keywords` _object (keys:string, values:string)_ | Keywords are model values by VPD keyword, such as PN, EC or V2. "name"<br />is the product name, to which a device's vpdPosition is appended. PN<br />defaults to identity.partNumber. |  | Optional: \{\} <br /> |
 | `identities` _object (keys:string, values:[VPDScope](#vpdscope))_ | Identities are the keywords whose value is a generated identifier,<br />mapped to the scope that shares one value. |  | Optional: \{\} <br /> |
-
-
-#### NetworkTopology
-
-
-
-NetworkTopology is out-of-band adapters.
-
-
-
-_Appears in:_
-- [SGPUTopology](#sgputopology)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `type` _string_ | Type names the out-of-band network adapter type. |  | Optional: \{\} <br /> |
-| `adapterModel` _string_ | AdapterModel is the adapter model name. |  | Optional: \{\} <br /> |
-| `firmwareVersion` _string_ | FirmwareVersion is the adapter firmware version. |  | Optional: \{\} <br /> |
-| `linkSpeedGbps` _integer_ | LinkSpeedGbps is the adapter link speed in gigabits per second. |  | Optional: \{\} <br /> |
-| `adaptersPerGPU` _integer_ | AdaptersPerGPU is the number of network adapters associated with each GPU. |  | Optional: \{\} <br /> |
 
 
 #### PCIBridge
@@ -1511,7 +1491,7 @@ _Appears in:_
 
 
 
-SGPUTopology is PCIe slots, GPU fabric, and network visible to the node.
+SGPUTopology is the PCIe slots, GPU fabric and NICs visible to the node.
 
 
 
@@ -1522,7 +1502,6 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `gpuSlots` _[GPUSlot](#gpuslot) array_ | GPUSlots maps each GPU index to its PCI and host topology coordinates. |  | MaxItems: 64 <br />MinItems: 1 <br /> |
 | `gpuFabric` _[GPUFabric](#gpufabric)_ | GPUFabric describes optional NVLink/NVSwitch connectivity. |  | Optional: \{\} <br /> |
-| `network` _[NetworkTopology](#networktopology)_ | Network describes optional out-of-band network adapters. |  | Optional: \{\} <br /> |
 | `nics` _[NICSlot](#nicslot) array_ | NICs places one NIC instance per entry on the Node: an SNICProfile, the<br />configuration it runs and where each of its PCI devices sits. |  | MaxItems: 64 <br />Optional: \{\} <br /> |
 
 

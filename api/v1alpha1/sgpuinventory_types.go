@@ -85,8 +85,9 @@ type NICOverride struct {
 	Slots []string `json:"slots"`
 
 	// +optional
-	// Profile replaces the slot's profile. Configuration names belong to a
-	// profile, so the slot's own configuration no longer applies.
+	// Profile replaces the slot's profile. The slot's configuration, firmware
+	// version and VPD belong to the old model, so they no longer apply; the
+	// new profile's own do, unless this override sets them.
 	Profile string `json:"profile,omitempty"`
 
 	// +optional

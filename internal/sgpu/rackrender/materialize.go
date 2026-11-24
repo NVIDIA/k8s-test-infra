@@ -119,12 +119,6 @@ func ValidateProfile(spec mokkav1alpha1.SGPURackProfileSpec) error {
 			)
 		}
 	}
-	if network := spec.Node.Topology.Network; network != nil {
-		if network.Type == "" || network.AdapterModel == "" || network.FirmwareVersion == "" ||
-			network.LinkSpeedGbps <= 0 || network.AdaptersPerGPU <= 0 {
-			return errors.New("network must define positive adapter topology")
-		}
-	}
 	return nil
 }
 

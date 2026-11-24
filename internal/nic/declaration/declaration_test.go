@@ -353,17 +353,19 @@ func TestSelect(t *testing.T) {
 	require.Equal(t, "2", got[1].FirmwareVersion)
 	require.Equal(t, "A1", slots[0].VPD["EC"], "the declared slots are left unchanged")
 
-	// A new profile drops the slot's configuration, so its default applies;
-	// a later override can still pick one of the new profile's.
+	// A new profile drops the old model's configuration, firmware version and
+	// VPD, so the new profile's own apply; the same or a later override can
+	// still set them.
 	got, err = Select(slots, []v1alpha1.NICOverride{{Slots: []string{"nic0"}, Profile: "b"}})
 	require.NoError(t, err)
-	require.Equal(t, v1alpha1.NICSlot{Slot: "nic0", Profile: "b", FirmwareVersion: "1", VPD: map[string]string{"EC": "A1"}}, got[0])
+	require.Equal(t, v1alpha1.NICSlot{Slot: "nic0", Profile: "b"}, got[0])
 	got, err = Select(slots, []v1alpha1.NICOverride{
-		{Slots: []string{"nic0"}, Profile: "b"},
+		{Slots: []string{"nic0"}, Profile: "b", FirmwareVersion: "2", VPD: map[string]string{"EC": "B1"}},
 		{Slots: []string{"nic0"}, Configuration: "roce"},
 	})
 	require.NoError(t, err)
-	require.Equal(t, "roce", got[0].Configuration)
+	require.Equal(t, v1alpha1.NICSlot{Slot: "nic0", Profile: "b", Configuration: "roce", FirmwareVersion: "2",
+		VPD: map[string]string{"EC": "B1"}}, got[0])
 
 	_, err = Select(slots, []v1alpha1.NICOverride{{Slots: []string{"nic9"}, Configuration: "eth"}})
 	require.ErrorContains(t, err, `unknown slot "nic9"`)

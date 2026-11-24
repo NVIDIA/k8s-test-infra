@@ -85,12 +85,6 @@ spec:
           gpuCount: 2
         switches:
           visiblePerNode: 1
-      network:
-        type: InfiniBand
-        adapterModel: ConnectX-7
-        firmwareVersion: 28.43.1014
-        linkSpeedGbps: 400
-        adaptersPerGPU: 1
   software:
     driverVersion: 580.65.06
     nvmlVersion: "13.0"

@@ -727,31 +727,6 @@ spec:
                         x-kubernetes-list-map-keys:
                         - index
                         x-kubernetes-list-type: map
-                      network:
-                        description: Network describes optional out-of-band network
-                          adapters.
-                        properties:
-                          adapterModel:
-                            description: AdapterModel is the adapter model name.
-                            type: string
-                          adaptersPerGPU:
-                            description: AdaptersPerGPU is the number of network adapters
-                              associated with each GPU.
-                            format: int32
-                            type: integer
-                          firmwareVersion:
-                            description: FirmwareVersion is the adapter firmware version.
-                            type: string
-                          linkSpeedGbps:
-                            description: LinkSpeedGbps is the adapter link speed in
-                              gigabits per second.
-                            format: int32
-                            type: integer
-                          type:
-                            description: Type names the out-of-band network adapter
-                              type.
-                            type: string
-                        type: object
                       nics:
                         description: |-
                           NICs places one NIC instance per entry on the Node: an SNICProfile, the

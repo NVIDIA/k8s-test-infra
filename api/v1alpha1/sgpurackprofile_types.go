@@ -430,7 +430,7 @@ type HostMemory struct {
 	CoherentWithGPU bool `json:"coherentWithGPU,omitempty"`
 }
 
-// SGPUTopology is PCIe slots, GPU fabric, and network visible to the node.
+// SGPUTopology is the PCIe slots, GPU fabric and NICs visible to the node.
 type SGPUTopology struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
@@ -442,10 +442,6 @@ type SGPUTopology struct {
 	// +optional
 	// GPUFabric describes optional NVLink/NVSwitch connectivity.
 	GPUFabric *GPUFabric `json:"gpuFabric,omitempty"`
-
-	// +optional
-	// Network describes optional out-of-band network adapters.
-	Network *NetworkTopology `json:"network,omitempty"`
 
 	// +optional
 	// +kubebuilder:validation:MaxItems=64
@@ -641,29 +637,6 @@ type FabricSwitches struct {
 	// +optional
 	// VisiblePerNode is the number of fabric switches visible from each Node.
 	VisiblePerNode int32 `json:"visiblePerNode,omitempty"`
-}
-
-// NetworkTopology is out-of-band adapters.
-type NetworkTopology struct {
-	// +optional
-	// Type names the out-of-band network adapter type.
-	Type string `json:"type,omitempty"`
-
-	// +optional
-	// AdapterModel is the adapter model name.
-	AdapterModel string `json:"adapterModel,omitempty"`
-
-	// +optional
-	// FirmwareVersion is the adapter firmware version.
-	FirmwareVersion string `json:"firmwareVersion,omitempty"`
-
-	// +optional
-	// LinkSpeedGbps is the adapter link speed in gigabits per second.
-	LinkSpeedGbps int32 `json:"linkSpeedGbps,omitempty"`
-
-	// +optional
-	// AdaptersPerGPU is the number of network adapters associated with each GPU.
-	AdaptersPerGPU int32 `json:"adaptersPerGPU,omitempty"`
 }
 
 // SGPUSoftware is driver/NVML/CUDA versions.

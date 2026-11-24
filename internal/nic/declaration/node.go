@@ -16,9 +16,9 @@ import (
 
 // Select returns the slots as a rack group runs them: each override, in order,
 // replaces the fields it sets in the slots it names. An override that replaces
-// the profile drops the slot's configuration, since configuration names belong
-// to a profile; the new profile's default applies unless the override names
-// one. The slots passed in are left unchanged.
+// the profile also drops the slot's configuration, firmware version and VPD,
+// since those belong to the old model; the new profile's own apply unless the
+// override sets them. The slots passed in are left unchanged.
 func Select(slots []v1alpha1.NICSlot, overrides []v1alpha1.NICOverride) ([]v1alpha1.NICSlot, error) {
 	out := make([]v1alpha1.NICSlot, len(slots))
 	index := make(map[string]int, len(slots))
@@ -46,7 +46,7 @@ func Select(slots []v1alpha1.NICSlot, overrides []v1alpha1.NICOverride) ([]v1alp
 
 func applyOverride(s *v1alpha1.NICSlot, o *v1alpha1.NICOverride) {
 	if o.Profile != "" && o.Profile != s.Profile {
-		s.Profile, s.Configuration = o.Profile, ""
+		s.Profile, s.Configuration, s.FirmwareVersion, s.VPD = o.Profile, "", "", nil
 	}
 	if o.Configuration != "" {
 		s.Configuration = o.Configuration
