@@ -15,7 +15,7 @@ Four steps, in this order:
 1. Create a Kubernetes cluster on the runner — Kind is the usual choice.
 2. Install the Mokka chart: the latest release to start with, then pinned to the
    release your tests passed against.
-3. Wait for the DaemonSet to be ready.
+3. Wait for the DaemonSet to be ready on every node.
 4. Run your tests against the cluster.
 
 ## GitHub Actions
@@ -43,14 +43,21 @@ jobs:
             --namespace mokka --create-namespace \
             --set gpu.profile=gb300 \
             --wait --timeout 5m
+          kubectl -n mokka rollout status ds/nvml-mock --timeout=5m
 
       - name: Run tests
         run: ./run-my-gpu-tests.sh
 ```
 
-`--wait` is what makes this reliable: without it the next step starts before the
-DaemonSet is serving, and your tests fail on a node that does not report GPUs
-yet.
+The `rollout status` line is what makes this reliable. Without it the next step
+can start before the DaemonSet is serving, and your tests fail on a node that
+does not report GPUs yet.
+
+`--wait` alone covers every node only with Helm 4's default wait. Helm 3, and
+Helm 4 with `--wait=legacy`, stop waiting once all but the DaemonSet's
+`maxUnavailable` share of node pods are ready, rounded up from 25%. On a
+one-node Kind cluster that is none of them. `rollout status` waits for every
+node whichever Helm version the runner has.
 
 ## Pin the chart version
 

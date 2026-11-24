@@ -94,6 +94,8 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --set gpu.count=8 \
   --set "nodeSelector.run\.ai/simulated-gpu-node-pool=integration" \
   --wait --timeout 120s
+kubectl --context kind-nvml-mock-fgo-demo -n mokka \
+  rollout status ds/nvml-mock --timeout=120s
 ```
 
 `integrations.fakeGpuOperator.enabled=true` is what emits the profile

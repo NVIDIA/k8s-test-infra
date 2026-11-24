@@ -24,8 +24,20 @@ kubectl get pods -n mokka -l app.kubernetes.io/name=nvml-mock -o wide
 kubectl logs -n mokka -l app.kubernetes.io/name=nvml-mock --tail=50
 ```
 
-If the DaemonSet is not running on that node, it is usually the node selector:
-the chart pins to nodes labelled `mokka.nvidia.com/type=sgpu`.
+The chart sets no node selector and tolerates every taint, so by default the
+DaemonSet runs on every node, the control plane included. If it is not running
+on that node, the release was installed with a `nodeSelector` or `affinity`
+that leaves the node out. The local development environment pins it to
+`mokka.nvidia.com/type=sgpu`, and a
+[fleet of several GPU models](guides/device-plugin.md#different-gpu-models-on-different-nodes)
+pins each release to its own nodes. Check the values the release runs with:
+
+```bash
+helm get values nvml-mock -n mokka
+```
+
+If the DaemonSet created no pod at all, `kubectl -n mokka describe ds nvml-mock`
+names the reason, for example a namespace that does not admit privileged pods.
 
 ### The device plugin reports 0 GPUs
 
@@ -71,7 +83,11 @@ daemon turns NRI on as part of its
 so here the setup is off, failed, left the node alone, or waits for a
 containerd restart under `restartMode: none`; the node agent's log says which.
 The node agent keeps running and workloads still start, but without the mock,
-and `helm install --wait` times out.
+and `kubectl -n mokka rollout status ds/nvml-mock` times out. `helm install
+--wait` times out too with Helm 4's default wait. Helm 3 lets the chart's
+`maxUnavailable` share of node pods stay unready, so on a one-node cluster it
+returns instead, as
+[Use in CI/CD](guides/ci-cd.md#github-actions) explains.
 
 Restart containerd if a restart is pending. Otherwise, set `nri.enabled=false`,
 or turn NRI on in containerd's configuration and restart containerd:

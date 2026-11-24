@@ -509,6 +509,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --set gpu.profile=a100 \
   --set gpu.count=2 \
   --wait --timeout 120s
+kubectl -n mokka rollout status ds/nvml-mock --timeout=120s
 ```
 
 On a multi-node cluster, pick two nvml-mock pods on different nodes. Read
