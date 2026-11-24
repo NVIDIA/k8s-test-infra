@@ -1,0 +1,7 @@
+#!/bin/sh
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Called by the operator's startup probe in the driver container, after it has found the
+# stand-in's modules loaded.
+echo "Driver Version: $DRIVER_VERSION (driver-stub)"

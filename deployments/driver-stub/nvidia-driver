@@ -1,0 +1,65 @@
+#!/bin/sh
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Stand-in for the driver image's `nvidia-driver init`. See docs/components/driver-stub.md.
+set -eu
+
+log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) driver-stub: $*"; }
+
+# The pod has hostPID: PID 1's mount namespace is the node's.
+node() { nsenter -t 1 -m -- "$@"; }
+
+# Stacks a bind rather than reusing one of the same source, so unbinding keeps the node agent's.
+bind() {
+	node mount --bind "$1" "$2"
+	bound="$bound $2"
+}
+
+unbind() {
+	for target in $bound; do node umount "$target" || log "could not unmount $target"; done
+	bound=""
+}
+
+# Writes a loaded module as the kernel publishes it.
+load_module() {
+	module=$1
+	shift
+	rm -rf "/sys/module/$module"
+	mkdir -p "/sys/module/$module/holders"
+	for holder in "$@"; do ln -s "../../$holder" "/sys/module/$module/holders/$holder"; done
+	echo "$#" > "/sys/module/$module/refcnt"
+	echo live > "/sys/module/$module/initstate"
+}
+
+[ "${1:-}" = init ] || { echo "driver-stub: unsupported command: ${1:-<none>}" >&2; exit 1; }
+
+if ! touch /sys/module/.driver-stub 2>/dev/null; then
+	log "/sys/module is the kernel's: install Mokka with nri.driverManager.enabled"
+	exit 1
+fi
+rm -f /sys/module/.driver-stub
+
+# PID 1 ignores SIGTERM without a handler; EXIT also unbinds after a failed step.
+bound=""
+stop() {
+	log terminated
+	exit 0
+}
+trap unbind EXIT
+trap stop TERM INT
+
+log "installing driver $DRIVER_VERSION, ${STUB_INSTALL_SECONDS}s"
+sleep "$STUB_INSTALL_SECONDS" &
+wait $!
+bind "$STUB_DRIVER_ROOT" /run/nvidia/driver
+# Nothing else binds /proc/modules: drop what an instance killed before unbinding left.
+while node umount /proc/modules 2>/dev/null; do :; done
+bind "$STUB_PROC_MODULES" /proc/modules
+load_module nvidia_uvm
+load_module nvidia_modeset
+load_module nvidia nvidia_uvm nvidia_modeset
+log "driver $DRIVER_VERSION installed"
+
+sleep infinity &
+wait $!

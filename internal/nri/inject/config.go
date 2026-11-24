@@ -83,6 +83,12 @@ type Config struct {
 	NodeName              string
 	TopologyHostPath      string
 	TopologyContainerPath string
+
+	// Driver manager — the simulated modules (a /sys/module tree) bound into the
+	// GPU Operator's driver pod, with delete_module answered at
+	// ModuleUnloadListenerPath. Empty DriverModulesHostPath disables it.
+	DriverModulesHostPath    string
+	ModuleUnloadListenerPath string
 }
 
 // DefaultConfig returns the overlay contract described by the NRI design.
@@ -117,6 +123,9 @@ func DefaultConfig() Config {
 		ImexChannelHostPath:   filepath.Join(hostOverlay, imexChannelRelPath),
 
 		InfiniBandAnnotation: "nvml-mock.nvidia.com/infiniband",
+
+		// Beside the NRI socket, a directory shared with the node.
+		ModuleUnloadListenerPath: "/var/run/nri/nvml-mock-module-unload.sock",
 	}
 }
 
@@ -133,6 +142,7 @@ func withDefaults(cfg Config) Config {
 	cfg.CDISpecHostPath = orDefault(cfg.CDISpecHostPath, defaults.CDISpecHostPath)
 	cfg.ImexChannelAnnotation = orDefault(cfg.ImexChannelAnnotation, defaults.ImexChannelAnnotation)
 	cfg.InfiniBandAnnotation = orDefault(cfg.InfiniBandAnnotation, defaults.InfiniBandAnnotation)
+	cfg.ModuleUnloadListenerPath = orDefault(cfg.ModuleUnloadListenerPath, defaults.ModuleUnloadListenerPath)
 
 	// Derived from the overlay roots, so they resolve against whatever those
 	// ended up being rather than against the packaged defaults.
