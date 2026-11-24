@@ -74,7 +74,7 @@ Real nodes vary in ways software depends on:
 
 ### Non-Goals
 
-- Declaring surfaces that cluster software creates, such as VFs, switchdev representors and SMI devices. Mokka emulates the driver's reaction to those operations instead. This MEP places that emulation in the node agent; the behavior of each operation is for its own proposal, starting with VFs in MEP-0011 (in review).
+- Declaring surfaces that cluster software creates, such as VFs, switchdev representors and SMI devices. Mokka emulates the driver's reaction to those operations instead. This MEP places that emulation in the node agent; the behavior of each operation is for its own proposal, starting with VFs in MEP-0011 (in review). Operations that go through devlink or RDMA netlink, such as switchdev mode and SMI devices, are known gaps; [the operations table](#the-declaration-stops-at-the-boot-state) lists them.
 - Fabric topology and network state: cabling, port state, LIDs, partitions. MEP-0015 covers them.
 - Interpreting firmware parameters, or covering every possible firmware configuration.
 - Physical connectors, optical modules, cable breakout and the mapping of lanes to connectors. `ports` are logical ports and their fabric-facing planes, not sockets.
@@ -157,7 +157,7 @@ Firmware settings don't map to a layout without device knowledge. With four plan
 
 ### Slots place PCI devices
 
-A NIC model has one or more PCI devices. Each function in a configuration says which device it's on (`pciDevice`) and its function number. The slot says where each device sits: PCIe domain, root port, bridges, bus address, NUMA node.
+A NIC model has one or more PCI devices. Each function in a configuration says which device it's on (`pciDevice`) and its function number. The slot says where each device sits: its PCIe domain, its parent, the NIC's switch ports above it, its bus address and its NUMA node.
 
 ```yaml
 # SGPURackProfile gb300-nvl72, slot nic0
@@ -168,10 +168,8 @@ A NIC model has one or more PCI devices. Each function in a configuration says w
   devices:
     network:
       rootComplex: pci0000:00
-      rootPort: "0000:00:00.0"
-      rootPortID: {vendorID: "10de", deviceID: "22b2"}
       bridges:
-        - {address: "0000:01:00.0", parent: "0000:00:00.0"}
+        - {address: "0000:01:00.0", parent: "0000:00:00.0"}   # parent: a root port
         # … five more switch ports
       address: "0000:03:00"
       parent: "0000:02:00.0"
@@ -179,7 +177,7 @@ A NIC model has one or more PCI devices. Each function in a configuration says w
       vpdPosition: "-Prime"
     dataDirect:
       rootComplex: pci0009:00   # GPU 1's root complex
-      # … root port and bridges
+      # … switch ports, shown below
       address: "0009:03:00"
       parent: "0009:02:00.0"
       numaNode: 0
@@ -201,22 +199,57 @@ functions:
   - {id: b1, type: network, pciDevice: hostB, function: 1, class: "0x020000", ports: [p1]}
 ```
 
-Root complexes are named by ID, as GPU slots already name theirs, so a GPU and a NIC function on the same root share it and the node has one PCIe topology. NUMA attributes follow that topology; [MEP-0010](../0010-numa-aware-scheduling/README.md) proposes how NUMA is simulated. `gpus` records which GPUs the NIC serves, for locality reporting; it doesn't restrict which GPUs may use the NIC.
+**GPUs and NICs share one PCIe tree.** Root ports are declared once per node, and every GPU slot, NIC device and NIC switch port names its parent: a root port, or a switch port from any slot. On GB300 each GPU sits below a switch port of the NIC that serves it, the same switch that leads to the NIC's Data Direct function, so `rdma_topo`, `nvidia-smi topo -m` and DRA drivers that match GPUs to NICs by PCIe position see what the real node shows:
+
+```yaml
+# SGPURackProfile gb300-nvl72
+topology:
+  rootPorts:
+    - {address: "0009:00:00.0", rootComplex: pci0009:00, id: {vendorID: "10de", deviceID: "22b1"}}
+    # … one per root port on the node
+  gpuSlots:
+    - {index: 1, rootComplex: "pci0009:00", pciAddress: "0009:06:00.0", parent: "0009:05:00.0", numaNode: 0}
+    # …
+  nics:
+    - slot: nic0
+      devices:
+        dataDirect:
+          bridges:
+            - {address: "0009:01:00.0", parent: "0009:00:00.0"}
+            # … three more switch ports
+            - {address: "0009:05:00.0", parent: "0009:04:00.0"}   # GPU 1's parent
+```
+
+NUMA attributes follow that topology; [MEP-0010](../0010-numa-aware-scheduling/README.md) proposes how NUMA is simulated. `gpus` records which GPUs the NIC serves, for locality reporting; it doesn't restrict which GPUs may use the NIC.
 
 ### The declaration stops at the boot state
 
 The declaration describes what Linux shows after boot, before any cluster software runs: the hardware, the firmware configuration and the driver.
 
-Everything cluster software creates stays out: VFs, switchdev representors, SMI devices, renamed netdevs, IPoIB child interfaces, GIDs from IP addresses, MTU. Mokka emulates how the driver reacts to each operation, so the real operator runs unchanged and creates those surfaces itself. The profile only says how many VFs the hardware allows (`totalVFs: 16`), not how many are enabled.
+Everything cluster software creates stays out: VFs, switchdev representors, SMI devices, renamed netdevs, IPoIB child interfaces, GIDs from IP addresses, MTU. Where Mokka can see an operation, it emulates the driver's reaction, so the real operator runs unchanged and creates those surfaces itself. The profile only says how many VFs the hardware allows (`totalVFs: 16`), not how many are enabled.
 
-For example, in the GB300 Ethernet capture, PF0's RDMA device has 72 ports. That is switchdev mode with a multiport eswitch, which an operator turned on: mlx5 gives each PF's vports (the host PF, 16 possible VFs and the uplink, so 18) to PF0's device. The declaration has four PFs with one port each, and Mokka's switchdev support would produce the 72.
+For example, in the GB300 Ethernet capture, PF0's RDMA device has 72 ports. That is switchdev mode with a multiport eswitch, which an operator turned on: mlx5 gives each PF's vports (the host PF, 16 possible VFs and the uplink, so 18) to PF0's device. The declaration has four PFs with one port each. Producing the 72 would need Mokka to answer devlink, which it can't yet.
+
+**Operations cluster software performs.** Whether Mokka can emulate the driver's reaction depends on the kernel interface the operation uses:
+
+| Operation | Done by | Kernel interface | Mokka can see it | Status |
+|---|---|---|---|---|
+| Enable VFs | SR-IOV or NIC configuration operator | sysfs write to `sriov_numvfs` | Yes: the file is Mokka's | Planned, MEP-0011 |
+| Switchdev mode, multiport eswitch | Network Operator, NIC configuration operator | devlink (generic netlink) | No | Known gap |
+| VF representors | The driver, in switchdev mode | Follows switchdev | No | Known gap |
+| SMI plane devices | A cluster DaemonSet (`rdma dev add … type SMI`) | RDMA netlink | No: MEP-0014 leaves RDMA netlink to the host kernel | Known gap |
+| Device and netdev renames | udev, the `rdma` tool | rtnetlink, RDMA netlink | No | Known gap; names aren't compared |
+| IPoIB child interfaces | `ip link add … type ipoib` | rtnetlink | No | Known gap |
+| MTU, IP addresses | Network configuration, CNIs | rtnetlink | Once interfaces are kernel links (#1356) | The kernel applies them; RDMA GIDs must follow address changes |
+
+Closing the known gaps needs Mokka to answer devlink and RDMA netlink, a change to MEP-0014's scope for a later proposal.
 
 A few choices belong to the node image, not the NIC: whether the `umad` and IPoIB modules load, and the mode of `umad` files (600 on one image, 666 on another). They go in the rack profile:
 
 ```yaml
 # SGPURackProfile gb300-ethernet
 software:
-  rdma: {umad: true, ipoib: true, umadMode: "666"}
+  rdma: {umad: true, ipoib: true, umadMode: "666", driverVersion: 26.01-1.0.0}
 ```
 
 Values the subnet manager or the fabric sets, such as port state, LIDs, partitions and the IPoIB MTU, are network state from MEP-0015.
@@ -315,14 +348,14 @@ An administrator's cluster uses an OEM ConnectX-7 card with its own part number 
 
 #### Story 4: testing a network operator
 
-An SR-IOV or switchdev operator runs against a simulated node. It finds the PFs in their boot state, enables VFs or switchdev mode, and Mokka's driver emulation creates the VFs and representors as the real driver would.
+An SR-IOV operator runs against a simulated node. It finds the PFs in their boot state, writes `sriov_numvfs`, and Mokka's driver emulation creates the VFs as the real driver would. Operators that switch the eswitch to switchdev or create SMI devices can't run against a simulated node yet; they're known gaps.
 
 ### Notes/Constraints/Caveats
 
 - **Slots exist in two places.** File mode has no rack profile, so its slots live in the GPU profile; control-plane mode has them in the rack profile. A unit test keeps the two equal until built-in rack profiles exist.
 - **Names aren't identities.** Linux-visible names follow the node: netdev names come from the image's naming scheme, and RDMA device names from probe order, so they shift when an earlier NIC is removed, as on real nodes. Stable identity is the coordinate-derived identifiers (GUIDs, MACs, serial numbers). Names aren't compared. The generator uses predictable names; a per-image naming setting can come later.
 - **Capture coverage.** `collect nic` records ConnectX functions only (PCI vendor `0x15b3`), so it misses EFA today. It also records a missing sysfs file as an empty value, so a capture can't show that a driver doesn't create an attribute. Captures of GB200 and of an InfiniBand cluster without SMI devices don't exist yet.
-- **Platform root ports.** Slots repeat the root port's IDs until the rack profile lists the platform's root ports.
+- **GPU parents in captures.** `collect nic` doesn't record a GPU's parent yet, so the samples take it from bus numbers and the captured PCI hierarchy. The GPU profiles place GPUs at their captured addresses (on `gb300`, domains `0008`, `0009`, `0018` and `0019`), so file mode builds the same tree.
 - **GPU slots and `GPU_COUNT`.** In file mode a slot's `gpus` may name any GPU the profile declares, so lowering `GPU_COUNT` never invalidates a slot. A NIC can then be associated with a GPU the node doesn't show.
 - **Platforms without a captured NIC.** A GPU profile moves to slots once its NICs have a captured profile. Until then it keeps today's `infiniband` block, and the node agent keeps the current path for it, so those platforms keep their NICs and the IB end-to-end tests keep running.
 
@@ -425,7 +458,12 @@ spec:
     gpus:
       pci: {vendorID, deviceID}     # existing; pairs GPUs with NICs in the GPU records
     topology:
-      gpuSlots: [...]               # existing: index, rootComplex, pciAddress, numaNode
+      rootPorts:                    # new: the platform's PCIe root ports, once per node
+        - address: string           # such as "0009:00:00.0"
+          rootComplex: string       # pciDDDD:BB
+          id: {vendorID, deviceID}? # upstream IDs are generated only where this is known
+      gpuSlots:                     # existing: index, rootComplex, pciAddress, numaNode
+        - parent: string?           # new: the root port or switch port the GPU sits below, from any slot; empty when unknown
       nics:                         # new: one entry per NIC instance on the node
         - slot: string              # unique per node, such as nic0 or frontend0
           profile: string           # an SNICProfile name
@@ -440,13 +478,11 @@ spec:
           devices:                  # placement of each PCI device the configurations name
             <pciDevice>:
               rootComplex: string   # pciDDDD:BB
-              rootPort: string?     # root port address; empty for a device on the root bus
-              rootPortID: {vendorID, deviceID}? # platform data, until the rack profile lists its root ports
               bridges:              # the NIC's switch ports above or beside the device, parents first
                 - address: string
-                  parent: string    # the root port or an earlier bridge
+                  parent: string    # a root port, or an earlier switch port
               address: string       # DDDD:BB:DD; function numbers come from the configuration
-              parent: string        # the root port or a bridge
+              parent: string        # a root port or a switch port; absent for a device on the root bus
               numaNode: int
               vpdPosition: string?  # suffix of the VPD product name, such as -Prime or -Aux[1]
 ```
@@ -487,7 +523,7 @@ The CRD checks field shapes. These rules need more than one field, so the loader
 - **Decoding:** strict; an unknown field is an error.
 - **Profile:** VPD scopes are `board`, `asic` or `boardPosition`, and a keyword is either a model value or an identity. Every function type has a driver. `rdmaOmit` and `rdmaEmpty` name only `fw_ver`, `hca_type`, `board_id` or `hw_rev`, and no attribute is in both. A `vfType` names another function type, on a function type with `totalVFs`. Configuration names are unique, and the default is one of them.
 - **Configuration:** port and function IDs are unique. Technology and lane speed come from the lists above; width is positive and planes aren't negative. A function's type exists, its PCI device is named, and each device and function number is used once. The class is `0x` plus six hex digits. Every port has an owner, and at most one per PCI device. An RDMA device names a function and at least one port.
-- **Rack profile:** slot names, GPU slots and PCI addresses are unique. One board holds one NIC model. A slot's GPUs and profile exist. A per-board VPD identity needs a `board`, and a per-board-position one needs a `vpdPosition`. `systemImageGUID` is `distinct` or an RDMA device of the selected configuration. Addresses are well-formed and inside their root complex. Bridges need the profile's `switchPort`, and each parent comes earlier. Every PCI device a configuration uses is placed.
+- **Rack profile:** slot names, GPU slots and PCI addresses are unique. One board holds one NIC model. A slot's GPUs and profile exist. A per-board VPD identity needs a `board`, and a per-board-position one needs a `vpdPosition`. `systemImageGUID` is `distinct` or an RDMA device of the selected configuration. Root ports are unique and inside their root complex. Addresses are well-formed and inside their root complex. Every parent, of a GPU slot, a NIC device or a switch port, names a root port or a switch port of the node in the same root complex, and switch ports form no cycle. Bridges need the profile's `switchPort`. Every PCI device a configuration uses is placed.
 - **Overrides:** overrides apply in order, and a later one wins per field; VPD keywords merge. An override that sets a new profile drops the slot's configuration, unless it also sets one. An override that names an unknown slot is an error. The rack-profile rules then run on the effective selection, so an override that selects a profile or configuration whose PCI devices the slot doesn't place is rejected.
 
 #### Samples by feature
@@ -558,7 +594,7 @@ nic_overrides:             # appended by the chart from values
 
 **Compile.** `compileNICs` joins `compileState` (`internal/agent/source/file.go`) and handles profiles with slots; `compileNetwork` stays for profiles that still use the `infiniband` block. Like `compileNetwork`, it parses the same bytes through its own schema, since the NVML engine never reads NICs. It validates them, applies the selection order, and resolves with the node's coordinates.
 
-**Failing open.** An invalid NIC declaration doesn't block the node. `State.NICs` stays empty, the GPUs render as usual, the error is logged, and `/readyz` shows it under `nics` while the probe stays OK. Fixing the declaration recovers on the same pod, without a restart. This matters most on a fresh node, which has no last good state to fall back on.
+**Failing open.** An invalid NIC declaration neither takes NICs away from a running node nor blocks a new one. A node that resolved its NICs before keeps its last resolved NIC state; a node that never did starts without NICs. Either way its GPUs render as usual, and the error is logged, recorded as a Kubernetes Event on the node agent's pod, and shown in `/readyz` under `nics` while the probe stays OK. Fixing the declaration applies on the same pod, without a restart. Control-plane mode follows the same rule.
 
 **State.** `State.NICs` takes over from `NodeShape.Network`, which remains only for the `infiniband` block and goes with it. Every value is resolved, so simulators never derive anything and a change is detected by comparing states. Nothing downstream reads the NIC YAML, so there is no raw copy of it.
 
@@ -580,9 +616,9 @@ type NICs struct {
 
 | Simulator | Change |
 |---|---|
-| `pcibus` | Renders NIC functions and bridges into the same `/sys/bus/pci` tree as the GPUs; `State.PCITopology()` places them under the same root complexes. Its NFD feature file gains the NIC vendors |
+| `pcibus` | Renders NIC functions and bridges into the same `/sys/bus/pci` tree as the GPUs; GPUs, NIC functions and switch ports form one tree, each under its declared parent. Its NFD feature file gains the NIC vendors |
 | `ib` | Renders `class/infiniband`, `infiniband_mad`, `infiniband_verbs`, `/dev/infiniband` and RoCE netdevs from `State.NICs`, and from `NetworkShape` for profiles that still use the `infiniband` block. `mock-ib` reloads when the NIC state changes, as today |
-| Driver reactions (new) | Emulates the driver's response to operator actions: `sriov_numvfs` writes, switchdev mode, SMI devices. A daemon, since operators act after staging. The behavior belongs to a driver, so it lives in a module per declared `driver`, starting with `mlx5_core`; it isn't described by declaration fields. Its state is runtime only; a configuration change clears it |
+| Driver reactions (new) | Emulates the driver's response to the operator actions Mokka can see, starting with `sriov_numvfs` writes (MEP-0011). Switchdev mode and SMI devices go through devlink and RDMA netlink, which Mokka can't answer yet. A daemon, since operators act after staging. The behavior belongs to a driver, so it lives in a module per declared `driver`, starting with `mlx5_core`; it isn't described by declaration fields. Its state is runtime only; a configuration change clears it |
 | Netdevs (new, if needed) | IPoIB netdevs and `ethtool` answers, if they don't fit in `ib`. `ethtool` uses ioctl and netlink, so it needs a shim like the IB tools |
 
 Today an HCA's PCI function exists only in `ib`'s own tree. A Data Direct function has to sit under its GPU's root complex, so all PCI functions move to one tree. How the `libmockfs` and `libibmocksys` path redirections share that tree is part of the implementation.
@@ -596,7 +632,7 @@ A new state from a profile edit or a configuration change runs `Stage` again: th
 | Watches | A new `SNICProfile` informer and RBAC (`get`, `list`, `watch`). NIC profile events re-route inventories as `SGPURackProfile` events do. Slots are part of the rack profile's spec, so they already change its revision; `nicOverrides` counts as a rendering input |
 | Rack rendering | The rack records the revision of each `SNICProfile` its slots name, next to the rack profile's, and renders again when one changes. It validates the NIC references and the cross-field rules. No NIC state is stored in `SGPURack`: it is deterministic |
 | Per-node view | When a node agent asks for its state, the control plane resolves the node's NICs with the same code file mode uses, from the pinned revisions only |
-| Status | A missing or invalid `SNICProfile` becomes a condition on the inventory and rack. Nothing is blocked, and the node keeps its last applied state |
+| Status | A missing or invalid `SNICProfile` becomes a condition on the inventory and rack. Nothing is blocked: a node keeps its last applied NIC state, and a node that never had one starts without NICs, as in file mode |
 | Unchanged | Allocation, capacity, Node projection and runtime policies |
 
 ```yaml
@@ -660,7 +696,7 @@ A custom profile can't reuse a shipped profile's name, and an override without `
 
 ### Test plan
 
-- **Schema.** Every shipped profile decodes strictly into the Go type and passes validation. The slots in each GPU profile equal those of the matching rack profile.
+- **Schema.** Every shipped profile decodes strictly into the Go type and passes validation. The NIC slots, GPU slots and root ports in each GPU profile equal those of the matching rack profile, so the capture checks cover the addresses file mode uses.
 - **Declaration level.** For each capture, the generator's output is compared with `diff nic`; every difference must match a cause. Deliberate breakages, such as swapping two NICs' Data Direct functions, dropping planes or putting both of a card's ports on one link, must each be caught.
 - **Determinism.** Generating twice gives identical output, and removing one NIC leaves the others' identifiers unchanged.
 - **Configuration switch.** Changing only a slot's configuration changes its functions and nothing in its placement or Data Direct pairing.
@@ -673,7 +709,7 @@ A custom profile can't reuse a shipped profile's name, and an override without `
 1. API types, CRD, chart profile files, validation.
 2. Node agent in file mode: `compileNICs`, `State.NICs`, `pcibus` and `ib` changes, the rendered-level check. Until `ib` renders from `State.NICs` ([#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355)), a compatibility shape derived from it keeps today's `ib` rendering working.
 3. Control plane: watches, pins, status; the per-node view once delivery exists.
-4. Driver reactions for operator actions, starting with VFs (MEP-0011).
+4. Driver reactions for the operations Mokka can see, starting with VFs (MEP-0011). Switchdev mode and SMI devices wait for devlink and RDMA netlink support.
 5. Captures and profiles for the remaining platforms, then removal of the `infiniband` block, `compileNetwork` and `NetworkShape`.
 
 ## Open Questions
@@ -690,7 +726,7 @@ NIC surfaces come from three inputs, each with its own owner:
 | Driver runtime state | Driver reactions to operator actions | VFs, representors, SMI devices |
 | Network state | The fabric (MEP-0015) | Port state, LIDs, partitions |
 
-Settled so far: a configuration change is a firmware reset and clears the runtime state. Open: how the three inputs combine into what the simulators render, and what survives a restage. A test case for any answer: a NIC with one PF and four InfiniBand planes; the network operator creates an SMI device; the fabric reports plane 2 down; the node agent reconciles. The SMI device should remain, and its second port should show the failure.
+Settled so far: a configuration change is a firmware reset and clears the runtime state. Open: how the three inputs combine into what the simulators render, and what survives a restage. A test case for any answer: a NIC with one PF and four InfiniBand planes; the network operator creates an SMI device, once Mokka can answer RDMA netlink; the fabric reports plane 2 down; the node agent reconciles. The SMI device should remain, and its second port should show the failure.
 
 A likely direction is one effective NIC state, resolved from the three inputs, that the simulators consume. This MEP doesn't commit to it.
 
@@ -742,7 +778,7 @@ A prototype implements the schema, the validation, the generator, and the declar
 | AWS GB300 instance | 385 | 123 | 242 blind spots of a trimmed listing, 20 by design (VF netdevs moved into pods, an IPv4-mapped GID) |
 | AWS EFA (`c5n.9xlarge`) | 58 | 52 | 3 by design: host kernel and architecture, udev directories. 3 capture blind spots: attributes the driver doesn't create, which `collect nic` records as empty |
 
-No difference is a schema gap or a rule bug. Fifteen deliberate breakages are each caught. The AWS sources predate `collect nic` and were converted into its format.
+No difference is a schema gap or a rule bug. Fifteen deliberate breakages are each caught. The by-design differences are surfaces the declaration leaves out on purpose. Of those, the VF can come from Mokka's driver emulation (MEP-0011), but the SMI devices, switchdev and representors need devlink and RDMA netlink, so a simulated node can't produce them yet; they're known gaps, not planned work. The AWS sources predate `collect nic` and were converted into its format.
 
 The counts come from the version of `diff nic` the prototype used. The version in [#1353](https://github.com/NVIDIA/k8s-test-infra/pull/1353) reports by-design differences as not compared rather than failed, so its totals are smaller; the same checks pass. Its newer GB300 captures also record more attributes: PCI power and reset files, ECN and QoS directories, and udev links for the verbs devices. They're classified as by design, because the node agent renders them.
 
@@ -1184,11 +1220,21 @@ spec:
     gpus:
       pci: {vendorID: "10de", deviceID: "31c2"}
     topology:
+      rootPorts:
+        - {address: "0000:00:00.0", rootComplex: pci0000:00, id: {vendorID: "10de", deviceID: "22b2"}}
+        - {address: "0002:00:00.0", rootComplex: pci0002:00, id: {vendorID: "10de", deviceID: "22b2"}}
+        - {address: "0008:00:00.0", rootComplex: pci0008:00, id: {vendorID: "10de", deviceID: "22b1"}}
+        - {address: "0009:00:00.0", rootComplex: pci0009:00, id: {vendorID: "10de", deviceID: "22b1"}}
+        - {address: "0010:00:00.0", rootComplex: pci0010:00, id: {vendorID: "10de", deviceID: "22b2"}}
+        - {address: "0012:00:00.0", rootComplex: pci0012:00, id: {vendorID: "10de", deviceID: "22b2"}}
+        - {address: "0016:00:00.0", rootComplex: pci0016:00, id: {vendorID: "10de", deviceID: "22b2"}}
+        - {address: "0018:00:00.0", rootComplex: pci0018:00, id: {vendorID: "10de", deviceID: "22b1"}}
+        - {address: "0019:00:00.0", rootComplex: pci0019:00, id: {vendorID: "10de", deviceID: "22b1"}}
       gpuSlots:
-        - {index: 0, rootComplex: "pci0008:00", pciAddress: "0008:06:00.0", numaNode: 0}
-        - {index: 1, rootComplex: "pci0009:00", pciAddress: "0009:06:00.0", numaNode: 0}
-        - {index: 2, rootComplex: "pci0018:00", pciAddress: "0018:06:00.0", numaNode: 1}
-        - {index: 3, rootComplex: "pci0019:00", pciAddress: "0019:06:00.0", numaNode: 1}
+        - {index: 0, rootComplex: "pci0008:00", pciAddress: "0008:06:00.0", parent: "0008:05:00.0", numaNode: 0}
+        - {index: 1, rootComplex: "pci0009:00", pciAddress: "0009:06:00.0", parent: "0009:05:00.0", numaNode: 0}
+        - {index: 2, rootComplex: "pci0018:00", pciAddress: "0018:06:00.0", parent: "0018:05:00.0", numaNode: 1}
+        - {index: 3, rootComplex: "pci0019:00", pciAddress: "0019:06:00.0", parent: "0019:05:00.0", numaNode: 1}
       nics:
         - slot: nic0
           profile: cx8-c8280z
@@ -1197,8 +1243,6 @@ spec:
           devices:
             network:
               rootComplex: pci0000:00
-              rootPort: "0000:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b2"}
               bridges:
                 - {address: "0000:01:00.0", parent: "0000:00:00.0"}
                 - {address: "0000:02:00.0", parent: "0000:01:00.0"}
@@ -1212,8 +1256,6 @@ spec:
               vpdPosition: "-Prime"
             dataDirect:
               rootComplex: pci0009:00
-              rootPort: "0009:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b1"}
               bridges:
                 - {address: "0009:01:00.0", parent: "0009:00:00.0"}
                 - {address: "0009:02:00.0", parent: "0009:01:00.0"}
@@ -1232,8 +1274,6 @@ spec:
           devices:
             network:
               rootComplex: pci0002:00
-              rootPort: "0002:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b2"}
               bridges:
                 - {address: "0002:01:00.0", parent: "0002:00:00.0"}
                 - {address: "0002:02:00.0", parent: "0002:01:00.0"}
@@ -1247,8 +1287,6 @@ spec:
               vpdPosition: "-Aux[1]"
             dataDirect:
               rootComplex: pci0008:00
-              rootPort: "0008:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b1"}
               bridges:
                 - {address: "0008:01:00.0", parent: "0008:00:00.0"}
                 - {address: "0008:02:00.0", parent: "0008:01:00.0"}
@@ -1266,8 +1304,6 @@ spec:
           devices:
             network:
               rootComplex: pci0010:00
-              rootPort: "0010:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b2"}
               bridges:
                 - {address: "0010:01:00.0", parent: "0010:00:00.0"}
                 - {address: "0010:02:00.0", parent: "0010:01:00.0"}
@@ -1281,8 +1317,6 @@ spec:
               vpdPosition: "-Prime"
             dataDirect:
               rootComplex: pci0019:00
-              rootPort: "0019:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b1"}
               bridges:
                 - {address: "0019:01:00.0", parent: "0019:00:00.0"}
                 - {address: "0019:02:00.0", parent: "0019:01:00.0"}
@@ -1301,8 +1335,6 @@ spec:
           devices:
             network:
               rootComplex: pci0012:00
-              rootPort: "0012:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b2"}
               bridges:
                 - {address: "0012:01:00.0", parent: "0012:00:00.0"}
                 - {address: "0012:02:00.0", parent: "0012:01:00.0"}
@@ -1316,8 +1348,6 @@ spec:
               vpdPosition: "-Aux[1]"
             dataDirect:
               rootComplex: pci0018:00
-              rootPort: "0018:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b1"}
               bridges:
                 - {address: "0018:01:00.0", parent: "0018:00:00.0"}
                 - {address: "0018:02:00.0", parent: "0018:01:00.0"}
@@ -1333,8 +1363,6 @@ spec:
           devices:
             host:
               rootComplex: pci0016:00
-              rootPort: "0016:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b2"}
               address: "0016:01:00"
               parent: "0016:00:00.0"
               numaNode: 1
@@ -1356,11 +1384,26 @@ spec:
     gpus:
       pci: {vendorID: "10de", deviceID: "3041"}
     topology:
+      rootPorts:
+        - {address: "0001:00:00.0", rootComplex: pci0001:00, id: {vendorID: "10de", deviceID: "2f95"}}
+        - {address: "0002:80:00.0", rootComplex: pci0002:80}
+        - {address: "0002:c0:00.0", rootComplex: pci0002:c0}
+        - {address: "0003:00:00.0", rootComplex: pci0003:00, id: {vendorID: "10de", deviceID: "2f95"}}
+        - {address: "0004:00:00.0", rootComplex: pci0004:00, id: {vendorID: "10de", deviceID: "2f95"}}
+        - {address: "0005:40:00.0", rootComplex: pci0005:40, id: {vendorID: "10de", deviceID: "2f96"}}
+        - {address: "0006:00:00.0", rootComplex: pci0006:00, id: {vendorID: "10de", deviceID: "2f95"}}
+        - {address: "0009:00:00.0", rootComplex: pci0009:00, id: {vendorID: "10de", deviceID: "2f95"}}
+        - {address: "000a:80:00.0", rootComplex: pci000a:80}
+        - {address: "000a:e0:00.0", rootComplex: pci000a:e0}
+        - {address: "000b:00:00.0", rootComplex: pci000b:00, id: {vendorID: "10de", deviceID: "2f95"}}
+        - {address: "000c:00:00.0", rootComplex: pci000c:00, id: {vendorID: "10de", deviceID: "2f95"}}
+        - {address: "000d:40:00.0", rootComplex: pci000d:40, id: {vendorID: "10de", deviceID: "2f96"}}
+        - {address: "000e:00:00.0", rootComplex: pci000e:00, id: {vendorID: "10de", deviceID: "2f95"}}
       gpuSlots:
-        - {index: 0, rootComplex: "pci0002:80", pciAddress: "0002:81:00.0", numaNode: 0}
-        - {index: 1, rootComplex: "pci0002:c0", pciAddress: "0002:c1:00.0", numaNode: 0}
-        - {index: 2, rootComplex: "pci000a:80", pciAddress: "000a:81:00.0", numaNode: 1}
-        - {index: 3, rootComplex: "pci000a:e0", pciAddress: "000a:e1:00.0", numaNode: 1}
+        - {index: 0, rootComplex: "pci0002:80", pciAddress: "0002:81:00.0", parent: "0002:80:00.0", numaNode: 0}
+        - {index: 1, rootComplex: "pci0002:c0", pciAddress: "0002:c1:00.0", parent: "0002:c0:00.0", numaNode: 0}
+        - {index: 2, rootComplex: "pci000a:80", pciAddress: "000a:81:00.0", parent: "000a:80:00.0", numaNode: 1}
+        - {index: 3, rootComplex: "pci000a:e0", pciAddress: "000a:e1:00.0", parent: "000a:e0:00.0", numaNode: 1}
       nics:
         - slot: nic0
           profile: cx9-vr
@@ -1368,8 +1411,6 @@ spec:
           devices:
             network:
               rootComplex: pci0001:00
-              rootPort: "0001:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "2f95"}
               # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
               bridges:
                 - {address: "0001:01:00.0", parent: "0001:00:00.0"}
@@ -1386,8 +1427,6 @@ spec:
           devices:
             network:
               rootComplex: pci0003:00
-              rootPort: "0003:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "2f95"}
               address: "0003:01:00"
               parent: "0003:00:00.0"
               numaNode: 0
@@ -1397,8 +1436,6 @@ spec:
           devices:
             network:
               rootComplex: pci0004:00
-              rootPort: "0004:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "2f95"}
               # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
               bridges:
                 - {address: "0004:01:00.0", parent: "0004:00:00.0"}
@@ -1415,8 +1452,6 @@ spec:
           devices:
             network:
               rootComplex: pci0006:00
-              rootPort: "0006:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "2f95"}
               address: "0006:01:00"
               parent: "0006:00:00.0"
               numaNode: 0
@@ -1426,8 +1461,6 @@ spec:
           devices:
             network:
               rootComplex: pci0009:00
-              rootPort: "0009:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "2f95"}
               # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
               bridges:
                 - {address: "0009:01:00.0", parent: "0009:00:00.0"}
@@ -1444,8 +1477,6 @@ spec:
           devices:
             network:
               rootComplex: pci000b:00
-              rootPort: "000b:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "2f95"}
               address: "000b:01:00"
               parent: "000b:00:00.0"
               numaNode: 1
@@ -1455,8 +1486,6 @@ spec:
           devices:
             network:
               rootComplex: pci000c:00
-              rootPort: "000c:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "2f95"}
               # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
               bridges:
                 - {address: "000c:01:00.0", parent: "000c:00:00.0"}
@@ -1473,8 +1502,6 @@ spec:
           devices:
             network:
               rootComplex: pci000e:00
-              rootPort: "000e:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "2f95"}
               address: "000e:01:00"
               parent: "000e:00:00.0"
               numaNode: 1
@@ -1485,15 +1512,11 @@ spec:
           devices:
             hostA:
               rootComplex: pci0005:40
-              rootPort: "0005:40:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "2f96"}
               address: "0005:41:00"
               parent: "0005:40:00.0"
               numaNode: 0
             hostB:
               rootComplex: pci000d:40
-              rootPort: "000d:40:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "2f96"}
               address: "000d:41:00"
               parent: "000d:40:00.0"
               numaNode: 1
@@ -1515,11 +1538,22 @@ spec:
     gpus:
       pci: {vendorID: "10de", deviceID: "31c2"}
     topology:
+      rootPorts:
+        - {address: "0000:00:00.0", rootComplex: pci0000:00, id: {vendorID: "10de", deviceID: "22b2"}}
+        - {address: "0002:00:00.0", rootComplex: pci0002:00, id: {vendorID: "10de", deviceID: "22b2"}}
+        - {address: "0007:00:00.0", rootComplex: pci0007:00, id: {vendorID: "10de", deviceID: "22b8"}}
+        - {address: "0008:00:00.0", rootComplex: pci0008:00, id: {vendorID: "10de", deviceID: "22b1"}}
+        - {address: "0009:00:00.0", rootComplex: pci0009:00, id: {vendorID: "10de", deviceID: "22b1"}}
+        - {address: "0010:00:00.0", rootComplex: pci0010:00, id: {vendorID: "10de", deviceID: "22b2"}}
+        - {address: "0012:00:00.0", rootComplex: pci0012:00, id: {vendorID: "10de", deviceID: "22b2"}}
+        - {address: "0017:00:00.0", rootComplex: pci0017:00, id: {vendorID: "10de", deviceID: "22b8"}}
+        - {address: "0018:00:00.0", rootComplex: pci0018:00, id: {vendorID: "10de", deviceID: "22b1"}}
+        - {address: "0019:00:00.0", rootComplex: pci0019:00, id: {vendorID: "10de", deviceID: "22b1"}}
       gpuSlots:
-        - {index: 0, rootComplex: "pci0008:00", pciAddress: "0008:06:00.0", numaNode: 0}
-        - {index: 1, rootComplex: "pci0009:00", pciAddress: "0009:06:00.0", numaNode: 0}
-        - {index: 2, rootComplex: "pci0018:00", pciAddress: "0018:06:00.0", numaNode: 1}
-        - {index: 3, rootComplex: "pci0019:00", pciAddress: "0019:06:00.0", numaNode: 1}
+        - {index: 0, rootComplex: "pci0008:00", pciAddress: "0008:06:00.0", parent: "0008:05:00.0", numaNode: 0}
+        - {index: 1, rootComplex: "pci0009:00", pciAddress: "0009:06:00.0", parent: "0009:05:00.0", numaNode: 0}
+        - {index: 2, rootComplex: "pci0018:00", pciAddress: "0018:06:00.0", parent: "0018:05:00.0", numaNode: 1}
+        - {index: 3, rootComplex: "pci0019:00", pciAddress: "0019:06:00.0", parent: "0019:05:00.0", numaNode: 1}
       nics:
         - slot: nic0
           profile: cx8-c8280z
@@ -1530,8 +1564,6 @@ spec:
           devices:
             network:
               rootComplex: pci0000:00
-              rootPort: "0000:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b2"}
               bridges:
                 - {address: "0000:01:00.0", parent: "0000:00:00.0"}
                 - {address: "0000:02:00.0", parent: "0000:01:00.0"}
@@ -1545,8 +1577,6 @@ spec:
               vpdPosition: "-Prime"
             dataDirect:
               rootComplex: pci0009:00
-              rootPort: "0009:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b1"}
               bridges:
                 - {address: "0009:01:00.0", parent: "0009:00:00.0"}
                 - {address: "0009:02:00.0", parent: "0009:01:00.0"}
@@ -1567,8 +1597,6 @@ spec:
           devices:
             network:
               rootComplex: pci0002:00
-              rootPort: "0002:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b2"}
               bridges:
                 - {address: "0002:01:00.0", parent: "0002:00:00.0"}
                 - {address: "0002:02:00.0", parent: "0002:01:00.0"}
@@ -1582,8 +1610,6 @@ spec:
               vpdPosition: "-Aux[1]"
             dataDirect:
               rootComplex: pci0008:00
-              rootPort: "0008:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b1"}
               bridges:
                 - {address: "0008:01:00.0", parent: "0008:00:00.0"}
                 - {address: "0008:02:00.0", parent: "0008:01:00.0"}
@@ -1604,8 +1630,6 @@ spec:
           devices:
             network:
               rootComplex: pci0010:00
-              rootPort: "0010:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b2"}
               bridges:
                 - {address: "0010:01:00.0", parent: "0010:00:00.0"}
                 - {address: "0010:02:00.0", parent: "0010:01:00.0"}
@@ -1619,8 +1643,6 @@ spec:
               vpdPosition: "-Prime"
             dataDirect:
               rootComplex: pci0019:00
-              rootPort: "0019:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b1"}
               bridges:
                 - {address: "0019:01:00.0", parent: "0019:00:00.0"}
                 - {address: "0019:02:00.0", parent: "0019:01:00.0"}
@@ -1642,8 +1664,6 @@ spec:
           devices:
             network:
               rootComplex: pci0012:00
-              rootPort: "0012:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b2"}
               bridges:
                 - {address: "0012:01:00.0", parent: "0012:00:00.0"}
                 - {address: "0012:02:00.0", parent: "0012:01:00.0"}
@@ -1657,8 +1677,6 @@ spec:
               vpdPosition: "-Aux[1]"
             dataDirect:
               rootComplex: pci0018:00
-              rootPort: "0018:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b1"}
               bridges:
                 - {address: "0018:01:00.0", parent: "0018:00:00.0"}
                 - {address: "0018:02:00.0", parent: "0018:01:00.0"}
@@ -1675,16 +1693,12 @@ spec:
           devices:
             hostA:
               rootComplex: pci0007:00
-              rootPort: "0007:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b8"}
               address: "0007:01:00"
               parent: "0007:00:00.0"
               numaNode: 0
               vpdPosition: "-Prime"
             hostB:
               rootComplex: pci0017:00
-              rootPort: "0017:00:00.0"
-              rootPortID: {vendorID: "10de", deviceID: "22b8"}
               address: "0017:01:00"
               parent: "0017:00:00.0"
               numaNode: 1
@@ -1707,6 +1721,15 @@ spec:
     gpus:
       pci: {vendorID: "10de", deviceID: "31c2"}
     topology:
+      rootPorts:
+        - {address: "0000:98:00.0", rootComplex: pci0000:98}
+        - {address: "0000:9e:00.0", rootComplex: pci0000:9e}
+        - {address: "0000:a3:00.0", rootComplex: pci0000:a3}
+        - {address: "0000:a9:00.0", rootComplex: pci0000:a9}
+        - {address: "0000:b5:00.0", rootComplex: pci0000:b5}
+        - {address: "0000:bb:00.0", rootComplex: pci0000:bb}
+        - {address: "0000:c0:00.0", rootComplex: pci0000:c0}
+        - {address: "0000:c6:00.0", rootComplex: pci0000:c6}
       gpuSlots:
         - {index: 0, rootComplex: "pci0000:98", pciAddress: "0000:9d:00.0", numaNode: 0}
         - {index: 1, rootComplex: "pci0000:a3", pciAddress: "0000:a8:00.0", numaNode: 0}
@@ -1717,30 +1740,30 @@ spec:
           profile: cx8-aws-vf
           gpus: [0]
           devices:
-            vfA: {rootComplex: pci0000:9e, rootPort: "0000:9e:00.0", address: "0000:a1:00", parent: "0000:9e:00.0", numaNode: 0}
-            vfB: {rootComplex: pci0000:9e, rootPort: "0000:9e:00.0", address: "0000:a2:00", parent: "0000:9e:00.0", numaNode: 0}
-            dataDirect: {rootComplex: pci0000:98, rootPort: "0000:98:00.0", address: "0000:9c:00", parent: "0000:98:00.0", numaNode: 0}
+            vfA: {rootComplex: pci0000:9e, address: "0000:a1:00", parent: "0000:9e:00.0", numaNode: 0}
+            vfB: {rootComplex: pci0000:9e, address: "0000:a2:00", parent: "0000:9e:00.0", numaNode: 0}
+            dataDirect: {rootComplex: pci0000:98, address: "0000:9c:00", parent: "0000:98:00.0", numaNode: 0}
         - slot: aws1
           profile: cx8-aws-vf
           gpus: [1]
           devices:
-            vfA: {rootComplex: pci0000:a9, rootPort: "0000:a9:00.0", address: "0000:ac:00", parent: "0000:a9:00.0", numaNode: 0}
-            vfB: {rootComplex: pci0000:a9, rootPort: "0000:a9:00.0", address: "0000:ad:00", parent: "0000:a9:00.0", numaNode: 0}
-            dataDirect: {rootComplex: pci0000:a3, rootPort: "0000:a3:00.0", address: "0000:a7:00", parent: "0000:a3:00.0", numaNode: 0}
+            vfA: {rootComplex: pci0000:a9, address: "0000:ac:00", parent: "0000:a9:00.0", numaNode: 0}
+            vfB: {rootComplex: pci0000:a9, address: "0000:ad:00", parent: "0000:a9:00.0", numaNode: 0}
+            dataDirect: {rootComplex: pci0000:a3, address: "0000:a7:00", parent: "0000:a3:00.0", numaNode: 0}
         - slot: aws2
           profile: cx8-aws-vf
           gpus: [2]
           devices:
-            vfA: {rootComplex: pci0000:bb, rootPort: "0000:bb:00.0", address: "0000:be:00", parent: "0000:bb:00.0", numaNode: 1}
-            vfB: {rootComplex: pci0000:bb, rootPort: "0000:bb:00.0", address: "0000:bf:00", parent: "0000:bb:00.0", numaNode: 1}
-            dataDirect: {rootComplex: pci0000:b5, rootPort: "0000:b5:00.0", address: "0000:b9:00", parent: "0000:b5:00.0", numaNode: 1}
+            vfA: {rootComplex: pci0000:bb, address: "0000:be:00", parent: "0000:bb:00.0", numaNode: 1}
+            vfB: {rootComplex: pci0000:bb, address: "0000:bf:00", parent: "0000:bb:00.0", numaNode: 1}
+            dataDirect: {rootComplex: pci0000:b5, address: "0000:b9:00", parent: "0000:b5:00.0", numaNode: 1}
         - slot: aws3
           profile: cx8-aws-vf
           gpus: [3]
           devices:
-            vfA: {rootComplex: pci0000:c6, rootPort: "0000:c6:00.0", address: "0000:c9:00", parent: "0000:c6:00.0", numaNode: 1}
-            vfB: {rootComplex: pci0000:c6, rootPort: "0000:c6:00.0", address: "0000:ca:00", parent: "0000:c6:00.0", numaNode: 1}
-            dataDirect: {rootComplex: pci0000:c0, rootPort: "0000:c0:00.0", address: "0000:c4:00", parent: "0000:c0:00.0", numaNode: 1}
+            vfA: {rootComplex: pci0000:c6, address: "0000:c9:00", parent: "0000:c6:00.0", numaNode: 1}
+            vfB: {rootComplex: pci0000:c6, address: "0000:ca:00", parent: "0000:c6:00.0", numaNode: 1}
+            dataDirect: {rootComplex: pci0000:c0, address: "0000:c4:00", parent: "0000:c0:00.0", numaNode: 1}
 ```
 
 <a id="sample-aws-c5n"></a>
