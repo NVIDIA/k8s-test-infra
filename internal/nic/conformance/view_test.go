@@ -20,7 +20,7 @@ import (
 type records struct{ *nicsurfaces.Node }
 
 func (r records) Set(obj, attr, value string) {
-	r.Node.Set(obj, attr, value, nicsurfaces.SourceOf(obj, attr))
+	r.Node.Set(obj, attr, value, nicsurfaces.SourcesOf(obj, attr)...)
 }
 
 // view writes a Node's resolved NIC state as the records `mokka-capture
@@ -248,13 +248,23 @@ func viewPort(r records, n *state.NICs, d *state.RDMADevice, p *state.Port, file
 	r.Set(po, "lid_mask_count", strconv.Itoa(int(p.LMC)))
 	r.Set(po, "cap_mask", p.CapMask)
 	r.Set(po, "pkeys", "0xffff")
-	r.Set(po, "gids", p.GID)
-	r.Set(po, "gid_types", "IB/RoCE v1")
-	r.Set(po, "gid_ndevs", "0")
+	// The GID records as nic-surfaces derives them from the GID table: the
+	// distinct addresses and types, and how many entries have a netdev.
+	addrs, types := make([]string, 0, len(p.GIDs)), make([]string, 0, len(p.GIDs))
+	ndevs := 0
+	for _, g := range p.GIDs {
+		addrs, types = append(addrs, g.Address), append(types, g.Type)
+		if g.Netdev != "" {
+			ndevs++
+		}
+	}
+	slices.Sort(addrs)
+	slices.Sort(types)
+	r.Set(po, "gids", strings.Join(slices.Compact(addrs), ","))
+	r.Set(po, "gid_types", strings.Join(slices.Compact(types), ","))
+	r.Set(po, "gid_ndevs", strconv.Itoa(ndevs))
 	switch p.Technology {
 	case v1alpha1.NICTechnologyRoCE:
-		r.Set(po, "gid_types", "IB/RoCE v1,RoCE v2")
-		r.Set(po, "gid_ndevs", "2")
 		r.Set(po, "link_local_gid_from_mac", "yes")
 		r.Set(vo, pv+"active_mtu", roceActiveMTU(1500))
 	case v1alpha1.NICTechnologyIB:
