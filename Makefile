@@ -765,10 +765,10 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu
+E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !numa && !mig && !dra-compute-domain && !vgpu
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
-.PHONY: e2e e2e-dra e2e-compute-domain e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-mig e2e-vgpu
+.PHONY: e2e e2e-dra e2e-compute-domain e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-numa e2e-mig e2e-vgpu
 
 # `set -o pipefail` is inline on purpose; do not drop it as redundant with
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
@@ -802,6 +802,10 @@ e2e-nri: ## e2e — NRI injection scenario
 # log then reads exactly like one that did exercise gb200.
 e2e-nfd: ## e2e — NFD label-provenance scenario (pinned to a100)
 	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=nfd'
+
+# NUMA uses one explicit two-zone fixture; CPU counts come from the worker.
+e2e-numa: ## e2e — real NFD publishes NUMA resources and tracks allocation
+	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=numa'
 
 # E2E_PROFILES is the caller's, as for the sibling scenario targets. Pinning it
 # here would be a command-line assignment to the sub-make, which outranks the
