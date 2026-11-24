@@ -70,7 +70,7 @@ func TestGUIDForms(t *testing.T) {
 		"other 0xce3089fffecbbe0e\ngid fe80:0000:0000:0000:ce30:89ff:fecb:be0e\nsubnet_prefix fe80:0000:0000:0000\n")
 
 	want := "node_guid 0000:0000:0000:0001\nport 0x0000000000000001\nsys 0x0000000000000001\n" +
-		"other 0x0000000000000002\ngid fe80:0000:0000:0000:0000:0000:0000:0001\nsubnet_prefix fe80:0000:0000:0000\n"
+		"other 0x0000000000000002\ngid fe80:0000:0000:0000:0000:0000:0000:0002\nsubnet_prefix fe80:0000:0000:0000\n"
 	require.Equal(t, want, out, "one ID keeps one number in every notation; a link-local prefix is not an identifier")
 }
 
@@ -144,7 +144,7 @@ func TestScrubbingItsOwnOutputChangesNothing(t *testing.T) {
 
 	want := "GPU-00000000-0000-0000-0000-000000000000 uid 00000001-0000-0000-0000-000000000001 " +
 		"mac 02:00:00:00:00:01 ip 192.0.2.1 guid 0000:0000:0000:0001 0x0000000000000002 " +
-		"gid fe80:0000:0000:0000:0000:0000:0000:0001 m 00000000000000000000000000000001"
+		"gid fe80:0000:0000:0000:0000:0000:0000:0002 m 00000000000000000000000000000001"
 	require.Equal(t, want, once)
 	require.Equal(t, want, newScrubber(nil).scrub(once), "scrubbing the output again changes nothing")
 }
@@ -309,6 +309,65 @@ func TestVitalProductDataUnitFieldsAreScrubbedAndPartNumbersStay(t *testing.T) {
 	require.Contains(t, out, "MLNXS0D0F0")
 }
 
+func TestConnectX8VitalProductDataIDsAreScrubbedWhole(t *testing.T) {
+	// ConnectX-8 writes a 64-digit VU field. A network function and its Data
+	// Direct function carry the same ID, so the two keep one placeholder.
+	id := "A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F60718293A4B5C6D7E8F91"
+	out := newScrubber(nil).scrub("[VU] Vendor specific: " + id + "MLNXS0D0F0\n" +
+		"[VU] Vendor specific: " + id + "MLNXDDIS0D0F0\n")
+
+	require.NotContains(t, out, "A1B2C3D4")
+	require.NotContains(t, out, "6D7E8F91")
+	require.Equal(t, "[VU] Vendor specific: 00000000000000000000000000000001MLNXS0D0F0\n"+
+		"[VU] Vendor specific: 00000000000000000000000000000001MLNXDDIS0D0F0\n", out)
+	require.Equal(t, out, newScrubber(nil).scrub(out), "scrubbing the output again changes nothing")
+}
+
+func TestLinkLocalGIDsKeepTheGUIDOrMACTheyCarry(t *testing.T) {
+	// An InfiniBand GID carries the port GUID; a RoCE link-local GID carries
+	// its interface's MAC (EUI-64). Their placeholders carry the GUID's and
+	// the MAC's, so the relation survives the scrub.
+	s := newScrubber(nil)
+	out := s.scrub("node_guid=0fed:cba9:8765:4321\n" +
+		"gid[0]=fe80:0000:0000:0000:0fed:cba9:8765:4321 type=IB/RoCE v1\n" +
+		"address=02:12:34:56:78:9a\n" +
+		"gid[0]=fe80:0000:0000:0000:0012:34ff:fe56:789a type=RoCE v2\n" +
+		"gid[2]=0000:0000:0000:0000:0000:ffff:0a00:0007 type=RoCE v2\n")
+
+	require.Equal(t, "node_guid=0000:0000:0000:0001\n"+
+		"gid[0]=fe80:0000:0000:0000:0000:0000:0000:0001 type=IB/RoCE v1\n"+
+		"address=02:00:00:00:00:01\n"+
+		"gid[0]=fe80:0000:0000:0000:0000:00ff:fe00:0001 type=RoCE v2\n"+
+		"gid[2]=2001:0db8:0000:0000:0000:0000:0000:0001 type=RoCE v2\n", out)
+	require.Equal(t, out, newScrubber(nil).scrub(out), "scrubbing the output again changes nothing")
+}
+
+func TestIPoIBAddressesKeepThePortGUID(t *testing.T) {
+	// An IPoIB address is 4 bytes of flags and queue pair, then the port's
+	// GID, which carries its GUID. A MAC match on its first six bytes would
+	// leave the GUID; the whole address is taken, and keeps the GUID's
+	// placeholder. The broadcast address names no port and stays.
+	s := newScrubber(nil)
+	out := s.scrub("node_guid=1234:5678:9abc:def0\n" +
+		"    link/infiniband 00:00:10:87:fe:80:00:00:00:00:00:00:12:34:56:78:9a:bc:de:f0 " +
+		"brd 00:ff:ff:ff:ff:12:40:1b:80:03:00:00:00:00:00:00:ff:ff:ff:ff\n")
+
+	require.Equal(t, "node_guid=0000:0000:0000:0001\n"+
+		"    link/infiniband 00:00:10:87:fe:80:00:00:00:00:00:00:00:00:00:00:00:00:00:01 "+
+		"brd 00:ff:ff:ff:ff:12:40:1b:80:03:00:00:00:00:00:00:ff:ff:ff:ff\n", out)
+	require.Equal(t, out, newScrubber(nil).scrub(out), "scrubbing the output again changes nothing")
+}
+
+func TestSwitchIDsAreScrubbed(t *testing.T) {
+	s := newScrubber(nil)
+	out := s.scrub("portname p0 switchid a1b2c3d4e5f60718\nphys_switch_id=a1b2c3d4e5f60718\n")
+
+	require.NotContains(t, out, "a1b2c3d4")
+	require.Equal(t, "portname p0 switchid 00000000000000000000000000000001\n"+
+		"phys_switch_id=00000000000000000000000000000001\n", out)
+	require.Equal(t, out, newScrubber(nil).scrub(out), "scrubbing the output again changes nothing")
+}
+
 func TestKernelAddressesAreNotGUIDs(t *testing.T) {
 	s := newScrubber(nil)
 	in := "nvidia 17235968 76 gdrdrv, Live 0xffffb9e0692d0000 (OE)"
@@ -341,15 +400,16 @@ func TestCompressedIPv6AddressesAreScrubbedInEveryNotation(t *testing.T) {
 
 	// One address gets one placeholder however it is written; punctuation
 	// around it stays.
-	want := "InternalIP fe80:0000:0000:0000:0000:0000:0000:0001\n" +
-		"same fe80:0000:0000:0000:0000:0000:0000:0001\n" +
-		"link fe80:0000:0000:0000:0000:0000:0000:0002%eth0\n" +
-		"mapped fe80:0000:0000:0000:0000:0000:0000:0003\n" +
-		"prefix fe80:0000:0000:0000:0000:0000:0000:0004/64\n" +
-		"address:fe80:0000:0000:0000:0000:0000:0000:0001\n" +
-		"added fe80:0000:0000:0000:0000:0000:0000:0001.\n" +
-		"fe80:0000:0000:0000:0000:0000:0000:0001: link up\n" +
-		"ula fe80:0000:0000:0000:0000:0000:0000:0005\n"
+	// A link-local address built from a MAC keeps that MAC's placeholder.
+	want := "InternalIP 2001:0db8:0000:0000:0000:0000:0000:0001\n" +
+		"same 2001:0db8:0000:0000:0000:0000:0000:0001\n" +
+		"link fe80:0000:0000:0000:0000:00ff:fe00:0001%eth0\n" +
+		"mapped 2001:0db8:0000:0000:0000:0000:0000:0002\n" +
+		"prefix 2001:0db8:0000:0000:0000:0000:0000:0003/64\n" +
+		"address:2001:0db8:0000:0000:0000:0000:0000:0001\n" +
+		"added 2001:0db8:0000:0000:0000:0000:0000:0001.\n" +
+		"2001:0db8:0000:0000:0000:0000:0000:0001: link up\n" +
+		"ula 2001:0db8:0000:0000:0000:0000:0000:0004\n"
 	require.Equal(t, want, out)
 	require.Equal(t, want, s.scrub(out), "scrubbing the output again changes nothing")
 }

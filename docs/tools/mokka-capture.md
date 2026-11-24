@@ -129,12 +129,14 @@ every source directory.
 | --- | --- |
 | GPU UUID, MIG UUID | `GPU-0000000N-0000-0000-0000-00000000000N`, `MIG-…` |
 | Other UUIDs (fabric cluster, Kubernetes object UIDs) | `0000000N-0000-0000-0000-00000000000N` |
-| 32-digit machine IDs, and the unit fields of PCI vital product data | 32 hex digits ending in `N` |
+| 32-digit machine IDs, the unit fields of PCI vital product data (`V3`, and up to 64 digits of `VU`), and a NIC's switch and port IDs (`switchid` in `ip -d link`, `phys_switch_id`, `phys_port_id`) | 32 hex digits ending in `N` |
 | Serial numbers: `<serial>`, `<chassis_serial_number>`, `Serial Number` lines, VPD `[SN]` | `1650000000NNN` and `1820000000NNN` |
 | PDIs, fabric GUIDs and other 16-digit hex values (except the masks below) | `0x000000000000000N` |
 | Colon-separated GUIDs (`cc30:8903:00cb:be0e`) | `0000:0000:0000:000N`, the same `N` as the `0x` form of that GUID |
-| IPv6 addresses in any notation (`fd00::12`, `::ffff:10.0.0.7`), such as node addresses and RDMA GIDs | `fe80:0000:…:000N` |
+| Link-local IPv6 addresses (`fe80::…`), such as RDMA GIDs, whose interface ID is a GUID or a MAC | Built from that GUID's or MAC's placeholder: `fe80:0000:0000:0000:0000:0000:0000:000N` or `fe80:0000:0000:0000:0000:00ff:fe00:000N` |
+| Other IPv6 addresses in any notation (`fd00::12`, `::ffff:10.0.0.7`), such as node addresses and RoCE GIDs of IP addresses | `2001:0db8:0000:…:000N` |
 | MAC addresses, and `enx<mac>` interface names | `02:00:00:00:00:0N` |
+| IPoIB hardware addresses (20 bytes, ending in the port GUID) | The first 12 bytes, then the GUID's placeholder: `…:fe:80:00:00:00:00:00:00:00:00:00:00:00:0N` |
 | IPv4 addresses | `192.0.2.N` |
 | Anything given with `-replace old=new` | `new` |
 
@@ -151,6 +153,11 @@ Rules that follow from keeping the data useful:
 - **A serial number is scrubbed everywhere once it is found in a context that
   names it.** The same value in an NVML dump or a kernel log line carries nothing
   around it that says "serial".
+- **Relations inside a value survive.** GID 0 of an InfiniBand port carries the
+  port GUID, a RoCE link-local GID carries its interface's MAC, and an IPoIB
+  address carries the port GUID, so their placeholders carry that GUID's or
+  MAC's placeholder. An interface ID that appears elsewhere as a GUID is taken
+  as a GUID; otherwise one with `ff:fe` in its middle is taken as a MAC.
 - **Absent values stay.** Empty, `N/A` and all-zero values are not rewritten.
 - **Things that look like identifiers but are not stay.** Version numbers
   (`99.00.16.55`), netmasks, the unspecified, loopback and broadcast addresses,
