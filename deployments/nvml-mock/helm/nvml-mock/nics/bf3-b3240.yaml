@@ -1,0 +1,60 @@
+# BlueField-3 B3240 DPU as a front-end NIC, two Ethernet ports, as in GB300 trays.
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SNICProfile
+metadata:
+  name: bf3-b3240
+spec:
+  identity:
+    model: BlueField-3
+    hcaType: MT41692
+    boardID: MT_0000001188
+    firmwareVersion: "32.47.3576"
+    partNumber: 900-9D3B6-00CN-PA0
+    hwRev: "0x1"
+    vendorOUI: "0x02c9"
+  sources:
+    - tests/hardware-captures/gb300-ib/node-a
+  vpd:
+    keywords:
+      name: BlueField-3 B3240 P-Series FHHL DPU for Cold Aisle, 400GbE / NDR IB, Dual-port QSFP, PCIe Gen5.0 x16 with x16 PCIe extension option, 16 Arm cores, 32GB on-board DDR, integrated BMC
+      EC: A5
+      V2: 900-9D3B6-00CN-PA0
+      VA: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=D3B6
+      V0: PCIeGen5 x16
+    identities: {SN: asic, V3: asic, VU: SN}
+  functionTypes:
+    network:
+      vendorID: "15b3"
+      deviceID: "a2dc"
+      subsystemVendorID: "15b3"
+      subsystemDeviceID: "0041"
+      revision: "0x01"
+      pcieLink: {speed: 32.0 GT/s PCIe, width: 16}
+      driver: mlx5_core
+      rdmaNamePrefix: mlx5_
+      totalVFs: 16
+      vpd: true
+      vpdSuffixes: {VU: "MLNXS0D0F{function}"}
+    socManagement:
+      vendorID: "15b3"
+      deviceID: "c2d5"
+      subsystemVendorID: "15b3"
+      subsystemDeviceID: "0041"
+      revision: "0x01"
+      pcieLink: {speed: 32.0 GT/s PCIe, width: 16}
+      driver: vfio-pci
+      vpd: true
+      vpdOmit: [VU]
+  defaultConfiguration: eth-2x400
+  configurations:
+    - name: eth-2x400
+      ports:
+        - {id: p0, technology: roce, width: 4, laneSpeed: NDR, planes: 0}
+        - {id: p1, technology: roce, width: 4, laneSpeed: NDR, planes: 0}
+      functions:
+        - {id: pf0, type: network, pciDevice: host, function: 0, class: "0x020000", ports: [p0]}
+        - {id: pf1, type: network, pciDevice: host, function: 1, class: "0x020000", ports: [p1]}
+        - {id: soc, type: socManagement, pciDevice: host, function: 2, class: "0x080100"}
+      rdmaDevices:
+        - {id: rdma0, function: pf0, ports: [p0]}
+        - {id: rdma1, function: pf1, ports: [p1]}

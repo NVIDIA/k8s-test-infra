@@ -1,0 +1,49 @@
+# ConnectX-7 HHHL dual-port card used as a front-end NIC, its two x8 links in
+# two PCIe domains, each link carrying one port.
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SNICProfile
+metadata:
+  name: cx7-hhhl
+spec:
+  identity:
+    model: ConnectX-7
+    hcaType: MT4129
+    boardID: ORC0000000014
+    firmwareVersion: "28.47.1026"
+    partNumber: "8219495"
+    vendorOUI: "0x02c9"
+  sources:
+    - tests/hardware-captures/gb300-roce/node-a
+  vpd:
+    keywords:
+      name: ConnectX-7 HHHL adapter Card, 200GbE (default mode) / NDR200 IB, Dual-port QSFP112, PCIe 5.0 x16, Crypto and Secure Boot, Short Bracket
+      EC: "03"
+      V2: "8219495"
+      VA: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=CX755106A
+      V0: PCIeGen5 x16
+    identities: {SN: board, V3: asic, VU: boardPosition}
+  functionTypes:
+    network:
+      vendorID: "15b3"
+      deviceID: "1021"
+      subsystemVendorID: "15b3"
+      subsystemDeviceID: "1103"
+      revision: "0x00"
+      pcieLink: {speed: 32.0 GT/s PCIe, width: 8}
+      driver: mlx5_core
+      rdmaNamePrefix: mlx5_
+      totalVFs: 252
+      vpd: true
+      vpdSuffixes: {VU: MLNXS0D0F0}
+  defaultConfiguration: eth-2x200-2host
+  configurations:
+    - name: eth-2x200-2host
+      ports:
+        - {id: p0, technology: roce, width: 4, laneSpeed: HDR, planes: 0}
+        - {id: p1, technology: roce, width: 4, laneSpeed: HDR, planes: 0}
+      functions:
+        - {id: a0, type: network, pciDevice: hostA, function: 0, class: "0x020000", ports: [p0]}
+        - {id: b0, type: network, pciDevice: hostB, function: 0, class: "0x020000", ports: [p1]}
+      rdmaDevices:
+        - {id: rdma-a0, function: a0, ports: [p0]}
+        - {id: rdma-b0, function: b0, ports: [p1]}

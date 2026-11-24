@@ -19,6 +19,7 @@ Package v1alpha1 contains API types for the mokka.nvidia.com group.
 - [SGPURack](#sgpurack)
 - [SGPURackProfile](#sgpurackprofile)
 - [SGPURuntimePolicy](#sgpuruntimepolicy)
+- [SNICProfile](#snicprofile)
 
 
 
@@ -351,6 +352,7 @@ _Appears in:_
 | `rootComplex` _string_ | RootComplex identifies the PCI root complex connected to this GPU. |  | Pattern: `^pci[0-9a-f]\{4\}:[0-9a-f]\{2\}$` <br />Required: \{\} <br /> |
 | `numaNode` _integer_ | NumaNode is the host NUMA node associated with this GPU. |  | Optional: \{\} <br /> |
 | `hostProcessorIndex` _integer_ | HostProcessorIndex is the host CPU index associated with this GPU. |  | Optional: \{\} <br /> |
+| `parent` _string_ | Parent is the root port or NIC switch port the GPU sits below, from<br />any slot; empty when unknown. |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}\.[0-7]$` <br />Optional: \{\} <br /> |
 
 
 #### GPUThermal
@@ -466,6 +468,20 @@ _Appears in:_
 | `pendingNodes` _integer_ | PendingNodes counts eligible placement requests awaiting capacity in one matching group. |  |  |
 
 
+#### LaneSpeed
+
+_Underlying type:_ _string_
+
+LaneSpeed is the per-lane signalling generation of a port.
+
+_Validation:_
+- Enum: [SDR DDR QDR FDR10 FDR EDR HDR NDR XDR]
+
+_Appears in:_
+- [NICPort](#nicport)
+
+
+
 #### MIGCapability
 
 
@@ -483,11 +499,210 @@ _Appears in:_
 | `maxGPUInstances` _integer_ | MaxGPUInstances is the maximum number of GPU instances supported. |  | Optional: \{\} <br /> |
 
 
-#### NetworkTopology
+#### NICConfiguration
 
 
 
-NetworkTopology is out-of-band adapters.
+NICConfiguration is one firmware configuration, declared as its result: its
+ports, the PCI functions it produces and the RDMA devices the driver
+creates on them.
+
+
+
+_Appears in:_
+- [SNICProfileSpec](#snicprofilespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name is what slots and overrides select. |  | MinLength: 1 <br /> |
+| `ports` _[NICPort](#nicport) array_ | Ports are the configuration's logical network ports, in physical order:<br />a port's position is its number, p0 first, and its identifiers and<br />names follow from that number. |  | Optional: \{\} <br /> |
+| `functions` _[NICFunction](#nicfunction) array_ | Functions are the PCI functions the configuration produces. |  | MinItems: 1 <br /> |
+| `rdmaDevices` _[NICRDMADevice](#nicrdmadevice) array_ | RDMADevices are the RDMA devices the driver creates. |  | Optional: \{\} <br /> |
+
+
+#### NICDevicePlacement
+
+
+
+NICDevicePlacement places one PCI device of a NIC. Function numbers come
+from the configuration, so switching configuration never moves a device.
+
+
+
+_Appears in:_
+- [NICSlot](#nicslot)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `rootComplex` _string_ | RootComplex is the root complex, such as pci0009:00. A GPU slot naming<br />the same root complex shares it. |  | Pattern: `^pci[0-9a-f]\{4\}:[0-9a-f]\{2\}$` <br /> |
+| `bridges` _[PCIBridge](#pcibridge) array_ | Bridges are the NIC's switch ports above or beside the device, parents<br />first. A GPU slot may name one as its parent. |  | Optional: \{\} <br /> |
+| `address` _string_ | Address is the device's DDDD:BB:DD address. |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}$` <br /> |
+| `parent` _string_ | Parent is a root port or a switch port; empty for a device on the root<br />bus. |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}\.[0-7]$` <br />Optional: \{\} <br /> |
+| `numaNode` _integer_ | NUMANode is the device's NUMA node; -1 means unknown. |  | Minimum: -1 <br /> |
+| `vpdPosition` _string_ | VPDPosition is the suffix of the VPD product name, such as -Prime or<br />-Aux[1]. |  | Optional: \{\} <br /> |
+
+
+#### NICFunction
+
+
+
+NICFunction is one PCI function a configuration produces.
+
+
+
+_Appears in:_
+- [NICConfiguration](#nicconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `id` _string_ | ID names the function within the configuration. |  | MinLength: 1 <br /> |
+| `type` _string_ | Type is a key of functionTypes. |  | MinLength: 1 <br /> |
+| `pciDevice` _string_ | PCIDevice is the PCI device the function belongs to, which a slot<br />places, such as network or hostA. |  | MinLength: 1 <br /> |
+| `function` _integer_ | Function is the PCI function number within the device. |  | Maximum: 7 <br />Minimum: 0 <br /> |
+| `class` _string_ | Class is the PCI class code the configuration gives the function, such<br />as "0x020700". |  | Pattern: `^0x[0-9a-f]\{6\}$` <br /> |
+| `ports` _string array_ | Ports are the ports the function owns. A port has one owner per PCI<br />device, so a NIC with several host links shows it on one function per<br />link. |  | Optional: \{\} <br /> |
+
+
+#### NICFunctionType
+
+
+
+NICFunctionType is the hardware identity and driver binding of one kind of
+PCI function. The class isn't here: the configuration decides it.
+
+
+
+_Appears in:_
+- [SNICProfileSpec](#snicprofilespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `vendorID` _string_ | VendorID is four lowercase hex digits, without 0x. |  | Pattern: `^[0-9a-f]\{4\}$` <br /> |
+| `deviceID` _string_ | DeviceID is four lowercase hex digits, without 0x. |  | Pattern: `^[0-9a-f]\{4\}$` <br /> |
+| `subsystemVendorID` _string_ | SubsystemVendorID is four lowercase hex digits; empty means 0000. |  | Pattern: `^[0-9a-f]\{4\}$` <br />Optional: \{\} <br /> |
+| `subsystemDeviceID` _string_ | SubsystemDeviceID is four lowercase hex digits; empty means 0000. |  | Pattern: `^[0-9a-f]\{4\}$` <br />Optional: \{\} <br /> |
+| `driver` _string_ | Driver is the bound kernel driver, such as mlx5_core. |  | MinLength: 1 <br /> |
+| `rdmaNamePrefix` _string_ | RDMANamePrefix is the kernel's RDMA device name prefix, such as mlx5_. |  | Optional: \{\} <br /> |
+| `rdmaNodeType` _string_ | RDMANodeType is the node_type the driver reports; empty means "1: CA". |  | Optional: \{\} <br /> |
+| `rdmaOmit` _[RDMAAttribute](#rdmaattribute) array_ | RDMAOmit lists RDMA attributes the driver doesn't create: the file is<br />absent. |  | Enum: [fw_ver hca_type board_id hw_rev] <br />Optional: \{\} <br /> |
+| `rdmaEmpty` _[RDMAAttribute](#rdmaattribute) array_ | RDMAEmpty lists RDMA attributes the driver creates with an empty value. |  | Enum: [fw_ver hca_type board_id hw_rev] <br />Optional: \{\} <br /> |
+| `totalVFs` _integer_ | TotalVFs is sriov_totalvfs; 0 means no SR-IOV. Enabling VFs is cluster<br />software's job, so the declaration never says how many are enabled. |  | Minimum: 0 <br />Optional: \{\} <br /> |
+| `vfType` _string_ | VFType names the function type of the VFs this function enables, a key<br />of functionTypes. It needs totalVFs. |  | Optional: \{\} <br /> |
+| `revision` _string_ | Revision is the PCI revision ID, such as "0x00". |  | Pattern: `^0x[0-9a-f]\{2\}$` <br />Optional: \{\} <br /> |
+| `pcieLink` _[NICPCIeLink](#nicpcielink)_ | PCIeLink is the link the function trains to. It is omitted when no<br />capture shows it, and then no link attributes are generated. |  | Optional: \{\} <br /> |
+| `vpd` _boolean_ | VPD reports whether the function exposes the profile's VPD. |  | Optional: \{\} <br /> |
+| `vpdSuffixes` _object (keys:string, values:string)_ | VPDSuffixes are appended to an identity keyword's value on this kind of<br />function. "\{function\}" stands for the PCI function number. |  | Optional: \{\} <br /> |
+| `vpdOmit` _string array_ | VPDOmit lists the identity keywords this kind of function doesn't<br />report. |  | Optional: \{\} <br /> |
+
+
+#### NICIdentity
+
+
+
+NICIdentity is the model-level identity a NIC reports.
+
+
+
+_Appears in:_
+- [SNICProfileSpec](#snicprofilespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `model` _string_ | Model is the model name, such as ConnectX-8. |  | MinLength: 1 <br /> |
+| `hcaType` _string_ | HCAType is the RDMA hca_type, such as MT4131. |  | Optional: \{\} <br /> |
+| `boardID` _string_ | BoardID is the RDMA board_id, such as MT_0000001513. |  | Optional: \{\} <br /> |
+| `firmwareVersion` _string_ | FirmwareVersion is the RDMA fw_ver; a slot may override it. |  | Optional: \{\} <br /> |
+| `partNumber` _string_ | PartNumber is the board part number and the default for VPD PN. |  | Optional: \{\} <br /> |
+| `hwRev` _string_ | HWRev is the RDMA hw_rev and the ibv_devinfo hw_ver; empty means 0x0. |  | Pattern: `^0x[0-9a-fA-F]+$` <br />Optional: \{\} <br /> |
+| `vendorOUI` _string_ | VendorOUI is the IEEE OUI verbs report as vendor_id, such as "0x02c9". |  | Pattern: `^0x[0-9a-f]+$` <br />Optional: \{\} <br /> |
+
+
+#### NICOverride
+
+
+
+NICOverride changes NIC slots of a rack profile for one rack group.
+
+
+
+_Appears in:_
+- [RackGroup](#rackgroup)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `slots` _string array_ | Slots are the names of the slots the override applies to. |  | MinItems: 1 <br /> |
+| `profile` _string_ | Profile replaces the slot's profile. The slot's configuration, firmware<br />version, VPD and a systemImageGUID that names an RDMA device belong to<br />the old model, so they no longer apply; the new profile's own do, unless<br />this override sets them. A distinct systemImageGUID carries over. |  | Optional: \{\} <br /> |
+| `configuration` _string_ | Configuration replaces the slot's configuration. |  | Optional: \{\} <br /> |
+| `firmwareVersion` _string_ | FirmwareVersion replaces the slot's firmware version. |  | Optional: \{\} <br /> |
+| `vpd` _object (keys:string, values:string)_ | VPD overrides model VPD keywords, on top of the slot's own overrides. |  | Optional: \{\} <br /> |
+| `systemImageGUID` _string_ | SystemImageGUID replaces the slot's systemImageGUID: "distinct", or an<br />RDMA device of the selected configuration. |  | Optional: \{\} <br /> |
+
+
+#### NICPCIeLink
+
+
+
+NICPCIeLink is a PCIe link as sysfs reports it.
+
+
+
+_Appears in:_
+- [NICFunctionType](#nicfunctiontype)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `speed` _string_ | Speed is the link speed as sysfs reports it, such as "64.0 GT/s PCIe". |  | MinLength: 1 <br /> |
+| `width` _integer_ | Width is the link width in lanes. |  | Minimum: 0 <br /> |
+| `maxWidth` _integer_ | MaxWidth is set only when it differs from width, as on a VF reporting 0<br />of 255. |  | Minimum: 0 <br />Optional: \{\} <br /> |
+
+
+#### NICPort
+
+
+
+NICPort is one logical network port: what a fabric attaches to, not a
+physical connector.
+
+
+
+_Appears in:_
+- [NICConfiguration](#nicconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `id` _string_ | ID names the port within the configuration. |  | MinLength: 1 <br /> |
+| `technology` _[NICTechnology](#nictechnology)_ | Technology is the port's link technology. |  | Enum: [ib roce efa] <br /> |
+| `width` _integer_ | Width is the lane count in the rate text, such as 4 in<br />"800 Gb/sec (4X XDR)". |  | Minimum: 1 <br /> |
+| `laneSpeed` _[LaneSpeed](#lanespeed)_ | LaneSpeed is the per-lane signalling generation. |  | Enum: [SDR DDR QDR FDR10 FDR EDR HDR NDR XDR] <br /> |
+| `planes` _integer_ | Planes is the number of fabric planes the port carries; 0 is a single<br />endpoint. |  | Minimum: 0 <br /> |
+| `capMask` _string_ | CapMask is the capability mask an ib or efa port reports, which its<br />firmware sets. A roce port follows a rule instead. |  | Pattern: `^0x[0-9a-f]\{8\}$` <br />Optional: \{\} <br /> |
+| `lmc` _integer_ | LMC is the LID mask count; empty means 0. |  | Maximum: 7 <br />Minimum: 0 <br />Optional: \{\} <br /> |
+
+
+#### NICRDMADevice
+
+
+
+NICRDMADevice is an RDMA device the driver creates on a function.
+
+
+
+_Appears in:_
+- [NICConfiguration](#nicconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `id` _string_ | ID names the RDMA device within the configuration. |  | MinLength: 1 <br /> |
+| `function` _string_ | Function is the ID of the function the device is on. |  | MinLength: 1 <br /> |
+| `ports` _string array_ | Ports are the device's ports in order: port k of the device is the k-th<br />entry. |  | MinItems: 1 <br /> |
+
+
+#### NICSlot
+
+
+
+NICSlot is one NIC instance on a Node. It names the profile and selects one
+of its configurations; configuration data never lives in the slot.
 
 
 
@@ -496,11 +711,86 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `type` _string_ | Type names the out-of-band network adapter type. |  | Optional: \{\} <br /> |
-| `adapterModel` _string_ | AdapterModel is the adapter model name. |  | Optional: \{\} <br /> |
-| `firmwareVersion` _string_ | FirmwareVersion is the adapter firmware version. |  | Optional: \{\} <br /> |
-| `linkSpeedGbps` _integer_ | LinkSpeedGbps is the adapter link speed in gigabits per second. |  | Optional: \{\} <br /> |
-| `adaptersPerGPU` _integer_ | AdaptersPerGPU is the number of network adapters associated with each GPU. |  | Optional: \{\} <br /> |
+| `slot` _string_ | Slot names the instance, unique per Node, such as nic0 or frontend0. |  | MaxLength: 63 <br />MinLength: 1 <br /> |
+| `profile` _string_ | Profile is the name of an SNICProfile. |  | MinLength: 1 <br /> |
+| `configuration` _string_ | Configuration is one of the profile's configurations; empty means its<br />default. |  | Optional: \{\} <br /> |
+| `board` _integer_ | Board groups the slots whose ASICs share one physical board. Board<br />numbers are Node-wide. |  | Minimum: 0 <br />Optional: \{\} <br /> |
+| `systemImageGUID` _string_ | SystemImageGUID is the system image GUID of the NIC's RDMA devices:<br />empty for the node GUID of its lowest-addressed RDMA device, an RDMA<br />device ID for that device's node GUID, or "distinct" for a GUID that is<br />no device's node GUID. |  | Optional: \{\} <br /> |
+| `gpus` _integer array_ | GPUs are the indexes of the GPUs the NIC serves. They record locality;<br />they don't restrict which GPUs may use the NIC. |  | items:Maximum: 63 <br />items:Minimum: 0 <br />Optional: \{\} <br /> |
+| `firmwareVersion` _string_ | FirmwareVersion overrides the profile's identity.firmwareVersion. |  | Optional: \{\} <br /> |
+| `vpd` _object (keys:string, values:string)_ | VPD overrides model VPD keywords, such as EC. |  | Optional: \{\} <br /> |
+| `devices` _object (keys:string, values:[NICDevicePlacement](#nicdeviceplacement))_ | Devices places each PCI device the profile's configurations name. One<br />NIC's devices may sit under different root complexes. |  | MinProperties: 1 <br /> |
+
+
+#### NICTechnology
+
+_Underlying type:_ _string_
+
+NICTechnology is the link technology of a port.
+
+_Validation:_
+- Enum: [ib roce efa]
+
+_Appears in:_
+- [NICPort](#nicport)
+
+| Field | Description |
+| --- | --- |
+| `ib` | NICTechnologyIB is InfiniBand.<br /> |
+| `roce` | NICTechnologyRoCE is RDMA over Converged Ethernet.<br /> |
+| `efa` | NICTechnologyEFA is AWS Elastic Fabric Adapter.<br /> |
+
+
+#### NICVPD
+
+
+
+NICVPD is the vital product data of a NIC model.
+
+
+
+_Appears in:_
+- [SNICProfileSpec](#snicprofilespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `keywords` _object (keys:string, values:string)_ | Keywords are model values by VPD keyword, such as PN, EC or V2. "name"<br />is the product name, to which a device's vpdPosition is appended. PN<br />defaults to identity.partNumber. |  | Optional: \{\} <br /> |
+| `identities` _object (keys:string, values:[VPDScope](#vpdscope))_ | Identities are the keywords whose value is a generated identifier,<br />mapped to the scope that shares one value. |  | Optional: \{\} <br /> |
+
+
+#### PCIBridge
+
+
+
+PCIBridge is one exposed port of a NIC's PCIe switch.
+
+
+
+_Appears in:_
+- [NICDevicePlacement](#nicdeviceplacement)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `address` _string_ | Address is the bridge's address. |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}\.[0-7]$` <br /> |
+| `parent` _string_ | Parent is a root port or another switch port. |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}\.[0-7]$` <br /> |
+
+
+#### PCIID
+
+
+
+PCIID is a PCI vendor and device ID pair.
+
+
+
+_Appears in:_
+- [RootPort](#rootport)
+- [SNICProfileSpec](#snicprofilespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `vendorID` _string_ | VendorID is four lowercase hex digits, without 0x. |  | Pattern: `^[0-9a-f]\{4\}$` <br /> |
+| `deviceID` _string_ | DeviceID is four lowercase hex digits, without 0x. |  | Pattern: `^[0-9a-f]\{4\}$` <br /> |
 
 
 #### PCILink
@@ -616,6 +906,41 @@ _Appears in:_
 | `name` _string_ | Name is the name of the SGPURackProfile to use. |  | MinLength: 1 <br /> |
 
 
+#### RDMAAttribute
+
+_Underlying type:_ _string_
+
+RDMAAttribute is an RDMA device attribute a driver may leave out or leave
+empty.
+
+_Validation:_
+- Enum: [fw_ver hca_type board_id hw_rev]
+
+_Appears in:_
+- [NICFunctionType](#nicfunctiontype)
+
+
+
+#### RDMASoftware
+
+
+
+RDMASoftware is what the Node image decides about RDMA, beyond what the NIC
+and its driver produce.
+
+
+
+_Appears in:_
+- [SGPUSoftware](#sgpusoftware)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `umad` _boolean_ | UMAD reports whether ib_umad loads: umad and issm files and the<br />infiniband_mad class exist. |  | Optional: \{\} <br /> |
+| `ipoib` _boolean_ | IPoIB reports whether ib_ipoib loads: each InfiniBand port gets an IPoIB<br />netdev. |  | Optional: \{\} <br /> |
+| `umadMode` _string_ | UMADMode is the udev file mode of umad and issm files, such as "666";<br />empty means the kernel's 600. |  | Pattern: `^[0-7]\{3,4\}$` <br />Optional: \{\} <br /> |
+| `driverVersion` _string_ | DriverVersion is the version the image's NIC driver module reports,<br />such as 26.01-1.0.0 from a driver package. Empty means the module<br />reports none. |  | Optional: \{\} <br /> |
+
+
 #### RackGroup
 
 
@@ -633,6 +958,7 @@ _Appears in:_
 | `count` _integer_ | Count is the number of racks to materialize from this group. |  | Maximum: 100000 <br />Minimum: 1 <br /> |
 | `profileRef` _[ProfileReference](#profilereference)_ | ProfileRef names the rack profile used to materialize each rack. |  |  |
 | `placement` _[RackPlacement](#rackplacement)_ | Placement optionally restricts the Nodes eligible for this rack group. |  | Optional: \{\} <br /> |
+| `nicOverrides` _[NICOverride](#nicoverride) array_ | NICOverrides replace the profile, configuration, firmware or VPD of NIC<br />slots for this group's racks, so groups sharing a rack profile can run<br />other NICs or modes. Overrides apply in order; a later one wins for a<br />field both set. |  | Optional: \{\} <br /> |
 
 
 #### RackGroupStatus
@@ -668,6 +994,24 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#labelselector-v1-meta)_ | NodeSelector restricts placement to Nodes matching these labels. |  | Optional: \{\} <br /> |
+
+
+#### RootPort
+
+
+
+RootPort is one PCIe root port of the platform.
+
+
+
+_Appears in:_
+- [SGPUTopology](#sgputopology)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `address` _string_ | Address is the root port's address, such as "0009:00:00.0". |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}\.[0-7]$` <br /> |
+| `rootComplex` _string_ | RootComplex is the root complex the port belongs to, such as pci0009:00. |  | Pattern: `^pci[0-9a-f]\{4\}:[0-9a-f]\{2\}$` <br /> |
+| `id` _[PCIID](#pciid)_ | ID is the root port's PCI IDs. The IDs above a device are generated<br />only where they are known. |  | Optional: \{\} <br /> |
 
 
 #### RuntimeModes
@@ -1158,13 +1502,16 @@ _Appears in:_
 | `driverVersion` _string_ | DriverVersion is the NVIDIA driver version. |  | Optional: \{\} <br /> |
 | `nvmlVersion` _string_ | NVMLVersion is the NVIDIA Management Library version. |  | Optional: \{\} <br /> |
 | `cudaVersion` _string_ | CUDAVersion is the CUDA version. |  | Optional: \{\} <br /> |
+| `rdma` _[RDMASoftware](#rdmasoftware)_ | RDMA describes the Node image's RDMA stack: which optional modules it<br />loads and the version its NIC driver reports. |  | Optional: \{\} <br /> |
 
 
 #### SGPUTopology
 
 
 
-SGPUTopology is PCIe slots, GPU fabric, and network visible to the node.
+SGPUTopology is the PCIe slots, GPU fabric and NICs visible to the node.
+GPUs and NICs share one PCIe tree: root ports are declared once, and every
+GPU slot, NIC device and NIC switch port names its parent in that tree.
 
 
 
@@ -1173,9 +1520,53 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `rootPorts` _[RootPort](#rootport) array_ | RootPorts are the platform's PCIe root ports, once per Node. |  | MaxItems: 256 <br />Optional: \{\} <br /> |
 | `gpuSlots` _[GPUSlot](#gpuslot) array_ | GPUSlots maps each GPU index to its PCI and host topology coordinates. |  | MaxItems: 64 <br />MinItems: 1 <br /> |
 | `gpuFabric` _[GPUFabric](#gpufabric)_ | GPUFabric describes optional NVLink/NVSwitch connectivity. |  | Optional: \{\} <br /> |
-| `network` _[NetworkTopology](#networktopology)_ | Network describes optional out-of-band network adapters. |  | Optional: \{\} <br /> |
+| `nics` _[NICSlot](#nicslot) array_ | NICs places one NIC instance per entry on the Node: an SNICProfile, the<br />configuration it runs and where each of its PCI devices sits. |  | MaxItems: 64 <br />Optional: \{\} <br /> |
+
+
+#### SNICProfile
+
+
+
+SNICProfile is one NIC model as packaged on a card, and every firmware
+configuration it can run, each declared as its result. It holds model data
+only: no addresses, identifiers or counts of a particular node. NIC slots in
+SGPURackProfile place instances of it on a node.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `mokka.nvidia.com/v1alpha1` | | |
+| `kind` _string_ | `SNICProfile` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[SNICProfileSpec](#snicprofilespec)_ | Spec describes the NIC model and its configurations. |  |  |
+
+
+#### SNICProfileSpec
+
+
+
+SNICProfileSpec is the model data of an SNICProfile.
+
+
+
+_Appears in:_
+- [SNICProfile](#snicprofile)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `identity` _[NICIdentity](#nicidentity)_ | Identity is what the NIC reports about itself, the same in every<br />configuration. |  |  |
+| `sources` _string array_ | Sources cites the captures or documents the values come from. |  | Optional: \{\} <br /> |
+| `switchPort` _[PCIID](#pciid)_ | SwitchPort identifies the ports of the NIC's own PCIe switch, which slots<br />place as bridges. |  | Optional: \{\} <br /> |
+| `vpd` _[NICVPD](#nicvpd)_ | VPD is the vital product data of the functions whose type has vpd set. |  | Optional: \{\} <br /> |
+| `functionTypes` _object (keys:string, values:[NICFunctionType](#nicfunctiontype))_ | FunctionTypes are the kinds of PCI function the NIC can expose, keyed by<br />the name configurations use. |  | MinProperties: 1 <br /> |
+| `defaultConfiguration` _string_ | DefaultConfiguration names the configuration used when neither the<br />cluster nor the slot selects one. |  | MinLength: 1 <br /> |
+| `configurations` _[NICConfiguration](#nicconfiguration) array_ | Configurations are the firmware configurations the card can run, each<br />declared as its result. |  | MinItems: 1 <br /> |
 
 
 #### SupportedClocks
@@ -1246,3 +1637,25 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `mode` _string_ | Mode selects pattern-generated or fixed utilization values. |  | Enum: [Pattern Fixed] <br />Optional: \{\} <br /> |
 | `pattern` _[UtilizationPattern](#utilizationpattern)_ | Pattern defines the utilization values generated over time. |  | Optional: \{\} <br /> |
+
+
+#### VPDScope
+
+_Underlying type:_ _string_
+
+VPDScope names which NIC functions share one generated VPD value: board,
+asic or boardPosition, or another identity keyword whose generated value
+this one reuses before its function suffix, as a BlueField's VU starts with
+its SN.
+
+_Validation:_
+- Pattern: `^(board|asic|boardPosition|[A-Z0-9]{2})$`
+
+_Appears in:_
+- [NICVPD](#nicvpd)
+
+| Field | Description |
+| --- | --- |
+| `board` | VPDScopeBoard shares one value across every slot on the same board.<br /> |
+| `asic` | VPDScopeASIC shares one value across the functions of one slot.<br /> |
+| `boardPosition` | VPDScopeBoardPosition shares one value across the devices on one board<br />whose placement gives the same VPD position.<br /> |

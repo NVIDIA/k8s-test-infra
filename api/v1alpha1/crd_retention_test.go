@@ -19,7 +19,7 @@ func TestGeneratedCRDsAreRetainedOnHelmUninstall(t *testing.T) {
 	)
 	paths, err := filepath.Glob(filepath.Join(chartTemplates, "mokka.nvidia.com_*.yaml"))
 	require.NoError(t, err)
-	require.Len(t, paths, 4)
+	require.Len(t, paths, 5)
 
 	for _, path := range paths {
 		t.Run(filepath.Base(path), func(t *testing.T) {

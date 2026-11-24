@@ -706,6 +706,12 @@ spec:
                                 with this GPU.
                               format: int32
                               type: integer
+                            parent:
+                              description: |-
+                                Parent is the root port or NIC switch port the GPU sits below, from
+                                any slot; empty when unknown.
+                              pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
+                              type: string
                             pciAddress:
                               description: PCIAddress is the PCI bus address of this
                                 GPU.
@@ -727,31 +733,186 @@ spec:
                         x-kubernetes-list-map-keys:
                         - index
                         x-kubernetes-list-type: map
-                      network:
-                        description: Network describes optional out-of-band network
-                          adapters.
-                        properties:
-                          adapterModel:
-                            description: AdapterModel is the adapter model name.
-                            type: string
-                          adaptersPerGPU:
-                            description: AdaptersPerGPU is the number of network adapters
-                              associated with each GPU.
-                            format: int32
-                            type: integer
-                          firmwareVersion:
-                            description: FirmwareVersion is the adapter firmware version.
-                            type: string
-                          linkSpeedGbps:
-                            description: LinkSpeedGbps is the adapter link speed in
-                              gigabits per second.
-                            format: int32
-                            type: integer
-                          type:
-                            description: Type names the out-of-band network adapter
-                              type.
-                            type: string
-                        type: object
+                      nics:
+                        description: |-
+                          NICs places one NIC instance per entry on the Node: an SNICProfile, the
+                          configuration it runs and where each of its PCI devices sits.
+                        items:
+                          description: |-
+                            NICSlot is one NIC instance on a Node. It names the profile and selects one
+                            of its configurations; configuration data never lives in the slot.
+                          properties:
+                            board:
+                              description: |-
+                                Board groups the slots whose ASICs share one physical board. Board
+                                numbers are Node-wide.
+                              format: int32
+                              minimum: 0
+                              type: integer
+                            configuration:
+                              description: |-
+                                Configuration is one of the profile's configurations; empty means its
+                                default.
+                              type: string
+                            devices:
+                              additionalProperties:
+                                description: |-
+                                  NICDevicePlacement places one PCI device of a NIC. Function numbers come
+                                  from the configuration, so switching configuration never moves a device.
+                                properties:
+                                  address:
+                                    description: Address is the device's DDDD:BB:DD
+                                      address.
+                                    pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}$
+                                    type: string
+                                  bridges:
+                                    description: |-
+                                      Bridges are the NIC's switch ports above or beside the device, parents
+                                      first. A GPU slot may name one as its parent.
+                                    items:
+                                      description: PCIBridge is one exposed port of
+                                        a NIC's PCIe switch.
+                                      properties:
+                                        address:
+                                          description: Address is the bridge's address.
+                                          pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
+                                          type: string
+                                        parent:
+                                          description: Parent is a root port or another
+                                            switch port.
+                                          pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
+                                          type: string
+                                      required:
+                                      - address
+                                      - parent
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  numaNode:
+                                    description: NUMANode is the device's NUMA node;
+                                      -1 means unknown.
+                                    format: int32
+                                    minimum: -1
+                                    type: integer
+                                  parent:
+                                    description: |-
+                                      Parent is a root port or a switch port; empty for a device on the root
+                                      bus.
+                                    pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
+                                    type: string
+                                  rootComplex:
+                                    description: |-
+                                      RootComplex is the root complex, such as pci0009:00. A GPU slot naming
+                                      the same root complex shares it.
+                                    pattern: ^pci[0-9a-f]{4}:[0-9a-f]{2}$
+                                    type: string
+                                  vpdPosition:
+                                    description: |-
+                                      VPDPosition is the suffix of the VPD product name, such as -Prime or
+                                      -Aux[1].
+                                    type: string
+                                required:
+                                - address
+                                - numaNode
+                                - rootComplex
+                                type: object
+                              description: |-
+                                Devices places each PCI device the profile's configurations name. One
+                                NIC's devices may sit under different root complexes.
+                              minProperties: 1
+                              type: object
+                            firmwareVersion:
+                              description: FirmwareVersion overrides the profile's
+                                identity.firmwareVersion.
+                              type: string
+                            gpus:
+                              description: |-
+                                GPUs are the indexes of the GPUs the NIC serves. They record locality;
+                                they don't restrict which GPUs may use the NIC.
+                              items:
+                                format: int32
+                                maximum: 63
+                                minimum: 0
+                                type: integer
+                              type: array
+                              x-kubernetes-list-type: set
+                            profile:
+                              description: Profile is the name of an SNICProfile.
+                              minLength: 1
+                              type: string
+                            slot:
+                              description: Slot names the instance, unique per Node,
+                                such as nic0 or frontend0.
+                              maxLength: 63
+                              minLength: 1
+                              type: string
+                            systemImageGUID:
+                              description: |-
+                                SystemImageGUID is the system image GUID of the NIC's RDMA devices:
+                                empty for the node GUID of its lowest-addressed RDMA device, an RDMA
+                                device ID for that device's node GUID, or "distinct" for a GUID that is
+                                no device's node GUID.
+                              type: string
+                            vpd:
+                              additionalProperties:
+                                type: string
+                              description: VPD overrides model VPD keywords, such
+                                as EC.
+                              type: object
+                          required:
+                          - devices
+                          - profile
+                          - slot
+                          type: object
+                        maxItems: 64
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - slot
+                        x-kubernetes-list-type: map
+                      rootPorts:
+                        description: RootPorts are the platform's PCIe root ports,
+                          once per Node.
+                        items:
+                          description: RootPort is one PCIe root port of the platform.
+                          properties:
+                            address:
+                              description: Address is the root port's address, such
+                                as "0009:00:00.0".
+                              pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
+                              type: string
+                            id:
+                              description: |-
+                                ID is the root port's PCI IDs. The IDs above a device are generated
+                                only where they are known.
+                              properties:
+                                deviceID:
+                                  description: DeviceID is four lowercase hex digits,
+                                    without 0x.
+                                  pattern: ^[0-9a-f]{4}$
+                                  type: string
+                                vendorID:
+                                  description: VendorID is four lowercase hex digits,
+                                    without 0x.
+                                  pattern: ^[0-9a-f]{4}$
+                                  type: string
+                              required:
+                              - deviceID
+                              - vendorID
+                              type: object
+                            rootComplex:
+                              description: RootComplex is the root complex the port
+                                belongs to, such as pci0009:00.
+                              pattern: ^pci[0-9a-f]{4}:[0-9a-f]{2}$
+                              type: string
+                          required:
+                          - address
+                          - rootComplex
+                          type: object
+                        maxItems: 256
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - address
+                        x-kubernetes-list-type: map
                     required:
                     - gpuSlots
                     type: object
@@ -789,6 +950,34 @@ spec:
                   nvmlVersion:
                     description: NVMLVersion is the NVIDIA Management Library version.
                     type: string
+                  rdma:
+                    description: |-
+                      RDMA describes the Node image's RDMA stack: which optional modules it
+                      loads and the version its NIC driver reports.
+                    properties:
+                      driverVersion:
+                        description: |-
+                          DriverVersion is the version the image's NIC driver module reports,
+                          such as 26.01-1.0.0 from a driver package. Empty means the module
+                          reports none.
+                        type: string
+                      ipoib:
+                        description: |-
+                          IPoIB reports whether ib_ipoib loads: each InfiniBand port gets an IPoIB
+                          netdev.
+                        type: boolean
+                      umad:
+                        description: |-
+                          UMAD reports whether ib_umad loads: umad and issm files and the
+                          infiniband_mad class exist.
+                        type: boolean
+                      umadMode:
+                        description: |-
+                          UMADMode is the udev file mode of umad and issm files, such as "666";
+                          empty means the kernel's 600.
+                        pattern: ^[0-7]{3,4}$
+                        type: string
+                    type: object
                 type: object
             required:
             - node

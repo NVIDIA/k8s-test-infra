@@ -1,0 +1,1319 @@
+{
+ "SGPUInventory": {
+  "type": "object",
+  "properties": {
+   "apiVersion": {
+    "type": "string"
+   },
+   "kind": {
+    "type": "string"
+   },
+   "metadata": {
+    "type": "object"
+   },
+   "spec": {
+    "type": "object",
+    "properties": {
+     "rackGroups": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "count": {
+         "type": "integer"
+        },
+        "id": {
+         "type": "string"
+        },
+        "nicOverrides": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "configuration": {
+            "type": "string"
+           },
+           "firmwareVersion": {
+            "type": "string"
+           },
+           "profile": {
+            "type": "string"
+           },
+           "slots": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            },
+            "x-kubernetes-list-type": "set"
+           },
+           "systemImageGUID": {
+            "type": "string"
+           },
+           "vpd": {
+            "type": "object",
+            "additionalProperties": {
+             "type": "string"
+            }
+           }
+          },
+          "required": [
+           "slots"
+          ]
+         },
+         "x-kubernetes-list-type": "atomic"
+        },
+        "placement": {
+         "type": "object",
+         "properties": {
+          "nodeSelector": {
+           "type": "object",
+           "properties": {
+            "matchExpressions": {
+             "type": "array",
+             "items": {
+              "type": "object",
+              "properties": {
+               "key": {
+                "type": "string"
+               },
+               "operator": {
+                "type": "string"
+               },
+               "values": {
+                "type": "array",
+                "items": {
+                 "type": "string"
+                },
+                "x-kubernetes-list-type": "atomic"
+               }
+              },
+              "required": [
+               "key",
+               "operator"
+              ]
+             },
+             "x-kubernetes-list-type": "atomic"
+            },
+            "matchLabels": {
+             "type": "object",
+             "additionalProperties": {
+              "type": "string"
+             }
+            }
+           }
+          }
+         }
+        },
+        "profileRef": {
+         "type": "object",
+         "properties": {
+          "name": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "name"
+         ]
+        }
+       },
+       "required": [
+        "count",
+        "id",
+        "profileRef"
+       ]
+      },
+      "x-kubernetes-list-type": "map",
+      "x-kubernetes-list-map-keys": [
+       "id"
+      ]
+     }
+    },
+    "required": [
+     "rackGroups"
+    ]
+   },
+   "status": {
+    "type": "object",
+    "properties": {
+     "capacity": {
+      "type": "object",
+      "properties": {
+       "gpus": {
+        "type": "integer"
+       },
+       "nodes": {
+        "type": "integer"
+       },
+       "racks": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "gpus",
+       "nodes",
+       "racks"
+      ]
+     },
+     "conditions": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "lastTransitionTime": {
+         "type": "string"
+        },
+        "message": {
+         "type": "string"
+        },
+        "observedGeneration": {
+         "type": "integer"
+        },
+        "reason": {
+         "type": "string"
+        },
+        "status": {
+         "type": "string"
+        },
+        "type": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "lastTransitionTime",
+        "message",
+        "reason",
+        "status",
+        "type"
+       ]
+      },
+      "x-kubernetes-list-type": "map",
+      "x-kubernetes-list-map-keys": [
+       "type"
+      ]
+     },
+     "rackGroups": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "capacity": {
+         "type": "object",
+         "properties": {
+          "gpus": {
+           "type": "integer"
+          },
+          "nodes": {
+           "type": "integer"
+          },
+          "racks": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "gpus",
+          "nodes",
+          "racks"
+         ]
+        },
+        "id": {
+         "type": "string"
+        },
+        "profileName": {
+         "type": "string"
+        },
+        "usage": {
+         "type": "object",
+         "properties": {
+          "allocatedNodes": {
+           "type": "integer"
+          },
+          "availableNodes": {
+           "type": "integer"
+          },
+          "pendingNodes": {
+           "type": "integer"
+          },
+          "requestedNodes": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "allocatedNodes",
+          "availableNodes",
+          "pendingNodes",
+          "requestedNodes"
+         ]
+        }
+       },
+       "required": [
+        "capacity",
+        "id",
+        "profileName",
+        "usage"
+       ]
+      },
+      "x-kubernetes-list-type": "map",
+      "x-kubernetes-list-map-keys": [
+       "id"
+      ]
+     },
+     "rackGroupsSummary": {
+      "type": "string"
+     },
+     "usage": {
+      "type": "object",
+      "properties": {
+       "allocatedNodes": {
+        "type": "integer"
+       },
+       "availableNodes": {
+        "type": "integer"
+       },
+       "pendingNodes": {
+        "type": "integer"
+       },
+       "requestedNodes": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "allocatedNodes",
+       "availableNodes",
+       "pendingNodes",
+       "requestedNodes"
+      ]
+     }
+    }
+   }
+  },
+  "required": [
+   "spec"
+  ]
+ },
+ "SGPURackProfile": {
+  "type": "object",
+  "properties": {
+   "apiVersion": {
+    "type": "string"
+   },
+   "kind": {
+    "type": "string"
+   },
+   "metadata": {
+    "type": "object"
+   },
+   "spec": {
+    "type": "object",
+    "properties": {
+     "defaults": {
+      "type": "object",
+      "properties": {
+       "runtime": {
+        "type": "object",
+        "properties": {
+         "deviceState": {
+          "type": "string"
+         },
+         "modes": {
+          "type": "object",
+          "properties": {
+           "accounting": {
+            "type": "string"
+           },
+           "compute": {
+            "type": "string"
+           },
+           "ecc": {
+            "type": "string"
+           },
+           "mig": {
+            "type": "string"
+           },
+           "persistence": {
+            "type": "string"
+           }
+          }
+         },
+         "telemetry": {
+          "type": "object",
+          "properties": {
+           "clocks": {
+            "type": "object",
+            "properties": {
+             "graphicsMHz": {
+              "type": "integer"
+             },
+             "memoryMHz": {
+              "type": "integer"
+             },
+             "smMHz": {
+              "type": "integer"
+             },
+             "videoMHz": {
+              "type": "integer"
+             }
+            }
+           },
+           "performanceState": {
+            "type": "string"
+           },
+           "power": {
+            "type": "object",
+            "properties": {
+             "drawMilliWatts": {
+              "type": "integer"
+             },
+             "mode": {
+              "type": "string"
+             }
+            }
+           },
+           "temperature": {
+            "type": "object",
+            "properties": {
+             "gpuCelsius": {
+              "type": "integer"
+             },
+             "memoryCelsius": {
+              "type": "integer"
+             },
+             "mode": {
+              "type": "string"
+             }
+            }
+           },
+           "utilization": {
+            "type": "object",
+            "properties": {
+             "mode": {
+              "type": "string"
+             },
+             "pattern": {
+              "type": "object",
+              "properties": {
+               "gpuPercent": {
+                "type": "object",
+                "properties": {
+                 "maximum": {
+                  "type": "integer"
+                 },
+                 "minimum": {
+                  "type": "integer"
+                 }
+                },
+                "required": [
+                 "maximum",
+                 "minimum"
+                ]
+               },
+               "memoryPercent": {
+                "type": "object",
+                "properties": {
+                 "maximum": {
+                  "type": "integer"
+                 },
+                 "minimum": {
+                  "type": "integer"
+                 }
+                },
+                "required": [
+                 "maximum",
+                 "minimum"
+                ]
+               },
+               "type": {
+                "type": "string"
+               }
+              }
+             }
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "node": {
+      "type": "object",
+      "properties": {
+       "gpus": {
+        "type": "object",
+        "properties": {
+         "capabilities": {
+          "type": "object",
+          "properties": {
+           "attributes": {
+            "type": "object",
+            "additionalProperties": {
+             "type": "object",
+             "properties": {
+              "bool": {
+               "type": "boolean"
+              },
+              "int": {
+               "type": "integer"
+              },
+              "string": {
+               "type": "string"
+              },
+              "strings": {
+               "type": "array",
+               "items": {
+                "type": "string"
+               },
+               "x-kubernetes-list-type": "set"
+              }
+             }
+            }
+           },
+           "mig": {
+            "type": "object",
+            "properties": {
+             "maxGPUInstances": {
+              "type": "integer"
+             },
+             "supported": {
+              "type": "boolean"
+             }
+            }
+           }
+          }
+         },
+         "clocks": {
+          "type": "object",
+          "properties": {
+           "maximumMHz": {
+            "type": "object",
+            "properties": {
+             "graphics": {
+              "type": "integer"
+             },
+             "memory": {
+              "type": "integer"
+             },
+             "sm": {
+              "type": "integer"
+             },
+             "video": {
+              "type": "integer"
+             }
+            }
+           },
+           "supported": {
+            "type": "array",
+            "items": {
+             "type": "object",
+             "properties": {
+              "graphicsMHz": {
+               "type": "array",
+               "items": {
+                "type": "integer"
+               },
+               "x-kubernetes-list-type": "set"
+              },
+              "memoryMHz": {
+               "type": "integer"
+              }
+             },
+             "required": [
+              "graphicsMHz",
+              "memoryMHz"
+             ]
+            }
+           }
+          }
+         },
+         "count": {
+          "type": "integer"
+         },
+         "memory": {
+          "type": "object",
+          "properties": {
+           "bar1Capacity": {},
+           "busWidthBits": {
+            "type": "integer"
+           },
+           "capacity": {},
+           "reserved": {}
+          },
+          "required": [
+           "capacity"
+          ]
+         },
+         "model": {
+          "type": "object",
+          "properties": {
+           "architecture": {
+            "type": "string"
+           },
+           "board": {
+            "type": "object",
+            "properties": {
+             "partNumber": {
+              "type": "string"
+             }
+            }
+           },
+           "computeCapability": {
+            "type": "object",
+            "properties": {
+             "major": {
+              "type": "integer"
+             },
+             "minor": {
+              "type": "integer"
+             }
+            },
+            "required": [
+             "major",
+             "minor"
+            ]
+           },
+           "cores": {
+            "type": "object",
+            "properties": {
+             "cuda": {
+              "type": "integer"
+             }
+            }
+           },
+           "firmware": {
+            "type": "object",
+            "properties": {
+             "gspVersion": {
+              "type": "string"
+             },
+             "infoROM": {
+              "type": "object",
+              "properties": {
+               "eccObjectVersion": {
+                "type": "string"
+               },
+               "imageVersion": {
+                "type": "string"
+               },
+               "oemObjectVersion": {
+                "type": "string"
+               },
+               "powerObjectVersion": {
+                "type": "string"
+               }
+              }
+             },
+             "vbiosVersion": {
+              "type": "string"
+             }
+            }
+           },
+           "product": {
+            "type": "string"
+           },
+           "productName": {
+            "type": "string"
+           },
+           "vendor": {
+            "type": "string"
+           }
+          }
+         },
+         "pci": {
+          "type": "object",
+          "properties": {
+           "deviceID": {
+            "type": "string"
+           },
+           "maxLink": {
+            "type": "object",
+            "properties": {
+             "generation": {
+              "type": "integer"
+             },
+             "width": {
+              "type": "integer"
+             }
+            }
+           },
+           "subsystemDeviceID": {
+            "type": "string"
+           },
+           "subsystemVendorID": {
+            "type": "string"
+           },
+           "vendorID": {
+            "type": "string"
+           }
+          }
+         },
+         "power": {
+          "type": "object",
+          "properties": {
+           "limitsMilliWatts": {
+            "type": "object",
+            "properties": {
+             "default": {
+              "type": "integer"
+             },
+             "maximum": {
+              "type": "integer"
+             },
+             "minimum": {
+              "type": "integer"
+             }
+            }
+           },
+           "managementSupported": {
+            "type": "boolean"
+           }
+          }
+         },
+         "thermal": {
+          "type": "object",
+          "properties": {
+           "maxOperatingCelsius": {
+            "type": "integer"
+           },
+           "shutdownThresholdCelsius": {
+            "type": "integer"
+           },
+           "slowdownThresholdCelsius": {
+            "type": "integer"
+           },
+           "targetCelsius": {
+            "type": "integer"
+           }
+          }
+         }
+        },
+        "required": [
+         "count",
+         "memory",
+         "model",
+         "pci"
+        ]
+       },
+       "host": {
+        "type": "object",
+        "properties": {
+         "cpu": {
+          "type": "object",
+          "properties": {
+           "architecture": {
+            "type": "string"
+           },
+           "cores": {
+            "type": "integer"
+           },
+           "product": {
+            "type": "string"
+           },
+           "vendor": {
+            "type": "string"
+           }
+          }
+         },
+         "memory": {
+          "type": "object",
+          "properties": {
+           "capacity": {},
+           "coherentWithGPU": {
+            "type": "boolean"
+           }
+          },
+          "required": [
+           "capacity"
+          ]
+         }
+        }
+       },
+       "topology": {
+        "type": "object",
+        "properties": {
+         "gpuFabric": {
+          "type": "object",
+          "properties": {
+           "bandwidthPerLinkMBps": {
+            "type": "integer"
+           },
+           "c2cSupported": {
+            "type": "boolean"
+           },
+           "domain": {
+            "type": "object",
+            "properties": {
+             "gpuCount": {
+              "type": "integer"
+             },
+             "scope": {
+              "type": "string"
+             }
+            }
+           },
+           "generation": {
+            "type": "integer"
+           },
+           "linksPerGPU": {
+            "type": "integer"
+           },
+           "switches": {
+            "type": "object",
+            "properties": {
+             "visiblePerNode": {
+              "type": "integer"
+             }
+            }
+           },
+           "type": {
+            "type": "string"
+           }
+          }
+         },
+         "gpuSlots": {
+          "type": "array",
+          "items": {
+           "type": "object",
+           "properties": {
+            "hostProcessorIndex": {
+             "type": "integer"
+            },
+            "index": {
+             "type": "integer"
+            },
+            "numaNode": {
+             "type": "integer"
+            },
+            "parent": {
+             "type": "string"
+            },
+            "pciAddress": {
+             "type": "string"
+            },
+            "rootComplex": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "index",
+            "pciAddress",
+            "rootComplex"
+           ]
+          },
+          "x-kubernetes-list-type": "map",
+          "x-kubernetes-list-map-keys": [
+           "index"
+          ]
+         },
+         "nics": {
+          "type": "array",
+          "items": {
+           "type": "object",
+           "properties": {
+            "board": {
+             "type": "integer"
+            },
+            "configuration": {
+             "type": "string"
+            },
+            "devices": {
+             "type": "object",
+             "additionalProperties": {
+              "type": "object",
+              "properties": {
+               "address": {
+                "type": "string"
+               },
+               "bridges": {
+                "type": "array",
+                "items": {
+                 "type": "object",
+                 "properties": {
+                  "address": {
+                   "type": "string"
+                  },
+                  "parent": {
+                   "type": "string"
+                  }
+                 },
+                 "required": [
+                  "address",
+                  "parent"
+                 ]
+                },
+                "x-kubernetes-list-type": "atomic"
+               },
+               "numaNode": {
+                "type": "integer"
+               },
+               "parent": {
+                "type": "string"
+               },
+               "rootComplex": {
+                "type": "string"
+               },
+               "vpdPosition": {
+                "type": "string"
+               }
+              },
+              "required": [
+               "address",
+               "numaNode",
+               "rootComplex"
+              ]
+             }
+            },
+            "firmwareVersion": {
+             "type": "string"
+            },
+            "gpus": {
+             "type": "array",
+             "items": {
+              "type": "integer"
+             },
+             "x-kubernetes-list-type": "set"
+            },
+            "profile": {
+             "type": "string"
+            },
+            "slot": {
+             "type": "string"
+            },
+            "systemImageGUID": {
+             "type": "string"
+            },
+            "vpd": {
+             "type": "object",
+             "additionalProperties": {
+              "type": "string"
+             }
+            }
+           },
+           "required": [
+            "devices",
+            "profile",
+            "slot"
+           ]
+          },
+          "x-kubernetes-list-type": "map",
+          "x-kubernetes-list-map-keys": [
+           "slot"
+          ]
+         },
+         "rootPorts": {
+          "type": "array",
+          "items": {
+           "type": "object",
+           "properties": {
+            "address": {
+             "type": "string"
+            },
+            "id": {
+             "type": "object",
+             "properties": {
+              "deviceID": {
+               "type": "string"
+              },
+              "vendorID": {
+               "type": "string"
+              }
+             },
+             "required": [
+              "deviceID",
+              "vendorID"
+             ]
+            },
+            "rootComplex": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "address",
+            "rootComplex"
+           ]
+          },
+          "x-kubernetes-list-type": "map",
+          "x-kubernetes-list-map-keys": [
+           "address"
+          ]
+         }
+        },
+        "required": [
+         "gpuSlots"
+        ]
+       }
+      },
+      "required": [
+       "gpus",
+       "topology"
+      ]
+     },
+     "rack": {
+      "type": "object",
+      "properties": {
+       "nodesPerRack": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "nodesPerRack"
+      ]
+     },
+     "software": {
+      "type": "object",
+      "properties": {
+       "cudaVersion": {
+        "type": "string"
+       },
+       "driverVersion": {
+        "type": "string"
+       },
+       "nvmlVersion": {
+        "type": "string"
+       },
+       "rdma": {
+        "type": "object",
+        "properties": {
+         "driverVersion": {
+          "type": "string"
+         },
+         "ipoib": {
+          "type": "boolean"
+         },
+         "umad": {
+          "type": "boolean"
+         },
+         "umadMode": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     }
+    },
+    "required": [
+     "node",
+     "rack"
+    ]
+   }
+  },
+  "required": [
+   "spec"
+  ]
+ },
+ "SNICProfile": {
+  "type": "object",
+  "properties": {
+   "apiVersion": {
+    "type": "string"
+   },
+   "kind": {
+    "type": "string"
+   },
+   "metadata": {
+    "type": "object"
+   },
+   "spec": {
+    "type": "object",
+    "properties": {
+     "configurations": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "functions": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "class": {
+            "type": "string"
+           },
+           "function": {
+            "type": "integer"
+           },
+           "id": {
+            "type": "string"
+           },
+           "pciDevice": {
+            "type": "string"
+           },
+           "ports": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            },
+            "x-kubernetes-list-type": "set"
+           },
+           "type": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "class",
+           "function",
+           "id",
+           "pciDevice",
+           "type"
+          ]
+         },
+         "x-kubernetes-list-type": "map",
+         "x-kubernetes-list-map-keys": [
+          "id"
+         ]
+        },
+        "name": {
+         "type": "string"
+        },
+        "ports": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "capMask": {
+            "type": "string"
+           },
+           "id": {
+            "type": "string"
+           },
+           "laneSpeed": {
+            "type": "string"
+           },
+           "lmc": {
+            "type": "integer"
+           },
+           "planes": {
+            "type": "integer"
+           },
+           "technology": {
+            "type": "string"
+           },
+           "width": {
+            "type": "integer"
+           }
+          },
+          "required": [
+           "id",
+           "laneSpeed",
+           "planes",
+           "technology",
+           "width"
+          ]
+         },
+         "x-kubernetes-list-type": "atomic"
+        },
+        "rdmaDevices": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "function": {
+            "type": "string"
+           },
+           "id": {
+            "type": "string"
+           },
+           "ports": {
+            "type": "array",
+            "items": {
+             "type": "string"
+            },
+            "x-kubernetes-list-type": "atomic"
+           }
+          },
+          "required": [
+           "function",
+           "id",
+           "ports"
+          ]
+         },
+         "x-kubernetes-list-type": "map",
+         "x-kubernetes-list-map-keys": [
+          "id"
+         ]
+        }
+       },
+       "required": [
+        "functions",
+        "name"
+       ]
+      },
+      "x-kubernetes-list-type": "map",
+      "x-kubernetes-list-map-keys": [
+       "name"
+      ]
+     },
+     "defaultConfiguration": {
+      "type": "string"
+     },
+     "functionTypes": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "object",
+       "properties": {
+        "deviceID": {
+         "type": "string"
+        },
+        "driver": {
+         "type": "string"
+        },
+        "pcieLink": {
+         "type": "object",
+         "properties": {
+          "maxWidth": {
+           "type": "integer"
+          },
+          "speed": {
+           "type": "string"
+          },
+          "width": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "speed",
+          "width"
+         ]
+        },
+        "rdmaEmpty": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "x-kubernetes-list-type": "set"
+        },
+        "rdmaNamePrefix": {
+         "type": "string"
+        },
+        "rdmaNodeType": {
+         "type": "string"
+        },
+        "rdmaOmit": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "x-kubernetes-list-type": "set"
+        },
+        "revision": {
+         "type": "string"
+        },
+        "subsystemDeviceID": {
+         "type": "string"
+        },
+        "subsystemVendorID": {
+         "type": "string"
+        },
+        "totalVFs": {
+         "type": "integer"
+        },
+        "vendorID": {
+         "type": "string"
+        },
+        "vfType": {
+         "type": "string"
+        },
+        "vpd": {
+         "type": "boolean"
+        },
+        "vpdOmit": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "x-kubernetes-list-type": "set"
+        },
+        "vpdSuffixes": {
+         "type": "object",
+         "additionalProperties": {
+          "type": "string"
+         }
+        }
+       },
+       "required": [
+        "deviceID",
+        "driver",
+        "vendorID"
+       ]
+      }
+     },
+     "identity": {
+      "type": "object",
+      "properties": {
+       "boardID": {
+        "type": "string"
+       },
+       "firmwareVersion": {
+        "type": "string"
+       },
+       "hcaType": {
+        "type": "string"
+       },
+       "hwRev": {
+        "type": "string"
+       },
+       "model": {
+        "type": "string"
+       },
+       "partNumber": {
+        "type": "string"
+       },
+       "vendorOUI": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "model"
+      ]
+     },
+     "sources": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "x-kubernetes-list-type": "atomic"
+     },
+     "switchPort": {
+      "type": "object",
+      "properties": {
+       "deviceID": {
+        "type": "string"
+       },
+       "vendorID": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "deviceID",
+       "vendorID"
+      ]
+     },
+     "vpd": {
+      "type": "object",
+      "properties": {
+       "identities": {
+        "type": "object",
+        "additionalProperties": {
+         "type": "string"
+        }
+       },
+       "keywords": {
+        "type": "object",
+        "additionalProperties": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    },
+    "required": [
+     "configurations",
+     "defaultConfiguration",
+     "functionTypes",
+     "identity"
+    ]
+   }
+  },
+  "required": [
+   "spec"
+  ]
+ }
+}
