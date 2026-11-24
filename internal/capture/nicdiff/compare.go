@@ -78,6 +78,9 @@ func compareAttr(o, a string, r, s map[string]string, hw, sim node) check {
 	c := check{Rule: name, Object: o}
 	rv, inReal := r[a]
 	sv, inSim := s[a]
+	// A listing holds each value on one line; compare in that form, so a
+	// capture directory and a listing of the same node agree.
+	rv, sv = nicsurfaces.OneLine(rv), nicsurfaces.OneLine(sv)
 	c.Real, c.Sim = rv, sv
 	if why := blindSpot(o, a, hw, sim); why != "" {
 		c.Status, c.Cause, c.Note = notCompared, causeBlindSpot, why
