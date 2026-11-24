@@ -34,7 +34,7 @@ var notInOlderCaptures = []string{
 type records struct{ *nicsurfaces.Node }
 
 func (r records) Set(obj, attr, value string) {
-	r.Node.Set(obj, attr, value, nicsurfaces.SourceOf(obj, attr))
+	r.Node.Set(obj, attr, value, nicsurfaces.SourcesOf(obj, attr)...)
 }
 
 // ConvertNodeCapture reads a node directory written by hack/capture-node.sh,

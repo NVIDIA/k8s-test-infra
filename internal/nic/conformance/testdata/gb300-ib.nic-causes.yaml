@@ -36,6 +36,3 @@
 - match: '^pci\.lspci\.\S+ '
   cause: by design
   note: lspci's view of config space, which the pcibus simulator renders from the same IDs and link; compared at the rendered level
-- match: '^rel\.vu_serial\.starts_with_serial rel/vu_serial/0016:01:00\.[01]$'
-  cause: schema gap
-  note: a BlueField's VPD VU starts with its board serial number; the declaration can only make VU a hash of where the function sits
