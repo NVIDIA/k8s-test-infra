@@ -568,6 +568,19 @@ a failure is unclassified, so a new difference fails it until it has a cause.
 An entry that matches no difference, because its gap was fixed or an earlier
 entry takes its matches, is named on standard error.
 
+To measure a Mokka profile against a committed capture, such as
+[`gb300-ib`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/hardware-captures/gb300-ib/README.md),
+capture a Mokka node running it and compare the two:
+
+```bash
+mokka-capture collect -mock -out mock network <node>
+mokka-capture collect -mock -out mock driver <node>
+mokka-capture diff nic -report tests/hardware-captures/gb300-ib/node-a mock/<node>
+```
+
+A committed capture leaves out `errors.log`, which names the machine, and the
+files its pod could not take, so `nic-surfaces` reads them as not captured.
+
 ## dump
 
 ```bash

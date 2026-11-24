@@ -1,0 +1,56 @@
+== mlx5_core
+initstate=live
+version=26.01-1.0.0
+parameters/debug_mask=0
+parameters/num_of_groups=15
+parameters/prof_sel=2
+== mlx5_ib
+initstate=live
+== mlx5_fwctl
+initstate=live
+== mlx5_dpll
+initstate=live
+== mlxfw
+initstate=live
+== mlxdevm
+initstate=live
+== mlx_compat
+initstate=live
+parameters/compat_base=mlnx-ofa_kernel-compat-20260217-1632-3735cf8
+parameters/compat_base_tree=https://:@git.example.com/r/a/mlnx_ofed/mlnx-ofa_kernel-4.0.git
+parameters/compat_base_tree_version=3735cf8
+parameters/compat_version=3735cf8
+== ib_core
+initstate=live
+parameters/mad_smp_window=0
+parameters/netns_mode=Y
+parameters/recv_queue_size=512
+parameters/send_queue_size=128
+== ib_uverbs
+initstate=live
+== ib_umad
+initstate=live
+== ib_ipoib
+initstate=live
+parameters/debug_level=0
+parameters/ipoib_enhanced=1
+parameters/max_nonsrq_conn_qp=128
+parameters/mcast_debug_level=0
+parameters/recv_queue_size=128
+parameters/send_queue_size=128
+== ib_cm
+initstate=live
+== iw_cm
+initstate=live
+== rdma_cm
+initstate=live
+== rdma_ucm
+initstate=live
+== nvidia_peermem
+initstate=live
+version=610.57.04
+parameters/peerdirect_support=0
+parameters/persistent_api_support=1
+== gdrdrv
+initstate=live
+version=2.5

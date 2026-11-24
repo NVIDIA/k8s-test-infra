@@ -1,0 +1,33 @@
+== /sys/class/infiniband
+mlx5_17
+mlx5_8
+rdma_rail0
+rdma_rail1
+rdma_rail2
+rdma_rail3
+rdma_vf_rail0
+rdma_vf_rail1
+rdma_vf_rail2
+rdma_vf_rail3
+== /sys/class/infiniband_verbs
+abi_version
+uverbs0
+uverbs1
+uverbs17
+uverbs2
+uverbs3
+uverbs4
+uverbs5
+uverbs6
+uverbs7
+uverbs8
+== /sys/class/infiniband_mad
+abi_version
+umad0
+umad1
+umad17
+umad2
+umad3
+umad8
+== /sys/class/infiniband_cm
+ls: /sys/class/infiniband_cm: No such file or directory
