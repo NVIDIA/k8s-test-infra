@@ -56,7 +56,8 @@ func Resolve(in Input) (*NICs, error) {
 		return nil, err // validate already rejected this; kept so it can't go unseen
 	}
 
-	r := resolver{node: in.Node, out: &NICs{RDMA: resolveRDMA(in.RDMA)}}
+	r := resolver{node: in.Node, out: &NICs{RDMA: resolveRDMA(in.RDMA)}, tree: newTree(in.Topology, slots, in.Profiles)}
+	r.addTree(in.Topology)
 	for i := range slots {
 		p := in.Profiles[slots[i].Profile]
 		c, _ := p.Spec.Configuration(slots[i].Configuration)
@@ -103,6 +104,7 @@ func resolveRDMA(rdma *v1alpha1.RDMASoftware) RDMA {
 type resolver struct {
 	node Node
 	out  *NICs
+	tree tree
 	// pending are the RDMA devices until every slot is known: names and
 	// system image GUIDs depend on the order of all of them.
 	pending []pendingDevice
@@ -174,14 +176,12 @@ func (r *resolver) addFunction(inst *Instance, s *v1alpha1.NICSlot, p *v1alpha1.
 		Revision:    ft.Revision,
 		Driver:      ft.Driver,
 		RootComplex: d.RootComplex,
-		RootPort:    d.RootPort,
-		RootPortID:  d.RootPortID.DeepCopy(),
-		Upstream:    upstream(d, p.Spec.SwitchPort),
 		Parent:      d.Parent,
 		NUMANode:    d.NUMANode,
 		TotalVFs:    ft.TotalVFs,
 		Link:        ft.PCIeLink.DeepCopy(),
 	}
+	fn.RootPort, fn.RootPortID, fn.Upstream = r.tree.above(d.Parent)
 	if ft.VFType != "" {
 		vf := p.Spec.FunctionTypes[ft.VFType]
 		fn.VF = &VFType{PCI: PCIID{VendorID: vf.VendorID, DeviceID: vf.DeviceID}, Subsystem: subsystem(vf),
@@ -217,23 +217,6 @@ func (r *resolver) addFunction(inst *Instance, s *v1alpha1.NICSlot, p *v1alpha1.
 // subsystem is a function type's subsystem IDs, each 0000 when left out.
 func subsystem(ft v1alpha1.NICFunctionType) PCIID {
 	return PCIID{VendorID: cmp.Or(ft.SubsystemVendorID, noSubsystem), DeviceID: cmp.Or(ft.SubsystemDeviceID, noSubsystem)}
-}
-
-// upstream lists the NIC switch ports between a device's root port and the
-// device, top first.
-func upstream(d v1alpha1.NICDevicePlacement, switchPort *PCIID) []PCIID {
-	parent := map[string]string{}
-	for _, b := range d.Bridges {
-		parent[b.Address] = b.Parent
-	}
-	var ids []PCIID
-	for a := d.Parent; a != d.RootPort; a = parent[a] {
-		if _, ok := parent[a]; !ok {
-			break
-		}
-		ids = append(ids, *switchPort)
-	}
-	return ids
 }
 
 // vpd resolves a function's VPD: the model keywords with the slot's
