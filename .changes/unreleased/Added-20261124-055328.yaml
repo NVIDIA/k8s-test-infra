@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  mokka-capture: `diff nic` also reads a listing `nic-surfaces` wrote in place of either capture node directory, so a saved listing, or one generated from a declared node, compares like a capture.
+time: 2026-11-24T05:53:28Z

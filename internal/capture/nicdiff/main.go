@@ -17,9 +17,9 @@
 //
 //	mokka-capture diff nic [-causes file] [-failed] [-json|-report] <real node dir> <mock node dir>
 //
-// Both node directories are read into nicsurfaces' normalized list, and every
-// object and attribute either side has becomes a check that passes, fails, or
-// is not compared. Identifiers are compared through their relations (an SMI
+// Both node directories, or listings `nic-surfaces` wrote, are read into
+// nicsurfaces' normalized list, and every object and attribute either side
+// has becomes a check that passes, fails, or is not compared. Identifiers are compared through their relations (an SMI
 // device shares its parent's node GUID), never by value. Every failure and
 // every check not made is counted by cause: a schema gap, a rule bug, a
 // capture blind spot, or by design. Blind spots (a capture file one side
@@ -48,7 +48,8 @@ func Command() *cli.Command {
 	return &cli.Command{
 		Name:  "nic",
 		Usage: "compare a real node's NIC capture with a Mokka node's, one check per surface",
-		Description: "Reads two capture node directories, as collect network writes them, through nic-surfaces. " +
+		Description: "Reads two capture node directories, as collect network writes them, through nic-surfaces, " +
+			"or a listing nic-surfaces wrote in place of either. " +
 			"Exits 1 when a failure is unclassified: neither recognised here nor explained by the causes file.",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "causes", Usage: "YAML file giving the cause of known differences"},
