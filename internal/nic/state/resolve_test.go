@@ -343,6 +343,8 @@ func TestFormatting(t *testing.T) {
 	require.Equal(t, "enP13p65s0f1np1", predictableName("000d:41:00", 1, true, "p1"))
 	require.Equal(t, "enp3s0f2np2", predictableName("0000:03:00", 2, true, "p2"))
 	require.Equal(t, "fe80:0000:0000:0000:0000:00ff:fe00:0001", linkLocalGID("02:00:00:00:00:01"))
+	require.Equal(t, PCIID{VendorID: "15b3", DeviceID: "0000"}, subsystem(v1alpha1.NICFunctionType{SubsystemVendorID: "15b3"}))
+	require.Equal(t, PCIID{VendorID: "0000", DeviceID: "0208"}, subsystem(v1alpha1.NICFunctionType{SubsystemDeviceID: "0208"}))
 	require.Equal(t, "0", sysfsHWRev("0x0"))
 	require.Equal(t, "efa0", sysfsHWRev("0xefa0"))
 }

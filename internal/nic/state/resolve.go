@@ -214,11 +214,9 @@ func (r *resolver) addFunction(inst *Instance, s *v1alpha1.NICSlot, p *v1alpha1.
 	return fn
 }
 
+// subsystem is a function type's subsystem IDs, each 0000 when left out.
 func subsystem(ft v1alpha1.NICFunctionType) PCIID {
-	if ft.SubsystemVendorID == "" {
-		return PCIID{VendorID: noSubsystem, DeviceID: noSubsystem}
-	}
-	return PCIID{VendorID: ft.SubsystemVendorID, DeviceID: ft.SubsystemDeviceID}
+	return PCIID{VendorID: cmp.Or(ft.SubsystemVendorID, noSubsystem), DeviceID: cmp.Or(ft.SubsystemDeviceID, noSubsystem)}
 }
 
 // upstream lists the NIC switch ports between a device's root port and the
