@@ -119,9 +119,12 @@ type resolver struct {
 }
 
 type pendingDevice struct {
-	device   RDMADevice
-	prefix   string
+	device RDMADevice
+	prefix string
+	// ports are the device's ports in physical order, and physical their
+	// physical numbers.
 	ports    []v1alpha1.NICPort
+	physical []int
 	function *placedFunction
 	slot     string
 }
@@ -133,8 +136,10 @@ type placedFunction struct {
 	// function number. Identifiers hash it, never the profile's IDs, so
 	// renaming a function, port or RDMA device in a profile changes none.
 	position []string
-	// ports are the configuration's IDs of the function's ports, in order.
-	ports []string
+	// physical is each port's physical number, its position in the
+	// configuration's ports, p0 first. A function's and an RDMA device's
+	// port lists are sets, so their order decides nothing.
+	physical map[string]int
 	// multifunction is whether its PCI device has more than one function.
 	multifunction bool
 	device        v1alpha1.NICDevicePlacement
@@ -147,9 +152,18 @@ func (f *placedFunction) at(what ...string) []string {
 }
 
 // portPath is the path of the function's port with the configuration's ID
-// portID: its position among the function's ports.
+// portID: its physical number.
 func (f *placedFunction) portPath(portID string) []string {
-	return f.at("port", strconv.Itoa(slices.Index(f.ports, portID)))
+	return f.at("port", strconv.Itoa(f.physical[portID]))
+}
+
+// physicalNumbers maps each port of a configuration to its physical number.
+func physicalNumbers(c *v1alpha1.NICConfiguration) map[string]int {
+	out := make(map[string]int, len(c.Ports))
+	for k, p := range c.Ports {
+		out[p.ID] = k
+	}
+	return out
 }
 
 func (r *resolver) addSlot(s *v1alpha1.NICSlot, p *v1alpha1.SNICProfile, c *v1alpha1.NICConfiguration) {
@@ -161,7 +175,7 @@ func (r *resolver) addSlot(s *v1alpha1.NICSlot, p *v1alpha1.SNICProfile, c *v1al
 		FirmwareVersion: cmp.Or(s.FirmwareVersion, p.Spec.Identity.FirmwareVersion),
 		BoardID:         p.Spec.Identity.BoardID,
 		Board:           s.Board,
-		GPUs:            slices.Clone(s.GPUs),
+		GPUs:            slices.Sorted(slices.Values(s.GPUs)),
 		SwitchID:        r.node.ID(s.Slot, "switch"),
 	}
 	r.out.Instances = append(r.out.Instances, inst)
@@ -225,7 +239,7 @@ func (r *resolver) addFunction(inst *Instance, s *v1alpha1.NICSlot, p *v1alpha1.
 	placed := &placedFunction{
 		Function:      fn,
 		position:      []string{s.Slot, "device", f.PCIDevice, "function", strconv.Itoa(int(f.Function))},
-		ports:         f.Ports,
+		physical:      physicalNumbers(c),
 		multifunction: multifunction,
 		device:        d,
 	}
@@ -281,8 +295,14 @@ func (r *resolver) vpd(s *v1alpha1.NICSlot, p *v1alpha1.SNICProfile, ft *v1alpha
 		if slices.Contains(ft.VPDOmit, k) {
 			continue
 		}
+		// A keyword whose scope names another identity reuses that one's
+		// generated value, as a BlueField's VU starts with its SN.
+		source := k
+		if _, ok := v.Identities[string(scope)]; ok {
+			source = string(scope)
+		}
 		suffix := strings.ReplaceAll(ft.VPDSuffixes[k], "{function}", strconv.Itoa(int(function)))
-		out[k] = r.node.ID(vpdPath(scope, k, s, d)...) + suffix
+		out[k] = r.node.ID(vpdPath(declaration.EffectiveScope(v, k), source, s, d)...) + suffix
 	}
 	return out
 }
@@ -339,9 +359,15 @@ func (r *resolver) addRDMADevice(inst *Instance, p *v1alpha1.SNICProfile, c *v1a
 			dev.Attributes[string(a.name)] = a.value
 		}
 	}
-	ports := make([]v1alpha1.NICPort, 0, len(d.Ports))
+	// The device numbers its ports in physical order, whatever order the
+	// profile lists them in.
+	physical := make([]int, 0, len(d.Ports))
 	for _, portID := range d.Ports {
-		k := slices.IndexFunc(c.Ports, func(port v1alpha1.NICPort) bool { return port.ID == portID })
+		physical = append(physical, fn.physical[portID])
+	}
+	slices.Sort(physical)
+	ports := make([]v1alpha1.NICPort, 0, len(d.Ports))
+	for _, k := range physical {
 		ports = append(ports, c.Ports[k])
 	}
 	if r.rdmaGUIDs == nil {
@@ -351,12 +377,15 @@ func (r *resolver) addRDMADevice(inst *Instance, p *v1alpha1.SNICProfile, c *v1a
 		r.rdmaGUIDs[inst.Slot] = map[string]string{}
 	}
 	r.rdmaGUIDs[inst.Slot][d.ID] = dev.NodeGUID
-	r.pending = append(r.pending, pendingDevice{device: dev, prefix: ft.RDMANamePrefix, ports: ports, function: fn, slot: inst.Slot})
+	r.pending = append(r.pending, pendingDevice{
+		device: dev, prefix: ft.RDMANamePrefix, ports: ports, physical: physical, function: fn, slot: inst.Slot,
+	})
 }
 
 // finish orders everything by PCI address and resolves what depends on all
 // of the Node's RDMA devices: their names, system image GUIDs and ports.
 func (r *resolver) finish() {
+	slices.SortFunc(r.out.Instances, func(a, b Instance) int { return strings.Compare(a.Slot, b.Slot) })
 	slices.SortFunc(r.out.Bridges, func(a, b Bridge) int { return strings.Compare(a.Address, b.Address) })
 	slices.SortFunc(r.out.Functions, func(a, b Function) int { return strings.Compare(a.Address, b.Address) })
 	slices.SortStableFunc(r.out.Netdevs, compareNetdevs)
@@ -366,7 +395,9 @@ func (r *resolver) finish() {
 	}
 
 	// The kernel names RDMA devices in probe order, which follows PCI
-	// order, each driver counting its own prefix from 0.
+	// order, each driver counting its own prefix from 0. A configuration
+	// change re-probes every NIC of the node, so names are always assigned
+	// from a cold start.
 	slices.SortStableFunc(r.pending, func(a, b pendingDevice) int { return strings.Compare(a.device.Function, b.device.Function) })
 	next := map[string]int{}
 	systemImage := map[string]string{}
@@ -423,19 +454,26 @@ func (r *resolver) ports(pd *pendingDevice, netdevs map[string]Netdev) []Port {
 			// The first port's GUID is the node GUID, as on hardware.
 			port.GUID = pd.device.NodeGUID
 			if k > 0 {
-				port.GUID = r.node.GUID(pd.function.at("rdma", "port", strconv.Itoa(k))...)
+				port.GUID = r.node.GUID(pd.function.at("rdma", "port", strconv.Itoa(pd.physical[k]))...)
 			}
-			port.GID = "fe80:0000:0000:0000:" + port.GUID
 			if r.ipoib {
 				port.Netdev = r.addIPoIB(pd, k, p, port.GUID)
 			}
+			port.GIDs = []GID{{Index: 0, Address: "fe80:0000:0000:0000:" + port.GUID, Type: GIDTypeIBRoCEv1}}
 		case v1alpha1.NICTechnologyRoCE:
+			// GIDs 0 and 1 are the same link-local address from the netdev's
+			// MAC, as RoCE v1 and as RoCE v2, both tied to the netdev.
 			n := netdevs[pd.function.Address+"/"+p.ID]
-			port.CapMask, port.LMC, port.Netdev, port.GID = roceCapMask, 0, n.Name, linkLocalGID(n.Address)
+			port.CapMask, port.LMC, port.Netdev = roceCapMask, 0, n.Name
+			ll := linkLocalGID(n.Address)
+			port.GIDs = []GID{
+				{Index: 0, Address: ll, Type: GIDTypeIBRoCEv1, Netdev: n.Name},
+				{Index: 1, Address: ll, Type: GIDTypeRoCEv2, Netdev: n.Name},
+			}
 		case v1alpha1.NICTechnologyEFA:
 			// An EFA port has a link-local GID but no netdev to take it from;
 			// it takes the MAC a netdev at its position would have.
-			port.GID = linkLocalGID(r.node.MAC(pd.function.portPath(p.ID)...))
+			port.GIDs = []GID{{Index: 0, Address: linkLocalGID(r.node.MAC(pd.function.portPath(p.ID)...)), Type: GIDTypeIBRoCEv1}}
 		}
 		out = append(out, port)
 	}

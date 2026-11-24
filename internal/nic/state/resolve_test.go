@@ -124,7 +124,7 @@ func TestResolveGB300(t *testing.T) {
 	require.Equal(t, dev.NodeGUID, dev.SystemImageGUID)
 	require.Equal(t, map[string]string{"fw_ver": "40.47.3576", "hca_type": "MT4131", "board_id": "MT_0000001513", "hw_rev": "0"},
 		dev.Attributes)
-	require.Equal(t, "fe80:0000:0000:0000:"+dev.NodeGUID, dev.Ports[0].GID)
+	require.Equal(t, []GID{{Index: 0, Address: "fe80:0000:0000:0000:" + dev.NodeGUID, Type: GIDTypeIBRoCEv1}}, dev.Ports[0].GIDs)
 	require.Equal(t, int32(4), dev.Ports[0].Planes)
 
 	// systemImageGUID: distinct on the board's second ASIC.
@@ -153,7 +153,7 @@ func TestResolveDeclaredAbsentAndEmptyAttributes(t *testing.T) {
 	require.Equal(t, "0.0.0.0", dev.FirmwareVersion, "verbs report the firmware sysfs leaves empty")
 	require.Equal(t, "0xEFA0", dev.HWRev)
 	require.Empty(t, n.Netdevs)
-	require.True(t, strings.HasPrefix(dev.Ports[0].GID, "fe80:"))
+	require.True(t, strings.HasPrefix(dev.Ports[0].GIDs[0].Address, "fe80:"))
 }
 
 func TestResolveSystemImageGUIDFromNamedDevice(t *testing.T) {
@@ -508,7 +508,7 @@ func TestInfiniBandPortsHaveTheirOwnGUIDs(t *testing.T) {
 	require.Len(t, d.Ports, 2)
 	require.Equal(t, d.NodeGUID, d.Ports[0].GUID)
 	require.NotEqual(t, d.Ports[0].GUID, d.Ports[1].GUID)
-	require.NotEqual(t, d.Ports[0].GID, d.Ports[1].GID)
+	require.NotEqual(t, d.Ports[0].GIDs[0].Address, d.Ports[1].GIDs[0].Address)
 	require.Equal(t, "ibP2p3s0", d.Ports[0].Netdev)
 	require.Equal(t, "ibP2p3s0d1", d.Ports[1].Netdev)
 }
@@ -525,4 +525,86 @@ func TestSlotVPDWithoutProfileVPD(t *testing.T) {
 	i := slices.IndexFunc(in.Topology.NICs, func(s v1alpha1.NICSlot) bool { return s.Slot == "nic1" })
 	in.Topology.NICs[i].VPD = map[string]string{"PN": "OEM-0001"}
 	require.Equal(t, "OEM-0001", functionAt(t, resolve(t, in), "0002:03:00.0").VPD["PN"])
+}
+
+// TestPortOrderDecidesNothing reverses every function's and RDMA device's port
+// list, which are sets, and the order of the slots and of each slot's GPUs:
+// the state stays the same. A port's identifiers and names follow its
+// physical number, its position in the configuration's ports.
+func TestPortOrderDecidesNothing(t *testing.T) {
+	t.Parallel()
+	for _, rack := range []string{"gb300-ethernet", "vr-nvl72", "gb300-nvl72"} {
+		in := input(t, rack, FileNode("node-a"))
+		want := resolve(t, in)
+
+		shuffled := input(t, rack, FileNode("node-a"))
+		for name, p := range shuffled.Profiles {
+			p = p.DeepCopy()
+			for i := range p.Spec.Configurations {
+				c := &p.Spec.Configurations[i]
+				for j := range c.Functions {
+					slices.Reverse(c.Functions[j].Ports)
+				}
+				for j := range c.RDMADevices {
+					slices.Reverse(c.RDMADevices[j].Ports)
+				}
+			}
+			shuffled.Profiles[name] = p
+		}
+		shuffled.Topology = shuffled.Topology.DeepCopy()
+		slices.Reverse(shuffled.Topology.NICs)
+		for i := range shuffled.Topology.NICs {
+			slices.Reverse(shuffled.Topology.NICs[i].GPUs)
+		}
+		require.Equal(t, want, resolve(t, shuffled), rack)
+	}
+}
+
+// TestPortsNumberPhysically gives an RDMA device two ports listed out of
+// physical order: port 1 is still the configuration's first.
+func TestPortsNumberPhysically(t *testing.T) {
+	t.Parallel()
+	in := input(t, "gb300-nvl72", FileNode("node-a"))
+	p := in.Profiles["cx8-c8280z"].DeepCopy()
+	c := &p.Spec.Configurations[0]
+	second := c.Ports[0]
+	second.ID = "p1"
+	c.Ports = append(c.Ports, second)
+	c.Functions[0].Ports = []string{"p1", "p0"}
+	c.RDMADevices[0].Ports = []string{"p1", "p0"}
+	in.Profiles["cx8-c8280z"] = p
+	d := deviceOn(t, resolve(t, in), "0002:03:00.0")
+	require.Equal(t, "p0", d.Ports[0].ID)
+	require.Equal(t, 1, d.Ports[0].Number)
+	require.Equal(t, d.NodeGUID, d.Ports[0].GUID)
+}
+
+// TestBlueFieldVUStartsWithItsSerial checks a VPD identity that reuses
+// another's value: on a BlueField-3 the VU is the generated SN followed by
+// the function's suffix.
+func TestBlueFieldVUStartsWithItsSerial(t *testing.T) {
+	t.Parallel()
+	n := resolve(t, input(t, "gb300-nvl72", FileNode("node-a")))
+	for _, addr := range []string{"0016:01:00.0", "0016:01:00.1"} {
+		f := functionAt(t, n, addr)
+		require.NotEmpty(t, f.VPD["SN"], addr)
+		require.Equal(t, f.VPD["SN"]+"MLNXS0D0F"+addr[len(addr)-1:], f.VPD["VU"], addr)
+	}
+	require.NotEqual(t, functionAt(t, n, "0016:01:00.0").VPD["SN"], functionAt(t, n, "0000:03:00.0").VPD["SN"])
+}
+
+// TestRoCEPortsHaveTwoGIDs checks GIDs 0 and 1 of a RoCE port: the same
+// link-local address from the netdev's MAC, as RoCE v1 and RoCE v2, both tied
+// to the netdev.
+func TestRoCEPortsHaveTwoGIDs(t *testing.T) {
+	t.Parallel()
+	n := resolve(t, input(t, "gb300-nvl72", FileNode("node-a")))
+	port := deviceOn(t, n, "0016:01:00.0").Ports[0]
+	i := slices.IndexFunc(n.Netdevs, func(nd Netdev) bool { return nd.Name == port.Netdev })
+	require.GreaterOrEqual(t, i, 0)
+	ll := linkLocalGID(n.Netdevs[i].Address)
+	require.Equal(t, []GID{
+		{Index: 0, Address: ll, Type: GIDTypeIBRoCEv1, Netdev: port.Netdev},
+		{Index: 1, Address: ll, Type: GIDTypeRoCEv2, Netdev: port.Netdev},
+	}, port.GIDs)
 }
