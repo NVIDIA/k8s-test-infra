@@ -32,9 +32,9 @@ type NICs struct {
 	Functions []Function
 	// Devices are the RDMA devices, by the address of their function.
 	Devices []RDMADevice
-	// Netdevs are the Ethernet netdevs the driver creates, by function
-	// address and port. IPoIB netdevs follow from RDMA.IPoIB and the
-	// InfiniBand ports.
+	// Netdevs are the netdevs the drivers create, by function address and
+	// port: an Ethernet netdev per RoCE port, and an IPoIB netdev per
+	// InfiniBand port when RDMA.IPoIB is set.
 	Netdevs []Netdev
 }
 
@@ -194,25 +194,38 @@ type Port struct {
 	Planes     int32
 	CapMask    string
 	LMC        int32
+	// GUID is an InfiniBand port's GUID: the node GUID on the first port,
+	// one of its own on each other. Empty for other technologies.
+	GUID string
 	// GID is GID 0.
 	GID string
-	// Netdev is the name of the port's Ethernet netdev; empty for a port
-	// without one.
+	// Netdev is the name of the port's netdev: Ethernet for RoCE, IPoIB for
+	// InfiniBand when it loads; empty for a port without one.
 	Netdev string
 }
 
-// Netdev is one Ethernet netdev of a NIC function.
+// Link layers of a netdev.
+const (
+	LinkLayerEthernet   = "Ethernet"
+	LinkLayerInfiniBand = "InfiniBand"
+)
+
+// Netdev is one netdev of a NIC function.
 type Netdev struct {
 	Name string
 	// Function is the address of the function the netdev is on.
 	Function string
 	Slot     string
 	// Port is the configuration's port ID, and PhysPortName the name the
-	// driver gives it, such as p0.
+	// driver gives it, such as p0; IPoIB netdevs have none.
 	Port         string
 	PhysPortName string
-	MAC          string
-	SwitchID     string
-	Width        int32
-	LaneSpeed    v1alpha1.LaneSpeed
+	// LinkLayer is Ethernet or InfiniBand (IPoIB).
+	LinkLayer string
+	// Address is the hardware address: a MAC on Ethernet, 20 bytes ending
+	// in the port's GID on IPoIB.
+	Address   string
+	SwitchID  string
+	Width     int32
+	LaneSpeed v1alpha1.LaneSpeed
 }
