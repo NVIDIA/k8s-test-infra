@@ -69,7 +69,7 @@ func ValidateNode(topology *v1alpha1.SGPUTopology, overrides []v1alpha1.NICOverr
 	slots, err := Select(topology.NICs, overrides)
 	var pr problems
 	pr.add(err)
-	book := addressBook{owners: map[string]string{}, pr: &pr}
+	book := newAddressBook(&pr)
 	gpus := validateGPUSlots(&pr, topology.GPUSlots, book)
 
 	names := map[string]bool{}
@@ -102,16 +102,33 @@ func ValidateRDMA(rdma *v1alpha1.RDMASoftware) error {
 	return nil
 }
 
-// addressBook makes sure no two things on a Node claim one PCI address.
+// addressBook makes sure no two things on a Node claim one PCI address. A
+// root port may sit above several devices, so it is shared, but nothing else
+// may take its address.
 type addressBook struct {
-	owners map[string]string
-	pr     *problems
+	owners    map[string]string
+	rootPorts map[string]string
+	pr        *problems
+}
+
+func newAddressBook(pr *problems) addressBook {
+	return addressBook{owners: map[string]string{}, rootPorts: map[string]string{}, pr: pr}
 }
 
 func (a addressBook) claim(addr, owner string) {
 	prev, taken := a.owners[addr]
 	a.pr.check(!taken, "PCI address %s is used by %s and %s", addr, prev, owner)
+	port, isRootPort := a.rootPorts[addr]
+	a.pr.check(!isRootPort, "PCI address %s is a root port of %s and used by %s", addr, port, owner)
 	a.owners[addr] = owner
+}
+
+func (a addressBook) rootPort(addr, owner string) {
+	prev, taken := a.owners[addr]
+	a.pr.check(!taken, "PCI address %s is used by %s and is a root port of %s", addr, prev, owner)
+	if _, seen := a.rootPorts[addr]; !seen {
+		a.rootPorts[addr] = owner
+	}
 }
 
 // validateGPUSlots checks the GPU slots and returns their indexes.
@@ -181,8 +198,10 @@ func validateSlotVPD(pr *problems, where string, s *v1alpha1.NICSlot, v *v1alpha
 	}
 	for _, k := range slices.Sorted(maps.Keys(v.Identities)) {
 		scope := v.Identities[k]
-		pr.check(scope != v1alpha1.VPDScopeBoard || s.Board != nil,
-			"%s: VPD %s is per board, but the slot names no board", where, k)
+		// A board position is a position on a board, so both scopes need one;
+		// without it, two boardless slots would share an identity.
+		pr.check(scope == v1alpha1.VPDScopeASIC || s.Board != nil,
+			"%s: VPD %s is per %s, but the slot names no board", where, k, scope)
 		if scope != v1alpha1.VPDScopeBoardPosition {
 			continue
 		}
@@ -203,6 +222,9 @@ func validatePlacement(pr *problems, where string, d v1alpha1.NICDevicePlacement
 		"%s: rootPort %q is not a PCI address in %s", where, d.RootPort, d.RootComplex)
 	if d.RootPortID != nil {
 		checkPCIID(pr, where+": rootPortID", *d.RootPortID)
+	}
+	if d.RootPort != "" {
+		book.rootPort(d.RootPort, owner)
 	}
 	pr.check(len(d.Bridges) == 0 || p.Spec.SwitchPort != nil,
 		"%s: bridges are declared, but profile %s has no switchPort", where, p.Name)

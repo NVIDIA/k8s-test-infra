@@ -71,6 +71,13 @@ func TestProfileValidate(t *testing.T) {
 		{"unknown function type", func(p *v1alpha1.SNICProfile) { p.Spec.Configurations[0].Functions[0].Type = "vf" }, `unknown type "vf"`},
 		{"rdma on unknown function", func(p *v1alpha1.SNICProfile) { p.Spec.Configurations[0].RDMADevices[0].Function = "pf9" }, "unknown function"},
 		{"rdma without ports", func(p *v1alpha1.SNICProfile) { p.Spec.Configurations[0].RDMADevices[0].Ports = nil }, "has no ports"},
+		{"rdma port of another function", func(p *v1alpha1.SNICProfile) {
+			c := &p.Spec.Configurations[0]
+			c.Ports = append(c.Ports, v1alpha1.NICPort{ID: "p1", Technology: v1alpha1.NICTechnologyRoCE, Width: 1, LaneSpeed: "XDR"})
+			c.Functions = append(c.Functions, v1alpha1.NICFunction{ID: "pf1", Type: "network", PCIDevice: "network", Function: 1, Class: "0x020000", Ports: []string{"p1"}})
+			c.RDMADevices[0].Ports = []string{"p1"}
+		}, "RDMA device r0: port p1 doesn't belong to function pf0"},
+		{"uppercase vendor OUI", func(p *v1alpha1.SNICProfile) { p.Spec.Identity.VendorOUI = "0x02C9" }, "vendorOUI"},
 		{"function type without a driver", func(p *v1alpha1.SNICProfile) {
 			ft := p.Spec.FunctionTypes["network"]
 			ft.Driver = ""
@@ -121,6 +128,23 @@ func TestVFType(t *testing.T) {
 	p.Spec.FunctionTypes["network"] = ft
 	p.Spec.FunctionTypes["vf"] = v1alpha1.NICFunctionType{VendorID: "15b3", DeviceID: "101e", Driver: "mlx5_core"}
 	require.NoError(t, ValidateProfile(p))
+}
+
+// TestSubsystemIDsAreOptionalOnTheirOwn checks that either subsystem ID may be
+// left out, as the API says it is then 0000.
+func TestSubsystemIDsAreOptionalOnTheirOwn(t *testing.T) {
+	t.Parallel()
+	p := validProfile()
+	ft := p.Spec.FunctionTypes["network"]
+	ft.SubsystemVendorID = "15b3"
+	p.Spec.FunctionTypes["network"] = ft
+	require.NoError(t, ValidateProfile(p))
+	ft.SubsystemVendorID, ft.SubsystemDeviceID = "", "0208"
+	p.Spec.FunctionTypes["network"] = ft
+	require.NoError(t, ValidateProfile(p))
+	ft.SubsystemDeviceID = "208"
+	p.Spec.FunctionTypes["network"] = ft
+	require.ErrorContains(t, ValidateProfile(p), `subsystemDeviceID "208"`)
 }
 
 func singleSlot() *v1alpha1.SGPUTopology {
@@ -181,6 +205,9 @@ func TestNodeValidate(t *testing.T) {
 			s.Slot = "nic1"
 			r.NICs = append(r.NICs, s)
 		}, "used by slot nic0 and slot nic1"},
+		{"GPU on a NIC's root port", func(r *v1alpha1.SGPUTopology) {
+			r.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:00:00.0"}}
+		}, "PCI address 0003:00:00.0 is used by GPU 0 and is a root port of slot nic0"},
 		{"NIC on a GPU's address", func(r *v1alpha1.SGPUTopology) {
 			r.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:01:00.0"}}
 		}, "used by GPU 0 and slot nic0"},
@@ -240,6 +267,10 @@ func TestVPDAndPlacementValidate(t *testing.T) {
 		{"board scope without a board", func(_ Profiles, r *v1alpha1.SGPUTopology) {
 			r.NICs[0].Board = nil
 		}, "names no board"},
+		{"board position without a board", func(p Profiles, r *v1alpha1.SGPUTopology) {
+			delete(p["nic"].Spec.VPD.Identities, "SN")
+			r.NICs[0].Board = nil
+		}, "VPD VU is per boardPosition, but the slot names no board"},
 		{"board position without a position", func(_ Profiles, r *v1alpha1.SGPUTopology) {
 			setDevice(r, 0, "network", func(d *v1alpha1.NICDevicePlacement) { d.VPDPosition = "" })
 		}, "has no vpdPosition"},
@@ -258,6 +289,18 @@ func TestVPDAndPlacementValidate(t *testing.T) {
 			require.ErrorContains(t, err, tc.want)
 		})
 	}
+}
+
+// TestRootPortsAreShared checks that devices of several NICs may sit below one
+// root port.
+func TestRootPortsAreShared(t *testing.T) {
+	t.Parallel()
+	topo := singleSlot()
+	s := *topo.NICs[0].DeepCopy()
+	s.Slot = "nic1"
+	topo.NICs = append(topo.NICs, s)
+	setDevice(topo, 1, "network", func(d *v1alpha1.NICDevicePlacement) { d.Address = "0003:02:00" })
+	require.NoError(t, ValidateNode(topo, nil, Profiles{"nic": validProfile()}))
 }
 
 // TestMultiHostPorts checks that one port may belong to one function per PCI

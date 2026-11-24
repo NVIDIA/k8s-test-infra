@@ -30,6 +30,7 @@ const (
 var (
 	hexID       = regexp.MustCompile(`^[0-9a-f]{4}$`)
 	hexValue    = regexp.MustCompile(`^0x[0-9a-fA-F]+$`)
+	lowerHex    = regexp.MustCompile(`^0x[0-9a-f]+$`)
 	classCode   = regexp.MustCompile(`^0x[0-9a-f]{6}$`)
 	revision    = regexp.MustCompile(`^0x[0-9a-f]{2}$`)
 	capMask     = regexp.MustCompile(`^0x[0-9a-f]{8}$`)

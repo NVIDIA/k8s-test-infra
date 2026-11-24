@@ -36,7 +36,7 @@ func validateIdentity(pr *problems, s *v1alpha1.SNICProfileSpec) {
 	id := s.Identity
 	pr.check(id.Model != "", "identity.model is empty")
 	pr.check(optional(id.HWRev, hexValue), "identity.hwRev %q is not 0x and hex digits", id.HWRev)
-	pr.check(optional(id.VendorOUI, hexValue), "identity.vendorOUI %q is not 0x and hex digits", id.VendorOUI)
+	pr.check(optional(id.VendorOUI, lowerHex), "identity.vendorOUI %q is not 0x and lowercase hex digits", id.VendorOUI)
 	if s.SwitchPort != nil {
 		checkPCIID(pr, "switchPort", *s.SwitchPort)
 	}
@@ -57,9 +57,9 @@ func validateFunctionType(pr *problems, name string, types map[string]v1alpha1.N
 	ft := types[name]
 	where := "functionTypes." + name
 	checkPCIID(pr, where, v1alpha1.PCIID{VendorID: ft.VendorID, DeviceID: ft.DeviceID})
-	if ft.SubsystemVendorID != "" || ft.SubsystemDeviceID != "" {
-		checkPCIID(pr, where+" subsystem", v1alpha1.PCIID{VendorID: ft.SubsystemVendorID, DeviceID: ft.SubsystemDeviceID})
-	}
+	// Either subsystem ID may be left out, and is then 0000.
+	pr.check(optional(ft.SubsystemVendorID, hexID), "%s: subsystemVendorID %q is not four lowercase hex digits", where, ft.SubsystemVendorID)
+	pr.check(optional(ft.SubsystemDeviceID, hexID), "%s: subsystemDeviceID %q is not four lowercase hex digits", where, ft.SubsystemDeviceID)
 	pr.check(ft.Driver != "", "%s: driver is empty", where)
 	pr.check(optional(ft.Revision, revision), "%s: revision %q is not 0x and two hex digits", where, ft.Revision)
 	if l := ft.PCIeLink; l != nil {
@@ -118,15 +118,17 @@ func validatePorts(pr *problems, where string, ports []v1alpha1.NICPort) map[str
 	return ids
 }
 
-// validateFunctions checks a configuration's functions and returns their IDs.
+// validateFunctions checks a configuration's functions and returns the ports
+// each owns, by function ID.
 func validateFunctions(pr *problems, where string, functions []v1alpha1.NICFunction, ports map[string]bool,
-	types map[string]v1alpha1.NICFunctionType) map[string]bool {
+	types map[string]v1alpha1.NICFunctionType) map[string][]string {
 	pr.check(len(functions) > 0, "%s: no functions", where)
-	ids := map[string]bool{}
+	ids := map[string][]string{}
 	numbers := map[string]bool{} // PCI device + "." + function number
 	for _, f := range functions {
-		pr.check(f.ID != "" && !ids[f.ID], "%s: function ID %q is empty or used twice", where, f.ID)
-		ids[f.ID] = true
+		_, dup := ids[f.ID]
+		pr.check(f.ID != "" && !dup, "%s: function ID %q is empty or used twice", where, f.ID)
+		ids[f.ID] = f.Ports
 		_, knownType := types[f.Type]
 		pr.check(knownType, "%s: function %s: unknown type %q", where, f.ID, f.Type)
 		pr.check(f.PCIDevice != "", "%s: function %s: pciDevice is empty", where, f.ID)
@@ -162,15 +164,21 @@ func validatePortOwners(pr *problems, where string, c *v1alpha1.NICConfiguration
 	}
 }
 
-func validateRDMADevices(pr *problems, where string, devices []v1alpha1.NICRDMADevice, ports, functions map[string]bool) {
+// validateRDMADevices checks the RDMA devices against the ports each
+// function owns: a device's ports are its function's.
+func validateRDMADevices(pr *problems, where string, devices []v1alpha1.NICRDMADevice, ports map[string]bool,
+	functions map[string][]string) {
 	ids := map[string]bool{}
 	for _, d := range devices {
 		pr.check(d.ID != "" && !ids[d.ID], "%s: RDMA device ID %q is empty or used twice", where, d.ID)
 		ids[d.ID] = true
-		pr.check(functions[d.Function], "%s: RDMA device %s: unknown function %q", where, d.ID, d.Function)
+		owned, known := functions[d.Function]
+		pr.check(known, "%s: RDMA device %s: unknown function %q", where, d.ID, d.Function)
 		pr.check(len(d.Ports) > 0, "%s: RDMA device %s has no ports", where, d.ID)
 		for _, port := range d.Ports {
 			pr.check(ports[port], "%s: RDMA device %s: unknown port %q", where, d.ID, port)
+			pr.check(!known || slices.Contains(owned, port),
+				"%s: RDMA device %s: port %s doesn't belong to function %s", where, d.ID, port, d.Function)
 		}
 	}
 }
