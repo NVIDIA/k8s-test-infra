@@ -121,8 +121,8 @@ type resolver struct {
 type pendingDevice struct {
 	device RDMADevice
 	prefix string
-	// ports are the device's ports in physical order, and physical their
-	// physical numbers.
+	// ports are the device's ports in the order it numbers them, and
+	// physical their physical numbers, which its identifiers follow.
 	ports    []v1alpha1.NICPort
 	physical []int
 	function *placedFunction
@@ -137,8 +137,8 @@ type placedFunction struct {
 	// renaming a function, port or RDMA device in a profile changes none.
 	position []string
 	// physical is each port's physical number, its position in the
-	// configuration's ports, p0 first. A function's and an RDMA device's
-	// port lists are sets, so their order decides nothing.
+	// configuration's ports, p0 first. A function's port list is a set, so
+	// its order decides nothing.
 	physical map[string]int
 	// multifunction is whether its PCI device has more than one function.
 	multifunction bool
@@ -359,15 +359,13 @@ func (r *resolver) addRDMADevice(inst *Instance, p *v1alpha1.SNICProfile, c *v1a
 			dev.Attributes[string(a.name)] = a.value
 		}
 	}
-	// The device numbers its ports in physical order, whatever order the
-	// profile lists them in.
+	// The device numbers its ports in the order the profile lists them, port
+	// 1 first; their identifiers follow their physical numbers.
 	physical := make([]int, 0, len(d.Ports))
-	for _, portID := range d.Ports {
-		physical = append(physical, fn.physical[portID])
-	}
-	slices.Sort(physical)
 	ports := make([]v1alpha1.NICPort, 0, len(d.Ports))
-	for _, k := range physical {
+	for _, portID := range d.Ports {
+		k := fn.physical[portID]
+		physical = append(physical, k)
 		ports = append(ports, c.Ports[k])
 	}
 	if r.rdmaGUIDs == nil {
