@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	chartNICs    = "../../../deployments/nvml-mock/helm/nvml-mock/nics"
+	chartNICs    = "../../../deployments/nvml-mock/helm/nvml-mock/profiles/nics"
 	testNICs     = "../testdata/nicprofiles"
 	rackFixtures = "../testdata/rackprofiles"
 )
