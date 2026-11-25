@@ -39,6 +39,9 @@ var (
 	deviceAddr  = regexp.MustCompile(`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}$`)
 	rootComplex = regexp.MustCompile(`^pci[0-9a-f]{4}:[0-9a-f]{2}$`)
 	umadMode    = regexp.MustCompile(`^[0-7]{3,4}$`)
+	// Kernel names end up in rendered paths, so they can't hold / or .
+	driverName = regexp.MustCompile(`^[a-z0-9_-]+$`)
+	rdmaPrefix = regexp.MustCompile(`^[a-z0-9_]+$`)
 )
 
 // laneGbps is the per-lane rate of each lane speed, as the kernel reports

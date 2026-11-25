@@ -83,7 +83,19 @@ func TestShapesMatchTheCRD(t *testing.T) {
 		"subsystem ID too short": func(p *v1alpha1.SNICProfile) {
 			setType(p, func(f *v1alpha1.NICFunctionType) { f.SubsystemDeviceID = "208" })
 		},
-		"driver empty":       func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.Driver = "" }) },
+		"driver empty": func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.Driver = "" }) },
+		"driver with a path": func(p *v1alpha1.SNICProfile) {
+			setType(p, func(f *v1alpha1.NICFunctionType) { f.Driver = "../../etc" })
+		},
+		"driver uppercase": func(p *v1alpha1.SNICProfile) {
+			setType(p, func(f *v1alpha1.NICFunctionType) { f.Driver = "MLX5_core" })
+		},
+		"RDMA name prefix with a slash": func(p *v1alpha1.SNICProfile) {
+			setType(p, func(f *v1alpha1.NICFunctionType) { f.RDMANamePrefix = "mlx5/" })
+		},
+		"RDMA name prefix with a dot": func(p *v1alpha1.SNICProfile) {
+			setType(p, func(f *v1alpha1.NICFunctionType) { f.RDMANamePrefix = ".." })
+		},
 		"revision one digit": func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.Revision = "0x0" }) },
 		"RDMA attribute unknown": func(p *v1alpha1.SNICProfile) {
 			setType(p, func(f *v1alpha1.NICFunctionType) { f.RDMAOmit = []v1alpha1.RDMAAttribute{"node_guid"} })

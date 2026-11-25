@@ -94,7 +94,7 @@ func TestProfileValidate(t *testing.T) {
 			ft := p.Spec.FunctionTypes["network"]
 			ft.Driver = ""
 			p.Spec.FunctionTypes["network"] = ft
-		}, "driver is empty"},
+		}, `driver "" is not a kernel driver name`},
 		{"uppercase PCI ID", func(p *v1alpha1.SNICProfile) {
 			ft := p.Spec.FunctionTypes["network"]
 			ft.DeviceID = "A2DC"

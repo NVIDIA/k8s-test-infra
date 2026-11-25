@@ -189,11 +189,17 @@ type NICFunctionType struct {
 	SubsystemDeviceID string `json:"subsystemDeviceID,omitempty"`
 
 	// +kubebuilder:validation:MinLength=1
-	// Driver is the bound kernel driver, such as mlx5_core.
+	// +kubebuilder:validation:Pattern=`^[a-z0-9_-]+$`
+	// Driver is the bound kernel driver, such as mlx5_core: lowercase
+	// letters, digits, _ and -. It names a path the node agent renders, so it
+	// can't hold a slash or a dot.
 	Driver string `json:"driver"`
 
 	// +optional
-	// RDMANamePrefix is the kernel's RDMA device name prefix, such as mlx5_.
+	// +kubebuilder:validation:Pattern=`^[a-z0-9_]+$`
+	// RDMANamePrefix is the kernel's RDMA device name prefix, such as mlx5_:
+	// lowercase letters, digits and _. RDMA device names, and the paths the
+	// node agent renders for them, start with it.
 	RDMANamePrefix string `json:"rdmaNamePrefix,omitempty"`
 
 	// +optional

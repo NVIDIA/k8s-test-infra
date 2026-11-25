@@ -256,8 +256,12 @@ spec:
                       pattern: ^[0-9a-f]{4}$
                       type: string
                     driver:
-                      description: Driver is the bound kernel driver, such as mlx5_core.
+                      description: |-
+                        Driver is the bound kernel driver, such as mlx5_core: lowercase
+                        letters, digits, _ and -. It names a path the node agent renders, so it
+                        can't hold a slash or a dot.
                       minLength: 1
+                      pattern: ^[a-z0-9_-]+$
                       type: string
                     pcieLink:
                       description: |-
@@ -301,8 +305,11 @@ spec:
                       type: array
                       x-kubernetes-list-type: set
                     rdmaNamePrefix:
-                      description: RDMANamePrefix is the kernel's RDMA device name
-                        prefix, such as mlx5_.
+                      description: |-
+                        RDMANamePrefix is the kernel's RDMA device name prefix, such as mlx5_:
+                        lowercase letters, digits and _. RDMA device names, and the paths the
+                        node agent renders for them, start with it.
+                      pattern: ^[a-z0-9_]+$
                       type: string
                     rdmaNodeType:
                       description: 'RDMANodeType is the node_type the driver reports;

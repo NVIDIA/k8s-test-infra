@@ -65,7 +65,8 @@ func validateFunctionType(pr *problems, name string, types map[string]v1alpha1.N
 	// Either subsystem ID may be left out, and is then 0000.
 	pr.check(optional(ft.SubsystemVendorID, hexID), "%s: subsystemVendorID %q is not four lowercase hex digits", where, ft.SubsystemVendorID)
 	pr.check(optional(ft.SubsystemDeviceID, hexID), "%s: subsystemDeviceID %q is not four lowercase hex digits", where, ft.SubsystemDeviceID)
-	pr.check(ft.Driver != "", "%s: driver is empty", where)
+	pr.check(driverName.MatchString(ft.Driver), "%s: driver %q is not a kernel driver name: lowercase letters, digits, _ and -", where, ft.Driver)
+	pr.check(optional(ft.RDMANamePrefix, rdmaPrefix), "%s: rdmaNamePrefix %q is not lowercase letters, digits and _", where, ft.RDMANamePrefix)
 	pr.check(optional(ft.Revision, revision), "%s: revision %q is not 0x and two hex digits", where, ft.Revision)
 	if l := ft.PCIeLink; l != nil {
 		pr.check(l.Speed != "" && l.Width >= 0 && l.MaxWidth >= 0,
