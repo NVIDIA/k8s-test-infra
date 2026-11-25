@@ -70,9 +70,9 @@
 
   <rect class="ms" x="350" y="270" width="300" height="186" rx="8"/>
   <text class="title" x="366" y="296">M3 · DCGM metrics</text>
-  <circle class="dp" cx="372" cy="318" r="4"/><text class="item" x="384" y="322">DCGM metrics on every replica</text>
+  <circle class="dp" cx="372" cy="318" r="4"/><text class="item" x="384" y="322">DCGM metrics and exporter Service</text>
   <circle class="dp" cx="372" cy="337" r="4"/><text class="item" x="384" y="341">workload telemetry from Pods</text>
-  <circle class="doc" cx="372" cy="356" r="4"/><text class="item" x="384" y="360">PodMonitor</text>
+  <circle class="doc" cx="372" cy="356" r="4"/><text class="item" x="384" y="360">ServiceMonitor</text>
   <circle class="doc" cx="372" cy="375" r="4"/><text class="item" x="384" y="379">FGO migration guide</text>
   <line class="rule" x1="366" y1="393" x2="634" y2="393"/>
   <text class="done" x="366" y="411"><tspan class="strong">Done when</tspan> Run:ai's harness runs</text>

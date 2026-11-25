@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 520" width="1000" height="520" role="img" aria-labelledby="title desc">
   <title id="title">KWOK data plane</title>
-  <desc id="desc">One replica of the KWOK data plane, mokka-kwok-data-plane-2, watches the SGPURacks labeled with it and gets their state from the control plane. It renews its shard Lease every 10 seconds. It writes the GPUs of the KWOK Nodes of its racks, as nvidia.com/gpu or, in DRA mode, as a ResourceSlice per Node, and their GFD and NFD labels; a second ResourceSlice per Node with its ComputeDomain channel; the GPU allocation on Pods on those Nodes; and their NodeResourceTopology. Prometheus scrapes each replica's DCGM metrics on port 9400 through an optional PodMonitor, with no Service in front of them.</desc>
+  <desc id="desc">One replica of the KWOK data plane, mokka-kwok-data-plane-2, watches the SGPURacks labeled with it and gets their state from the control plane. It renews its shard Lease every 10 seconds. It writes the GPUs of the KWOK Nodes of its racks, as nvidia.com/gpu or, in DRA mode, as a ResourceSlice per Node, and their GFD and NFD labels; a second ResourceSlice per Node with its ComputeDomain channel; the GPU allocation on Pods on those Nodes; and their NodeResourceTopology. The mokka-kwok-dcgm-exporter Service on port 9400 fronts the replicas' DCGM metrics. The Run:ai cluster operator health-checks them through it, and the Service routes each request to one replica. Prometheus finds every replica through the Service's endpoints with an optional ServiceMonitor and scrapes each one.</desc>
   <style>
     .panel { fill: #ffffff; stroke: #d1d9e0; }
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
@@ -102,12 +102,30 @@
   <text class="title" x="818" y="335" text-anchor="middle">NodeResourceTopology</text>
   <text class="body" x="818" y="354" text-anchor="middle">availability, kept current</text>
 
-  <!-- Who reads the DCGM metrics: Prometheus, from every replica, with no Service in between -->
-  <rect class="box b-ext dashed" x="330" y="432" width="240" height="64" rx="8"/>
-  <text class="title" x="450" y="459" text-anchor="middle">Prometheus</text>
-  <text class="body" x="450" y="478" text-anchor="middle">optional PodMonitor, no Service</text>
+  <!-- Who reads the DCGM metrics: the Run:ai cluster operator through the Service, which routes to one replica,
+       and Prometheus, which finds every replica through the Service's endpoints and scrapes each one -->
+  <rect class="box b-ext dashed" x="24" y="432" width="210" height="64" rx="8"/>
+  <text class="title" x="129" y="459" text-anchor="middle">Run:ai cluster operator</text>
+  <text class="body" x="129" y="478" text-anchor="middle">health-checks three fields</text>
+
+  <rect class="box b-obj" x="330" y="432" width="240" height="64" rx="8"/>
+  <text class="title" x="450" y="459" text-anchor="middle">mokka-kwok-dcgm-exporter</text>
+  <text class="body" x="450" y="478" text-anchor="middle">Service, port 9400</text>
+
+  <rect class="box b-ext dashed" x="660" y="432" width="240" height="64" rx="8"/>
+  <text class="title" x="780" y="459" text-anchor="middle">Prometheus</text>
+  <text class="body" x="780" y="478" text-anchor="middle">optional ServiceMonitor</text>
+
+  <path class="wire w-ext" d="M234,464 H329" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="282" y="456" text-anchor="middle">/metrics</text>
+
+  <path class="wire w-ext" d="M659,464 H571" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="615" y="456" text-anchor="middle">endpoints</text>
 
   <path class="wire w-ext" d="M450,432 V253" marker-end="url(#arrow-ext)"/>
-  <text class="label" x="458" y="344">scrapes each replica</text>
-  <text class="label" x="458" y="359">on port 9400</text>
+  <text class="label" x="442" y="344" text-anchor="end">routes to</text>
+  <text class="label" x="442" y="359" text-anchor="end">one replica</text>
+
+  <path class="wire w-ext" d="M780,432 V408 H540 V253" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="660" y="400" text-anchor="middle">scrapes each replica</text>
 </svg>

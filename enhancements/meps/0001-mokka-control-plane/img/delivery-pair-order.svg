@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" width="1000" height="300" role="img" aria-labelledby="title desc">
+  <title id="title">Delivery pair order</title>
+  <desc id="desc">How delivery pairs order the views served to Node worker-06. A pair is the assignment revision and the rack delivery generation, compared by revision first and then by generation. The leader assigns worker-06 to rack A at revision 7 with floor 12, which gives (7, 12). After a policy change it advances rack A to generation 13, which gives (7, 13). It then moves worker-06 to rack B at revision 8, with rack B at generation 4, which gives (8, 4): newer than (7, 13) despite the lower generation. Releasing the Node publishes a tombstone at revision 9, which gives (9, 0). The node daemon has applied (8, 4) and takes only that pair or a newer one. A lagging replica that missed the move still has the view at (7, 13), which is older, so it returns retry.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .title { font-size: 14px; font-weight: 600; }
+    .event, .ptext { font-size: 13px; font-weight: 600; }
+    .body { font-size: 12.5px; fill: #59636e; }
+    .label { font-size: 12px; fill: #59636e; }
+    .box, .pill { fill: #ffffff; stroke-width: 1.5; }
+    .wire { fill: none; stroke-width: 1.5; }
+    .b-cp, .w-cp { stroke: #8250df; }
+    .b-dp, .w-dp { stroke: #1a7f37; }
+    .b-obj, .w-ext { stroke: #59636e; }
+    .h-cp { fill: #8250df; }
+    .h-dp { fill: #1a7f37; }
+    .h-ext { fill: #59636e; }
+    .f-dp { fill: #1a7f37; fill-opacity: 0.1; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .body, .label { fill: #9198a1; }
+      .box, .pill { fill: #0d1117; }
+      .b-cp, .w-cp { stroke: #ab7df8; }
+      .b-dp, .w-dp { stroke: #3fb950; }
+      .b-obj, .w-ext { stroke: #9198a1; }
+      .h-cp { fill: #ab7df8; }
+      .h-dp { fill: #3fb950; }
+      .h-ext { fill: #9198a1; }
+      .f-dp { fill: #3fb950; fill-opacity: 0.16; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow-cp" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-cp" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-dp" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-dp" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-ext" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-ext" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="299" rx="12"/>
+
+  <!-- Lane headers -->
+  <text class="title" x="24" y="50">Leader</text>
+  <text class="body" x="24" y="70">for worker-06</text>
+  <text class="title" x="24" y="138">Pairs</text>
+  <text class="body" x="24" y="158">revision first,</text>
+  <text class="body" x="24" y="176">then generation</text>
+
+  <!-- What the leader publishes, oldest first -->
+  <text class="event" x="240" y="46" text-anchor="middle">assigns rack A</text>
+  <text class="body" x="240" y="64" text-anchor="middle">revision 7, floor 12</text>
+  <path class="wire w-cp" d="M240,74 V125" marker-end="url(#arrow-cp)"/>
+
+  <text class="event" x="450" y="46" text-anchor="middle">advances rack A</text>
+  <text class="body" x="450" y="64" text-anchor="middle">to 13 on a policy change</text>
+  <path class="wire w-cp" d="M450,74 V125" marker-end="url(#arrow-cp)"/>
+
+  <text class="event" x="660" y="46" text-anchor="middle">moves to rack B</text>
+  <text class="body" x="660" y="64" text-anchor="middle">revision 8, floor 4</text>
+  <path class="wire w-cp" d="M660,74 V125" marker-end="url(#arrow-cp)"/>
+
+  <text class="event" x="870" y="46" text-anchor="middle">releases the Node</text>
+  <text class="body" x="870" y="64" text-anchor="middle">tombstone at revision 9</text>
+  <path class="wire w-cp" d="M870,74 V125" marker-end="url(#arrow-cp)"/>
+
+  <!-- The pairs in order; the axis runs behind them -->
+  <path class="wire w-ext axis" d="M136,142 H961" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="962" y="128" text-anchor="end">newer</text>
+
+  <rect class="pill b-obj" x="198" y="126" width="84" height="32" rx="16"/>
+  <text class="ptext" x="240" y="147" text-anchor="middle">(7, 12)</text>
+  <rect class="pill b-obj" x="408" y="126" width="84" height="32" rx="16"/>
+  <text class="ptext" x="450" y="147" text-anchor="middle">(7, 13)</text>
+  <rect class="pill b-dp" x="618" y="126" width="84" height="32" rx="16"/>
+  <rect class="f-dp" x="618" y="126" width="84" height="32" rx="16"/>
+  <text class="ptext" x="660" y="147" text-anchor="middle">(8, 4)</text>
+  <rect class="pill b-obj" x="828" y="126" width="84" height="32" rx="16"/>
+  <text class="ptext" x="870" y="147" text-anchor="middle">(9, 0)</text>
+
+  <!-- Who holds which pair after the move -->
+  <rect class="box b-cp" x="268" y="208" width="300" height="76" rx="8"/>
+  <text class="title" x="284" y="232">Lagging replica</text>
+  <text class="body" x="284" y="252">missed the move: its view is at (7, 13),</text>
+  <text class="body" x="284" y="270">older than (8, 4), so it returns retry</text>
+  <path class="wire w-cp" d="M450,208 V159" marker-end="url(#arrow-cp)"/>
+  <text class="label" x="458" y="190">would serve</text>
+
+  <rect class="box b-dp" x="600" y="208" width="296" height="76" rx="8"/>
+  <text class="title" x="616" y="232">Node daemon</text>
+  <text class="body" x="616" y="252">has applied (8, 4) and takes only</text>
+  <text class="body" x="616" y="270">that pair or a newer one</text>
+  <path class="wire w-dp" d="M660,208 V159" marker-end="url(#arrow-dp)"/>
+  <text class="label" x="668" y="190">applied</text>
+</svg>

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 588" width="1000" height="588" role="img" aria-labelledby="title desc">
   <title id="title">KWOK integration</title>
-  <desc id="desc">The parts of KWOK integration and what each writes. Node sources create KWOK Nodes: external ones, such as kwokctl, a CI harness or an autoscaler's KWOK provider, or the new, optional KWOK provisioner for rack groups with node.source: Mokka. Users and tests write SGPUInventories with KWOK rack groups, runtime policies and GPU Pods. The KWOK controller fakes Node and Pod status and runs Mokka's Pod stages. The Mokka control plane binds KWOK Nodes to rack slots, labels each rack with the data plane shard that serves it, and serves the racks' state in batches to the new KWOK data plane. The data plane, a StatefulSet with one shard per replica, watches its racks and their Pods, stands in for each Node's daemons, and writes the GPUs, labels, allocations, NodeResourceTopologies, ComputeDomain cliques and its shard Leases. Unchanged, kube-scheduler and KAI bind Pods, and NVIDIA's ComputeDomain controller marks ComputeDomains Ready. Prometheus scrapes every replica's DCGM metrics through an optional PodMonitor, with no Service in front of them.</desc>
+  <desc id="desc">The parts of KWOK integration and what each writes. Node sources create KWOK Nodes: external ones, such as kwokctl, a CI harness or an autoscaler's KWOK provider, or the new, optional KWOK provisioner for rack groups with node.source: Mokka. Users and tests write SGPUInventories with KWOK rack groups, runtime policies and GPU Pods. The KWOK controller fakes Node and Pod status and runs Mokka's Pod stages. The Mokka control plane binds KWOK Nodes to rack slots, labels each rack with the data plane shard that serves it, and serves the racks' state in batches to the new KWOK data plane. The data plane, a StatefulSet with one shard per replica, watches its racks and their Pods, stands in for each Node's daemons, and writes the GPUs, labels, allocations, NodeResourceTopologies, ComputeDomain cliques and its shard Leases. Unchanged, kube-scheduler and KAI bind Pods, and NVIDIA's ComputeDomain controller marks ComputeDomains Ready. Prometheus scrapes every replica's DCGM metrics through an optional ServiceMonitor, and the Run:ai cluster operator health-checks them through the mokka-kwok-dcgm-exporter Service, which reaches one replica.</desc>
   <style>
     .panel { fill: #ffffff; stroke: #d1d9e0; }
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
@@ -96,10 +96,14 @@
   <text class="body" x="716" y="334">NVIDIA's ComputeDomain controller</text>
   <text class="body" x="716" y="352">marks ComputeDomains Ready</text>
 
-  <!-- DCGM metrics, read from the data plane directly -->
+  <!-- DCGM metrics: Prometheus scrapes every replica, and the Run:ai cluster operator health-checks one through the Service -->
   <rect class="box b-ext dashed" x="268" y="456" width="200" height="64" rx="8"/>
   <text class="title" x="284" y="482">Prometheus</text>
-  <text class="body" x="284" y="502">optional PodMonitor</text>
+  <text class="body" x="284" y="502">optional ServiceMonitor</text>
+
+  <rect class="box b-ext dashed" x="492" y="456" width="264" height="64" rx="8"/>
+  <text class="title" x="508" y="482">Run:ai cluster operator</text>
+  <text class="body" x="508" y="502">mokka-kwok-dcgm-exporter Service</text>
 
   <!-- Arrows point from who acts to what it acts on, drawn last so no box covers their heads -->
   <path class="wire w-src" d="M134,112 V128 H378 V112"/>
@@ -133,6 +137,9 @@
 
   <path class="wire w-ext" d="M400,456 V401" marker-end="url(#arrow-ext)"/>
   <text class="label" x="408" y="434">scrapes every replica</text>
+
+  <path class="wire w-ext" d="M560,456 V401" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="568" y="434">health-checks one replica</text>
 
   <!-- Legend -->
   <rect class="box b-ext" x="24" y="550" width="28" height="16" rx="4"/>
