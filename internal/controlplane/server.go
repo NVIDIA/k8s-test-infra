@@ -33,6 +33,15 @@ func NewServer(cfg Config, logger *zap.Logger) *Server {
 
 // NewServerWithReadiness gates /readyz on controller service readiness.
 func NewServerWithReadiness(cfg Config, logger *zap.Logger, ready func() bool) *Server {
+	return newServer(cfg, logger, ready, nil)
+}
+
+// NewServingServer connects the HTTP service to the process-lifetime caches.
+func NewServingServer(cfg Config, logger *zap.Logger, manager *Manager) *Server {
+	return newServer(cfg, logger, manager.Ready, manager.reconciler.ReadRacks)
+}
+
+func newServer(cfg Config, logger *zap.Logger, ready func() bool, read rackBatchReader) *Server {
 	if ready == nil {
 		ready = func() bool { return false }
 	}
@@ -48,6 +57,8 @@ func NewServerWithReadiness(cfg Config, logger *zap.Logger, ready func() bool) *
 		return health.Unhealthy("controller is not ready")
 	}))
 
+	router.With(middleware.Compress(1, "application/json")).Post(rackBatchPath, batchHandler(ready, read, maxConcurrentRackBatches))
+
 	return &Server{
 		cfg:    cfg,
 		logger: logger,
@@ -55,6 +66,8 @@ func NewServerWithReadiness(cfg Config, logger *zap.Logger, ready func() bool) *
 			Addr:              cfg.Server.ListenAddr,
 			Handler:           router,
 			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       15 * time.Second,
+			WriteTimeout:      2 * time.Minute,
 		},
 	}
 }

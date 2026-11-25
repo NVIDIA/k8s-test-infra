@@ -1,0 +1,58 @@
+{
+  "rack": {
+    "name": "demo-train-0-846e9e049515",
+    "uid": "rack-id"
+  },
+  "rackDeliveryGeneration": 13,
+  "software": {
+    "driverVersion": "580.65.06",
+    "nvmlVersion": "13.580.65",
+    "cudaVersion": "13.0"
+  },
+  "gpuModel": {
+    "vendor": "NVIDIA",
+    "product": "T4",
+    "productName": "NVIDIA T4",
+    "architecture": "turing",
+    "computeCapability": "7.5",
+    "memory": "16Gi",
+    "pci": {
+      "vendorID": "10de",
+      "deviceID": "1eb8"
+    }
+  },
+  "nodes": [
+    {
+      "index": 0,
+      "node": {
+        "name": "worker-a",
+        "uid": "node-a"
+      },
+      "assignmentRevision": 7,
+      "gpus": [
+        {
+          "index": 0,
+          "uuid": "GPU-86f51e56-a1c5-5d20-b835-1efa9508e5f9",
+          "serial": "05469910365986380035",
+          "minorNumber": 0,
+          "pciAddress": "0000:01:00.0",
+          "rootComplex": "pci0000:00",
+          "numaNode": 0,
+          "hostProcessorIndex": 0,
+          "runtime": {}
+        },
+        {
+          "index": 1,
+          "uuid": "GPU-682a7ff6-89a5-5e33-af51-9705f3eeb08b",
+          "serial": "01205136473943465433",
+          "minorNumber": 1,
+          "pciAddress": "0001:41:00.0",
+          "rootComplex": "pci0001:40",
+          "numaNode": 1,
+          "hostProcessorIndex": 1,
+          "runtime": {}
+        }
+      ]
+    }
+  ]
+}

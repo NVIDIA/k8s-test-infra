@@ -4,6 +4,7 @@
 package inventory
 
 import (
+	"context"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -28,6 +29,7 @@ type listerCache struct {
 func (c *listerCache) AllocationNodeGeneration() uint64 { return 0 }
 
 type nodeLister interface {
+	Get(string) (*corev1.Node, error)
 	List(selector labels.Selector) ([]*corev1.Node, error)
 }
 
@@ -131,4 +133,8 @@ func (c *listerCache) AllocationNodes() ([]allocate.KubernetesNode, error) {
 
 func newNodeLister(indexer cache.Indexer) nodeLister {
 	return listers.New[*corev1.Node](indexer, corev1.Resource("nodes"))
+}
+
+func (c *listerCache) Node(_ context.Context, name string) (*corev1.Node, error) {
+	return c.nodes.Get(name)
 }

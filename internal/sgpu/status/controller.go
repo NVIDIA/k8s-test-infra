@@ -29,6 +29,7 @@ import (
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	sgpuprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackstate"
 )
 
 //nolint:revive // These reasons form one closed status-condition vocabulary.
@@ -66,6 +67,8 @@ type InventoryInput struct {
 
 // RackInput is the cached data needed to describe one rack.
 type RackInput struct {
+	// Delivery is nil until the profile and inventory match the rendered rack.
+	Delivery   *mokkav1alpha1.RackDelivery
 	Rack       *mokkav1alpha1.SGPURack
 	Racks      []*mokkav1alpha1.SGPURack
 	Nodes      []*corev1.Node
@@ -172,6 +175,11 @@ func (r *Reconciler) ReconcileRack(ctx context.Context, input RackInput) (bool, 
 			r.clearPendingRackStatus(input.Rack.Name, input.Rack.UID)
 			return nil
 		}
+		if deliverySnapshotStale(input, latest) {
+			// A new rack event will supply fresh inputs. Retrying this old snapshot
+			// against a newer resourceVersion could publish an obsolete manifest.
+			return fmt.Errorf("rack %q delivery advanced past the cached inputs", latest.Name)
+		}
 		current := input
 		current.Rack = input.Rack.DeepCopy()
 		current.Rack.Status = latest.Status
@@ -202,6 +210,47 @@ func (r *Reconciler) ReconcileRack(ctx context.Context, input RackInput) (bool, 
 		return changed, fmt.Errorf("update rack %q status: %w", input.Rack.Name, err)
 	}
 	return changed, nil
+}
+
+func deliverySnapshotStale(input RackInput, live *mokkav1alpha1.SGPURack) bool {
+	if live.Generation != input.Rack.Generation {
+		return true
+	}
+	if input.Delivery == nil || !rackstate.InputsChanged(live.Status.Delivery, input.Delivery) {
+		return false
+	}
+	return deliveryGeneration(live.Status.Delivery) != deliveryGeneration(input.Rack.Status.Delivery) ||
+		rackstate.InputsRegressed(live.Status.Delivery, input.Delivery)
+}
+
+func deliveryGeneration(saved *mokkav1alpha1.RackDelivery) int64 {
+	if saved == nil {
+		return 0
+	}
+	return saved.Generation
+}
+
+func nextDelivery(rack *mokkav1alpha1.SGPURack, observed *mokkav1alpha1.RackDelivery) *mokkav1alpha1.RackDelivery {
+	saved := rack.Status.Delivery
+	if observed == nil || !rackstate.InputsChanged(saved, observed) {
+		return saved.DeepCopy()
+	}
+	next := observed.DeepCopy()
+	next.Generation = deliveryGeneration(saved) + 1
+	// Preserve releases across independent profile and policy deliveries.
+	// A cleared slot or a later assignment ends that release.
+	if saved != nil && len(saved.ReleaseRevisions) > 0 {
+		next.ReleaseRevisions = make(map[types.UID]int64)
+		for _, slot := range rack.Spec.Nodes {
+			if ref := slot.NodeRef; ref != nil && saved.ReleaseRevisions[ref.UID] > ref.AssignmentRevision {
+				next.ReleaseRevisions[ref.UID] = saved.ReleaseRevisions[ref.UID]
+			}
+		}
+		if len(next.ReleaseRevisions) == 0 {
+			next.ReleaseRevisions = nil
+		}
+	}
+	return next
 }
 
 func (r *Reconciler) cachedRackStatusConverged(
@@ -427,7 +476,7 @@ func ComputeRack(input RackInput, now metav1.Time) mokkav1alpha1.SGPURackStatus 
 		return mokkav1alpha1.SGPURackStatus{}
 	}
 	rack := input.Rack
-	result := mokkav1alpha1.SGPURackStatus{ObservedGeneration: rack.Generation}
+	result := mokkav1alpha1.SGPURackStatus{ObservedGeneration: rack.Generation, Delivery: nextDelivery(rack, input.Delivery)}
 	liveNodes := make(map[types.UID]*corev1.Node, len(input.Nodes))
 	for _, node := range input.Nodes {
 		if node != nil && node.UID != "" {
@@ -616,11 +665,12 @@ func conflictGroups(conflict allocate.Conflict, inventoryUID types.UID) map[stri
 }
 
 type projectionKey struct {
-	rackName  string
-	rackUID   types.UID
-	nodeIndex int32
-	nodeName  string
-	nodeUID   types.UID
+	assignmentRevision int64
+	rackName           string
+	rackUID            types.UID
+	nodeIndex          int32
+	nodeName           string
+	nodeUID            types.UID
 }
 
 func indexProjection(outcomes []sgpuprojection.Outcome) map[projectionKey]sgpuprojection.Outcome {
@@ -746,13 +796,13 @@ func rackHasMetadataConflict(outcomes map[projectionKey]sgpuprojection.Outcome, 
 func projectionKeyForOutcome(outcome sgpuprojection.Outcome) projectionKey {
 	return projectionKey{
 		rackName: outcome.RackName, rackUID: outcome.RackUID, nodeIndex: outcome.NodeIndex,
-		nodeName: outcome.NodeName, nodeUID: outcome.NodeUID,
+		nodeName: outcome.NodeName, nodeUID: outcome.NodeUID, assignmentRevision: outcome.AssignmentRevision,
 	}
 }
 
 func projectionKeyForBinding(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) projectionKey {
 	return projectionKey{
 		rackName: rack.Name, rackUID: rack.UID, nodeIndex: slot.Index,
-		nodeName: slot.NodeRef.Name, nodeUID: slot.NodeRef.UID,
+		nodeName: slot.NodeRef.Name, nodeUID: slot.NodeRef.UID, assignmentRevision: slot.NodeRef.AssignmentRevision,
 	}
 }

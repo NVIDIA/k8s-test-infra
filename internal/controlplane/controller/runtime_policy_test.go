@@ -188,7 +188,9 @@ func TestRuntimePolicyStatusReconcileContinuesPastAFailedWrite(t *testing.T) {
 	view := testRuntimePolicyView(t, testInventory(), testRuntimeProfile(), broken, healthy)
 	reconciler := sgpustatus.NewRuntimePolicyReconciler(mokka.MokkaV1alpha1().SGPURuntimePolicies(), nil)
 
-	err := reconcileRuntimePolicyStatus(t.Context(), view, reconciler, "inventory")
+	inputs, err := view.evaluate("inventory")
+	require.NoError(t, err)
+	err = reconcileRuntimePolicyStatus(t.Context(), inputs.Evaluation, reconciler)
 
 	require.ErrorContains(t, err, `update runtime policy "broken" status: status write failed`)
 	stored, getErr := mokka.MokkaV1alpha1().SGPURuntimePolicies().Get(t.Context(), healthy.Name, metav1.GetOptions{})

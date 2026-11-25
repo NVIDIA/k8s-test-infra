@@ -24,14 +24,15 @@ func TestEncodeAssignmentPreservesWireFormat(t *testing.T) {
 	decoded, err := DecodeAssignment(encoded)
 	require.NoError(t, err)
 	require.Equal(t, AssignmentVersion, decoded.Version)
+	require.True(t, decoded.Assigned)
 	require.Equal(t, 1, AssignmentVersion)
 }
 
 func TestDecodeAssignmentRejectsUnsupportedVersion(t *testing.T) {
 	t.Parallel()
 
-	_, err := DecodeAssignment(`{"v":2}`)
-	require.EqualError(t, err, "unsupported Node assignment version 2")
+	_, err := DecodeAssignment(`{"v":3}`)
+	require.EqualError(t, err, "unsupported Node assignment version 3")
 }
 
 func TestEncodeAssignmentRequiresExactIdentities(t *testing.T) {
@@ -72,4 +73,29 @@ func testRack() *mokkav1alpha1.SGPURack {
 			}},
 		},
 	}
+}
+
+func TestPublishedAssignmentAndRelease(t *testing.T) {
+	t.Parallel()
+	binding := &PublishedBinding{Rack: ObjectReference{Name: "rack", UID: "rack-id"}, RackGroup: "group", RackDeliveryGenerationFloor: 12}
+	bound, err := EncodePublication("node-id", 7, binding)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"v":2,"nodeUID":"node-id","assignmentRevision":7,"assigned":true,"rack":{"name":"rack","uid":"rack-id"},"rackGroup":"group","rackIndex":0,"nodeIndex":0,"rackDeliveryGenerationFloor":12}`, bound)
+	a, err := DecodeAssignment(bound)
+	require.NoError(t, err)
+	require.True(t, a.Assigned)
+	require.Equal(t, int64(12), a.RackDeliveryGenerationFloor)
+	require.Equal(t, binding.Rack, a.Rack)
+	released, err := EncodePublication("node-id", 8, nil)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"v":2,"nodeUID":"node-id","assignmentRevision":8,"assigned":false}`, released)
+	a, err = DecodeAssignment(released)
+	require.NoError(t, err)
+	require.False(t, a.Assigned)
+	require.Equal(t, int64(8), a.AssignmentRevision)
+	require.Zero(t, a.Rack)
+	_, err = DecodeAssignment(`{"v":2,"assigned":true,"nodeUID":"n","assignmentRevision":1,"rack":{"name":"r","uid":"r"},"rackGroup":"g","rackDeliveryGenerationFloor":1}`)
+	require.Error(t, err)
+	_, err = DecodeAssignment(`{"v":2,"nodeUID":"node-id","assignmentRevision":8}`)
+	require.Error(t, err)
 }

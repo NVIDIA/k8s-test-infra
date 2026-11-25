@@ -19,6 +19,7 @@ import (
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
@@ -530,7 +531,7 @@ func (r *eventRouter) nodeDelete(object any) {
 			if !slot.BoundTo(node.Name, node.UID) {
 				continue
 			}
-			cleanup := cleanupFor(rack, slot, sgpurelease.NodeGone)
+			cleanup := sgpurelease.ForSlot(rack, slot, sgpurelease.NodeGone)
 			r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 			deferred[cleanup.Binding.Coordinate.Group] = struct{}{}
 		}
@@ -608,6 +609,9 @@ func (r *eventRouter) rackUpdate(oldObject, newObject any) {
 		r.observeRackStatus(newRack)
 	}
 	if rackUnchanged(oldRack, newRack) {
+		if sgpuassignment.DeliveryCoversSpec(newRack) && !sgpuassignment.DeliveryCoversSpec(oldRack) {
+			r.routeRackCurrent(newRack, false, nil)
+		}
 		return
 	}
 	if rackCapacityUnchanged(oldRack, newRack) {
@@ -636,7 +640,7 @@ func (r *eventRouter) rackUpdate(oldObject, newObject any) {
 		if slot.NodeRef == nil || newBindings[slot.Index] == slot.NodeRef.UID {
 			continue
 		}
-		cleanup := cleanupFor(oldRack, slot, sgpurelease.CapacityShrink)
+		cleanup := sgpurelease.ForSlot(oldRack, slot, sgpurelease.CapacityShrink)
 		r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 		r.routeReleasedNode(cleanup.Binding.Node)
 	}
@@ -673,7 +677,7 @@ func (r *eventRouter) rackDelete(object any) {
 		if slot.NodeRef == nil {
 			continue
 		}
-		cleanup := cleanupFor(rack, slot, sgpurelease.RackDeleting)
+		cleanup := sgpurelease.ForSlot(rack, slot, sgpurelease.RackDeleting)
 		r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 		r.routeReleasedNode(cleanup.Binding.Node)
 	}
@@ -829,26 +833,6 @@ func (r *eventRouter) boundRacks(name string, uid types.UID) []*mokkav1alpha1.SG
 	return racks
 }
 
-func cleanupFor(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackNode, reason sgpurelease.Reason) sgpurelease.Cleanup {
-	return sgpurelease.Cleanup{
-		RackName: rack.Name,
-		RackUID:  rack.UID,
-		Reason:   reason,
-		Binding: allocate.Binding{
-			Coordinate: allocate.Coordinate{
-				Group: allocate.RackGroupKey{
-					InventoryName: rack.Spec.InventoryRef.Name,
-					InventoryUID:  rack.Spec.InventoryRef.UID,
-					RackGroup:     rack.Spec.Identity.RackGroup,
-				},
-				RackIndex: rack.Spec.Identity.RackIndex,
-				NodeIndex: slot.Index,
-			},
-			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
-		},
-	}
-}
-
 // eventFields identifies a received informer event in log entries.
 func eventFields(kind, event string, object metav1.Object) []zap.Field {
 	return []zap.Field{
@@ -881,7 +865,7 @@ func eventObject[T any](object any) (T, bool) {
 }
 
 func inventoryUnchanged(old, current *mokkav1alpha1.SGPUInventory) bool {
-	return old.UID == current.UID &&
+	return old.UID == current.UID && old.Generation == current.Generation &&
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
 		equality.Semantic.DeepEqual(old.Finalizers, current.Finalizers) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
@@ -894,23 +878,24 @@ func inventoryAllocationUnchanged(old, current *mokkav1alpha1.SGPUInventory) boo
 }
 
 func profileUnchanged(old, current *mokkav1alpha1.SGPURackProfile) bool {
-	return old.UID == current.UID &&
+	return old.UID == current.UID && old.Generation == current.Generation &&
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }
 
-// runtimePolicyUnchanged ignores metadata-only updates. Unlike racks, a
+// Delivery records pin generations, including when a relist skips intermediate
+// spec edits and observes the original value again. Unlike racks, a
 // status-only update still counts: the status reconciler trusts a cached
 // status that already matches its decision, so it must look again once the
 // informer observes a status write it had not seen.
 func runtimePolicyUnchanged(old, current *mokkav1alpha1.SGPURuntimePolicy) bool {
-	return old.UID == current.UID &&
+	return old.UID == current.UID && old.Generation == current.Generation &&
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
 		equality.Semantic.DeepEqual(old.Status, current.Status)
 }
 
 func rackUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
-	return old.UID == current.UID &&
+	return old.UID == current.UID && old.Generation == current.Generation &&
 		old.Labels[sgpuinventory.KWOKShardLabel] == current.Labels[sgpuinventory.KWOKShardLabel] &&
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
 		equality.Semantic.DeepEqual(old.OwnerReferences, current.OwnerReferences) &&

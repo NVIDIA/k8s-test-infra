@@ -16,6 +16,7 @@ import (
 	"strconv"
 
 	"go.uber.org/zap"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,6 +28,8 @@ import (
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
+	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
 	sgpurelease "github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 )
@@ -108,6 +111,10 @@ func (e *OwnershipConflictError) Unwrap() error { return e.Cause }
 // Result contains status inputs and explicit cross-controller cleanup work.
 // Expected configuration problems are data, not retryable errors.
 type Result struct {
+	// AdmittedInventory identifies the exact spec that passed both resolved
+	// capacity validation and cluster-wide admission. Pending and rejected
+	// inventories leave it empty.
+	AdmittedInventory  mokkav1alpha1.DeliveryObjectReference
 	Accepted           bool
 	ResolvedRefs       bool
 	ValidationReason   string
@@ -280,6 +287,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 		}
 		return r.retireCapacityRejectedInventory(ctx, inventory, result, admissionCurrent)
 	case capacityAdmissionAccepted:
+		result.AdmittedInventory = mokkav1alpha1.DeliveryObjectReference{UID: inventory.UID, Generation: inventory.Generation}
 	default:
 		return result, fmt.Errorf("unknown capacity admission decision %d", decision)
 	}
@@ -436,12 +444,18 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 			partition := allocations.racks[allocationRackKey{group: group.key, rackIndex: rackIndex}]
 			result.Work.BindingsApplied += applyBindings(&targetSpec, partition.retained)
 			result.Work.BindingsApplied += applyBindings(&targetSpec, partition.assigned)
+			if err := r.chooseRevisions(ctx, existing, &targetSpec); err != nil {
+				return err
+			}
 			if existing != nil {
-				cleanup := r.preservePendingReleases(
+				cleanup, err := r.preservePendingReleases(
 					existing,
 					&targetSpec,
 					allocations.releases,
 				)
+				if err != nil {
+					return err
+				}
 				result.CleanupNeeded = append(result.CleanupNeeded, cleanup...)
 			}
 			if err := rackrender.ValidateRackSpec(targetSpec); err != nil {
@@ -643,7 +657,7 @@ func (r *Reconciler) preservePendingReleases(
 	existing *mokkav1alpha1.SGPURack,
 	target *mokkav1alpha1.SGPURackSpec,
 	releases map[allocate.Coordinate]allocate.Release,
-) []sgpurelease.Cleanup {
+) ([]sgpurelease.Cleanup, error) {
 	cleanup := make([]sgpurelease.Cleanup, 0)
 	targetSlots := make(map[int32]*mokkav1alpha1.SGPURackNode, len(target.Nodes))
 	for i := range target.Nodes {
@@ -657,7 +671,10 @@ func (r *Reconciler) preservePendingReleases(
 		if !found {
 			continue
 		}
-		needed := sgpurelease.Cleanup{RackName: existing.Name, RackUID: existing.UID, Binding: release.Binding, Reason: sgpurelease.ReasonFor(release.Reason)}
+		if !slot.BoundTo(release.Binding.Node.Name, release.Binding.Node.UID) {
+			return nil, ErrAllocationInputChanged
+		}
+		needed := sgpurelease.ForSlot(existing, slot, sgpurelease.ReasonFor(release.Reason))
 		if r.cleanup != nil && r.cleanup.Ready(needed) {
 			continue
 		}
@@ -669,7 +686,7 @@ func (r *Reconciler) preservePendingReleases(
 		target.Nodes = append(target.Nodes, *slot.DeepCopy())
 	}
 	slices.SortFunc(target.Nodes, func(a, b mokkav1alpha1.SGPURackNode) int { return cmp.Compare(a.Index, b.Index) })
-	return cleanup
+	return cleanup, nil
 }
 
 //nolint:cyclop // Retirement gates deletion on every exact slot cleanup acknowledgement.
@@ -685,14 +702,7 @@ func (r *Reconciler) retireRack(
 		if slot.NodeRef == nil {
 			continue
 		}
-		binding := allocate.Binding{
-			Coordinate: allocate.Coordinate{
-				Group:     allocate.RackGroupKey{InventoryName: inventory.Name, InventoryUID: inventory.UID, RackGroup: rack.Spec.Identity.RackGroup},
-				RackIndex: rack.Spec.Identity.RackIndex, NodeIndex: slot.Index,
-			},
-			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
-		}
-		needed := sgpurelease.Cleanup{RackName: rack.Name, RackUID: rack.UID, Binding: binding, Reason: reason}
+		needed := sgpurelease.ForSlot(rack, slot, reason)
 		if r.cleanup != nil && r.cleanup.Ready(needed) {
 			clearSlots[slot.Index] = slot.NodeRef.UID
 			continue
@@ -1469,6 +1479,58 @@ func compareAllocationRackKey(a, b allocationRackKey) int {
 		return order
 	}
 	return cmp.Compare(a.rackIndex, b.rackIndex)
+}
+
+// chooseRevisions records the first phase in the rendered spec. Pending
+// releases are retained separately with the revision being released.
+func (r *Reconciler) chooseRevisions(ctx context.Context, previous *mokkav1alpha1.SGPURack, desired *mokkav1alpha1.SGPURackSpec) error {
+	previousRefs := make(map[int32]*mokkav1alpha1.SGPUNodeReference)
+	if previous != nil {
+		for _, old := range previous.Spec.Nodes {
+			if old.NodeRef != nil {
+				previousRefs[old.Index] = old.NodeRef
+			}
+		}
+	}
+	for i := range desired.Nodes {
+		slot := &desired.Nodes[i]
+		if slot.NodeRef == nil {
+			continue
+		}
+		node, err := r.cache.Node(ctx, slot.NodeRef.Name)
+		if err != nil {
+			return err
+		}
+		if node.UID != slot.NodeRef.UID {
+			return ErrAllocationInputChanged
+		}
+		next, err := bindingRevision(node, previous, previousRefs[slot.Index], slot)
+		if err != nil {
+			return err
+		}
+		slot.NodeRef.AssignmentRevision = next
+	}
+	return nil
+}
+
+// A pending binding keeps its chosen revision unless a publication on this
+// exact Node has already superseded it.
+func bindingRevision(node *corev1.Node, rack *mokkav1alpha1.SGPURack, old *mokkav1alpha1.SGPUNodeReference, slot *mokkav1alpha1.SGPURackNode) (int64, error) {
+	var saved sgpuassignment.Assignment
+	if raw := node.Annotations[sgpumetadata.AssignmentAnnotation]; raw != "" {
+		a, err := sgpuassignment.DecodeAssignment(raw)
+		if err == nil && a.NodeUID == node.UID {
+			saved = a
+		}
+	}
+	if old != nil && slot.BoundTo(old.Name, old.UID) && old.AssignmentRevision > 0 {
+		pending := old.AssignmentRevision > saved.AssignmentRevision
+		published := old.AssignmentRevision == saved.AssignmentRevision && saved.SameSlot(rack, slot)
+		if pending || published {
+			return old.AssignmentRevision, nil
+		}
+	}
+	return sgpuassignment.NextRevision(saved.AssignmentRevision)
 }
 
 func applyBindings(spec *mokkav1alpha1.SGPURackSpec, bindings []allocate.Binding) int64 {

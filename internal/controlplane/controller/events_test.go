@@ -63,17 +63,18 @@ func TestRackBindingReleaseWakesDestinationAfterEarlierWorkDrains(t *testing.T) 
 			Spec: rendered.Spec,
 		}
 		if inventory == source {
-			rack.Spec.Nodes[0].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: node.Name, UID: node.UID}
+			rack.Spec.Nodes[0].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: node.Name, UID: node.UID, AssignmentRevision: 1}
 		}
 		stored, err := mokka.MokkaV1alpha1().SGPURacks().Create(ctx, rack, metav1.CreateOptions{
 			FieldManager: sgpuinventory.RackFieldManager,
 		})
 		require.NoError(t, err)
+		stored.Status.Delivery = &mokkav1alpha1.RackDelivery{Generation: 1, RackSpecGeneration: stored.Generation}
 		require.NoError(t, racks.Add(stored))
 	}
 	snapshot := newInformerCache(
 		mokkalisters.NewSGPUInventoryLister(inventories), mokkalisters.NewSGPURackProfileLister(profiles),
-		racks, catalog, liveNodes, DefaultOptions(),
+		racks, catalog, liveNodes, mokka.MokkaV1alpha1().SGPURacks(), DefaultOptions(),
 	)
 	allocation := sgpuinventory.NewAllocationCache(snapshot)
 	projection := sgpuprojection.NewController(snapshot, liveNodes)
@@ -141,7 +142,7 @@ func TestRackBindingReleaseWakesDestinationAfterEarlierWorkDrains(t *testing.T) 
 	require.Len(t, assigned.Allocation.Assigned, 1)
 	bound, err := mokka.MokkaV1alpha1().SGPURacks().Get(ctx, destinationRackName, metav1.GetOptions{})
 	require.NoError(t, err)
-	require.Equal(t, &mokkav1alpha1.SGPUNodeReference{Name: node.Name, UID: node.UID}, bound.Spec.Nodes[0].NodeRef)
+	require.Equal(t, &mokkav1alpha1.SGPUNodeReference{Name: node.Name, UID: node.UID, AssignmentRevision: 3}, bound.Spec.Nodes[0].NodeRef)
 }
 
 func TestRackBindingReleaseRoutesOnlyCurrentExactNodePlacement(t *testing.T) {

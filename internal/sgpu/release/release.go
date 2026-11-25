@@ -79,25 +79,58 @@ func ReasonFor(reason allocate.ReleaseReason) Reason {
 // Cleanup is the exact binding whose Node projection must be removed before
 // reconciliation may clear or retire its rack coordinate.
 type Cleanup struct {
-	RackName string
-	RackUID  types.UID
-	Binding  allocate.Binding
-	Reason   Reason
+	AssignmentRevision int64
+	RackName           string
+	RackUID            types.UID
+	Binding            allocate.Binding
+	Reason             Reason
+}
+
+// ForSlot captures the assignment being released while the slot is still bound.
+func ForSlot(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackNode, reason Reason) Cleanup {
+	return Cleanup{
+		RackName:           rack.Name,
+		RackUID:            rack.UID,
+		AssignmentRevision: slot.NodeRef.AssignmentRevision,
+		Reason:             reason,
+		Binding: allocate.Binding{
+			Coordinate: allocate.Coordinate{
+				Group: allocate.RackGroupKey{
+					InventoryName: rack.Spec.InventoryRef.Name,
+					InventoryUID:  rack.Spec.InventoryRef.UID,
+					RackGroup:     rack.Spec.Identity.RackGroup,
+				},
+				RackIndex: rack.Spec.Identity.RackIndex,
+				NodeIndex: slot.Index,
+			},
+			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
+		},
+	}
 }
 
 // MatchesRack reports whether rack still holds the exact binding this cleanup
 // retires: the same rack instance and coordinate, bound to the same Node.
 func (c Cleanup) MatchesRack(rack *mokkav1alpha1.SGPURack) bool {
+	ref := c.BoundNode(rack)
+	return ref != nil && ref.AssignmentRevision == c.AssignmentRevision
+}
+
+// BoundNode identifies the Node at the cleanup coordinate even if it has since
+// acquired a new assignment. Old v1 Node annotations do not carry a revision.
+func (c Cleanup) BoundNode(rack *mokkav1alpha1.SGPURack) *mokkav1alpha1.SGPUNodeReference {
 	binding := c.Binding
 	if rack == nil || rack.Name != c.RackName || rack.UID != c.RackUID ||
 		rack.Spec.InventoryRef.Name != binding.Coordinate.Group.InventoryName ||
 		rack.Spec.InventoryRef.UID != binding.Coordinate.Group.InventoryUID ||
 		rack.Spec.Identity.RackGroup != binding.Coordinate.Group.RackGroup ||
 		rack.Spec.Identity.RackIndex != binding.Coordinate.RackIndex {
-		return false
+		return nil
 	}
 	slot := rack.Spec.NodeByIndex(binding.Coordinate.NodeIndex)
-	return slot != nil && slot.BoundTo(binding.Node.Name, binding.Node.UID)
+	if slot == nil || !slot.BoundTo(binding.Node.Name, binding.Node.UID) {
+		return nil
+	}
+	return slot.NodeRef
 }
 
 // Gate is the acknowledgement seam implemented by Node projection.

@@ -20,10 +20,13 @@ import (
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
 	sgpuprojection "github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
 	sgpustatus "github.com/NVIDIA/k8s-test-infra/internal/sgpu/status"
+	mokkaclient "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/typed/api/v1alpha1"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
 )
 
@@ -32,12 +35,13 @@ type informerCache struct {
 	profiles    mokkalisters.SGPURackProfileLister
 	racks       cache.Indexer
 	nodes       *nodecatalog.Catalog
+	liveRacks   mokkaclient.SGPURackInterface
 	liveNodes   corev1client.NodeInterface
 	liveTimeout time.Duration
 }
 
 var _ sgpuinventory.Cache = (*informerCache)(nil)
-var _ sgpuprojection.Cache = (*informerCache)(nil)
+var _ sgpuprojection.Store = (*informerCache)(nil)
 
 func newInformerCache(
 	inventories mokkalisters.SGPUInventoryLister,
@@ -45,10 +49,11 @@ func newInformerCache(
 	racks cache.Indexer,
 	nodes *nodecatalog.Catalog,
 	liveNodes corev1client.NodeInterface,
+	liveRacks mokkaclient.SGPURackInterface,
 	options Options,
 ) *informerCache {
 	return &informerCache{
-		inventories: inventories, profiles: profiles, racks: racks, nodes: nodes, liveNodes: liveNodes,
+		inventories: inventories, profiles: profiles, racks: racks, nodes: nodes, liveNodes: liveNodes, liveRacks: liveRacks,
 		liveTimeout: options.liveNodeGetTimeout(),
 	}
 }
@@ -78,6 +83,51 @@ func (c *informerCache) Rack(name string) (*mokkav1alpha1.SGPURack, error) {
 		return nil, fmt.Errorf("rack cache contained %T", object)
 	}
 	return rack, nil
+}
+
+// LiveRack verifies the authoritative binding when the Node is ahead of the rack cache.
+func (c *informerCache) LiveRack(ctx context.Context, name string) (*mokkav1alpha1.SGPURack, error) {
+	requestCtx, cancel := context.WithTimeout(ctx, c.liveTimeout)
+	defer cancel()
+	return c.liveRacks.Get(requestCtx, name, metav1.GetOptions{})
+}
+
+// PublishRelease advances a served rack once before cleanup can free the slot.
+// UpdateStatus checks resourceVersion; on conflict the projection worker retries
+// from the durable Node tombstone and rereads the exact binding.
+func (c *informerCache) PublishRelease(ctx context.Context, needed release.Cleanup, revision int64) error {
+	rack, err := c.LiveRack(ctx, needed.RackName)
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	d := rack.Status.Delivery
+	if !needed.MatchesRack(rack) || d == nil {
+		return nil
+	}
+	uid := needed.Binding.Node.UID
+	if d.ReleaseRevisions[uid] >= revision {
+		return nil
+	}
+	next, err := assignment.NextRevision(d.Generation)
+	if err != nil {
+		return err
+	}
+	if d.ReleaseRevisions == nil {
+		d.ReleaseRevisions = make(map[types.UID]int64)
+	}
+	d.ReleaseRevisions[uid] = revision
+	d.Generation = next
+	saved, err := c.liveRacks.UpdateStatus(ctx, rack, metav1.UpdateOptions{})
+	if err != nil {
+		return err
+	}
+	if saved.Status.Delivery.ReleaseRevision(uid) != revision {
+		return fmt.Errorf("rack %q did not retain release revision %d", rack.Name, revision)
+	}
+	return nil
 }
 
 func (c *informerCache) Racks() ([]*mokkav1alpha1.SGPURack, error) {
@@ -387,6 +437,7 @@ func reconcileRackStatus(
 	snapshot *informerCache,
 	reconciler *sgpustatus.Reconciler,
 	projection projectionSnapshots,
+	deliveries *deliveryCatalog,
 	key statusKey,
 ) error {
 	rack, err := snapshot.Rack(key.name)
@@ -397,6 +448,10 @@ func reconcileRackStatus(
 		return err
 	}
 	input, _, err := rackStatusInput(snapshot, projection, rack)
+	if err != nil {
+		return err
+	}
+	input.Delivery, err = deliveries.get(rack.Spec.InventoryRef.Name).manifest(rack)
 	if err != nil {
 		return err
 	}

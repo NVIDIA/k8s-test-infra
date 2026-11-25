@@ -4,6 +4,7 @@
 package v1alpha1
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -214,4 +215,25 @@ func inventoryOwnedRack() *SGPURack {
 			InventoryRef: SGPURackInventoryReference{Name: inventory.Name, UID: inventory.UID},
 		},
 	}
+}
+
+func TestRackDeliveryWireCompatibility(t *testing.T) {
+	t.Parallel()
+	var rack SGPURack
+	require.NoError(t, json.Unmarshal([]byte(`{"spec":{"nodes":[{"index":0,"nodeRef":{"name":"worker","uid":"node-id"}}]}}`), &rack))
+	require.Nil(t, rack.Status.Delivery)
+	require.Zero(t, rack.Spec.Nodes[0].NodeRef.AssignmentRevision)
+	rack.Spec.Nodes[0].NodeRef.AssignmentRevision = 7
+	rack.Status.Delivery = &RackDelivery{
+		Generation: 12, RackSpecGeneration: 8,
+		InventoryRef:     DeliveryObjectReference{UID: "inventory-id", Generation: 1},
+		ProfileRef:       DeliveryProfileReference{DeliveryObjectReference: DeliveryObjectReference{UID: "profile-id", Generation: 2}, Revision: "revision"},
+		AcceptedPolicies: []DeliveryObjectReference{{UID: "policy-id", Generation: 3}},
+	}
+	wire, err := json.Marshal(rack)
+	require.NoError(t, err)
+	var decoded SGPURack
+	require.NoError(t, json.Unmarshal(wire, &decoded))
+	require.Equal(t, rack.Status.Delivery, decoded.Status.Delivery)
+	require.Equal(t, int64(7), decoded.Spec.Nodes[0].NodeRef.AssignmentRevision)
 }

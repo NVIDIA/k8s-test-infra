@@ -75,7 +75,7 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 		mokkalisters.NewSGPURackProfileLister(profileIndexer),
 		rackIndexer,
 		nodes,
-		nil,
+		nil, nil,
 		DefaultOptions(),
 	)
 	projection := &recordingScopedProjection{
@@ -202,7 +202,7 @@ func TestStatusSnapshotSkipsPlacementForInventoryOutsideRackGroupBudget(t *testi
 		mokkalisters.NewSGPURackProfileLister(profileIndexer),
 		rackIndexer,
 		nodes,
-		nil,
+		nil, nil,
 		DefaultOptions(),
 	)
 

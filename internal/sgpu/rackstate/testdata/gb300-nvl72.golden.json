@@ -1,0 +1,172 @@
+{
+  "rack": {
+    "name": "demo-train-0-846e9e049515",
+    "uid": "rack-id"
+  },
+  "rackDeliveryGeneration": 13,
+  "software": {
+    "driverVersion": "570.124.06",
+    "nvmlVersion": "12.570.124.06",
+    "cudaVersion": "12.8"
+  },
+  "gpuModel": {
+    "vendor": "nvidia.com",
+    "product": "GB300",
+    "productName": "NVIDIA GB300 NVL",
+    "architecture": "blackwell",
+    "computeCapability": "10.0",
+    "memory": "288Gi",
+    "pci": {
+      "vendorID": "10de",
+      "deviceID": "2941",
+      "subsystemVendorID": "10de",
+      "subsystemDeviceID": "1830",
+      "maxLink": {
+        "generation": 6,
+        "width": 16
+      }
+    },
+    "cores": {
+      "cuda": 21632
+    },
+    "board": {
+      "partNumber": "699-2G530-0300-000"
+    },
+    "firmware": {
+      "vbiosVersion": "97.00.41.00.01",
+      "gspVersion": "570.124.06",
+      "infoROM": {
+        "imageVersion": "G530.0300.00.01",
+        "oemObjectVersion": "2.1",
+        "eccObjectVersion": "7.20",
+        "powerObjectVersion": "1.0"
+      }
+    }
+  },
+  "fabric": {
+    "fabricUUID": "db084b59-cd67-52a3-bd91-2a8ed232b4e2",
+    "cliqueID": 0,
+    "type": "NVLink",
+    "generation": 5,
+    "linksPerGPU": 18,
+    "bandwidthPerLinkMBps": 53125,
+    "c2cSupported": true,
+    "domain": {
+      "scope": "Rack",
+      "gpuCount": 72
+    },
+    "switches": {
+      "visiblePerNode": 4
+    }
+  },
+  "nodes": [
+    {
+      "index": 0,
+      "node": {
+        "name": "worker-a",
+        "uid": "node-a"
+      },
+      "assignmentRevision": 7,
+      "gpus": [
+        {
+          "index": 0,
+          "uuid": "GPU-86f51e56-a1c5-5d20-b835-1efa9508e5f9",
+          "serial": "05469910365986380035",
+          "minorNumber": 0,
+          "pciAddress": "0000:0a:00.0",
+          "rootComplex": "pci0000:00",
+          "numaNode": 0,
+          "hostProcessorIndex": 0,
+          "runtime": {}
+        },
+        {
+          "index": 1,
+          "uuid": "GPU-682a7ff6-89a5-5e33-af51-9705f3eeb08b",
+          "serial": "01205136473943465433",
+          "minorNumber": 1,
+          "pciAddress": "0000:0b:00.0",
+          "rootComplex": "pci0000:00",
+          "numaNode": 0,
+          "hostProcessorIndex": 0,
+          "runtime": {}
+        },
+        {
+          "index": 2,
+          "uuid": "GPU-077a5c80-95aa-5087-9b1c-67ace756156b",
+          "serial": "09255164635216764853",
+          "minorNumber": 2,
+          "pciAddress": "0000:4a:00.0",
+          "rootComplex": "pci0000:40",
+          "numaNode": 1,
+          "hostProcessorIndex": 1,
+          "runtime": {}
+        },
+        {
+          "index": 3,
+          "uuid": "GPU-080775f6-564f-54e7-95f9-a4f83d51aaed",
+          "serial": "08439435125224069066",
+          "minorNumber": 3,
+          "pciAddress": "0000:4b:00.0",
+          "rootComplex": "pci0000:40",
+          "numaNode": 1,
+          "hostProcessorIndex": 1,
+          "runtime": {}
+        }
+      ]
+    },
+    {
+      "index": 17,
+      "node": {
+        "name": "worker-z",
+        "uid": "node-z"
+      },
+      "assignmentRevision": 3,
+      "gpus": [
+        {
+          "index": 0,
+          "uuid": "GPU-8f5681ae-57e7-5224-807f-4761006d7951",
+          "serial": "17218569166235457293",
+          "minorNumber": 0,
+          "pciAddress": "0000:0a:00.0",
+          "rootComplex": "pci0000:00",
+          "numaNode": 0,
+          "hostProcessorIndex": 0,
+          "runtime": {}
+        },
+        {
+          "index": 1,
+          "uuid": "GPU-136b1a7c-63ac-54b4-8d2e-bd085cb4ca86",
+          "serial": "10856711214252774713",
+          "minorNumber": 1,
+          "pciAddress": "0000:0b:00.0",
+          "rootComplex": "pci0000:00",
+          "numaNode": 0,
+          "hostProcessorIndex": 0,
+          "runtime": {}
+        },
+        {
+          "index": 2,
+          "uuid": "GPU-18b5ee5a-11a1-5dee-b284-a43372aeb24a",
+          "serial": "13473327599280607646",
+          "minorNumber": 2,
+          "pciAddress": "0000:4a:00.0",
+          "rootComplex": "pci0000:40",
+          "numaNode": 1,
+          "hostProcessorIndex": 1,
+          "runtime": {}
+        },
+        {
+          "index": 3,
+          "uuid": "GPU-8956b28f-3661-589f-b9c5-6933b058593a",
+          "serial": "08315533116310509319",
+          "minorNumber": 3,
+          "pciAddress": "0000:4b:00.0",
+          "rootComplex": "pci0000:40",
+          "numaNode": 1,
+          "hostProcessorIndex": 1,
+          "runtime": {}
+        }
+      ]
+    }
+  ]
+}

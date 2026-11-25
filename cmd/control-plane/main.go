@@ -164,7 +164,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	// Group ctx fires on SIGTERM upstream OR when either process returns.
 	g, gctx := errgroup.WithContext(signalCtx)
-	server := controlplane.NewServerWithReadiness(cfg, logger, manager.Ready)
+	server := controlplane.NewServingServer(cfg, logger, manager)
 
 	g.Go(func() error { return server.Run(gctx) })
 	g.Go(func() error { return manager.Run(gctx) })
