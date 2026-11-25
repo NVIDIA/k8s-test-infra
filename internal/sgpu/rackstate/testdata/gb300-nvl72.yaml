@@ -135,12 +135,6 @@ spec:
           gpuCount: 72
         switches:
           visiblePerNode: 4
-      network:
-        type: InfiniBand
-        adapterModel: MT4129
-        firmwareVersion: 28.43.1000
-        linkSpeedGbps: 400
-        adaptersPerGPU: 1
   software:
     driverVersion: 570.124.06
     nvmlVersion: 12.570.124.06
