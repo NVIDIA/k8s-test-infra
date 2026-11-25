@@ -378,7 +378,7 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 		{section: "labels", key: sgpumetadata.CliqueLabel},
 		annotationField,
 	}
-	foreign := foreignOwnedFields(node, FieldManager, released)
+	foreign := foreignOwnedFields(node, released)
 	partial := len(incompatible) > 0 || len(foreign) > 0
 	var annotations map[string]any
 	// SSA removes a solely owned annotation if it is omitted. Keep its
