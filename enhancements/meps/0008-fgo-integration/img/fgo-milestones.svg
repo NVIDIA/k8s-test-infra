@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 666" width="1000" height="666" role="img" aria-labelledby="title desc">
   <title id="title">Milestones of MEP0008, MEP0009 and MEP0010</title>
-  <desc id="desc">One plan across three MEPs, in four phases. Phase 1: MEP0010's M1, NUMA setup on CPU Nodes, MEP0001's rack state REST API, and MEP0009's M1, workload telemetry on CPU Nodes. Phase 2: MEP0008's M1, GPUs on KWOK Nodes, after MEP0001's API. Phase 3: the FGO migration, in two milestones that each follow MEP0008's M1 and can run in parallel. MEP0008's M2, DRA, ComputeDomains and NodeResourceTopology, ships together with MEP0010's M2, NodeResourceTopology on KWOK Nodes, which follows MEP0010's M1. MEP0008's M3, DCGM metrics with workload telemetry, also follows MEP0009's M1. MEP0008's optional M5, the KWOK provisioner, needs only its M1 and runs alongside its M2 to M4. Phase 4: MEP0008's M4, scale out, after its M2 and M3.</desc>
+  <desc id="desc">One plan across three MEPs, in four phases. Phase 1: MEP0010's M1, NUMA setup on CPU Nodes, MEP0001's rack state REST API, and MEP0009's M1, workload telemetry on CPU Nodes. Phase 2: MEP0008's M1, GPUs on KWOK Nodes, after MEP0001's API. Phase 3: the FGO migration, in three milestones that each follow MEP0008's M1 and can run in parallel. MEP0008's M2 adds DRA and ComputeDomains. MEP0008's M3, DCGM metrics with workload telemetry, also follows MEP0009's M1. MEP0010's M2, NodeResourceTopology on KWOK Nodes, also follows MEP0010's M1. MEP0008's optional M5, the KWOK provisioner, needs only its M1 and runs alongside its M2 to M4. Phase 4: MEP0008's M4, scale out, after its M2 and M3.</desc>
   <style>
     .panel { fill: #ffffff; stroke: #d1d9e0; }
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
@@ -14,7 +14,6 @@
     .key { stroke-width: 3; }
     .ext { fill: #ffffff; stroke: #59636e; stroke-width: 1.5; stroke-dasharray: 5 4; }
     .wire { fill: none; stroke: #59636e; stroke-width: 1.5; }
-    .dot { fill: none; stroke: #59636e; stroke-width: 1.5; stroke-dasharray: 2 3; }
     .head { fill: #59636e; }
     @media (prefers-color-scheme: dark) {
       .panel { fill: #0d1117; stroke: #3d444d; }
@@ -24,7 +23,7 @@
       .band { fill: #151b23; }
       .ms { fill: #0d1117; stroke: #f0f6fc; }
       .ext { fill: #0d1117; stroke: #9198a1; }
-      .wire, .dot { stroke: #9198a1; }
+      .wire { stroke: #9198a1; }
       .head { fill: #9198a1; }
     }
   </style>
@@ -49,14 +48,12 @@
   <text class="done" x="38" y="121"><tspan class="strong">Done when</tspan> KAI's NUMA suite</text>
   <text class="done" x="38" y="138">passes on Kind</text>
 
-  <rect class="ms" x="512" y="76" width="220" height="76" rx="8"/>
+  <rect class="ms key" x="512" y="76" width="220" height="76" rx="8"/>
   <text class="title" x="526" y="100">M2 · NRT on KWOK Nodes</text>
-  <text class="done" x="526" y="121"><tspan class="strong">Done when</tspan> KWOK Nodes' NRTs</text>
-  <text class="done" x="526" y="138">match CPU Nodes'</text>
+  <text class="done" x="526" y="121"><tspan class="strong">Done when</tspan> KAI's NUMA tests</text>
+  <text class="done" x="526" y="138">pass on KWOK Nodes</text>
 
-  <path class="wire" d="M244,114 H511" marker-end="url(#arrow)"/>
-  <path class="dot" d="M622,152 V218"/>
-  <text class="label" x="632" y="178">ships with MEP0008 · M2</text>
+  <path class="wire" d="M244,102 H511" marker-end="url(#arrow)"/>
 
   <!-- MEP0001, outside the lanes: MEP0008's band starts at Phase 2 -->
   <rect class="ext" x="24" y="308" width="220" height="76" rx="8"/>
@@ -70,8 +67,8 @@
 
   <rect class="ms key" x="512" y="218" width="220" height="76" rx="8"/>
   <text class="title" x="526" y="242">M2 · DRA, ComputeDomains</text>
-  <text class="done" x="526" y="263"><tspan class="strong">Done when</tspan> KAI's DRA and NUMA</text>
-  <text class="done" x="526" y="280">tests pass on KWOK Nodes</text>
+  <text class="done" x="526" y="263"><tspan class="strong">Done when</tspan> KAI's DRA tests</text>
+  <text class="done" x="526" y="280">pass on KWOK Nodes</text>
 
   <rect class="ms" x="756" y="218" width="220" height="76" rx="8"/>
   <text class="title" x="770" y="242">M4 · Scale out</text>
@@ -80,8 +77,8 @@
 
   <rect class="ms" x="268" y="308" width="220" height="76" rx="8"/>
   <text class="title" x="282" y="332">M1 · GPUs on KWOK Nodes</text>
-  <text class="done" x="282" y="353"><tspan class="strong">Done when</tspan> KAI's whole-GPU</text>
-  <text class="done" x="282" y="370">tests pass on kwokctl Nodes</text>
+  <text class="done" x="282" y="353"><tspan class="strong">Done when</tspan> KAI's scale suite</text>
+  <text class="done" x="282" y="370">passes on KWOK Nodes</text>
 
   <rect class="ms" x="512" y="308" width="220" height="76" rx="8"/>
   <text class="title" x="526" y="332">M5 · KWOK provisioner</text>
@@ -95,8 +92,10 @@
 
   <path class="wire" d="M244,346 H267" marker-end="url(#arrow)"/>
   <path class="wire" d="M488,346 H511" marker-end="url(#arrow)"/>
-  <path class="wire" d="M378,307 V256 H511" marker-end="url(#arrow)"/>
-  <path class="wire" d="M378,385 V436 H511" marker-end="url(#arrow)"/>
+  <path class="wire" d="M470,307 V256 H511" marker-end="url(#arrow)"/>
+  <path class="wire" d="M470,385 V436 H511" marker-end="url(#arrow)"/>
+  <!-- MEP0008's M1 to MEP0010's M2, branching off the arrow to M2 and drawn over both bands -->
+  <path class="wire" d="M470,256 V130 H511" marker-end="url(#arrow)"/>
   <path class="wire" d="M732,256 H755" marker-end="url(#arrow)"/>
   <path class="wire" d="M732,436 H836 V295" marker-end="url(#arrow)"/>
 
@@ -115,6 +114,5 @@
   <!-- Legend -->
   <rect class="ms key" x="24" y="641" width="28" height="16" rx="4"/><text class="label" x="60" y="653">the FGO migration</text>
   <rect class="ext" x="196" y="641" width="28" height="16" rx="4"/><text class="label" x="232" y="653">prerequisite from another MEP</text>
-  <path class="dot" d="M440,649 H470"/><text class="label" x="478" y="653">same work</text>
-  <path class="wire" d="M570,649 H604" marker-end="url(#arrow)"/><text class="label" x="612" y="653">comes first</text>
+  <path class="wire" d="M440,649 H474" marker-end="url(#arrow)"/><text class="label" x="482" y="653">comes first</text>
 </svg>

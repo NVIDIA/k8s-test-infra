@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 578" width="1000" height="578" role="img" aria-labelledby="title desc">
   <title id="title">KWOK integration milestones</title>
-  <desc id="desc">Five milestones. M1, GPUs on KWOK Nodes, needs MEP0001's compiled rack state and delivery generation. M2, DRA, ComputeDomains and NodeResourceTopology, needs M1 and MEP0010's M1, the NUMA layout. M3, DCGM metrics with workload telemetry, needs M1 and MEP0009's M1, workload telemetry on CPU Nodes, whose generator and tracker the data plane runs. M2 and M3 can run in parallel, and both lead to M4, scale out. M5, the optional KWOK provisioner, needs only M1 and can run alongside M2 to M4.</desc>
+  <desc id="desc">Five milestones. M1, GPUs on KWOK Nodes, needs MEP0001's compiled rack state and delivery generation. M2, DRA and ComputeDomains, needs only M1. M3, DCGM metrics with workload telemetry, needs M1 and MEP0009's M1, workload telemetry on CPU Nodes, whose generator and tracker the data plane runs. M2 and M3 can run in parallel, and both lead to M4, scale out. M5, the optional KWOK provisioner, needs only M1 and can run alongside M2 to M4.</desc>
   <style>
     .panel { fill: #ffffff; stroke: #d1d9e0; }
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
@@ -41,11 +41,6 @@
   <text class="body" x="40" y="55">compiled rack state, delivery generation</text>
   <path class="wire" d="M174,64 V95" marker-end="url(#arrow)"/>
 
-  <rect class="ext" x="350" y="20" width="300" height="44" rx="8"/>
-  <text class="item strong" x="366" y="38">MEP0010 · M1</text>
-  <text class="body" x="366" y="55">NUMA layout for NodeResourceTopology</text>
-  <path class="wire" d="M500,64 V95" marker-end="url(#arrow)"/>
-
   <rect class="ext" x="350" y="488" width="300" height="44" rx="8"/>
   <text class="item strong" x="366" y="506">MEP0009 · M1</text>
   <text class="body" x="366" y="523">workload telemetry on CPU Nodes</text>
@@ -61,24 +56,23 @@
   <circle class="dp" cx="46" cy="220" r="4"/><text class="item" x="58" y="224">GPU allocation on Pods</text>
   <circle class="doc" cx="46" cy="239" r="4"/><text class="item" x="58" y="243">kwok.enabled, Node template</text>
   <line class="rule" x1="40" y1="256" x2="308" y2="256"/>
-  <text class="done" x="40" y="274"><tspan class="strong">Done when</tspan> KAI's whole-GPU tests pass</text>
-  <text class="done" x="40" y="291">on Nodes from kwokctl</text>
+  <text class="done" x="40" y="274"><tspan class="strong">Done when</tspan> KAI's scale suite passes</text>
+  <text class="done" x="40" y="291">on Nodes from kwok-operator</text>
 
   <!-- M2 and M3, in parallel after M1 -->
-  <rect class="ms" x="350" y="96" width="300" height="150" rx="8"/>
-  <text class="title" x="366" y="122">M2 · DRA, ComputeDomains and NRT</text>
+  <rect class="ms" x="350" y="96" width="300" height="131" rx="8"/>
+  <text class="title" x="366" y="122">M2 · DRA and ComputeDomains</text>
   <circle class="dp" cx="372" cy="144" r="4"/><text class="item" x="384" y="148">DRA mode with ResourceSlices</text>
   <circle class="dp" cx="372" cy="163" r="4"/><text class="item" x="384" y="167">ComputeDomains</text>
-  <circle class="dp" cx="372" cy="182" r="4"/><text class="item" x="384" y="186">NodeResourceTopology</text>
-  <line class="rule" x1="366" y1="200" x2="634" y2="200"/>
-  <text class="done" x="366" y="218"><tspan class="strong">Done when</tspan> KAI's DRA and NUMA tests</text>
-  <text class="done" x="366" y="235">pass and a ComputeDomain turns Ready</text>
+  <line class="rule" x1="366" y1="181" x2="634" y2="181"/>
+  <text class="done" x="366" y="199"><tspan class="strong">Done when</tspan> KAI's DRA tests pass</text>
+  <text class="done" x="366" y="216">and a ComputeDomain turns Ready</text>
 
   <rect class="ms" x="350" y="270" width="300" height="186" rx="8"/>
   <text class="title" x="366" y="296">M3 · DCGM metrics</text>
-  <circle class="dp" cx="372" cy="318" r="4"/><text class="item" x="384" y="322">DCGM metrics and exporter Service</text>
+  <circle class="dp" cx="372" cy="318" r="4"/><text class="item" x="384" y="322">DCGM metrics on every replica</text>
   <circle class="dp" cx="372" cy="337" r="4"/><text class="item" x="384" y="341">workload telemetry from Pods</text>
-  <circle class="doc" cx="372" cy="356" r="4"/><text class="item" x="384" y="360">ServiceMonitor</text>
+  <circle class="doc" cx="372" cy="356" r="4"/><text class="item" x="384" y="360">PodMonitor</text>
   <circle class="doc" cx="372" cy="375" r="4"/><text class="item" x="384" y="379">FGO migration guide</text>
   <line class="rule" x1="366" y1="393" x2="634" y2="393"/>
   <text class="done" x="366" y="411"><tspan class="strong">Done when</tspan> Run:ai's harness runs</text>
