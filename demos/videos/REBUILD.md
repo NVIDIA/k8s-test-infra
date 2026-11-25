@@ -2,30 +2,55 @@
 
 See the [video index](README.md) for the episode overview.
 
-## Rebuild the MP4
+## Set up and render
 
 Use Python 3.12, Cairo with development headers, `pkg-config`, and FFmpeg with
-`ffprobe` and `libx264`. On macOS, run
-`brew install python@3.12 cairo pkg-config ffmpeg`.
+`ffprobe` and the `libx264` encoder.
 
-Run these commands from the repository root.
+### macOS
 
 ```sh
-video_work="$(mktemp -d)"
-python3.12 -m venv "$video_work/venv"
-video_python="$video_work/venv/bin/python"
+brew install python@3.12 cairo pkg-config ffmpeg
+```
+
+### Ubuntu 24.04
+
+```sh
+sudo apt-get update
+sudo apt-get install -y python3.12 python3.12-venv python3.12-dev \
+  build-essential ca-certificates libcairo2-dev pkg-config ffmpeg fonts-dejavu
+```
+
+The DejaVu package provides sans-serif and monospace fonts for Cairo on Ubuntu.
+
+### Render episode 01
+
+Run these commands from the repository root. Keep the virtual environment and
+voice cache outside the checkout so they can be reused.
+
+```sh
+mokka_video_work="$HOME/mokka-video-work"
+mkdir -p "$mokka_video_work"
+python3.12 -m venv "$mokka_video_work/venv"
+video_python="$mokka_video_work/venv/bin/python"
 export PYTHONDONTWRITEBYTECODE=1
 
 "$video_python" -m pip install -r demos/videos/sound/requirements.txt
-"$video_python" demos/videos/render.py --assets "$video_work/assets" --prepare-assets
-"$video_python" demos/videos/render.py --assets "$video_work/assets" \
+"$video_python" demos/videos/render.py --assets "$mokka_video_work/assets" --prepare-assets
+"$video_python" demos/videos/render.py --assets "$mokka_video_work/assets" \
   --output dist/mokka-video/01-mokka-gpu-workflows-features-v2.mp4
 ```
 
-Asset preparation downloads and verifies the Kokoro v1.0 model and voice bank.
-The renderer uses the local Puck voice (`am_puck`) and times the burned-in
-captions to the narration. It verifies the 1080p, 30 fps MP4 before writing it.
-Use a fresh output path for revisions.
+The first setup downloads the Kokoro v1.0 model and voice bank and checks their
+SHA-256 digests. Later renders can use the cache offline. Mokka uses the Puck
+voice (`am_puck`) and times the burned-in captions to its narration.
+
+If narration fails with an eSpeak `phontab` error, set `mokka_video_work` to
+a shorter path such as `/tmp/mokka-video-work` and rerun the setup commands.
+
+The renderer verifies each 60-second 1080p MP4 at 30 fps with stereo audio.
+Choose a fresh output path for revisions. Fonts and FFmpeg builds can change
+the rendered output across platforms.
 
 ## Edit the episode
 
