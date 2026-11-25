@@ -58,15 +58,15 @@ That shape can't describe the NICs the captures show, and parts of it are wrong:
 - NIC functions are missing from the node's PCI bus tree (`/sys/bus/pci`); each HCA's PCI function exists only inside the InfiniBand tree.
 
 Real nodes vary in ways software depends on:
-- **One NIC across PCIe domains.** On GB300, each ConnectX-8 has its network function in one domain and its Data Direct function next to a GPU in another. Topology discovery pairs them through VPD.
+- **One NIC across PCIe domains.** On GB300, each ConnectX-8 has its network function in one domain and its Data Direct function next to a GPU in another. Topology discovery software associates the network and Data Direct PCI functions by matching their VPD V3 identifiers.
 - **The layout depends on the firmware configuration.** The same ConnectX-8 shows one PF on InfiniBand and four PFs on Ethernet.
-- **Different kinds of NIC.** A BlueField-3 has a SoC function without an RDMA device, AWS EFA has no netdev of its own, and a cloud VM sees VFs without their PF.
+- **Different kinds of NIC.** Next to its two network PFs, which have RDMA devices, a BlueField-3 shows a SoC management function (`15b3:c2d5`, bound to `vfio-pci`) without one; AWS EFA has no netdev of its own, and a cloud VM sees VFs without their PF.
 
 [MEP-0014](../0014-network-simulation/README.md) describes the node-local network surfaces Mokka simulates. MEP-0015 (in review) declares fabrics and their topology. This MEP declares the NIC hardware those surfaces come from, and takes over the NIC sections of MEP-0015.
 
 ### Goals
 
-1. NIC models and NIC instances are data. No rule in the resolver or the renderers names a vendor or a model. Driver reactions to operator actions are a driver's behavior, so they live in a module per driver instead.
+1. NIC models and configurations are declarative. Adding a new NIC model that conforms to the supported schema requires no changes to the resolver or surface renderers.
 2. NICs sit in the node's one PCIe topology, including NICs that span PCIe domains.
 3. One file per NIC model serves both file mode and control-plane mode.
 4. Generated surfaces match captures of real nodes, and every difference has a stated cause.
@@ -74,7 +74,7 @@ Real nodes vary in ways software depends on:
 
 ### Non-Goals
 
-- Declaring surfaces that cluster software creates, such as VFs, switchdev representors and SMI devices. Mokka emulates the driver's reaction to those operations instead. This MEP places that emulation in the node agent; the behavior of each operation is for its own proposal, starting with VFs in MEP-0011 (in review). Operations that go through devlink or RDMA netlink, such as switchdev mode and SMI devices, are known gaps; [the operations table](#the-declaration-stops-at-the-boot-state) lists them.
+- Changes made by cluster software. `SNICProfile` describes the NIC's initial state, before Kubernetes operators modify it. Simulation of the resulting changes is deferred to the work enabling the corresponding cluster software to run unchanged on Mokka (see [the operations table](#the-declaration-stops-at-the-boot-state)).
 - Fabric topology and network state: cabling, port state, LIDs, partitions. MEP-0015 covers them.
 - Interpreting firmware parameters, or covering every possible firmware configuration.
 - Physical connectors, optical modules, cable breakout and the mapping of lanes to connectors. `ports` are logical ports and their fabric-facing planes, not sockets.
@@ -100,9 +100,9 @@ spec:
     firmwareVersion: "40.47.3576"
     # …
   functionTypes:
-    network:
+    - name: network
       # … PCI IDs, driver mlx5_core, 16 VFs possible
-    dataDirect:
+    - name: dataDirect
       # … PCI IDs, driver mlx5_ib
   defaultConfiguration: ib-xdr-4plane
   configurations:
@@ -122,7 +122,7 @@ nics:
     # … device placement
 ```
 
-The profile is the menu and the slot is the order: configuration data never lives in the slot, only the choice. A GB300 tray has four slots pointing at the same profile. Changing the NIC model or its mode changes the slot's reference; nothing is copied.
+The profile is the menu and the slot is the order: configuration data never lives in the slot, only the choice. A GB300 tray has four slots pointing at the same profile. Changing the NIC model or its mode only requires updating the slot's profile or configuration reference. The full `cx8-c8280z` profile is in [Appendix B](#sample-cx8-c8280z).
 
 ### Configurations declare their result
 
@@ -153,7 +153,11 @@ configurations:
       # … rdma1–rdma3, one per PF
 ```
 
-Firmware settings don't map to a layout without device knowledge. With four planes, InfiniBand shows one PF with one 800G port, and Ethernet shows one PF per plane with a 200G port each. The settings stay as a comment for people. The cost is one declared configuration per mode someone simulates, not one per possible parameter combination. Full sample: [`cx8-c8280z`](#sample-cx8-c8280z).
+The same physical NIC can support multiple configurations with different link types, numbers of network ports, port speeds, planes and PCI physical functions, as illustrated by the [ConnectX-8 port configurations](https://networking-docs.nvidia.com/connectx8hw/port-configurations). Each supported configuration is therefore declared separately, without requiring Mokka to interpret vendor-specific firmware settings.
+
+If a new firmware version changes the OS-visible device representation, we can declare a new `SNICProfile`. If the representation stays the same, users can simply override `firmwareVersion` without creating a new profile or configuration (see the [`gb300-ethernet`](#sample-gb300-ethernet) sample).
+
+Full sample: [`cx8-c8280z`](#sample-cx8-c8280z).
 
 ### Slots place PCI devices
 
@@ -166,7 +170,7 @@ A NIC model has one or more PCI devices. Each function in a configuration says w
   board: 0
   gpus: [1]
   devices:
-    network:
+    - name: network
       rootComplex: pci0000:00
       bridges:
         - {address: "0000:01:00.0", parent: "0000:00:00.0"}   # parent: a root port
@@ -175,8 +179,8 @@ A NIC model has one or more PCI devices. Each function in a configuration says w
       parent: "0000:02:00.0"
       numaNode: 0
       vpdPosition: "-Prime"
-    dataDirect:
-      rootComplex: pci0009:00   # GPU 1's root complex
+    - name: dataDirect
+      rootComplex: pci0009:00
       # … switch ports, shown below
       address: "0009:03:00"
       parent: "0009:02:00.0"
@@ -199,7 +203,7 @@ functions:
   - {id: b1, type: network, pciDevice: hostB, function: 1, class: "0x020000", ports: [p1]}
 ```
 
-**GPUs and NICs share one PCIe tree.** Root ports are declared once per node, and every GPU slot, NIC device and NIC switch port names its parent: a root port, or a switch port from any slot. On GB300 each GPU sits below a switch port of the NIC that serves it, the same switch that leads to the NIC's Data Direct function, so `rdma_topo`, `nvidia-smi topo -m` and DRA drivers that match GPUs to NICs by PCIe position see what the real node shows:
+**GPUs and NICs share one PCIe tree.** Root ports are declared once per node, and each GPU slot, NIC device and NIC switch port can name its parent: a root port, or a switch port from any slot. The tree follows the real node, so `rdma_topo`, `nvidia-smi topo -m` and DRA drivers that match GPUs to NICs by PCIe position see the same relations as on real hardware. On VR NVL72, GPUs and NICs sit on separate root ports and share only a NUMA node ([`vr-nvl72`](#sample-vr-nvl72)). On GB300, each GPU sits below a switch port of the NIC that serves it, the same switch that leads to the NIC's Data Direct function:
 
 ```yaml
 # SGPURackProfile gb300-nvl72
@@ -213,7 +217,7 @@ topology:
   nics:
     - slot: nic0
       devices:
-        dataDirect:
+        - name: dataDirect
           bridges:
             - {address: "0009:01:00.0", parent: "0009:00:00.0"}
             # … three more switch ports
@@ -226,23 +230,23 @@ NUMA attributes follow that topology; [MEP-0010](../0010-numa-aware-scheduling/R
 
 The declaration describes what Linux shows after boot, before any cluster software runs: the hardware, the firmware configuration and the driver.
 
-Everything cluster software creates stays out: VFs, switchdev representors, SMI devices, renamed netdevs, IPoIB child interfaces, GIDs from IP addresses, MTU. Where Mokka can see an operation, it emulates the driver's reaction, so the real operator runs unchanged and creates those surfaces itself. The profile only says how many VFs the hardware allows (`totalVFs: 16`), not how many are enabled.
+Everything cluster software creates stays out: VFs, switchdev representors, SMI devices, renamed netdevs, IPoIB child interfaces, GIDs from IP addresses, MTU. This MEP doesn't emulate the driver's reaction to those operations. The profile only says how many VFs the hardware allows (`totalVFs: 16`), not how many are enabled.
 
 For example, in the GB300 Ethernet capture, PF0's RDMA device has 72 ports. That is switchdev mode with a multiport eswitch, which an operator turned on: mlx5 gives each PF's vports (the host PF, 16 possible VFs and the uplink, so 18) to PF0's device. The declaration has four PFs with one port each. Producing the 72 would need Mokka to answer devlink, which it can't yet.
 
 **Operations cluster software performs.** Whether Mokka can emulate the driver's reaction depends on the kernel interface the operation uses:
 
-| Operation | Done by | Kernel interface | Mokka can see it | Status |
-|---|---|---|---|---|
-| Enable VFs | SR-IOV or NIC configuration operator | sysfs write to `sriov_numvfs` | Yes: the file is Mokka's | Planned, MEP-0011 |
-| Switchdev mode, multiport eswitch | Network Operator, NIC configuration operator | devlink (generic netlink) | No | Known gap |
-| VF representors | The driver, in switchdev mode | Follows switchdev | No | Known gap |
-| SMI plane devices | A cluster DaemonSet (`rdma dev add … type SMI`) | RDMA netlink | No: MEP-0014 leaves RDMA netlink to the host kernel | Known gap |
-| Device and netdev renames | udev, the `rdma` tool | rtnetlink, RDMA netlink | No | Known gap; names aren't compared |
-| IPoIB child interfaces | `ip link add … type ipoib` | rtnetlink | No | Known gap |
-| MTU, IP addresses | Network configuration, CNIs | rtnetlink | Once interfaces are kernel links (#1356) | The kernel applies them; RDMA GIDs must follow address changes |
+| Operation | Done by | Kernel interface | Mokka can see it |
+|---|---|---|---|
+| Enable VFs | SR-IOV or NIC configuration operator | sysfs write to `sriov_numvfs` | Yes: the file is Mokka's |
+| Switchdev mode, multiport eswitch | Network Operator, NIC configuration operator | devlink (generic netlink) | No |
+| VF representors | The driver, in switchdev mode | Follows switchdev | No |
+| SMI plane devices | A cluster DaemonSet (`rdma dev add … type SMI`) | RDMA netlink | No: MEP-0014 leaves RDMA netlink to the host kernel |
+| Device and netdev renames | udev, the `rdma` tool | rtnetlink, RDMA netlink | No; names aren't compared |
+| IPoIB child interfaces | `ip link add … type ipoib` | rtnetlink | No |
+| MTU, IP addresses | Network configuration, CNIs | rtnetlink | Once interfaces are kernel links (#1356); the kernel applies them, and RDMA GIDs must follow address changes |
 
-Closing the known gaps needs Mokka to answer devlink and RDMA netlink, a change to MEP-0014's scope for a later proposal.
+This MEP emulates none of these operations; each needs its own proposal.
 
 A few choices belong to the node image, not the NIC: whether the `umad` and IPoIB modules load, and the mode of `umad` files (600 on one image, 666 on another). They go in the rack profile:
 
@@ -281,7 +285,7 @@ efa:
 Identifiers (GUIDs, MACs, serial numbers, VPD `V3`, switch IDs) are hashes of where something sits: the node's coordinates, then the slot, and within it the PCI device, function number and port number, or the board and board position. So:
 - the same declaration gives the same identifiers on every run;
 - removing one NIC doesn't change the others';
-- different nodes in one cluster get different identifiers. That's checked for 4,608 nodes. MACs have 46 random bits, so 100,000 nodes with 16 RoCE ports each have about a 2% chance of one collision, and separate file-mode installs that reuse node names reuse identifiers;
+- identifiers are generated to minimize the probability of collisions across nodes. That's checked for 4,608 nodes. MACs have 46 random bits, so 100,000 nodes with 16 RoCE ports each have about a 2% chance of one collision, and separate file-mode installs that reuse node names reuse identifiers;
 - things at the same coordinate share an identifier. The profile says which VPD keyword is shared at which level: one serial number per board, one `V3` per ASIC (its PF and its Data Direct function), one `VU` per board position.
 
 ```yaml
@@ -348,14 +352,14 @@ An administrator's cluster uses an OEM ConnectX-7 card with its own part number 
 
 #### Story 4: testing a network operator
 
-An SR-IOV operator runs against a simulated node. It finds the PFs in their boot state, writes `sriov_numvfs`, and Mokka's driver emulation creates the VFs as the real driver would. Operators that switch the eswitch to switchdev or create SMI devices can't run against a simulated node yet; they're known gaps.
+An SR-IOV operator runs against a simulated node and finds the PFs in their boot state, with the VF limit the profile declares. Creating the VFs when it writes `sriov_numvfs` is outside this MEP, as are operators that switch the eswitch to switchdev or create SMI devices.
 
 ### Notes/Constraints/Caveats
 
 - **Slots exist in two places.** File mode has no rack profile, so its slots live in the GPU profile; control-plane mode has them in the rack profile. A unit test keeps the two equal until built-in rack profiles exist.
 - **Names aren't identities.** Linux-visible names follow the node: netdev names come from the image's naming scheme, and RDMA device names from probe order, so they shift when an earlier NIC is removed, as on real nodes. Stable identity is the coordinate-derived identifiers (GUIDs, MACs, serial numbers). Names aren't compared. The generator uses predictable names; a per-image naming setting can come later.
 - **Capture coverage.** `collect network` records PCI, VPD and interface records only for ConnectX functions (PCI vendor `0x15b3`), so EFA functions are missing; RDMA devices are captured whatever their vendor. A missing sysfs file is recorded as absent and an empty one as empty. [#1268](https://github.com/NVIDIA/k8s-test-infra/issues/1268) tracks the remaining gaps. Captures of GB200 and of an InfiniBand cluster without SMI devices don't exist yet.
-- **GPU parents in captures.** `collect network` doesn't record a GPU's parent yet (GPU records hold the device, NUMA node and root complex; #1268), so the samples take it from bus numbers and the captured PCI hierarchy. The GPU profiles place GPUs at their captured addresses (on `gb300`, domains `0008`, `0009`, `0018` and `0019`), so file mode builds the same tree.
+- **GPU parents in captures.** `collect network` doesn't record a GPU's parent yet (GPU records hold the device, NUMA node and root complex; #1268), so the samples take it from bus numbers and the captured PCI hierarchy. From [implementation step 2](#implementation-order), the GPU profiles place GPUs at their captured addresses (on `gb300`, domains `0008`, `0009`, `0018` and `0019`), so file mode builds the same tree.
 - **GPU slots and `GPU_COUNT`.** In file mode a slot's `gpus` may name any GPU the profile declares, so lowering `GPU_COUNT` never invalidates a slot. A NIC can then be associated with a GPU the node doesn't show.
 - **Rendering during the transition.** Until `ib` renders from `State.NICs` ([#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355)) and `pcibus` renders NIC functions ([#1354](https://github.com/NVIDIA/k8s-test-infra/issues/1354)), every GPU profile keeps rendering NICs through today's `infiniband` block. `gb300` and `vrnvl72` also declare slots, so their resolved NIC state exists for those changes to build on, but slots and overrides don't change what a node shows until then. A temporary shape derived from the resolved state was considered and rejected: it can show one model and link layer per node, so a mixed tray or a single-slot override would show devices other than the declared ones. A GPU profile without captured NICs moves to slots once a capture backs its NIC profile.
 
@@ -369,6 +373,7 @@ An SR-IOV operator runs against a simulated node. It finds the PFs in their boot
 | Putting NIC functions in the shared PCI tree breaks GPU consumers | The rendered-level check and the existing `pcibus` tests |
 | Control-plane delivery isn't built | File mode ships first; control-plane NIC state lands with per-node delivery |
 | A profile ships without real evidence | Only profiles with a capture that passes conformance ship as built-in |
+| The privileged node agent gets an API token, where today the DaemonSet mounts none | The token can only create and patch Events in the release namespace and is mounted only in the node-agent container; a chart test pins the Role to Events |
 
 ## Design Details
 
@@ -396,20 +401,20 @@ spec:
   switchPort: {vendorID, deviceID}? # IDs of the NIC's own PCIe switch ports, which slots place as bridges
   vpd:                              # optional: vital product data, on function types with vpd: true
     keywords: {string: string}?     # model values by keyword (PN, EC, V2…); "name" is the product name, to which a device's vpdPosition is appended
-    identities: {string: scope}?    # keywords whose value is a generated identifier, and which scope shares one value: board | asic | boardPosition, or another identity keyword whose generated value this one reuses before its function suffix (BlueField-3's VU starts with its SN)
-  functionTypes:                    # kinds of PCI function, keyed by a name configurations use
-    <name>:
+    identities: {string: scope}?    # keywords whose value is a generated identifier, and which scope shares one value: board | asic | boardPosition, or another identity keyword with one of those three scopes, whose generated value this one reuses before its function suffix (BlueField-3's VU starts with its SN); one level only
+  functionTypes:                    # kinds of PCI function the configurations use
+    - name: string                  # unique; what a function's type and a vfType name
       vendorID: string              # four lowercase hex digits, no 0x
       deviceID: string
       subsystemVendorID: string?
       subsystemDeviceID: string?
-      driver: string                # bound kernel driver, such as mlx5_core
-      rdmaNamePrefix: string?       # kernel's RDMA device name prefix, such as mlx5_
+      driver: string                # bound kernel driver, such as mlx5_core; matches ^[a-z0-9_-]+$
+      rdmaNamePrefix: string?       # kernel's RDMA device name prefix, such as mlx5_; matches ^[a-z0-9_]+$
       rdmaNodeType: string?         # node_type the driver reports; empty means "1: CA"
       rdmaOmit: [string]?           # RDMA attributes the driver doesn't create: the file is absent. Any of fw_ver, hca_type, board_id, hw_rev
       rdmaEmpty: [string]?          # RDMA attributes the driver creates with an empty value. Same choices as rdmaOmit
       totalVFs: int?                # sriov_totalvfs; 0 means no SR-IOV. Enabling VFs is cluster software's job
-      vfType: string?               # the functionTypes key of the VFs this function can enable; needs totalVFs
+      vfType: string?               # the function type of the VFs this function can enable; needs totalVFs
       revision: string?             # PCI revision ID, such as "0x00"
       pcieLink:                     # optional: the link the function trains to; omitted when no capture shows it, and then no link attributes are generated
         speed: string               # as sysfs reports it, such as "64.0 GT/s PCIe"
@@ -431,7 +436,7 @@ spec:
           lmc: int?                 # LID mask count; empty means 0
       functions:                    # PCI functions this configuration produces
         - id: string
-          type: string              # a functionTypes key
+          type: string              # a function type's name
           pciDevice: string         # the PCI device a slot places, such as network or hostA
           function: int             # PCI function number within that device
           class: string             # PCI class code this configuration gives the function, such as "0x020700"
@@ -477,7 +482,7 @@ spec:
           firmwareVersion: string?  # overrides identity.firmwareVersion
           vpd: {string: string}?    # overrides model VPD keywords, such as EC
           devices:                  # placement of each PCI device the configurations name
-            <pciDevice>:
+            - name: string          # unique; a pciDevice of the configurations, such as network or hostA
               rootComplex: string   # pciDDDD:BB
               bridges:              # the NIC's switch ports above or beside the device, parents first
                 - address: string
@@ -525,7 +530,7 @@ rackGroups:
 The CRD checks field shapes. These rules need more than one field, so the loader checks them in file mode, and the controller checks them and reports failures in status in control-plane mode:
 
 - **Decoding:** strict, on the raw document: an unknown field, a missing required field or a repeated item in a set or map list is an error in file mode too, as the API server would reject it; zero values aren't filled in.
-- **Profile:** VPD scopes are `board`, `asic`, `boardPosition` or another identity keyword that has a scope, and a keyword is either a model value or an identity. Every function type has a driver. `rdmaOmit` and `rdmaEmpty` name only `fw_ver`, `hca_type`, `board_id` or `hw_rev`, and no attribute is in both. A `vfType` names another function type, on a function type with `totalVFs`. Configuration names are unique, and the default is one of them.
+- **Profile:** VPD scopes are `board`, `asic`, `boardPosition`, or another identity keyword whose own scope is one of those three, so reuse is one level deep: `{SN: asic, VU: SN}` is valid and `{SN: VU, VU: SN}` isn't. A keyword is either a model value or an identity. Every function type has a driver. `driver` and `rdmaNamePrefix` are kernel names, lowercase letters, digits and `_` (and `-` in a driver), so neither can form a path outside the staged tree. `rdmaOmit` and `rdmaEmpty` name only `fw_ver`, `hca_type`, `board_id` or `hw_rev`, and no attribute is in both. A `vfType` names another function type, on a function type with `totalVFs`. Configuration names are unique, and the default is one of them.
 - **Configuration:** port and function IDs are unique. Technology and lane speed come from the lists above; width is positive and planes aren't negative. A function's type exists, its PCI device is named, and each device and function number is used once. The class is `0x` plus six hex digits. Every port has an owner, and at most one per PCI device. An RDMA device names a function and at least one port, and its ports are ports that function owns, each listed once. A function has at most one RDMA device, since its identifiers come from the function's position.
 - **Rack profile:** slot names, GPU slots and PCI addresses are unique. One board holds one NIC model. A slot's GPUs and profile exist. A per-board VPD identity needs a `board`, and a per-board-position one needs a `vpdPosition`. `systemImageGUID` is `distinct` or an RDMA device of the selected configuration. Root ports are unique and inside their root complex. Addresses are well-formed and inside their root complex. Every parent, of a GPU slot, a NIC device or a switch port, names a root port or a switch port of the node in the same root complex, and switch ports form no cycle. Every address is in its root complex's PCI domain. A root port, and a NIC device without a parent, sit on the root complex's bus, and a switch port's children sit on its downstream bus. Root ports are exempt from that last check while platform bridges aren't modeled: a cloud VM's capture doesn't record them, so `aws-gb300` names root ports as parents. A NIC device without a parent sits on its root complex's root bus, so its address is on that bus and it has no switch ports, as the EFA device in `aws-c5n` shows. Bridges need the profile's `switchPort`. Every PCI device a configuration uses is placed.
 - **Overrides:** overrides apply in order, and a later one wins per field; VPD keywords merge. An override that sets a new profile drops the slot's configuration, firmware version, VPD overrides and a `systemImageGUID` that names an RDMA device, which all belonged to the old model, unless the same override sets them; `distinct` carries over. An override that names an unknown slot is an error. The rack-profile rules then run on the effective selection, so an override that selects a profile or configuration whose PCI devices the slot doesn't place is rejected.
@@ -539,13 +544,15 @@ The CRD checks field shapes. These rules need more than one field, so the loader
 | [`cx8-c8280z`](#sample-cx8-c8280z), [`gb300-nvl72`](#sample-gb300-nvl72) | Two configurations of one ASIC; Data Direct in a GPU's domain; VPD by board, ASIC and board position; `systemImageGUID: distinct` |
 | [`gb300-ethernet`](#sample-gb300-ethernet) | Selecting `eth-multiplane`; per-slot firmware and VPD overrides; `umadMode` |
 | [`cx7-hhhl`](#sample-cx7-hhhl) | One card with two links in two domains |
-| [`bf3-b3240`](#sample-bf3-b3240) | A SoC function without an RDMA device; a function type without a VPD identity |
+| [`bf3-b3240`](#sample-bf3-b3240) | A SoC management function without an RDMA device, next to PFs with one; a function type without a VPD identity |
 | [`bf4-vr`](#sample-bf4-vr), [`vr-nvl72`](#sample-vr-nvl72) | Two host links sharing ports; the system image GUID taken from a named RDMA device |
 | [`cx9-vr`](#sample-cx9-vr) | The VR NVL72 scale-out NIC |
 | [`cx8-aws-vf`](#sample-cx8-aws-vf), [`aws-gb300`](#sample-aws-gb300) | A cloud VM's VFs and Data Direct functions, with no PF |
 | [`efa-c5n`](#sample-efa-c5n), [`aws-c5n`](#sample-aws-c5n) | EFA: declared node type, absent and empty attributes; a device on the root bus |
 
 ### Generation rules
+
+Back to: [Generic generation and stable identifiers](#generic-generation-and-stable-identifiers)
 
 Generation has two halves. **Resolve** turns the declaration into a typed NIC state in which every value is decided. **Render** turns that state into surfaces; the node agent's simulators do it. Both halves read only declared values and branch only on port technology.
 
@@ -605,9 +612,9 @@ nic_overrides:             # appended by the chart from values
 
 **Compile.** `compileNICs` joins `compileState` (`internal/agent/source/file.go`) and resolves the slots into `State.NICs`; `compileNetwork` keeps turning the `infiniband` block into `NodeShape.Network`, which drives rendering until [#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355). Like `compileNetwork`, it parses the same bytes through its own schema, since the NVML engine never reads NICs. It validates them, applies the selection order, and resolves with the node's coordinates.
 
-**Failing open.** The agent accepts a node's whole PCI tree, GPUs and NICs together, since GPUs can sit below a NIC's switch ports. A candidate is accepted only if its combined tree validates. When the NIC declaration is invalid, the agent keeps its last accepted NIC state if that state still forms a valid tree with the new GPU state. Otherwise, and on a node that never accepted one, it runs without NICs, and a GPU whose parent was a NIC switch port is placed directly below its root port. Either way the GPUs render. The error is logged, recorded as a Warning Event on the node agent's pod (with a Normal Event once a declaration is accepted again), and shown in `/readyz` under `nics` while the probe stays OK. The kept state lives in the agent's memory, so a restarted agent starts like a fresh node. A Helm change to the profile document rolls the node agents, so the chart's render-time checks are the first line of defense: everything the chart can check fails `helm template` before any pod changes. Control-plane mode follows the same rule.
+**Failing open.** The agent accepts a node's whole PCI tree, GPUs and NICs together, since GPUs can sit below a NIC's switch ports. A candidate is accepted only if its combined tree validates. When the NIC declaration is invalid, the agent keeps its last accepted NIC state if that state still forms a valid tree with the new GPU state. Otherwise, and on a node that never accepted one, it runs without NICs, and a GPU whose parent was a NIC switch port is placed directly below its root port. Either way the GPUs render. The error is logged, recorded as a Warning Event on the node agent's pod (with a Normal Event once a declaration is accepted again), and shown in `/readyz` under `nics` while the probe stays OK. The Helm chart grants the node agent the minimum Kubernetes permissions required to publish these Events. The kept state lives in the agent's memory, so a restarted agent starts like a fresh node. A Helm change to the profile document rolls the node agents, so the chart's render-time checks are the first line of defense: everything the chart can check fails `helm template` before any pod changes. Control-plane mode follows the same rule.
 
-**State.** `State.NICs` takes over from `NodeShape.Network` once `ib` renders from it ([#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355)); the `infiniband` block and `NodeShape.Network` go then. Every value is resolved, so simulators never derive anything and a change is detected by comparing states. Nothing downstream reads the NIC YAML, so there is no raw copy of it.
+**State.** `State.NICs` takes over from `NodeShape.Network` once `ib` renders from it ([#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355)). The `infiniband` block goes from `gb300` and `vrnvl72` then; the block and `NodeShape.Network` go for good once the other GPU profiles have NIC slots from captures ([implementation step 4](#implementation-order), [#1269](https://github.com/NVIDIA/k8s-test-infra/issues/1269)). Every value is resolved, so simulators never derive anything and a change is detected by comparing states. Nothing downstream reads the NIC YAML, so there is no raw copy of it.
 
 ```go
 // NICs is a node's resolved NIC state. Every value is decided.
@@ -629,21 +636,20 @@ type NICs struct {
 |---|---|
 | `pcibus` | Renders NIC functions and bridges into the same `/sys/bus/pci` tree as the GPUs; GPUs, NIC functions and switch ports form one tree, each under its declared parent. Its NFD feature file gains the NIC vendors |
 | `ib` | Renders `class/infiniband`, `infiniband_mad`, `infiniband_verbs`, `/dev/infiniband` and RoCE netdevs from `NetworkShape` (the `infiniband` block) today, and from `State.NICs` with [#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355). `mock-ib` reloads when the NIC state changes, as today |
-| Driver reactions (new) | Emulates the driver's response to the operator actions Mokka can see, starting with `sriov_numvfs` writes (MEP-0011). Switchdev mode and SMI devices go through devlink and RDMA netlink, which Mokka can't answer yet. A daemon, since operators act after staging. The behavior belongs to a driver, so it lives in a module per declared `driver`, starting with `mlx5_core`; it isn't described by declaration fields. Its state is runtime only; a configuration change clears it |
 | Netdevs (new, if needed) | IPoIB netdevs and `ethtool` answers, if they don't fit in `ib`. `ethtool` uses ioctl and netlink, so it needs a shim like the IB tools |
 
 Today an HCA's PCI function exists only in `ib`'s own tree. A Data Direct function has to sit under its GPU's root complex, so all PCI functions move to one tree. How the `libmockfs` and `libibmocksys` path redirections share that tree is part of the implementation.
 
-A new state from a profile edit or a configuration change runs `Stage` again: the functions of a changed NIC are removed and created in the new layout.
+A new state from a profile edit or a configuration change runs `Stage` again. For now every NIC on the node is removed and created again in the new layout, as **Changes** in [Where profiles live](#where-profiles-live-and-how-a-cluster-chooses-them) says; keeping the unaffected NICs in place comes later.
 
 ### Control plane
 
 | Area | Change |
 |---|---|
 | Watches | A new `SNICProfile` informer and RBAC (`get`, `list`, `watch`). NIC profile events re-route inventories as `SGPURackProfile` events do. Slots are part of the rack profile's spec, so they already change its revision; `nicOverrides` counts as a rendering input |
-| Rack rendering | A rack's NIC inputs, each `SNICProfile` revision its slots name and the inventory revision that supplies `nicOverrides`, join the accepted inputs MEP-0001's delivery generation records, and an accepted change advances it. The rack validates the NIC references and the cross-field rules; a rejected change becomes a condition, and the last accepted inputs keep being delivered. The revision ignores the order of unordered lists (root ports, NIC slots, a slot's GPUs). No NIC state is stored in `SGPURack`: it is deterministic |
-| Per-node view | When a node agent asks for its state, the control plane resolves the node's NICs with the same code file mode uses, from the exact accepted revisions only. A replica that doesn't have one yet answers with retry, as MEP-0001 specifies for its other inputs |
-| Status | A missing or invalid `SNICProfile` becomes a condition on the inventory and rack. Nothing is blocked: a node keeps its last applied NIC state, and a node that never had one starts without NICs, as in file mode |
+| Rack rendering | A rack's NIC inputs, each `SNICProfile` revision its slots name and the inventory revision that supplies `nicOverrides`, join the accepted inputs MEP-0001's delivery generation records, and an accepted change advances it. The rack validates the NIC references and the cross-field rules; a rejected change becomes a condition. The revision ignores the order of unordered lists (root ports, NIC slots, a slot's GPUs). No NIC state is stored in `SGPURack`: it is deterministic |
+| Per-node view | When a node agent asks for its state, the control plane resolves the node's NICs with the same code file mode uses, from the exact accepted revisions only. A replica that can't read one, because it hasn't synced yet or the profile was deleted or edited since, answers with retry, as MEP-0001 specifies for its other inputs |
+| Status | A missing or invalid `SNICProfile` becomes a condition on the inventory and rack. As with any profile under MEP-0001, delivery to the nodes of the racks that name it pauses until the profile is restored or fixed, GPU policy changes included: a node keeps its last applied state, and a node with none waits |
 | Unchanged | Allocation, capacity, Node projection and runtime policies |
 
 ```yaml
@@ -662,20 +668,21 @@ Delivery of per-node state to the agent is MEP-0001's and isn't built yet: the a
 deployments/mokka-crds/helm/mokka-crds/templates/
 └── mokka.nvidia.com_snicprofiles.yaml   new CRD, generated
 deployments/nvml-mock/helm/nvml-mock/
-├── nics/                                one SNICProfile per NIC model
-│   ├── cx8-c8280z.yaml
-│   └── …
 ├── profiles/
-│   └── gb300.yaml                       GPU profile; NIC slots replace the infiniband block
+│   ├── gb300.yaml                       GPU profile; NIC slots replace the infiniband block
+│   ├── mig/                             existing MIG profile tables
+│   └── nics/                            one SNICProfile per NIC model
+│       ├── cx8-c8280z.yaml
+│       └── …
 └── templates/controlplane/
     └── snicprofiles.yaml                built-in objects, when controlPlane.enabled
 ```
 
-The control-plane template renders one object per file and checks that its name matches the file name:
+GPU profiles are read from `profiles/*.yaml`, which doesn't descend into `mig/` or `nics/`. The control-plane template renders one object per file in `profiles/nics/` and checks that its name matches the file name:
 
 ```yaml
 {{- if .Values.controlPlane.enabled }}
-{{- range $path, $_ := .Files.Glob "nics/*.yaml" }}
+{{- range $path, $_ := .Files.Glob "profiles/nics/*.yaml" }}
 {{- $p := $.Files.Get $path | fromYaml }}
 {{- $name := base $path | trimSuffix ".yaml" }}
 {{- if ne $p.metadata.name $name }}{{ fail (printf "%s: metadata.name must be %s" $path $name) }}{{ end }}
@@ -709,14 +716,12 @@ nics:
 
 The chart fails the render on mistakes it can see: an override without `slots`, or naming an unknown slot or configuration; a custom profile without `apiVersion`, reusing a shipped profile's name, or with a default configuration it doesn't define; a profile document with a repeated NIC key.
 
-To record those Events, the chart gives the node agent a Role that only allows creating Events, and mounts an API token only in the node-agent container.
-
 ### Test plan
 
 - **Schema.** Every shipped profile decodes strictly into the Go type and passes validation. Every shipped profile also passes the generated CRD schema, and every invalid case for a rule the CRD can enforce (field types, enums, patterns, required fields) fails both, so file mode and the API server can't drift apart. Rules that span fields or objects, such as a slot naming a profile that exists, can't live in a CRD; file mode and the controller run them from one validation package, and a test gives both the same cases. The NIC slots, GPU slots and root ports in each GPU profile equal those of the matching rack profile, so the capture checks cover the addresses file mode uses.
 - **Declaration level.** For each capture, the generator's output is compared with the capture through `diff nic`; every difference must match a cause. Deliberate breakages, such as swapping two NICs' Data Direct functions, dropping planes or putting both of a card's ports on one link, must each be caught.
 - **Determinism.** Generating twice gives identical output, removing one NIC leaves the others' identifiers unchanged, and renaming every function, port and RDMA device ID in a profile leaves every identifier unchanged.
-- **Configuration switch.** Changing only a slot's configuration changes its functions and nothing in its placement or Data Direct pairing.
+- **Configuration switch.** Changing only a slot's configuration changes its functions and nothing in its placement or Data Direct pairing. The node's other NICs come back at the same addresses with the same identifiers; their RDMA device names can shift, since names follow PCI order.
 - **Rendered level.** The simulators stage a node into a temporary host root, the capture scripts read it, and `diff nic` compares the result with the same capture and causes. No cluster is needed. The `collect network` scripts read `/sys` and `/dev` directly today; a root-directory option for a staged tree is in #1268.
 - **Both modes.** File mode and control-plane mode give the same `State.NICs` for the same declaration and node coordinates.
 - **Consumer level.** Real tools find and use the simulated NICs in a Mokka pod: `lspci`, `ibv_devinfo`, `ethtool`, `nvidia-smi topo -m`, and later `rdma link`, `ip link` and the network operator's components. The declaration level shows the model is right and the rendered level that the files are there; only this level shows applications can use them.
@@ -724,10 +729,9 @@ To record those Events, the chart gives the node agent a Role that only allows c
 ### Implementation order
 
 1. API types, CRD, chart profile files, validation.
-2. Node agent in file mode: `compileNICs`, `State.NICs`, the rendered-level check; rendering stays on the `infiniband` block. `pcibus` (#1354) and `ib` (#1355) then render from `State.NICs`, which retires the block for `gb300` and `vrnvl72`.
+2. Node agent in file mode: `compileNICs`, `State.NICs`, the rendered-level check; rendering stays on the `infiniband` block. `gb300`'s GPUs move from their synthetic addresses (`0000:0A:00.0`, `0000:0B:00.0`, `0000:4A:00.0`, `0000:4B:00.0`) to the captured ones (`0008:06:00.0`, `0009:06:00.0`, `0018:06:00.0`, `0019:06:00.0`), so the PCI bus IDs NVML reports for that profile change. `pcibus` (#1354) and `ib` (#1355) then render from `State.NICs`, which retires the block for `gb300` and `vrnvl72`.
 3. Control plane: watches, pins, status; the per-node view once delivery exists.
-4. Driver reactions for the operations Mokka can see, starting with VFs (MEP-0011). Switchdev mode and SMI devices wait for devlink and RDMA netlink support.
-5. Captures and profiles for the remaining platforms, then removal of the `infiniband` block, `compileNetwork` and `NetworkShape`.
+4. Captures and profiles for the remaining platforms, then removal of the `infiniband` block, `compileNetwork` and `NetworkShape`.
 
 ## Open Questions
 
@@ -782,6 +786,7 @@ Otherwise the declaration and rendered checks can pass while applications still 
 
 | Alternative | Why not |
 |---|---|
+| NIC models inline in each rack profile | A NIC model and its configurations are defined once and referenced wherever they're used; inline, every rack profile would copy its PCI IDs, VPD and every configuration. With a separate profile, clusters with the same GPU type can pick different NIC models, or an OEM variant under its own name (Story 3), without a new rack profile |
 | Keep the `infiniband` block, extended | It counts NICs per GPU and has one shape per node; it can't express several NIC models, NICs across PCIe domains, or a mode change |
 | A NIC catalog where the link type drives the layout | The generator would derive PFs and classes from link type and planes, which is ConnectX knowledge in Mokka |
 | Firmware parameters (`mlxconfig`) as input | The same parameters mean different layouts per technology; interpreting them makes the generator device-specific |
@@ -803,7 +808,7 @@ A prototype implements the schema, the validation, the generator, and the declar
 | AWS GB300 instance | 385 | 123 | 242 blind spots of a trimmed listing, 20 by design (VF netdevs moved into pods, an IPv4-mapped GID) |
 | AWS EFA (`c5n.9xlarge`) | 58 | 52 | 3 by design: host kernel and architecture, udev directories. 3 capture blind spots: attributes the driver doesn't create, which the converted capture recorded as empty |
 
-No difference is a schema gap or a rule bug. Fifteen deliberate breakages are each caught. The by-design differences are surfaces the declaration leaves out on purpose. Of those, the VF can come from Mokka's driver emulation (MEP-0011), but the SMI devices, switchdev and representors need devlink and RDMA netlink, so a simulated node can't produce them yet; they're known gaps, not planned work. The AWS sources predate `collect network` and were converted into the prototype's format.
+No difference is a schema gap or a rule bug. Fifteen deliberate breakages are each caught. The by-design differences are surfaces the declaration leaves out on purpose: cluster software creates them, and this MEP doesn't emulate it. The AWS sources predate `collect network` and were converted into the prototype's format.
 
 These counts come from the prototype's comparison tool and its single-file captures. [#1353](https://github.com/NVIDIA/k8s-test-infra/pull/1353)'s `diff nic` reads capture directories and makes one check per attribute either side has, so an object one side lacks fails once per attribute; its totals aren't comparable with these. It also adds two relations: whose node GUID a system image GUID is, and whether a BlueField's VPD `VU` starts with its serial number.
 
@@ -824,6 +829,8 @@ The prototype's samples. Rack profiles hold only the fields this MEP adds or rea
 
 <a id="sample-cx8-c8280z"></a>
 #### `cx8-c8280z`
+
+Back to: [The NIC model and the NIC instance](#the-nic-model-and-the-nic-instance)
 
 One ConnectX-8 ASIC of the dual-ASIC C8280Z mezzanine board in GB300 trays.
 
@@ -854,7 +861,7 @@ spec:
     # with its Data Direct function), VU per board position.
     identities: {SN: board, V3: asic, VU: boardPosition}
   functionTypes:
-    network:
+    - name: network
       vendorID: "15b3"
       deviceID: "1023"
       subsystemVendorID: "15b3"
@@ -867,7 +874,7 @@ spec:
       vfType: vf
       vpd: true
       vpdSuffixes: {VU: "MLNXS0D0F{function}"}
-    dataDirect:
+    - name: dataDirect
       vendorID: "15b3"
       deviceID: "2100"
       subsystemVendorID: "15b3"
@@ -881,7 +888,7 @@ spec:
     # Ethernet capture shows on PF0. It reports its current link as Unknown and
     # its maximum as 64.0 GT/s x16, which pcieLink can't express, so no link is
     # declared.
-    vf:
+    - name: vf
       vendorID: "15b3"
       deviceID: "101e"
       subsystemVendorID: "15b3"
@@ -944,7 +951,7 @@ spec:
     - tests/hardware-captures/vr-nvl72/node-a
   switchPort: {vendorID: "15b3", deviceID: "197c"}
   functionTypes:
-    network:
+    - name: network
       vendorID: "15b3"
       deviceID: "1025"
       subsystemVendorID: "15b3"
@@ -994,7 +1001,7 @@ spec:
       V0: PCIeGen5 x16
     identities: {SN: asic, V3: asic, VU: SN}
   functionTypes:
-    network:
+    - name: network
       vendorID: "15b3"
       deviceID: "a2dc"
       subsystemVendorID: "15b3"
@@ -1006,7 +1013,7 @@ spec:
       totalVFs: 16
       vpd: true
       vpdSuffixes: {VU: "MLNXS0D0F{function}"}
-    socManagement:
+    - name: socManagement
       vendorID: "15b3"
       deviceID: "c2d5"
       subsystemVendorID: "15b3"
@@ -1051,7 +1058,7 @@ spec:
   sources:
     - tests/hardware-captures/vr-nvl72/node-a
   functionTypes:
-    network:
+    - name: network
       vendorID: "15b3"
       deviceID: "a2df"
       subsystemVendorID: "15b3"
@@ -1106,7 +1113,7 @@ spec:
       V0: PCIeGen5 x16
     identities: {SN: board, V3: asic, VU: boardPosition}
   functionTypes:
-    network:
+    - name: network
       vendorID: "15b3"
       deviceID: "1021"
       subsystemVendorID: "15b3"
@@ -1153,14 +1160,14 @@ spec:
   vpd:
     identities: {VU: asic}
   functionTypes:
-    vf:
+    - name: vf
       vendorID: "15b3"
       deviceID: "101e"
       driver: mlx5_core
       rdmaNamePrefix: mlx5_
       vpd: true
       vpdOmit: [VU]
-    dataDirect:
+    - name: dataDirect
       vendorID: "15b3"
       deviceID: "2100"
       driver: mlx5_ib
@@ -1199,7 +1206,7 @@ spec:
   sources:
     - EFA capture on an AWS c5n.9xlarge instance (see internal/nic/conformance/testdata/converted)
   functionTypes:
-    efa:
+    - name: efa
       vendorID: "1d0f"
       deviceID: "efa0"
       subsystemVendorID: "1d0f"
@@ -1266,7 +1273,7 @@ spec:
           board: 0
           gpus: [1]
           devices:
-            network:
+            - name: network
               rootComplex: pci0000:00
               bridges:
                 - {address: "0000:01:00.0", parent: "0000:00:00.0"}
@@ -1279,7 +1286,7 @@ spec:
               parent: "0000:02:00.0"
               numaNode: 0
               vpdPosition: "-Prime"
-            dataDirect:
+            - name: dataDirect
               rootComplex: pci0009:00
               bridges:
                 - {address: "0009:01:00.0", parent: "0009:00:00.0"}
@@ -1297,7 +1304,7 @@ spec:
           systemImageGUID: distinct
           gpus: [0]
           devices:
-            network:
+            - name: network
               rootComplex: pci0002:00
               bridges:
                 - {address: "0002:01:00.0", parent: "0002:00:00.0"}
@@ -1310,7 +1317,7 @@ spec:
               parent: "0002:02:00.0"
               numaNode: 0
               vpdPosition: "-Aux[1]"
-            dataDirect:
+            - name: dataDirect
               rootComplex: pci0008:00
               bridges:
                 - {address: "0008:01:00.0", parent: "0008:00:00.0"}
@@ -1327,7 +1334,7 @@ spec:
           board: 1
           gpus: [3]
           devices:
-            network:
+            - name: network
               rootComplex: pci0010:00
               bridges:
                 - {address: "0010:01:00.0", parent: "0010:00:00.0"}
@@ -1340,7 +1347,7 @@ spec:
               parent: "0010:02:00.0"
               numaNode: 1
               vpdPosition: "-Prime"
-            dataDirect:
+            - name: dataDirect
               rootComplex: pci0019:00
               bridges:
                 - {address: "0019:01:00.0", parent: "0019:00:00.0"}
@@ -1358,7 +1365,7 @@ spec:
           systemImageGUID: distinct
           gpus: [2]
           devices:
-            network:
+            - name: network
               rootComplex: pci0012:00
               bridges:
                 - {address: "0012:01:00.0", parent: "0012:00:00.0"}
@@ -1371,7 +1378,7 @@ spec:
               parent: "0012:02:00.0"
               numaNode: 1
               vpdPosition: "-Aux[1]"
-            dataDirect:
+            - name: dataDirect
               rootComplex: pci0018:00
               bridges:
                 - {address: "0018:01:00.0", parent: "0018:00:00.0"}
@@ -1386,7 +1393,7 @@ spec:
         - slot: frontend0
           profile: bf3-b3240
           devices:
-            host:
+            - name: host
               rootComplex: pci0016:00
               address: "0016:01:00"
               parent: "0016:00:00.0"
@@ -1434,7 +1441,7 @@ spec:
           profile: cx9-vr
           gpus: [0, 1]
           devices:
-            network:
+            - name: network
               rootComplex: pci0001:00
               # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
               bridges:
@@ -1450,7 +1457,7 @@ spec:
           profile: cx9-vr
           gpus: [0, 1]
           devices:
-            network:
+            - name: network
               rootComplex: pci0003:00
               address: "0003:01:00"
               parent: "0003:00:00.0"
@@ -1459,7 +1466,7 @@ spec:
           profile: cx9-vr
           gpus: [0, 1]
           devices:
-            network:
+            - name: network
               rootComplex: pci0004:00
               # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
               bridges:
@@ -1475,7 +1482,7 @@ spec:
           profile: cx9-vr
           gpus: [0, 1]
           devices:
-            network:
+            - name: network
               rootComplex: pci0006:00
               address: "0006:01:00"
               parent: "0006:00:00.0"
@@ -1484,7 +1491,7 @@ spec:
           profile: cx9-vr
           gpus: [2, 3]
           devices:
-            network:
+            - name: network
               rootComplex: pci0009:00
               # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
               bridges:
@@ -1500,7 +1507,7 @@ spec:
           profile: cx9-vr
           gpus: [2, 3]
           devices:
-            network:
+            - name: network
               rootComplex: pci000b:00
               address: "000b:01:00"
               parent: "000b:00:00.0"
@@ -1509,7 +1516,7 @@ spec:
           profile: cx9-vr
           gpus: [2, 3]
           devices:
-            network:
+            - name: network
               rootComplex: pci000c:00
               # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
               bridges:
@@ -1525,7 +1532,7 @@ spec:
           profile: cx9-vr
           gpus: [2, 3]
           devices:
-            network:
+            - name: network
               rootComplex: pci000e:00
               address: "000e:01:00"
               parent: "000e:00:00.0"
@@ -1535,12 +1542,12 @@ spec:
           # One ASIC; its system image GUID is the node GUID of host link B's p0 PF.
           systemImageGUID: rdma-b0
           devices:
-            hostA:
+            - name: hostA
               rootComplex: pci0005:40
               address: "0005:41:00"
               parent: "0005:40:00.0"
               numaNode: 0
-            hostB:
+            - name: hostB
               rootComplex: pci000d:40
               address: "000d:41:00"
               parent: "000d:40:00.0"
@@ -1549,6 +1556,8 @@ spec:
 
 <a id="sample-gb300-ethernet"></a>
 #### `gb300-ethernet`
+
+Back to: [Configurations declare their result](#configurations-declare-their-result)
 
 NIC slots of one GB300 NVL72 tray at a cloud provider (tests/hardware-captures/gb300-roce/node-a): the same ConnectX-8 boards as gb300-nvl72 in their Ethernet multi-plane configuration, on newer firmware, and a ConnectX-7 front-end card.
 
@@ -1587,7 +1596,7 @@ spec:
           board: 0
           gpus: [1]
           devices:
-            network:
+            - name: network
               rootComplex: pci0000:00
               bridges:
                 - {address: "0000:01:00.0", parent: "0000:00:00.0"}
@@ -1600,7 +1609,7 @@ spec:
               parent: "0000:02:00.0"
               numaNode: 0
               vpdPosition: "-Prime"
-            dataDirect:
+            - name: dataDirect
               rootComplex: pci0009:00
               bridges:
                 - {address: "0009:01:00.0", parent: "0009:00:00.0"}
@@ -1620,7 +1629,7 @@ spec:
           systemImageGUID: distinct
           gpus: [0]
           devices:
-            network:
+            - name: network
               rootComplex: pci0002:00
               bridges:
                 - {address: "0002:01:00.0", parent: "0002:00:00.0"}
@@ -1633,7 +1642,7 @@ spec:
               parent: "0002:02:00.0"
               numaNode: 0
               vpdPosition: "-Aux[1]"
-            dataDirect:
+            - name: dataDirect
               rootComplex: pci0008:00
               bridges:
                 - {address: "0008:01:00.0", parent: "0008:00:00.0"}
@@ -1653,7 +1662,7 @@ spec:
           board: 1
           gpus: [3]
           devices:
-            network:
+            - name: network
               rootComplex: pci0010:00
               bridges:
                 - {address: "0010:01:00.0", parent: "0010:00:00.0"}
@@ -1666,7 +1675,7 @@ spec:
               parent: "0010:02:00.0"
               numaNode: 1
               vpdPosition: "-Prime"
-            dataDirect:
+            - name: dataDirect
               rootComplex: pci0019:00
               bridges:
                 - {address: "0019:01:00.0", parent: "0019:00:00.0"}
@@ -1687,7 +1696,7 @@ spec:
           systemImageGUID: distinct
           gpus: [2]
           devices:
-            network:
+            - name: network
               rootComplex: pci0012:00
               bridges:
                 - {address: "0012:01:00.0", parent: "0012:00:00.0"}
@@ -1700,7 +1709,7 @@ spec:
               parent: "0012:02:00.0"
               numaNode: 1
               vpdPosition: "-Aux[1]"
-            dataDirect:
+            - name: dataDirect
               rootComplex: pci0018:00
               bridges:
                 - {address: "0018:01:00.0", parent: "0018:00:00.0"}
@@ -1716,13 +1725,13 @@ spec:
           profile: cx7-hhhl
           board: 2
           devices:
-            hostA:
+            - name: hostA
               rootComplex: pci0007:00
               address: "0007:01:00"
               parent: "0007:00:00.0"
               numaNode: 0
               vpdPosition: "-Prime"
-            hostB:
+            - name: hostB
               rootComplex: pci0017:00
               address: "0017:01:00"
               parent: "0017:00:00.0"
@@ -1765,30 +1774,30 @@ spec:
           profile: cx8-aws-vf
           gpus: [0]
           devices:
-            vfA: {rootComplex: pci0000:9e, address: "0000:a1:00", parent: "0000:9e:00.0", numaNode: 0}
-            vfB: {rootComplex: pci0000:9e, address: "0000:a2:00", parent: "0000:9e:00.0", numaNode: 0}
-            dataDirect: {rootComplex: pci0000:98, address: "0000:9c:00", parent: "0000:98:00.0", numaNode: 0}
+            - {name: vfA, rootComplex: pci0000:9e, address: "0000:a1:00", parent: "0000:9e:00.0", numaNode: 0}
+            - {name: vfB, rootComplex: pci0000:9e, address: "0000:a2:00", parent: "0000:9e:00.0", numaNode: 0}
+            - {name: dataDirect, rootComplex: pci0000:98, address: "0000:9c:00", parent: "0000:98:00.0", numaNode: 0}
         - slot: aws1
           profile: cx8-aws-vf
           gpus: [1]
           devices:
-            vfA: {rootComplex: pci0000:a9, address: "0000:ac:00", parent: "0000:a9:00.0", numaNode: 0}
-            vfB: {rootComplex: pci0000:a9, address: "0000:ad:00", parent: "0000:a9:00.0", numaNode: 0}
-            dataDirect: {rootComplex: pci0000:a3, address: "0000:a7:00", parent: "0000:a3:00.0", numaNode: 0}
+            - {name: vfA, rootComplex: pci0000:a9, address: "0000:ac:00", parent: "0000:a9:00.0", numaNode: 0}
+            - {name: vfB, rootComplex: pci0000:a9, address: "0000:ad:00", parent: "0000:a9:00.0", numaNode: 0}
+            - {name: dataDirect, rootComplex: pci0000:a3, address: "0000:a7:00", parent: "0000:a3:00.0", numaNode: 0}
         - slot: aws2
           profile: cx8-aws-vf
           gpus: [2]
           devices:
-            vfA: {rootComplex: pci0000:bb, address: "0000:be:00", parent: "0000:bb:00.0", numaNode: 1}
-            vfB: {rootComplex: pci0000:bb, address: "0000:bf:00", parent: "0000:bb:00.0", numaNode: 1}
-            dataDirect: {rootComplex: pci0000:b5, address: "0000:b9:00", parent: "0000:b5:00.0", numaNode: 1}
+            - {name: vfA, rootComplex: pci0000:bb, address: "0000:be:00", parent: "0000:bb:00.0", numaNode: 1}
+            - {name: vfB, rootComplex: pci0000:bb, address: "0000:bf:00", parent: "0000:bb:00.0", numaNode: 1}
+            - {name: dataDirect, rootComplex: pci0000:b5, address: "0000:b9:00", parent: "0000:b5:00.0", numaNode: 1}
         - slot: aws3
           profile: cx8-aws-vf
           gpus: [3]
           devices:
-            vfA: {rootComplex: pci0000:c6, address: "0000:c9:00", parent: "0000:c6:00.0", numaNode: 1}
-            vfB: {rootComplex: pci0000:c6, address: "0000:ca:00", parent: "0000:c6:00.0", numaNode: 1}
-            dataDirect: {rootComplex: pci0000:c0, address: "0000:c4:00", parent: "0000:c0:00.0", numaNode: 1}
+            - {name: vfA, rootComplex: pci0000:c6, address: "0000:c9:00", parent: "0000:c6:00.0", numaNode: 1}
+            - {name: vfB, rootComplex: pci0000:c6, address: "0000:ca:00", parent: "0000:c6:00.0", numaNode: 1}
+            - {name: dataDirect, rootComplex: pci0000:c0, address: "0000:c4:00", parent: "0000:c0:00.0", numaNode: 1}
 ```
 
 <a id="sample-aws-c5n"></a>
@@ -1809,5 +1818,5 @@ spec:
         - slot: efa0
           profile: efa-c5n
           devices:
-            efa: {rootComplex: pci0000:00, address: "0000:00:1f", numaNode: -1}
+            - {name: efa, rootComplex: pci0000:00, address: "0000:00:1f", numaNode: -1}
 ```
