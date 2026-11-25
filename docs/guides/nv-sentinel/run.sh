@@ -192,6 +192,10 @@ helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --set-string "nodeSelector.nvml-mock-gpu=true" \
   --set nodeAgent.kernelLog.enabled=true \
   --wait --timeout 180s
+# Helm 3's --wait lets up to a quarter of the node pods, rounded up, stay
+# unready (the chart's maxUnavailable), so wait for every node before the GPU
+# Operator lands on them.
+kubectl_ctx -n "${NAMESPACE}" rollout status daemonset/nvml-mock --timeout=180s
 
 # --- Install the NVIDIA GPU Operator with standalone DCGM ---------------------
 # gpu-operator-values.yaml disables the real driver/toolkit (the mock provides

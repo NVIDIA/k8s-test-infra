@@ -195,6 +195,7 @@ helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
   --set imex.binaries.image.tag="${IMEX_VERSION}" \
   --set featureGates.IMEXDownload=false \
   --wait --timeout 10m
+kubectl -n mokka rollout status ds/nvml-mock --timeout=10m
 ```
 
 | Setting | Why |

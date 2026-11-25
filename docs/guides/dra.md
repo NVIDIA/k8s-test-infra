@@ -50,6 +50,7 @@ kind create cluster --name mokka-dra --config kind-dra.yaml
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --namespace mokka --create-namespace \
   --wait --timeout 120s
+kubectl -n mokka rollout status ds/nvml-mock --timeout=120s
 ```
 
 Mokka's [NRI plugin](../components/nri-plugin.md), on by default, gives a

@@ -85,6 +85,13 @@ Visit **[our documentation website](https://nvidia.github.io/k8s-test-infra/)** 
 | [Configuration](https://nvidia.github.io/k8s-test-infra/configuration/) | Every profile knob                                                       |
 | [FAQ](https://nvidia.github.io/k8s-test-infra/faq/)                     | What Mokka simulates, and what it does not                               |
 
+## Use with coding agents
+
+[`skills/mokka`](skills/mokka/) is an agent skill for Claude Code, Codex,
+Cursor and other coding agents. It teaches an agent to install Mokka, run a
+consumer on top, inject failures and troubleshoot. Copy it into your agent's
+skills directory; see [its README](skills/mokka/README.md).
+
 ## Contributing
 
 See the [contributing guide](https://nvidia.github.io/k8s-test-infra/contributing/)
