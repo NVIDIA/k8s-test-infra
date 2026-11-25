@@ -29,6 +29,9 @@ Use a fresh output path for revisions.
 
 ## Edit the episode
 
+As the series grows, group new episodes in the [video index](README.md)
+under headings such as `## Core workflow` or `## Core features`.
+
 - [Episode JSON](episodes/01-mokka-gpu-workflows.json) holds scene start times,
   narration, opening text, feature cards, and end-card destinations.
 - [Artwork](artwork/__init__.py) lays out the slides and animates the robot.
