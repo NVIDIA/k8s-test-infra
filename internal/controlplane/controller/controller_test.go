@@ -1673,7 +1673,7 @@ func TestProjectedLabelEventsDoNotRouteInvalidPlacement(t *testing.T) {
 	t.Cleanup(queues.shutdown)
 	registry := newPlacementRegistry()
 	inventory := testInventory()
-	inventory.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{MatchLabels: map[string]string{
+	inventory.Spec.RackGroups[0].Placement.NodeSelector = &mokkav1alpha1.RackNodeSelector{MatchLabels: map[string]string{
 		sgpumetadata.AssignedLabel: "true",
 	}}
 	registry.replace(inventory)
@@ -1810,7 +1810,7 @@ func testInventory() *mokkav1alpha1.SGPUInventory {
 		Spec: mokkav1alpha1.SGPUInventorySpec{RackGroups: []mokkav1alpha1.RackGroup{{
 			ID: "group", Count: 1,
 			ProfileRef: mokkav1alpha1.ProfileReference{Name: "profile"},
-			Placement:  &mokkav1alpha1.RackPlacement{NodeSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"pool": "a"}}},
+			Placement:  &mokkav1alpha1.RackPlacement{NodeSelector: &mokkav1alpha1.RackNodeSelector{MatchLabels: map[string]string{"pool": "a"}}},
 		}}},
 	}
 }

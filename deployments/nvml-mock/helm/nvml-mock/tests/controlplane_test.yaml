@@ -87,6 +87,9 @@ tests:
           content: --workers=2
       - contains:
           path: spec.template.spec.containers[0].args
+          content: --kwok-shard-name=mokka-kwok-data-plane-0
+      - contains:
+          path: spec.template.spec.containers[0].args
           content: --kube-api-qps=50
       - contains:
           path: spec.template.spec.containers[0].args

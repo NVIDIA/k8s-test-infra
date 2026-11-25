@@ -151,7 +151,7 @@ func (c *informerCache) statusNodesForInventory(
 	selectors := make([]labels.Selector, 0, len(inventory.Spec.RackGroups))
 	if includePlacement {
 		for _, group := range inventory.Spec.RackGroups {
-			selector, err := allocate.CompilePlacementSelector(group.NodeSelector())
+			selector, err := allocate.CompilePlacementSelector(group.NodeSelector(), group.Node.Type)
 			if err != nil {
 				continue
 			}
@@ -195,8 +195,9 @@ func (c *informerCache) statusNodes(selectors []labels.Selector, boundNames map[
 	nodes := make(map[string]*corev1.Node, len(candidates)+len(boundNames))
 	for name, node := range candidates {
 		examined[name] = struct{}{}
+		placement := allocate.PlacementLabels(node)
 		for _, selector := range selectors {
-			if selector.Matches(labels.Set(node.Labels)) {
+			if selector.Matches(placement) {
 				nodes[name] = node
 				break
 			}

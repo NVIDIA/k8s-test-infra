@@ -30,6 +30,25 @@ func TestSGPUInventoryCRDRackGroupCountBound(t *testing.T) {
 	require.InDelta(t, 100_000, *count.Maximum, 0)
 }
 
+func TestSGPUInventoryCRDRackGroupNode(t *testing.T) {
+	t.Parallel()
+
+	schema := loadSGPUInventoryCRD(t).Spec.Versions[0].Schema.OpenAPIV3Schema
+	group := schemaProperty(t, schemaProperty(t, schema, "spec"), "rackGroups").Items.Schema
+	node := schemaProperty(t, group, "node")
+	require.JSONEq(t, "{}", string(node.Default.Raw))
+	kind := schemaProperty(t, node, "type")
+	require.JSONEq(t, `"CPU"`, string(kind.Default.Raw))
+	require.ElementsMatch(t, []apixv1.JSON{{Raw: []byte(`"CPU"`)}, {Raw: []byte(`"KWOK"`)}}, kind.Enum)
+	require.Equal(t, "self == oldSelf", kind.XValidations[0].Rule)
+
+	selector := schemaProperty(t, schemaProperty(t, group, "placement"), "nodeSelector")
+	require.Len(t, selector.XValidations, 1)
+	require.Contains(t, selector.XValidations[0].Rule, "!('mokka.nvidia.com/node-type' in self.matchLabels)")
+	expressions := schemaProperty(t, selector, "matchExpressions")
+	require.Equal(t, "self.key != 'mokka.nvidia.com/node-type'", expressions.Items.Schema.XValidations[0].Rule)
+}
+
 func loadSGPUInventoryCRD(t *testing.T) *apixv1.CustomResourceDefinition {
 	t.Helper()
 

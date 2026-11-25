@@ -86,7 +86,7 @@ func (c *Catalog) Upsert(node *corev1.Node) {
 		Name: node.Name, UID: node.UID,
 		CreationTimestamp: node.CreationTimestamp.Time,
 		Terminating:       node.DeletionTimestamp != nil,
-		Labels:            node.Labels,
+		Labels:            allocate.PlacementLabels(node),
 	}
 	record := &Record{
 		node:       node,
@@ -205,7 +205,7 @@ func (c *Catalog) Candidates(selector labels.Selector) []*Record {
 }
 
 func (c *Catalog) indexLocked(record *Record) {
-	for key, value := range record.node.Labels {
+	for key, value := range record.allocation.Labels {
 		addToSet(c.byLabelKey, key, record)
 		addToSet(c.byLabelValue, labelValue{key: key, value: value}, record)
 	}
@@ -215,7 +215,7 @@ func (c *Catalog) removeLocked(record *Record) {
 	if c.byName[record.node.Name] == record {
 		delete(c.byName, record.node.Name)
 	}
-	for key, value := range record.node.Labels {
+	for key, value := range record.allocation.Labels {
 		removeFromSet(c.byLabelKey, key, record)
 		removeFromSet(c.byLabelValue, labelValue{key: key, value: value}, record)
 	}

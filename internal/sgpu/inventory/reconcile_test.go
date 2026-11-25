@@ -345,7 +345,7 @@ func TestReconcileRejectsAggregateCapacityBeforeAllocationOrWrites(t *testing.T)
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
 		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return false }),
-		allocation,
+		allocation, DefaultKWOKShardName,
 	)
 	h.mokka.Fake.ClearActions()
 
@@ -381,7 +381,7 @@ func TestReconcileRejectsAdmittedMaximumPerGroupBeforeProfileResolution(t *testi
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
 		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return false }),
-		allocation,
+		allocation, DefaultKWOKShardName,
 	)
 	h.mokka.Fake.ClearActions()
 
@@ -686,7 +686,7 @@ func TestReconcileProjectedLabelSelectorRetainsBindingWithoutWrites(t *testing.T
 
 	invalid, err := h.mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
 	require.NoError(t, err)
-	invalid.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+	invalid.Spec.RackGroups[0].Placement.NodeSelector = &mokkav1alpha1.RackNodeSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
 		Key: sgpumetadata.CliqueLabel, Operator: metav1.LabelSelectorOpExists,
 	}}}
 	invalid.Generation++
@@ -751,7 +751,7 @@ func TestReconcileUsesCurrentInventoryOverStaleListSnapshot(t *testing.T) {
 
 	current := inventory.DeepCopy()
 	current.Finalizers = []string{InventoryFinalizer}
-	current.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+	current.Spec.RackGroups[0].Placement.NodeSelector = &mokkav1alpha1.RackNodeSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
 		Key: sgpumetadata.AssignedLabel, Operator: metav1.LabelSelectorOpExists,
 	}}}
 	h.mokka.Fake.ClearActions()
@@ -1469,7 +1469,7 @@ func testInventory(name string, uid types.UID, profileName string, count int32) 
 		Spec: mokkav1alpha1.SGPUInventorySpec{RackGroups: []mokkav1alpha1.RackGroup{{
 			ID: "group", Count: count,
 			ProfileRef: mokkav1alpha1.ProfileReference{Name: profileName},
-			Placement: &mokkav1alpha1.RackPlacement{NodeSelector: &metav1.LabelSelector{
+			Placement: &mokkav1alpha1.RackPlacement{NodeSelector: &mokkav1alpha1.RackNodeSelector{
 				MatchLabels: map[string]string{"pool": "gpu"},
 			}},
 		}}},
@@ -1513,4 +1513,8 @@ func testNode(name string, uid types.UID, creationSeconds int64, extraLabels map
 		Name: name, UID: uid, Labels: labels,
 		CreationTimestamp: metav1.NewTime(time.Unix(creationSeconds, 0)),
 	}}
+}
+
+func newRack(inventory *mokkav1alpha1.SGPUInventory, name string, spec mokkav1alpha1.SGPURackSpec) *mokkav1alpha1.SGPURack {
+	return (&Reconciler{kwokShardName: DefaultKWOKShardName}).newRack(inventory, name, spec)
 }

@@ -214,6 +214,7 @@ func TestRenderRack(t *testing.T) {
 		Profile:       profile,
 	})
 	require.NoError(t, err)
+	require.Equal(t, mokkav1alpha1.NodeTypeCPU, rendered.Spec.NodeType)
 	require.Equal(t, "inventory-a-compute-2-152f2cf61b78", rendered.Name)
 	require.Equal(t, mokkav1alpha1.SGPURackInventoryReference{
 		Name: "inventory-a",
@@ -253,6 +254,15 @@ func TestRenderRack(t *testing.T) {
 	profileAddress := profile.Spec.Node.Topology.GPUSlots[0].PCIAddress
 	rendered.Spec.Nodes[0].GPUs[0].PCIAddress = "changed"
 	require.Equal(t, profileAddress, profile.Spec.Node.Topology.GPUSlots[0].PCIAddress)
+}
+
+func TestRenderKWOKRack(t *testing.T) {
+	rendered, err := RenderRack(RackInput{
+		InventoryName: "inventory", InventoryUID: "inventory-uid", Profile: validProfile(),
+		Group: mokkav1alpha1.RackGroup{ID: "virtual", Count: 1, Node: mokkav1alpha1.RackGroupNode{Type: mokkav1alpha1.NodeTypeKWOK}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, mokkav1alpha1.NodeTypeKWOK, rendered.Spec.NodeType)
 }
 
 func TestRenderRackWithPrecomputedRevisionBindsProfileObservation(t *testing.T) {

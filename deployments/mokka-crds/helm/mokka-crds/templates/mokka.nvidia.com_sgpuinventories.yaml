@@ -36,7 +36,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: SGPUInventory is a set of simulated GPU racks to distribute across
-          CPU nodes.
+          nodes.
         properties:
           apiVersion:
             description: |-
@@ -126,6 +126,22 @@ spec:
                         type: object
                       type: array
                       x-kubernetes-list-type: atomic
+                    node:
+                      default: {}
+                      description: Node identifies the kind of Nodes in this group.
+                      properties:
+                        type:
+                          default: CPU
+                          description: Type is fixed for the lifetime of the rack
+                            group.
+                          enum:
+                          - CPU
+                          - KWOK
+                          type: string
+                          x-kubernetes-validations:
+                          - message: node type is immutable
+                            rule: self == oldSelf
+                      type: object
                     placement:
                       description: Placement optionally restricts the Nodes eligible
                         for this rack group.
@@ -135,8 +151,8 @@ spec:
                             these labels.
                           properties:
                             matchExpressions:
-                              description: matchExpressions is a list of label selector
-                                requirements. The requirements are ANDed.
+                              description: MatchExpressions requires each listed selector
+                                requirement to match.
                               items:
                                 description: |-
                                   A label selector requirement is a selector that contains values, a key, and an operator that
@@ -165,18 +181,23 @@ spec:
                                 - key
                                 - operator
                                 type: object
+                                x-kubernetes-validations:
+                                - message: use node.type instead of selecting mokka.nvidia.com/node-type
+                                  rule: self.key != 'mokka.nvidia.com/node-type'
                               type: array
                               x-kubernetes-list-type: atomic
                             matchLabels:
                               additionalProperties:
                                 type: string
-                              description: |-
-                                matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
-                                map is equivalent to an element of matchExpressions, whose key field is "key", the
-                                operator is "In", and the values array contains only "value". The requirements are ANDed.
+                              description: MatchLabels requires each listed label
+                                to match.
                               type: object
                           type: object
                           x-kubernetes-map-type: atomic
+                          x-kubernetes-validations:
+                          - message: use node.type instead of selecting mokka.nvidia.com/node-type
+                            rule: '!has(self.matchLabels) || !(''mokka.nvidia.com/node-type''
+                              in self.matchLabels)'
                       type: object
                     profileRef:
                       description: ProfileRef names the rack profile used to materialize
