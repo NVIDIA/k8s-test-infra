@@ -565,17 +565,53 @@ func TestSlotVPDWithoutProfileVPD(t *testing.T) {
 	require.Equal(t, "OEM-0001", functionAt(t, resolve(t, in), "0002:03:00.0").VPD["PN"])
 }
 
+// twoPortFunction gives gb300-ethernet's first PF both of the first two
+// RoCE ports, which the shipped profiles never do: one function per port.
+func twoPortFunction(in *Input) {
+	p := in.Profiles["cx8-c8280z"].DeepCopy()
+	c, _ := p.Spec.Configuration("eth-multiplane")
+	c.Functions[0].Ports = []string{"p0", "p1"}
+	c.Functions = slices.Delete(c.Functions, 1, 2)
+	c.RDMADevices[0].Ports = []string{"p0", "p1"}
+	c.RDMADevices = slices.Delete(c.RDMADevices, 1, 2)
+	in.Profiles["cx8-c8280z"] = p
+}
+
 // TestPortOrderDecidesNothing reverses every function's port list, a set,
 // and the order of the slots and of each slot's GPUs: the state stays the
 // same. A port's identifiers and names follow its physical number, its
 // position in the configuration's ports.
 func TestPortOrderDecidesNothing(t *testing.T) {
 	t.Parallel()
-	for _, rack := range []string{"gb300-ethernet", "vr-nvl72", "gb300-nvl72"} {
-		in := input(t, rack, FileNode("node-a"))
-		want := resolve(t, in)
+	for _, tc := range []struct {
+		rack   string
+		mutate func(*Input)
+	}{
+		{rack: "gb300-ethernet"}, {rack: "vr-nvl72"}, {rack: "gb300-nvl72"},
+		// Shipped functions own one port each, so reversing their lists
+		// changes nothing; a function with two ports gives it something to do.
+		{rack: "gb300-ethernet", mutate: twoPortFunction},
+	} {
+		load := func() Input {
+			in := input(t, tc.rack, FileNode("node-a"))
+			if tc.mutate != nil {
+				tc.mutate(&in)
+			}
+			return in
+		}
+		want := resolve(t, load())
+		if tc.mutate != nil {
+			var macs []string
+			for _, nd := range want.Netdevs {
+				if nd.Function == "0000:03:00.0" {
+					macs = append(macs, nd.Address)
+				}
+			}
+			require.Len(t, macs, 2, "PF0 has a netdev per port")
+			require.NotEqual(t, macs[0], macs[1])
+		}
 
-		shuffled := input(t, rack, FileNode("node-a"))
+		shuffled := load()
 		for name, p := range shuffled.Profiles {
 			p = p.DeepCopy()
 			for i := range p.Spec.Configurations {
@@ -591,7 +627,7 @@ func TestPortOrderDecidesNothing(t *testing.T) {
 		for i := range shuffled.Topology.NICs {
 			slices.Reverse(shuffled.Topology.NICs[i].GPUs)
 		}
-		require.Equal(t, want, resolve(t, shuffled), rack)
+		require.Equal(t, want, resolve(t, shuffled), tc.rack)
 	}
 }
 
@@ -622,6 +658,9 @@ func TestPortsNumberInDeviceOrder(t *testing.T) {
 	require.Equal(t, "p0", e.Ports[0].ID)
 	require.Equal(t, d.NodeGUID, e.Ports[0].GUID)
 	require.NotEqual(t, d.Ports[0].GUID, e.Ports[1].GUID, "p1's own GUID differs from the node GUID it took as port 1")
+	// Port 2 is p0 one way and p1 the other: a GUID that followed the
+	// device's numbering instead of the physical number would be the same.
+	require.NotEqual(t, d.Ports[1].GUID, e.Ports[1].GUID)
 }
 
 // TestBlueFieldVUStartsWithItsSerial checks a VPD identity that reuses
