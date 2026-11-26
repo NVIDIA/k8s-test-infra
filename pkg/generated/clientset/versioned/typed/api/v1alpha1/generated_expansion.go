@@ -9,6 +9,8 @@ type SGPUInventoryExpansion interface{}
 
 type SGPURackExpansion interface{}
 
+type SGPURackAllocationExpansion interface{}
+
 type SGPURackProfileExpansion interface{}
 
 type SGPURuntimePolicyExpansion interface{}

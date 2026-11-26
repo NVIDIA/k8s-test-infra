@@ -15,6 +15,8 @@ type Interface interface {
 	SGPUInventories() TypedSGPUInventoryInformer
 	// SGPURacks returns a SGPURackInformer.
 	SGPURacks() TypedSGPURackInformer
+	// SGPURackAllocations returns a SGPURackAllocationInformer.
+	SGPURackAllocations() TypedSGPURackAllocationInformer
 	// SGPURackProfiles returns a SGPURackProfileInformer.
 	SGPURackProfiles() TypedSGPURackProfileInformer
 	// SGPURuntimePolicies returns a SGPURuntimePolicyInformer.
@@ -42,6 +44,11 @@ func (v *version) SGPUInventories() TypedSGPUInventoryInformer {
 // SGPURacks returns a TypedSGPURackInformer.
 func (v *version) SGPURacks() TypedSGPURackInformer {
 	return &sGPURackInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// SGPURackAllocations returns a TypedSGPURackAllocationInformer.
+func (v *version) SGPURackAllocations() TypedSGPURackAllocationInformer {
+	return &sGPURackAllocationInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // SGPURackProfiles returns a TypedSGPURackProfileInformer.

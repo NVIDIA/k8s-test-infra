@@ -23,6 +23,10 @@ func (c *FakeMokkaV1alpha1) SGPURacks() v1alpha1.SGPURackInterface {
 	return newFakeSGPURacks(c)
 }
 
+func (c *FakeMokkaV1alpha1) SGPURackAllocations() v1alpha1.SGPURackAllocationInterface {
+	return newFakeSGPURackAllocations(c)
+}
+
 func (c *FakeMokkaV1alpha1) SGPURackProfiles() v1alpha1.SGPURackProfileInterface {
 	return newFakeSGPURackProfiles(c)
 }
