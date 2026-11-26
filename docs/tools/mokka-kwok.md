@@ -75,8 +75,16 @@ when known (`ATS`, `HMM`, or `None`). The optional `brand` defaults to
 Release the KWOK rack slots in DRA mode before switching back to device-plugin
 mode. Mokka waits for the slices to disappear before it clears the Node's
 discovery fields. A Node that still carries its DRA pool marker will not
-advertise device-plugin capacity. Recording allocations from claims and
-publishing ComputeDomain and topology objects are separate steps.
+advertise device-plugin capacity.
+
+For a bound Pod in DRA mode, Mokka reads the devices the scheduler selected
+in the Pod's ResourceClaims. This includes named claims, claims from templates,
+and the generated claim named in `status.extendedResourceClaimStatus` for an
+`nvidia.com/gpu` request. Mokka looks up each selected device in the Node's rack
+slot. It writes its UUID to the container entry in the `SGPURackAllocation`
+and then to the Pod's `mokka.nvidia.com/gpu-allocation` annotation. A Pod that
+uses only another driver's devices has an empty GPU annotation (`{}`) and
+no GPU entry in the rack. The claims remain under Kubernetes control.
 
 ## GPU capacity
 
