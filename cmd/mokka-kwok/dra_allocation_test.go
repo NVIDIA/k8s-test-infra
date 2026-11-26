@@ -20,7 +20,7 @@ func TestDRACopiesContainerRequests(t *testing.T) {
 	ctx := t.Context()
 	pod := boundTestPod("work", "worker")
 	pod.Spec.ResourceClaims = []corev1.PodResourceClaim{{Name: "own", ResourceClaimName: ptr.To("named")}, {Name: "generated", ResourceClaimTemplateName: ptr.To("template")}}
-	pod.Status.ResourceClaimStatuses = []corev1.PodResourceClaimStatus{{Name: "generated", ResourceClaimName: ptr.To("from-template")}}
+	pod.Status.ResourceClaimStatuses = []corev1.PodResourceClaimStatus{{Name: "generated", ResourceClaimName: ptr.To("from-template")}, {Name: "own", ResourceClaimName: ptr.To("stale-name")}}
 	pod.Spec.InitContainers = []corev1.Container{{Name: "setup", Resources: corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: "generated"}}}}}
 	pod.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{{Name: "own", Request: "fast"}}
 	pod.Status.ExtendedResourceClaimStatus = &corev1.PodExtendedResourceClaimStatus{ResourceClaimName: "implicit", RequestMappings: []corev1.ContainerExtendedResourceRequest{
@@ -48,6 +48,10 @@ func TestDRACopiesContainerRequests(t *testing.T) {
 	explicit := claim("named", result("fast/first", "gpu-2"), result("unused", "gpu-1"), foreign)
 	extended := claim("implicit", result("app-gpu", "gpu-0"), result("reused-gpu", "gpu-1"))
 	generated := claim("from-template", result("setup", "gpu-1"))
+	owner := []metav1.OwnerReference{{APIVersion: "v1", Kind: "Pod", Name: pod.Name, UID: pod.UID, Controller: ptr.To(true)}}
+	extended.OwnerReferences = owner
+	generated.OwnerReferences = owner
+	require.False(t, (claimUse{generated: true}).ownedByConsumer(explicit, pod))
 	// The initial list only retains allocations on shard Nodes.
 	unrelated := claim("unrelated", foreign)
 	require.NoError(t, store.Replace([]any{explicit, extended, unrelated}, "1"))
@@ -55,6 +59,7 @@ func TestDRACopiesContainerRequests(t *testing.T) {
 	// The Node was acquired after the template claim's event. Fetch it by name.
 	require.NoError(t, f.kube.Tracker().Add(generated))
 	require.NoError(t, f.allocator.reconcile(ctx, f.rack.Name))
+	require.Contains(t, store.locations, cache.MetaObjectToName(generated))
 	rows := f.record(t)
 	require.Len(t, rows, 1)
 	require.Len(t, rows[0].Pods, 1)

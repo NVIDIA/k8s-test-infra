@@ -101,6 +101,11 @@ func (c *shardClaims) keep(key cache.ObjectName, name string, claim *resourcev1.
 	if n == nil {
 		return
 	}
+	c.remember(key, name, claim, n)
+	c.pods.enqueueOwners(n)
+}
+
+func (c *shardClaims) remember(key cache.ObjectName, name string, claim *resourcev1.ResourceClaim, n *nodePods) {
 	if n.claims == nil {
 		n.claims = make(map[cache.ObjectName]*resourcev1.ResourceClaim)
 	}
@@ -109,7 +114,6 @@ func (c *shardClaims) keep(key cache.ObjectName, name string, claim *resourcev1.
 	}
 	c.locations[key].Insert(name)
 	n.claims[key] = claim
-	c.pods.enqueueOwners(n)
 }
 
 func (c *shardClaims) dropNode(name string, n *nodePods) {
@@ -123,19 +127,40 @@ func (c *shardClaims) dropNode(name string, n *nodePods) {
 
 func (c *shardClaims) get(ctx context.Context, node string, key cache.ObjectName) (*resourcev1.ResourceClaim, error) {
 	c.pods.mu.Lock()
-	var claim *resourcev1.ResourceClaim
-	if n := c.pods.nodes[node]; n != nil {
-		claim = n.claims[key]
+	n := c.pods.nodes[node]
+	if n == nil {
+		c.pods.mu.Unlock()
+		return nil, nil
 	}
-	c.pods.mu.Unlock()
-	if claim != nil {
+	if claim := n.claims[key]; claim != nil {
+		c.pods.mu.Unlock()
 		return claim, nil
 	}
-	// A rack can acquire a Node after the initial list. A bound Pod can also
-	// consume a network-wide device with no Node selector or local GPU result.
+	// Subscribe before the live GET. A watch update or deletion while the
+	// request is in flight takes precedence over the snapshot it returns.
+	c.remember(key, node, nil, n)
+	c.pods.mu.Unlock()
 	claim, err := c.client.ResourceClaims(key.Namespace).Get(ctx, key.Name, metav1.GetOptions{})
+	c.pods.mu.Lock()
+	defer c.pods.mu.Unlock()
+	current, waiting := n.claims[key]
+	if n != c.pods.nodes[node] {
+		return nil, nil
+	}
+	if !waiting || current != nil {
+		return current, nil
+	}
+	if err == nil {
+		n.claims[key] = claim
+		return claim, nil
+	}
+	delete(n.claims, key)
+	c.locations[key].Delete(node)
+	if len(c.locations[key]) == 0 {
+		delete(c.locations, key)
+	}
 	if apierrors.IsNotFound(err) {
 		return nil, nil
 	}
-	return claim, err
+	return nil, err
 }

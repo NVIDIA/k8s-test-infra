@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	scheduling "k8s.io/api/scheduling/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
@@ -22,19 +23,20 @@ import (
 )
 
 type claimUse struct {
-	claim, request string
-	extended       bool
+	claim, request      string
+	extended, generated bool
 }
 
 func containerClaims(pod *corev1.Pod, c *corev1.Container) ([]claimUse, bool) {
 	names := podClaimNames(pod)
 	var uses []claimUse
 	for _, ref := range c.Resources.Claims {
-		name := names[ref.Name]
-		if name == "" {
+		use := names[ref.Name]
+		if use.claim == "" {
 			return nil, false
 		}
-		uses = append(uses, claimUse{claim: name, request: ref.Request})
+		use.request = ref.Request
+		uses = append(uses, use)
 	}
 	if requestedGPUs(c) == 0 {
 		return uses, true
@@ -46,31 +48,45 @@ func containerClaims(pod *corev1.Pod, c *corev1.Container) ([]claimUse, bool) {
 	start := len(uses)
 	for _, m := range status.RequestMappings {
 		if m.ContainerName == c.Name && m.ResourceName == string(gpuResource) {
-			uses = append(uses, claimUse{claim: status.ResourceClaimName, request: m.RequestName, extended: true})
+			uses = append(uses, claimUse{claim: status.ResourceClaimName, request: m.RequestName, extended: true, generated: true})
 		}
 	}
 	return uses, len(uses) > start
 }
 
-func podClaimNames(pod *corev1.Pod) map[string]string {
-	names := map[string]string{}
-	for _, ref := range pod.Spec.ResourceClaims {
-		if ref.ResourceClaimName != nil {
-			names[ref.Name] = *ref.ResourceClaimName
-		}
-	}
+func podClaimNames(pod *corev1.Pod) map[string]claimUse {
+	names := make(map[string]claimUse, len(pod.Spec.ResourceClaims))
 	for _, status := range pod.Status.ResourceClaimStatuses {
 		if status.ResourceClaimName != nil {
-			names[status.Name] = *status.ResourceClaimName
+			names[status.Name] = claimUse{claim: *status.ResourceClaimName, generated: true}
+		}
+	}
+	for _, ref := range pod.Spec.ResourceClaims {
+		if ref.ResourceClaimName != nil {
+			names[ref.Name] = claimUse{claim: *ref.ResourceClaimName}
 		}
 	}
 	return names
 }
 
+func (u claimUse) ownedByConsumer(claim *resourcev1.ResourceClaim, pod *corev1.Pod) bool {
+	if !u.generated || metav1.IsControlledBy(claim, pod) {
+		return true
+	}
+	group := pod.Spec.SchedulingGroup
+	owner := metav1.GetControllerOfNoCopy(claim)
+	return !u.extended && group != nil && group.PodGroupName != nil && owner != nil && owner.Kind == "PodGroup" &&
+		strings.HasPrefix(owner.APIVersion, scheduling.GroupName+"/") && owner.Name == *group.PodGroupName
+}
+
+func (u claimUse) ready(claim *resourcev1.ResourceClaim, pod *corev1.Pod) bool {
+	return claim != nil && claim.Status.Allocation != nil && reservedForPod(claim, pod) && u.ownedByConsumer(claim, pod)
+}
+
 // A name can be reused after deletion. Only copy a claim reserved for this
 // consumer. The scheduler uses request/subrequest for firstAvailable results.
 func claimUUIDs(claim *resourcev1.ResourceClaim, pod *corev1.Pod, use claimUse, driver string, devices map[string]string) ([]string, bool) {
-	if claim == nil || claim.Status.Allocation == nil || !reservedForPod(claim, pod) {
+	if !use.ready(claim, pod) {
 		return nil, false
 	}
 	var ids []string
