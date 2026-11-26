@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+name: Mokka KWOK Publish
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+permissions: {}
+concurrency:
+  group: mokka-kwok-publish-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Select the chart image version
+        id: version
+        env:
+          PUBLISH_REF: ${{ github.ref }}
+        run: |
+          app_version=$(awk '$1 == "appVersion:" {gsub(/"/, "", $2); print $2}' deployments/nvml-mock/helm/nvml-mock/Chart.yaml)
+          tag=$(./hack/chart-publish-version.sh "$PUBLISH_REF" "$app_version")
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Read Go version
+        id: go
+        run: echo "version=$(./hack/golang-version.sh)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ steps.go.outputs.version }}
+          cache: false
+      - uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: enforced
+          repo-key: dgxc-go-virtual-curated
+      - run: ./hack/check-goproxy.sh enforced
+      - name: Build Linux binaries
+        run: make build-mokka-kwok
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        id: meta
+        with:
+          images: ghcr.io/nvidia/mokka-kwok
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ steps.version.outputs.tag }}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=sha-${{ github.sha }},enable={{is_default_branch}}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: dist/kwok
+          file: deployments/mokka-kwok/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"

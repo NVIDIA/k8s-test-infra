@@ -748,7 +748,7 @@ image-load:
 # scope with E2E_PROFILES / E2E_GINKGO_FLAGS. Examples:
 #   make e2e                       # gb200
 #   make e2e E2E_PROFILES=a100     # fast inner loop, single profile
-#   make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu"'
+#   make e2e E2E_GINKGO_FLAGS='--label-filter="(nvidia-smi || nvlink) && !dra && !gpu-operator && !multi-node && !nri && !nfd && !mig && !dra-compute-domain && !vgpu && !kwok"'
 #   make e2e-dra                   # DRA scenario
 #   make e2e-compute-domain        # ComputeDomains through the DRA driver (two-rack cluster)
 #   make e2e-gpu-operator          # GPU Operator scenario
@@ -771,7 +771,7 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !numa && !mig && !dra-compute-domain && !vgpu
+E2E_DEFAULT_LABEL_FILTER ?= !dra && !gpu-operator && !multi-node && !nri && !nfd && !numa && !mig && !dra-compute-domain && !vgpu && !kwok
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
 .PHONY: e2e e2e-dra e2e-compute-domain e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd e2e-numa e2e-mig e2e-vgpu
@@ -782,6 +782,14 @@ E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 # failed suite exits 0 — see issue #560 and tests/makefile/makefile_test.go.
 e2e: ## Run the Ginkgo e2e suite against E2E_CLUSTER_NAME/E2E_KUBE_CONTEXT (default mokka/kind-mokka); scope with E2E_PROFILES / E2E_GINKGO_FLAGS
 	set -o pipefail; $(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) --fail-on-empty $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
+
+.PHONY: e2e-kwok-setup e2e-kwok
+KWOK_E2E_CLUSTER ?= mokka-kwok-e2e
+e2e-kwok-setup: ## Install KWOK and both Mokka services into the KWOK e2e kind cluster
+	./tests/e2e/kwok/setup.sh "$(KWOK_E2E_CLUSTER)"
+
+e2e-kwok: ## Check KWOK rack binding and node daemon placement
+	E2E_CLUSTER_NAME="$(KWOK_E2E_CLUSTER)" E2E_KUBE_CONTEXT="kind-$(KWOK_E2E_CLUSTER)" $(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=kwok'
 
 e2e-dra: ## e2e — DRA scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra'

@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+image: {repository: nvml-mock, tag: e2e, pullPolicy: Never}
+gpu: {profile: a100}
+featureGates: {IMEXDownload: false}
+# Both nodes match this selector. The daemon tolerates the KWOK taint. Its KWOK node affinity is what must exclude the virtual node.
+nodeSelector: {mokka.nvidia.com/pool: binding-e2e}
+controlPlane:
+  enabled: true
+  image: {repository: mokka-control-plane, tag: e2e, pullPolicy: Never}
+kwok:
+  enabled: true
+  dataPlane:
+    image: {repository: mokka-kwok, tag: e2e, pullPolicy: Never}

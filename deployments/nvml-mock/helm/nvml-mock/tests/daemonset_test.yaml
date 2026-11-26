@@ -1462,3 +1462,21 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/nodeAgent/kernelLog': additional properties 'enable' not allowed\n"
+
+  - it: keeps all alternative placement terms off labeled KWOK nodes
+    set:
+      kwok.enabled: true
+      affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms:
+        - matchExpressions: [{key: pool, operator: In, values: [blue]}]
+        - matchFields: [{key: metadata.name, operator: In, values: [worker]}]
+        - {}
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms
+          value:
+            - matchExpressions:
+                - {key: pool, operator: In, values: [blue]}
+                - {key: mokka.nvidia.com/node-type, operator: NotIn, values: [KWOK]}
+            - matchFields: [{key: metadata.name, operator: In, values: [worker]}]
+              matchExpressions: [{key: mokka.nvidia.com/node-type, operator: NotIn, values: [KWOK]}]
+            - {}

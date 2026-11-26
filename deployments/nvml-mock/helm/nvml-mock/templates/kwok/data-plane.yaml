@@ -1,0 +1,101 @@
+{{- if (.Values.kwok | default dict).enabled }}
+{{- $settings := (.Values.kwok.dataPlane | default dict).image | default dict }}
+{{- $image := merge (deepCopy $settings) (dict "repository" "ghcr.io/nvidia/mokka-kwok") }}
+{{- $name := include "nvml-mock.kwokDataPlaneName" . }}
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+rules:
+  - apiGroups: ["mokka.nvidia.com"]
+    resources: ["sgpuracks"]
+    verbs: ["list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["", "events.k8s.io"]
+    resources: ["events"]
+    verbs: ["create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+  ports:
+    - {name: health, port: 8080, targetPort: health}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ $name }}
+      {{- with include "nvml-mock.imagePullSecrets" . }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: mokka.nvidia.com/node-type
+                    operator: NotIn
+                    values: [KWOK]
+      containers:
+        - name: data-plane
+          image: {{ include "nvml-mock.image" (dict "image" $image "context" $) | quote }}
+          imagePullPolicy: {{ include "nvml-mock.imagePullPolicy" (dict "image" $image "context" $) }}
+          args: ["data-plane", "--shard-name=$(POD_NAME)"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - {name: health, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /readyz, port: health}
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+{{- end }}
