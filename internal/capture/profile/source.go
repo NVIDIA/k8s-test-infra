@@ -137,18 +137,59 @@ func decodeField(valueType int64, hexValue string) (json.Number, bool) {
 
 // hostValue reads key=value text such as host-dmi.txt; it is the same for
 // every GPU.
-func hostValue(file, key string) source {
+func hostValue(file, key string) source { return hostField(file, key, keyValues) }
+
+// driverParam reads one of the driver's module parameters from
+// proc-nvidia-params.txt, "Name: value" lines; it is the same for every GPU.
+func driverParam(name string) source { return hostField(driverParams, name, colonValues) }
+
+func hostField(file, key string, parse func(string) map[string]string) source {
 	return source{from: file + " " + key, read: func(c *capture, _ int) (any, string) {
 		text, ok := c.files[file]
 		if !ok {
 			return nil, file + " not captured"
 		}
-		v, ok := keyValues(text)[key]
+		v, ok := parse(text)[key]
 		if !ok || v == "" {
 			return nil, "no " + key
 		}
 		return v, ""
 	}, format: plain}
+}
+
+// devicesListed is whether host-proc-devices.txt lists every character
+// device asked for; text names their majors, or the first one missing.
+type devicesListed struct {
+	all  bool
+	text string
+}
+
+func (d devicesListed) String() string { return d.text }
+
+// registered reads whether the node's kernel lists every one of names in
+// host-proc-devices.txt; it is the same for every GPU. Format it with allListed.
+func registered(names ...string) source {
+	return source{from: procDevices, read: func(c *capture, _ int) (any, string) {
+		text, ok := c.files[procDevices]
+		if !ok {
+			return nil, procDevices + " not captured"
+		}
+		majors := deviceMajors(text)
+		listed := make([]string, 0, len(names))
+		for _, name := range names {
+			major, ok := majors[name]
+			if !ok {
+				return devicesListed{text: "no " + name}, ""
+			}
+			listed = append(listed, strconv.Itoa(major)+" "+name)
+		}
+		return devicesListed{all: true, text: strings.Join(listed, ", ")}, ""
+	}}
+}
+
+func allListed(raw any) (string, bool) {
+	d, ok := raw.(devicesListed)
+	return strconv.FormatBool(d.all), ok
 }
 
 func recorded(c *capture, gpu int, key string, path []any) (any, string) {
@@ -193,6 +234,8 @@ func show(raw any) string {
 		return v
 	case bool:
 		return strconv.FormatBool(v)
+	case fmt.Stringer:
+		return v.String()
 	case []any:
 		if s, ok := cString(v); ok && printable(s) {
 			return s

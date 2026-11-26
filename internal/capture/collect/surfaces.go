@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,7 +30,7 @@ import (
 
 func (c *collector) captureDriver(node string) {
 	c.enter(node)
-	if c.cfg.mock {
+	if c.cfg.mock || c.cfg.hostDriver {
 		defer c.stopPod(c.ctx, &c.standIn)
 		if !c.startStandIn(node) {
 			return
@@ -38,11 +39,15 @@ func (c *collector) captureDriver(node string) {
 		c.driverPod = c.podOn(node, "nvidia-driver-daemonset")
 		c.driverNS, c.driverCtr = c.cfg.operatorNS, c.cfg.driverCtr
 		if c.driverPod == "" {
-			c.logf("no driver pod on %s; skipping (on a Mokka node, pass -mock)", node)
+			c.logf("no driver pod on %s; skipping (driver installed on the host: pass -host-driver; on a Mokka node: pass -mock)", node)
 			return
 		}
 	}
-	c.logf("== %s: driver container (%s)", node, c.driverPod)
+	if c.cfg.hostDriver {
+		c.logf("== %s: host driver, chrooted into /host (%s)", node, c.driverPod)
+	} else {
+		c.logf("== %s: driver container (%s)", node, c.driverPod)
+	}
 
 	for _, q := range []struct{ file, args string }{
 		{"smi-q.xml", "-q -x"},
@@ -119,7 +124,9 @@ func (c *collector) driverFile(path string) []string {
 }
 
 // captureNVMLDump copies a Linux mokka-capture into the driver container, which
-// holds the real NVML library, runs its dump there, and removes it again.
+// holds the real NVML library, runs its dump there, and removes it again. With
+// -host-driver the copy lands in the node's /tmp, as the dump has to run
+// against the node's own libraries.
 func (c *collector) captureNVMLDump() {
 	if c.cfg.dumpBinary == "" {
 		c.logf("-dump-binary not set; skipping the NVML value dump (see build-dump)")
@@ -149,7 +156,7 @@ func (c *collector) captureNVMLDump() {
 
 // drvStdin is drv with standard input attached.
 func (c *collector) drvStdin(argv ...string) []string {
-	return append([]string{"kubectl", "-n", c.driverNS, "exec", "-i", c.driverPod, "-c", c.driverCtr, "--"}, argv...)
+	return slices.Concat([]string{"kubectl", "-n", c.driverNS, "exec", "-i", c.driverPod, "-c", c.driverCtr, "--"}, c.driverChroot, argv)
 }
 
 // podContainer names the container in hostPodManifest. The -mock stand-in is
@@ -227,18 +234,26 @@ func (c *collector) startHostPod(node string) bool {
 	return true
 }
 
-// startStandIn starts the pod the driver commands run in on a Mokka node.
+// startStandIn starts the pod the driver commands run in where there is no
+// driver container: on a Mokka node, or with -host-driver on a node whose
+// driver is installed on the host.
+//
 // Mokka runs no driver container: the mock driver reaches a container only
 // through the NRI plugin. So the stand-in is a second host pod with the mock
 // annotations, privileged and in the host PID namespace as the driver
-// container is. Nothing is installed in it, as nothing is added to a driver
-// container.
+// container is. A host-installed driver lives in the node's root, which the
+// stand-in mounts at /host, so its commands run chrooted there: nvidia-smi,
+// the NVML library and /proc are then the node's own. Nothing is installed in
+// it, as nothing is added to a driver container.
 func (c *collector) startStandIn(node string) bool {
 	c.standIn = standInName(node, c.suffix)
 	if !c.startPod(c.standIn, node, "driver stand-in") {
 		return false
 	}
 	c.driverPod, c.driverNS, c.driverCtr = c.standIn, c.cfg.hostPodNS, podContainer
+	if c.cfg.hostDriver {
+		c.driverChroot = []string{"chroot", "/host"}
+	}
 	return true
 }
 

@@ -54,7 +54,7 @@ const defaultHostPodImage = "ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3
 type config struct {
 	out, operatorNS, driverCtr, toolkitCtr, toolkitCTK string
 	hostPodNS, hostPodImage, dumpBinary                string
-	mock                                               bool
+	mock, hostDriver                                   bool
 }
 
 type collector struct {
@@ -71,8 +71,11 @@ type collector struct {
 	// driverPod, driverNS and driverCtr name the container the driver commands
 	// run in: the GPU Operator's driver container, or with -mock the stand-in.
 	driverPod, driverNS, driverCtr string
-	hostPod                        string
-	standIn                        string // the -mock stand-in pod, deleted like the host pod
+	// driverChroot prefixes every driver command: with -host-driver it runs
+	// the node's own tools and libraries, under the host mount.
+	driverChroot []string
+	hostPod      string
+	standIn      string // the -mock stand-in pod, deleted like the host pod
 }
 
 // Command is `mokka-capture collect`. Its flags apply to every command under
@@ -86,6 +89,9 @@ func newCommand(kubectl string) *cli.Command {
 	action := func(ctx context.Context, cmd *cli.Command) error {
 		// An interrupt cancels the run instead of ending the process, so the
 		// pods it started are deleted.
+		if cfg.mock && cfg.hostDriver {
+			return cmdline.Usage(cmd, "error: -mock and -host-driver exclude each other")
+		}
 		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		c := &collector{cfg: cfg, ctx: ctx, stderr: cmd.Root().ErrWriter, kubectl: kubectl, suffix: strconv.Itoa(os.Getpid())}
@@ -109,7 +115,9 @@ func newCommand(kubectl string) *cli.Command {
 		Usage: "capture nodes and the cluster through kubectl",
 		Description: "kubectl reaches the cluster as it is configured (KUBECONFIG, current context). " +
 			"On a Mokka node, pass -mock: Mokka runs no driver container, so the driver commands run " +
-			"in a temporary stand-in pod, and both pods opt into the mock.",
+			"in a temporary stand-in pod, and both pods opt into the mock. " +
+			"On a node whose driver is installed on the host rather than by the GPU Operator, pass -host-driver: " +
+			"the driver commands run in a temporary privileged pod, chrooted into the node's root.",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:        "out",
@@ -163,9 +171,14 @@ func newCommand(kubectl string) *cli.Command {
 				Usage:       "the nodes are Mokka nodes: run the driver commands in a temporary stand-in pod, and opt it and the host pod into the mock with the nvml-mock NRI annotations",
 				Destination: &cfg.mock,
 			},
+			&cli.BoolFlag{
+				Name:        "host-driver",
+				Usage:       "the driver is installed on the nodes, not by the GPU Operator: run the driver commands in a temporary privileged pod, chrooted into the node's root",
+				Destination: &cfg.hostDriver,
+			},
 		},
 		Commands: []*cli.Command{
-			onNodes("driver", "nvidia-smi, NVML dump and /proc/driver/nvidia, taken inside the GPU Operator driver container on each node"),
+			onNodes("driver", "nvidia-smi, NVML dump and /proc/driver/nvidia, taken inside the GPU Operator driver container on each node (with -host-driver, from the node's root)"),
 			onNodes("host", "PCI, NUMA, device files, NICs and CDI specs, taken from a temporary privileged pod on each node"),
 			onNodes("network", "NICs, network interfaces, RDMA devices and ports, SR-IOV, kernel modules and kernel log, "+
 				"plus the cluster's network objects; a subset of host, for adding network surfaces to an existing capture"),
@@ -311,7 +324,7 @@ func (c *collector) kubectlOut(args ...string) (string, error) {
 
 // drv returns the argv that runs a command in the node's driver container.
 func (c *collector) drv(argv ...string) []string {
-	return append([]string{"kubectl", "-n", c.driverNS, "exec", c.driverPod, "-c", c.driverCtr, "--"}, argv...)
+	return slices.Concat([]string{"kubectl", "-n", c.driverNS, "exec", c.driverPod, "-c", c.driverCtr, "--"}, c.driverChroot, argv)
 }
 
 // host returns the argv that runs a command in the node's host pod.

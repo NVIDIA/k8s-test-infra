@@ -159,6 +159,7 @@ func generate(c *capture, base *baseProfile) (*generator, error) {
 	}
 	g.doc.set("devices", devices, "")
 	g.nvlinkRules(&section{g: g, m: g.doc.child("nvlink"), key: "nvlink"})
+	g.imexRules(&section{g: g, m: g.doc.child("imex"), key: "imex"})
 	g.infinibandRules(&section{g: g, m: g.doc.child("infiniband"), key: "infiniband"})
 	g.pcieTopologyRules(&section{g: g, m: g.doc.child("pcie_topology"), key: "pcie_topology"})
 	g.migTable()

@@ -362,6 +362,10 @@ nvlink:
     supported: [0, 4, 8, 12, 16, 20, 24, 28, 32, 36] # GetNvlinkSupportedBwModes.BwModes[:TotalBwModes]
   # switches: left out, NVSwitches sit in switch trays outside the captured node; pass -base to copy it
 
+imex:
+  enabled: true                     # host-proc-devices.txt = 504 nvidia-caps-imex-channels, 503 nvidia-caps
+  create_channel0: false            # proc-nvidia-params.txt CreateImexChannel0 = 0
+
 infiniband:
   enabled: true                     # 12 RDMA devices in host-ib-sysfs.txt; no virtual functions in pci-nic-functions.txt
   hca_type: "MT4133"                # host-ib-sysfs.txt hca_type of 8 devices of 12; the rest: MT41695 x4

@@ -25,7 +25,7 @@ capture records and where Mokka produces it today.
 | NVML library | `nvml-dump.json`, `nvml-symbols.txt` | `pkg/gpu/mocknvml/bridge`, `engine`, profile YAML |
 | `nvidia-smi` | `smi-*.txt`, `smi-q.xml` | the same engine, through the bundled binary |
 | Driver `/proc` files | `proc-*.txt` | `internal/agent/gpudriver`, `internal/agent/migcaps` |
-| Device files and majors | `host-dev-nvidia.txt`, `host-proc-devices.txt` | node agent, CDI and NRI specs |
+| Device files and majors | `host-dev-nvidia.txt`, `host-proc-devices.txt` | node agent, CDI and NRI specs, profile `imex` |
 | PCI sysfs and DMI | `host-lspci-*.txt`, `host-pci-*.txt`, `pci-*.txt`, `host-dmi.txt` | profile `pcie_topology`, `libmockfs` |
 | NUMA and CPU | `host-numa*.txt`, `host-lscpu.txt`, `host-pagesize.txt` | `pcie_topology.numa_node` |
 | NVLink and fabric | `smi-nvlink-*.txt`, `smi-q-d-FABRIC.txt`, `proc-capabilities.txt` | profile `nvlink`, IMEX staging |
@@ -53,11 +53,12 @@ You need:
   `apt-get install` for `pciutils`, `rdma-core` and others from the image's
   distribution mirrors. On a cluster where that is not acceptable, set
   `-host-pod-image` to an image that already has those tools;
-- the nodes running the GPU Operator's driver container. The driver and
-  `nvidia-smi` live in that container, not on the host. If the driver is
-  installed on the host instead, run the `nvidia-smi` and `/proc` commands in
-  [`internal/capture/collect`](https://github.com/NVIDIA/k8s-test-infra/blob/main/internal/capture/collect/surfaces.go)
-  there directly;
+- to know where the nodes' driver is. With the GPU Operator's driver container,
+  the driver and `nvidia-smi` live in that container, not on the host, and the
+  driver commands run there. If the driver is installed on the host instead, as
+  on the EKS GPU AMIs, pass `-host-driver`: the driver commands then run in a
+  second temporary privileged pod, chrooted into the node's root (see
+  [A driver installed on the host](../tools/mokka-capture.md#a-driver-installed-on-the-host));
 - `kubectl`, Go to build `mokka-capture`, and Docker to build its Linux copy for
   the driver container.
 
@@ -72,7 +73,8 @@ utilisation, temperature and power draw, are excluded from comparisons.
 
 Build the tool for your machine, then a Linux copy for the driver container. The
 NVML dump loads the driver's own `libnvidia-ml.so.1`, so it must run inside the
-driver container, built for the node's architecture. go-nvml loads the library
+driver container, or with `-host-driver` in the node's root, built for the
+node's architecture. go-nvml loads the library
 at run time, so the binary is dynamically linked: build it on a host of the
 node's architecture.
 
@@ -97,14 +99,17 @@ bin/mokka-capture collect -out "$OUT" -dump-binary "$OUT/bin/mokka-capture-linux
   all <node-a> <node-b>
 ```
 
+If `driver` reports `no driver pod on <node>; skipping`, the driver is installed
+on the host: rerun the driver captures with `-host-driver`.
+
 Every command runs in the cluster and every output is written on your machine, so
 each output is a file under `$OUT/<node>/` with nothing to copy out of a pod.
 The commands are split so you can rerun one part:
 
 | Command | Runs | Takes |
 | --- | --- | --- |
-| `driver <node>...` | in the driver container | `nvidia-smi`, the NVML dump, `/proc/driver/nvidia` |
-| `host <node>...` | in a temporary privileged pod | PCI, NUMA, device files, NICs, CDI specs |
+| `driver <node>...` | in the driver container, or with `-host-driver` a temporary privileged pod chrooted into the node's root | `nvidia-smi`, the NVML dump, `/proc/driver/nvidia` |
+| `host <node>...` | in a temporary privileged pod | PCI, NUMA, device files (`/proc/devices`, which the profile's `imex` block reads), NICs, CDI specs |
 | `network <node>...` | in the same pod | only the NIC, interface and RDMA surfaces, plus the cluster's network objects |
 | `cluster` | on your machine | node labels, ResourceSlices, `ClusterPolicy`, DCGM metrics |
 
@@ -340,7 +345,8 @@ it has no MIG partitioning, no vGPU mode and no leftover processes.
 | `TLS handshake timeout` or `connection refused` in `errors.log` | The API connection dropped. Restore it and rerun the part that failed; `collect` checks the connection before each node. |
 | `nvidia-smi: ... not recognized` for an option | The driver's `nvidia-smi` lacks it. The failure is the answer; keep it. |
 | `-q -d <section>` reports `Failed to parse` | The section name is not valid on this driver. Sections are captured one per file so one invalid name costs one file. |
-| `GLIBC` error running the dump | The driver container's libc is older than the build image's. Build the Linux `mokka-capture` on an image with an older base. |
+| `GLIBC` error running the dump | The driver container's libc, or with `-host-driver` the node's, is older than the build image's. Build the Linux `mokka-capture` on an image with an older base. |
+| `no driver pod on <node>; skipping` | The node has no GPU Operator driver container because its driver is installed on the host. Rerun `driver` with `-host-driver`. |
 | `nvidia-ctk` not found | It is not in the driver container. The capture reads the CDI specs from the host and runs `nvidia-ctk` from the toolkit container. |
 | The host pod stays `Pending` | Pod security forbids privileged pods in the namespace. Set `-host-pod-namespace` to one that allows them. |
 | `/var/run/cdi` appears empty from the pod | `/var/run` is a symlink to `/run`, which resolves inside the pod. Read `/host/run/cdi`. |

@@ -666,9 +666,52 @@ func TestHostParsers(t *testing.T) {
 	names := migNames("|   0  MIG 1g.35gb         19     7/7        33.50      No     20     1     0   |\n|   1  MIG 1g.35gb         19     7/7  |\n")
 	require.Equal(t, []migName{{id: 19, name: "1g.35gb"}}, names)
 
+	majors := deviceMajors("195 nvidia\n195 nvidiactl\n242 nvidia-caps-imex-channels\nCharacter devices:\n 7 vcs\n")
+	require.Equal(t, map[string]int{"nvidia": 195, "nvidiactl": 195, "nvidia-caps-imex-channels": 242, "vcs": 7}, majors)
+
 	speeds := nvlinkSpeedsByGPU("GPU 0: x (UUID: y)\n\t Link 0: 41 GB/s\n\t Link 1: 41 GB/s\nGPU 1: x\n\t Link 0: <inactive>\n")
 	require.Equal(t, []string{"41 GB/s", "41 GB/s"}, speeds[0])
 	require.Equal(t, []string{"<inactive>"}, speeds[1])
+}
+
+// A real H100 with no NVLink fabric (driver 580.105.08) registers the IMEX
+// devices all the same, and loads without channel0. Majors are the kernel's,
+// so they appear only in the comment.
+func TestIMEXDevicesAreRecordedWithoutAFabric(t *testing.T) {
+	t.Parallel()
+	dir := writeCapture(t, []map[string]any{{}}, map[string]string{
+		procDevices:  "195 nvidia\n195 nvidiactl\n239 nvidia-nvswitch\n240 nvidia-nvlink\n241 nvidia-caps\n242 nvidia-caps-imex-channels\n507 nvidia-uvm\n",
+		driverParams: "ResmanDebugLevel: 4294967295\nImexChannelCount: 2048\nCreateImexChannel0: 0\n",
+	})
+	g, profile := generateFrom(t, dir, nil)
+	require.Equal(t, "enabled: true # host-proc-devices.txt = 242 nvidia-caps-imex-channels, 241 nvidia-caps",
+		lineOf(t, profile[strings.Index(profile, "imex:"):], "enabled"))
+	require.Equal(t, "create_channel0: false # proc-nvidia-params.txt CreateImexChannel0 = 0", lineOf(t, profile, "create_channel0"))
+	require.NotContains(t, profile, "multi_node: true")
+
+	var explained bytes.Buffer
+	require.NoError(t, writeExplain(&explained, g))
+	require.Contains(t, explained.String(), "imex.enabled")
+}
+
+func TestIMEXIsDisabledWhenTheKernelListsNoChannels(t *testing.T) {
+	t.Parallel()
+	dir := writeCapture(t, []map[string]any{{}}, map[string]string{
+		procDevices:  "195 nvidia\n195 nvidiactl\n241 nvidia-caps\n",
+		driverParams: "CreateImexChannel0: 1\n",
+	})
+	_, profile := generateFrom(t, dir, nil)
+	require.Contains(t, profile, "imex:\n enabled: false # host-proc-devices.txt = no nvidia-caps-imex-channels\n")
+	require.NotContains(t, profile, "create_channel0")
+}
+
+// Without collect host, the capture cannot tell, so the key is left out rather
+// than guessed either way.
+func TestIMEXIsLeftOutWithoutProcDevices(t *testing.T) {
+	t.Parallel()
+	_, profile := generateFrom(t, writeCapture(t, []map[string]any{{}}, nil), nil)
+	require.Contains(t, profile, "# imex.enabled: left out, host-proc-devices.txt = host-proc-devices.txt not captured")
+	require.NotContains(t, profile, "create_channel0")
 }
 
 // runCLI runs `mokka-capture profile` with args and returns its exit code.

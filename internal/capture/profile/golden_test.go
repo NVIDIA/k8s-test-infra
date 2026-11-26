@@ -73,6 +73,7 @@ var newerSchemaKeys = [][]string{
 	{"device_defaults", "egm"},
 	{"device_defaults", "thermal", "tlimit"},
 	{"device_defaults", "power", "supported_power_mizer_modes"},
+	{"imex"},
 }
 
 func TestGoldenProfilesLoadInTheEngine(t *testing.T) {

@@ -177,6 +177,56 @@ func TestMockRunsTheDriverCommandsInAStandIn(t *testing.T) {
 	require.Equal(t, "answer to: -n default exec "+pod+" -c c -- cat /proc/driver/nvidia/version\n", string(version))
 }
 
+// With -host-driver the driver commands run chrooted into the node's root, in
+// a stand-in pod that carries no mock annotations; no driver pod is looked up.
+func TestHostDriverRunsTheDriverCommandsInTheNodesRoot(t *testing.T) {
+	dir, log, kubectl := setup(t, "")
+	out := filepath.Join(dir, "capture")
+	bin := filepath.Join(dir, "mokka-capture-linux")
+	require.NoError(t, os.WriteFile(bin, []byte("binary"), 0o600))
+	require.Equal(t, 0, runCLI(kubectl, "-out", out, "-host-driver", "-dump-binary", bin, "driver", "node-a"))
+
+	pod := standInName("node-a", fmtPID())
+	exec := "-n default exec " + pod + " -c c -- chroot /host "
+	for file, want := range map[string]string{
+		"smi-q.xml":              "nvidia-smi -q -x",
+		"proc-nvidia-params.txt": "cat /proc/driver/nvidia/params",
+		"proc-capabilities.txt":  "sh -c for f in $(find /proc/driver/nvidia/capabilities",
+		"proc-mig-minors.txt":    "cat /proc/driver/nvidia-caps/mig-minors",
+	} {
+		got, err := os.ReadFile(filepath.Join(out, "node-a", file))
+		require.NoError(t, err)
+		require.True(t, strings.HasPrefix(string(got), "answer to: "+exec+want), "%s: %s", file, got)
+	}
+	got := calls(t, log)
+	require.Contains(t, got, "-n default exec -i "+pod+" -c c -- chroot /host sh -c")
+	require.Contains(t, got, exec+"/tmp/mokka-capture-"+fmtPID()+" dump")
+	require.Contains(t, got, exec+"rm -f /tmp/mokka-capture-"+fmtPID())
+	require.Contains(t, got, "-n default delete pod "+pod+" --wait=false")
+	require.NotContains(t, got, "--field-selector")
+	require.NotContains(t, got, "apt-get")
+}
+
+func TestHostDriverAndMockExcludeEachOther(t *testing.T) {
+	dir, log, kubectl := setup(t, "")
+	require.Equal(t, 2, runCLI(kubectl, "-out", filepath.Join(dir, "c"), "-mock", "-host-driver", "driver", "node-a"))
+	require.NoFileExists(t, log)
+}
+
+// Without a driver pod and without -host-driver, the node is skipped and the
+// message names the flag that captures it.
+func TestNodeWithoutADriverPodPointsAtHostDriver(t *testing.T) {
+	dir := t.TempDir()
+	kubectl := filepath.Join(dir, "kubectl")
+	require.NoError(t, os.WriteFile(kubectl, []byte("#!/bin/sh\necho pod/nvidia-container-toolkit-daemonset-y\n"), 0o755)) //nolint:gosec // an executable test double
+	root := &cli.Command{Name: "mokka-capture", Commands: []*cli.Command{newCommand(kubectl)}}
+	var stderr strings.Builder
+	out := filepath.Join(dir, "capture")
+	require.Equal(t, 0, cmdline.Run(context.Background(), root, []string{"collect", "-out", out, "driver", "node-a"}, io.Discard, &stderr))
+	require.Contains(t, stderr.String(), "no driver pod on node-a; skipping (driver installed on the host: pass -host-driver")
+	require.NoFileExists(t, filepath.Join(out, "node-a", "smi-q.xml"))
+}
+
 // -mock opts both pods into the mock with the NRI plugin's own annotation
 // keys; without it the pods carry none.
 func TestMockAnnotatesThePods(t *testing.T) {

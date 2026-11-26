@@ -325,6 +325,28 @@ func (g *generator) nvlinkRules(s *section) {
 	s.fromBase("switches", "NVSwitches sit in switch trays outside the captured node")
 }
 
+// imexRules records the IMEX character devices the driver registers. A driver
+// registers them on boards without an NVLink fabric too, and the DRA driver's
+// compute-domain plugin does not start without their majors, so this is not
+// nvlink.multi_node. The majors are the captured kernel's own, assigned when
+// the module loaded, so they stay in the comment; the chart picks a Mokka
+// node's.
+func (g *generator) imexRules(s *section) {
+	s.prop("enabled", registered(imexChannelsDevice, capsDevice).as(allListed))
+	if e := s.m.find("enabled"); e == nil || e.value != boolean(true) {
+		return
+	}
+	// The driver creates channel0 at load only when told to; without it a
+	// node has no channel device until an admin or a ComputeDomain makes one.
+	s.prop("create_channel0", driverParam("CreateImexChannel0").as(oneOf(map[string]string{"0": "false", "1": "true"})))
+}
+
+// The character devices that make up the driver's IMEX surface.
+const (
+	imexChannelsDevice = "nvidia-caps-imex-channels"
+	capsDevice         = "nvidia-caps"
+)
+
 func (g *generator) infinibandRules(s *section) {
 	all := rdmaDevices(g.c.files[ibSysfsFile], g.c.files[ibstatFile])
 	if len(all) == 0 {
