@@ -23,6 +23,7 @@ ask of you — start at the top if you are new.
 | [NVIDIA Dynamo](dynamo/README.md) | An OpenAI-compatible endpoint served by Dynamo, its worker scheduled onto a mock GPU through the GPU Operator | ~15 min |
 | [Slinky (Slurm)](slinky/README.md) | A Slurm cluster whose `slurmd` discovers mock GPUs as GRES, and `srun --gres=gpu:N` jobs scheduled against them | ~20 min |
 | [NVIDIA DRA Driver](dra.md) | Mock GPUs published as ResourceSlices, and a pod scheduled through a ResourceClaim | ~10 min |
+| [GPU claims and ComputeDomains on KWOK Nodes](kwok-dra.md) | Request GPUs on virtual Nodes and check when a four-Node ComputeDomain becomes Ready | ~5 min on a configured rack |
 | [HAMi (GPU sharing)](hami.md) | Two pods sharing one mock GPU through HAMi, each seeing only its own memory cap | ~10 min |
 | [Run:ai fake-gpu-operator](runai-fgo/README.md) | Two node pools — Mokka serving one with a real NVML shim, FGO serving the other | ~10 min |
 | [Topograph](topograph/README.md) | Topograph groups four simulated GB200 nodes into two NVLink domains and labels each node for topology-aware schedulers | ~10 min |
