@@ -1,4 +1,4 @@
-# Causes of the differences between the Node declared by the gb300-nvl72 rack
+# Causes of the differences between the Node declared by the gb300 rack
 # fixture and the capture in tests/hardware-captures/gb300-ib/node-a, in the
 # format `mokka-capture diff nic -causes` reads. The first entry that matches a
 # failure gives its cause.

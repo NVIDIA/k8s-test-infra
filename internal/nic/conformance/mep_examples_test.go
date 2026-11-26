@@ -21,8 +21,10 @@ var yamlBlock = regexp.MustCompile("(?s)```yaml\n(.*?)```")
 // TestMEPExamples checks the NIC examples in a MEP draft against what Mokka
 // ships: every SNICProfile example must validate and, when it shares a name
 // with a shipped profile, equal it; a rack example's NIC slots, root ports,
-// GPU slots and RDMA software must equal the rack fixture of the same name.
-// Set MEP_README to the MEP's README.md to run it.
+// GPU slots and RDMA software must equal the rack fixture of the same name;
+// and an inventory example's configuration choices for a rack fixture must
+// equal its inventory fixture's. Set MEP_README to the MEP's README.md to run
+// it.
 func TestMEPExamples(t *testing.T) {
 	readme := os.Getenv("MEP_README")
 	if readme == "" {
@@ -33,9 +35,13 @@ func TestMEPExamples(t *testing.T) {
 
 	shipped := load(t, vrNVL72).profiles
 	racks := map[string]*v1alpha1.SGPURackProfile{}
+	choices := map[string][]v1alpha1.NICConfigurationChoice{}
 	for _, fx := range fixtures {
-		r := load(t, fx).rack
-		racks[r.Name] = r
+		d := load(t, fx)
+		racks[d.rack.Name] = d.rack
+		if d.choices != nil {
+			choices[d.rack.Name] = d.choices
+		}
 	}
 
 	checked := 0
@@ -48,6 +54,8 @@ func TestMEPExamples(t *testing.T) {
 			if checkMEPRack(t, block, racks) {
 				checked++
 			}
+		case strings.HasPrefix(block, "kind: SGPUInventory\n"):
+			checked += checkMEPInventory(t, block, choices)
 		}
 	}
 	require.Positive(t, checked, "no NIC examples found in %s", readme)
@@ -68,10 +76,15 @@ func checkMEPProfile(t *testing.T, block string, shipped declaration.Profiles) {
 // cover, and checks it if so.
 func checkMEPRack(t *testing.T, block string, racks map[string]*v1alpha1.SGPURackProfile) bool {
 	t.Helper()
-	var r v1alpha1.SGPURackProfile
-	if yaml.UnmarshalStrict([]byte(block), &r) != nil || racks[r.Name] == nil {
-		return false // a schema sketch, not a sample
+	var named struct {
+		Metadata struct{ Name string } `json:"metadata"`
 	}
+	if yaml.Unmarshal([]byte(block), &named) != nil || racks[named.Metadata.Name] == nil {
+		return false // a schema sketch, or a rack no fixture covers
+	}
+	// A sample named after a fixture must decode: a silent skip would hide it.
+	var r v1alpha1.SGPURackProfile
+	require.NoError(t, yaml.UnmarshalStrict([]byte(block), &r), "MEP example %s", named.Metadata.Name)
 	fixture := racks[r.Name]
 	require.Equal(t, fixture.Spec.Software.RDMA, r.Spec.Software.RDMA, "MEP example %s: software.rdma", r.Name)
 	require.Equal(t, fixture.Spec.Node.Topology.RootPorts, r.Spec.Node.Topology.RootPorts, "MEP example %s: rootPorts", r.Name)
@@ -84,4 +97,24 @@ func checkMEPRack(t *testing.T, block string, racks map[string]*v1alpha1.SGPURac
 		require.Equal(t, slots[s.Slot], s, "MEP example %s: slot %s differs from the fixture", r.Name, s.Slot)
 	}
 	return true
+}
+
+// checkMEPInventory checks an inventory example's configuration choices for
+// each rack that has an inventory fixture, and returns how many it checked.
+func checkMEPInventory(t *testing.T, block string, choices map[string][]v1alpha1.NICConfigurationChoice) int {
+	t.Helper()
+	var inv v1alpha1.SGPUInventory
+	if yaml.UnmarshalStrict([]byte(block), &inv) != nil {
+		return 0 // a schema sketch
+	}
+	n := 0
+	for _, g := range inv.Spec.RackGroups {
+		want, ok := choices[g.ProfileRef.Name]
+		if !ok {
+			continue
+		}
+		require.Equal(t, want, g.NICConfigurations, "MEP example: rack group %s's nicConfigurations", g.ID)
+		n++
+	}
+	return n
 }

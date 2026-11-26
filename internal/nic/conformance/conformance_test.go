@@ -14,7 +14,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -23,6 +25,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v3"
+	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/capture/nicdiff"
@@ -35,6 +38,9 @@ const (
 	repo         = "../../.."
 	chartNICs    = repo + "/deployments/nvml-mock/helm/nvml-mock/nics"
 	rackFixtures = "../testdata/rackprofiles"
+	// inventoryFixtures select the configurations of rack fixtures that don't
+	// run their profiles' defaults.
+	inventoryFixtures = "../testdata/inventories"
 )
 
 type fixture struct {
@@ -51,18 +57,18 @@ type fixture struct {
 var (
 	vrNVL72 = fixture{
 		name:   "vr-nvl72",
-		rack:   "vr-nvl72",
+		rack:   "vrnvl72",
 		real:   "tests/hardware-captures/vr-nvl72/node-a/nic-surfaces.tsv",
 		legacy: "tests/hardware-captures/vr-nvl72/node-a",
 	}
 	gb300IB = fixture{
 		name: "gb300-ib",
-		rack: "gb300-nvl72",
+		rack: "gb300",
 		real: "tests/hardware-captures/gb300-ib/node-a",
 	}
 	gb300RoCE = fixture{
 		name: "gb300-roce",
-		rack: "gb300-ethernet",
+		rack: "gb300-cx7",
 		real: "tests/hardware-captures/gb300-roce/node-a",
 	}
 	awsGB300 = fixture{
@@ -140,7 +146,10 @@ func diffNIC(t *testing.T, realPath, simPath, causes string) ([]check, summary, 
 
 // declared is one fixture's Node: its rack fragment and the shipped profiles.
 type declared struct {
-	rack     *v1alpha1.SGPURackProfile
+	rack *v1alpha1.SGPURackProfile
+	// choices are the configuration choices of the rack group that runs the
+	// rack, from its inventory fixture; none runs the profiles' defaults.
+	choices  []v1alpha1.NICConfigurationChoice
 	profiles declaration.Profiles
 }
 
@@ -160,7 +169,26 @@ func load(t *testing.T, fx fixture) declared {
 	require.NoError(t, err)
 	rack, err := declaration.DecodeRackProfile(data)
 	require.NoError(t, err)
-	return declared{rack: rack, profiles: profiles}
+	return declared{rack: rack, choices: inventoryChoices(t, fx.rack), profiles: profiles}
+}
+
+// inventoryChoices are the configuration choices the inventory fixture of a
+// rack makes, or none when it has none.
+func inventoryChoices(t *testing.T, rack string) []v1alpha1.NICConfigurationChoice {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(inventoryFixtures, rack+".yaml"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	require.NoError(t, err)
+	var inv v1alpha1.SGPUInventory
+	require.NoError(t, yaml.UnmarshalStrict(data, &inv))
+	for _, g := range inv.Spec.RackGroups {
+		if g.ProfileRef.Name == rack {
+			return g.NICConfigurations
+		}
+	}
+	return nil
 }
 
 // surfacesOf resolves the declared Node and lists its NIC surfaces in a
@@ -173,7 +201,8 @@ func surfacesOf(t *testing.T, d declared) string {
 		rdma = spec.Software.RDMA
 	}
 	nics, err := state.Resolve(state.Input{
-		Node: state.FileNode(d.rack.Name), Topology: spec.Node.Topology, RDMA: rdma, Profiles: d.profiles,
+		Node: state.FileNode(d.rack.Name), Topology: spec.Node.Topology, Configurations: d.choices, RDMA: rdma,
+		Profiles: d.profiles,
 	})
 	require.NoError(t, err)
 	var listing bytes.Buffer
@@ -257,9 +286,8 @@ func TestConvertedCapturesAreCurrent(t *testing.T) {
 }
 
 func setDevice(r *v1alpha1.SGPURackProfile, slot int, name string, mutate func(*v1alpha1.NICDevicePlacement)) {
-	d := r.Spec.Node.Topology.NICs[slot].Devices[name]
-	mutate(&d)
-	r.Spec.Node.Topology.NICs[slot].Devices[name] = d
+	d, _ := r.Spec.Node.Topology.NICs[slot].Device(name)
+	mutate(d)
 }
 
 // rootPortOf is the root port above a device's switch: the parent of the
@@ -278,9 +306,8 @@ func rootPortOf(d *v1alpha1.NICDevicePlacement) string {
 }
 
 func setFunctionType(p *v1alpha1.SNICProfile, name string, mutate func(*v1alpha1.NICFunctionType)) {
-	ft := p.Spec.FunctionTypes[name]
-	mutate(&ft)
-	p.Spec.FunctionTypes[name] = ft
+	ft, _ := p.Spec.FunctionType(name)
+	mutate(ft)
 }
 
 // TestMutationsAreCaught checks that the comparison isn't vacuous: each wrong
@@ -340,7 +367,9 @@ func TestMutationsAreCaught(t *testing.T) {
 			name: "Data Direct paired with the same-side GPU", fixture: gb300IB, profile: "cx8-c8280z",
 			mutate: func(_ *v1alpha1.SNICProfile, r *v1alpha1.SGPURackProfile) {
 				nics := r.Spec.Node.Topology.NICs
-				nics[0].Devices["dataDirect"], nics[1].Devices["dataDirect"] = nics[1].Devices["dataDirect"], nics[0].Devices["dataDirect"]
+				a, _ := nics[0].Device("dataDirect")
+				b, _ := nics[1].Device("dataDirect")
+				*a, *b = *b, *a
 			},
 			want: []string{"rel.data_direct.by_v3 rel/data_direct/0000:03:00.0", "rel.data_direct.gpu rel/data_direct/0002:03:00.0"},
 		},

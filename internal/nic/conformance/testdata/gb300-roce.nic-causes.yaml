@@ -1,5 +1,6 @@
-# Causes of the differences between the Node declared by the gb300-ethernet
-# rack fixture and the capture in tests/hardware-captures/gb300-roce/node-a, in
+# Causes of the differences between the Node declared by the gb300-cx7 rack
+# fixture, run as its inventory fixture selects, and the capture in
+# tests/hardware-captures/gb300-roce/node-a, in
 # the format `mokka-capture diff nic -causes` reads. The first entry that
 # matches a failure gives its cause.
 #
@@ -56,3 +57,6 @@
 - match: '^node\.dev_infiniband node$'
   cause: by design
   note: includes the newer driver stack's device files; each device file is compared on its own
+- match: '^rdma\.fw_ver rdma/(0000|0002|0010|0012):03:00\.0/dev$'
+  cause: schema gap
+  note: runtime policy not implemented. The boards run firmware 40.48.1102; a declaration reports the profile's 40.47.3576 until an SGPURuntimePolicy can set a cluster's firmware version

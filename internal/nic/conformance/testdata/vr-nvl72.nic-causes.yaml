@@ -1,4 +1,4 @@
-# Causes of the differences between the Node declared by the vr-nvl72 rack
+# Causes of the differences between the Node declared by the vrnvl72 rack
 # fixture and tests/hardware-captures/vr-nvl72/node-a/nic-surfaces.tsv, in the
 # format `mokka-capture diff nic -causes` reads. That listing was converted from
 # an older capture-node directory, so it lacks some records collect network
