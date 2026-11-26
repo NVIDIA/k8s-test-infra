@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
@@ -20,6 +22,16 @@ import (
 type features struct {
 	gpuPublishing, gpuDriver             string
 	computeDomains, nodeResourceTopology bool
+}
+
+func (f features) validate() error {
+	if f.gpuPublishing != "DevicePlugin" && f.gpuPublishing != "DRA" {
+		return errors.New("expected DevicePlugin or DRA for --gpu-publishing")
+	}
+	if len(validation.IsDNS1123Subdomain(f.gpuDriver)) != 0 || len(f.gpuDriver) > 63 {
+		return errors.New("expected a DNS subdomain of at most 63 characters for --gpu-driver")
+	}
+	return nil
 }
 
 type requiredAPI struct {

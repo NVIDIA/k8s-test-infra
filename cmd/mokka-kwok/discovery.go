@@ -116,7 +116,10 @@ func (p *labelPublisher) enqueue(obj any) {
 	}
 }
 
-func (p *labelPublisher) warnDRACapacity(n *nodeObservation) {
+func (p *labelPublisher) warnDRACapacity(previous, n *nodeObservation) {
+	if previous != nil && previous.UID == n.UID && previous.kwok == n.kwok && previous.gpu.capacity.value == n.gpu.capacity.value {
+		return
+	}
 	if p.dra && n.kwok && n.gpu.capacity.value != "" && n.gpu.capacity.value != "0" {
 		node := &corev1.Node{ObjectMeta: n.ObjectMeta}
 		p.recorder.Eventf(node, corev1.EventTypeWarning, "GPUCapacityConflict",
@@ -126,9 +129,7 @@ func (p *labelPublisher) warnDRACapacity(n *nodeObservation) {
 
 func (p *labelPublisher) nodeUpdated(old, current any) {
 	a, b := old.(*nodeObservation), current.(*nodeObservation)
-	if a.UID != b.UID || a.kwok != b.kwok || a.gpu.capacity.value != b.gpu.capacity.value {
-		p.warnDRACapacity(b)
-	}
+	p.warnDRACapacity(a, b)
 	if a.UID != b.UID {
 		p.views.forgetNode(a.UID)
 	}
@@ -143,7 +144,7 @@ func (p *labelPublisher) run(ctx context.Context) error {
 		return err
 	}
 	_, err := p.nodeWatch.AddEventHandler(cache.ResourceEventHandlerFuncs{AddFunc: func(obj any) {
-		p.warnDRACapacity(obj.(*nodeObservation))
+		p.warnDRACapacity(nil, obj.(*nodeObservation))
 		p.enqueue(obj)
 	}, UpdateFunc: p.nodeUpdated, DeleteFunc: func(obj any) {
 		if t, ok := obj.(cache.DeletedFinalStateUnknown); ok {

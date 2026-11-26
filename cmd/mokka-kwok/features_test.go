@@ -87,14 +87,14 @@ func TestDRACapacityEvent(t *testing.T) {
 	rec := record.NewFakeRecorder(4)
 	p := labelPublisher{dra: true, recorder: rec}
 	node := &nodeObservation{kwok: true, gpu: gpuStatus{capacity: gpuStatusField{value: "8"}}}
-	p.warnDRACapacity(node)
+	p.warnDRACapacity(nil, node)
 	require.Contains(t, <-rec.Events, corev1.EventTypeWarning+" GPUCapacityConflict")
 	p.nodeUpdated(node, node)
 	node.kwok = false
-	p.warnDRACapacity(node)
+	p.warnDRACapacity(nil, node)
 	node.kwok = true
 	p.dra = false
-	p.warnDRACapacity(node)
+	p.warnDRACapacity(nil, node)
 	require.Empty(t, rec.Events)
 }
 

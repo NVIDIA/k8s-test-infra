@@ -58,11 +58,8 @@ func parseConfig(args []string) (config, error) {
 	if flags.NArg() != 0 || len(validation.IsDNS1123Label(c.shard)) != 0 {
 		return c, errors.New("expected a DNS label for --shard-name and no positional arguments")
 	}
-	if c.gpuPublishing != "DevicePlugin" && c.gpuPublishing != "DRA" {
-		return c, errors.New("expected DevicePlugin or DRA for --gpu-publishing")
-	}
-	if len(validation.IsDNS1123Subdomain(c.gpuDriver)) != 0 || len(c.gpuDriver) > 63 {
-		return c, errors.New("expected a DNS subdomain of at most 63 characters for --gpu-driver")
+	if err := c.features.validate(); err != nil {
+		return c, err
 	}
 	if _, _, err := net.SplitHostPort(c.listen); err != nil {
 		return c, fmt.Errorf("invalid listen address: %w", err)
