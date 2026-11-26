@@ -1,6 +1,6 @@
 # NIC slots of one GB300 NVL72 tray at a cloud provider
 # (tests/hardware-captures/gb300-roce/node-a): the same ConnectX-8 boards as
-# gb300-nvl72, and a ConnectX-7 front-end card. The cluster's inventory
+# gb300, and a ConnectX-7 front-end card. The cluster's inventory
 # (../inventories) runs the boards in their Ethernet multi-plane
 # configuration. They run newer firmware (40.48.1102) than the profile's
 # default, which only a runtime policy will be able to set.
@@ -8,7 +8,7 @@
 apiVersion: mokka.nvidia.com/v1alpha1
 kind: SGPURackProfile
 metadata:
-  name: gb300-ethernet
+  name: gb300-cx7
 spec:
   rack: {nodesPerRack: 18}
   software:

@@ -4,7 +4,7 @@
 apiVersion: mokka.nvidia.com/v1alpha1
 kind: SGPURackProfile
 metadata:
-  name: vr-nvl72
+  name: vrnvl72
 spec:
   rack: {nodesPerRack: 18}
   software:
