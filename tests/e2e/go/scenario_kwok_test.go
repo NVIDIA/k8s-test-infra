@@ -22,6 +22,7 @@ var _ = Describe("KWOK rack binding", Label("kwok"), func() {
 		realName := config.ClusterName() + "-worker"
 		const virtualName = "kwok-worker"
 		var cpuNode, kwokNode corev1.Node
+		var virtualRack mokkav1.SGPURack
 		Expect(h.Kube.GetJSON(ctx, &cpuNode, "node", realName)).To(Succeed())
 		Expect(h.Kube.GetJSON(ctx, &kwokNode, "node", virtualName)).To(Succeed())
 
@@ -37,6 +38,7 @@ var _ = Describe("KWOK rack binding", Label("kwok"), func() {
 				expected := cpuNode
 				if rack.Spec.NodeType == mokkav1.NodeTypeKWOK {
 					expected = kwokNode
+					virtualRack = rack
 				}
 				g.Expect(slot.BoundTo(expected.Name, expected.UID)).To(BeTrue(), "rack %s has nodeRef %+v", rack.Name, slot.NodeRef)
 				bound[rack.Spec.NodeType] = rack.Spec.Identity.RackGroup
@@ -78,6 +80,35 @@ spec:
 				gpus := resources["nvidia.com/gpu"]
 				g.Expect(gpus.Value()).To(Equal(int64(8)))
 			}
+		}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
+
+		By("checking the container allocation against the GPUs in its rack slot")
+		var scheduled corev1.Pod
+		Expect(h.Kube.GetJSON(ctx, &scheduled, "pod", "kwok-capacity-e2e", "-n", "default")).To(Succeed())
+		slotGPUs := make([]string, 0, len(virtualRack.Spec.Nodes[0].GPUs))
+		for _, gpu := range virtualRack.Spec.Nodes[0].GPUs {
+			slotGPUs = append(slotGPUs, gpu.UUID)
+		}
+		Eventually(func(g Gomega) {
+			var allocation mokkav1.SGPURackAllocation
+			g.Expect(h.Kube.GetJSON(ctx, &allocation, "sgpurackallocation", virtualRack.Name)).To(Succeed())
+			g.Expect(allocation.OwnedByRack(&virtualRack)).To(BeTrue())
+			g.Expect(allocation.Nodes).To(HaveLen(1))
+			n := allocation.Nodes[0]
+			g.Expect(n.Name).To(Equal(virtualName))
+			g.Expect(n.Pods).To(HaveLen(1))
+			g.Expect(n.Pods[0].UID).To(Equal(scheduled.UID))
+			g.Expect(n.Pods[0].Containers).To(HaveLen(1))
+			c := n.Pods[0].Containers[0]
+			g.Expect(c.Name).To(Equal("probe"))
+			g.Expect(c.GPUs).To(HaveLen(1))
+			g.Expect(slotGPUs).To(ContainElement(c.GPUs[0]))
+		}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
+		Expect(h.Kube.Delete(ctx, probe)).To(Succeed())
+		Eventually(func(g Gomega) {
+			var allocation mokkav1.SGPURackAllocation
+			g.Expect(h.Kube.GetJSON(ctx, &allocation, "sgpurackallocation", virtualRack.Name)).To(Succeed())
+			g.Expect(allocation.Nodes).To(BeEmpty())
 		}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
 
 		By("checking actual node-daemon Pods after the DaemonSet has converged")

@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  kwok: Bound Pods receive whole GPU UUIDs per container. The data plane saves assignments per rack, recovers them after restart, and releases GPUs when Pods end.
+time: 2026-11-23T13:03:41Z

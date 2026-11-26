@@ -18,7 +18,6 @@ import (
 	applycore "k8s.io/client-go/applyconfigurations/core/v1"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
 	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
@@ -34,7 +33,6 @@ import (
 type labelPublisher struct {
 	nodes     coreclient.NodeInterface
 	views     *rackViews
-	events    coreclient.EventInterface
 	recorder  record.EventRecorder
 	racks     cache.SharedIndexInformer
 	nodeWatch cache.SharedIndexInformer
@@ -43,11 +41,8 @@ type labelPublisher struct {
 
 func newLabelPublisher(kube kubernetes.Interface, racks cache.SharedIndexInformer) *labelPublisher {
 	return &labelPublisher{
-		nodes: kube.CoreV1().Nodes(),
-
-		events: kube.CoreV1().Events(metav1.NamespaceAll),
-		racks:  racks,
-
+		nodes:     kube.CoreV1().Nodes(),
+		racks:     racks,
 		queue:     workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
 		nodeWatch: coreinformers.NewNodeInformer(kube, 0, cache.Indexers{}),
 	}
@@ -115,6 +110,7 @@ func (p *labelPublisher) enqueue(obj any) {
 	n := obj.(*nodeObservation)
 	if n.relevant() {
 		p.queue.Add(n.Name)
+		p.views.pods.nodeChanged(n.Name)
 	}
 }
 
@@ -144,10 +140,6 @@ func (p *labelPublisher) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	b := record.NewBroadcaster(record.WithContext(ctx))
-	defer b.Shutdown()
-	b.StartRecordingToSink(&coreclient.EventSinkImpl{Interface: p.events})
-	p.recorder = b.NewRecorder(scheme.Scheme, corev1.EventSource{Component: fieldManager})
 	var watchers sync.WaitGroup
 	watchers.Go(func() { p.nodeWatch.RunWithContext(ctx) })
 	defer watchers.Wait()
