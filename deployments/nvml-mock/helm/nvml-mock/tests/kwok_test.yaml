@@ -28,7 +28,7 @@ tests:
         documentIndex: 4
       - equal:
           path: spec.template.spec.containers[0].args
-          value: [data-plane, "--shard-name=$(POD_NAME)", "--control-plane-url=http://RELEASE-NAME-nvml-mock-control-plane:8080", "--batch-size=100", "--batch-window=1s", "--max-in-flight=2"]
+          value: [data-plane, "--gpu-publishing=DevicePlugin", "--gpu-driver=gpu.nvidia.com", "--compute-domains=false", "--node-resource-topology=false", "--shard-name=$(POD_NAME)", "--control-plane-url=http://RELEASE-NAME-nvml-mock-control-plane:8080", "--batch-size=100", "--batch-window=1s", "--max-in-flight=2"]
         documentIndex: 4
       - equal:
           path: rules
@@ -75,3 +75,56 @@ tests:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: IfNotPresent
         documentIndex: 4
+
+  - it: grants DRA access and checks only the selected GPU class
+    set:
+      kwok.enabled: true
+      kwok.dataPlane.gpuPublishing: DRA
+      kwok.dataPlane.gpuDriver: example.com
+    asserts:
+      - hasDocuments: {count: 5}
+      - contains:
+          path: rules
+          content: {apiGroups: [resource.k8s.io], resources: [deviceclasses], resourceNames: [example.com], verbs: [get]}
+        documentIndex: 1
+      - contains:
+          path: rules
+          content: {apiGroups: [resource.k8s.io], resources: [resourceclaims], verbs: [get, list, watch]}
+        documentIndex: 1
+      - contains: {path: "spec.template.spec.containers[0].args", content: "--gpu-publishing=DRA"}
+        documentIndex: 4
+
+  - it: grants channel access in DevicePlugin mode and scopes clique writes to the driver namespace
+    set:
+      kwok.enabled: true
+      kwok.dataPlane.computeDomains.enabled: true
+      kwok.dataPlane.computeDomains.driverNamespace: nvidia-drivers
+    asserts:
+      - hasDocuments: {count: 7}
+      - lengthEqual: {path: rules, count: 9}
+        documentIndex: 1
+      - contains:
+          path: rules
+          content: {apiGroups: [resource.k8s.io], resources: [resourceslices], verbs: [get, list, watch, create, patch, update, delete]}
+        documentIndex: 1
+      - equal: {path: metadata.namespace, value: nvidia-drivers}
+        documentIndex: 5
+      - equal: {path: "rules[0].resources", value: [computedomaincliques]}
+        documentIndex: 5
+      - equal: {path: metadata.namespace, value: nvidia-drivers}
+        documentIndex: 6
+      - equal: {path: "subjects[0].namespace", value: NAMESPACE}
+        documentIndex: 6
+
+  - it: grants topology access without enabling DRA
+    set:
+      kwok.enabled: true
+      kwok.dataPlane.nodeResourceTopology.enabled: true
+    asserts:
+      - hasDocuments: {count: 5}
+      - lengthEqual: {path: rules, count: 8}
+        documentIndex: 1
+      - contains:
+          path: rules
+          content: {apiGroups: [topology.node.k8s.io], resources: [noderesourcetopologies], verbs: [get, create, patch, delete]}
+        documentIndex: 1

@@ -620,6 +620,19 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "gpuPublishing": { "type": "string", "enum": ["DevicePlugin", "DRA"] },
+            "gpuDriver": { "type": "string", "maxLength": 63, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$" },
+            "computeDomains": {
+              "type": "object", "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "driverNamespace": { "type": "string", "maxLength": 63, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" }
+              }
+            },
+            "nodeResourceTopology": {
+              "type": "object", "additionalProperties": false,
+              "properties": { "enabled": { "type": "boolean" } }
+            },
             "controlPlaneURL": { "type": "string", "pattern": "^(|https?://.+)$" },
             "batch": {
               "type": "object",

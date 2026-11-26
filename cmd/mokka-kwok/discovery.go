@@ -32,6 +32,7 @@ import (
 )
 
 type labelPublisher struct {
+	dra       bool
 	nodes     coreclient.NodeInterface
 	views     *rackViews
 	recorder  record.EventRecorder
@@ -115,8 +116,19 @@ func (p *labelPublisher) enqueue(obj any) {
 	}
 }
 
+func (p *labelPublisher) warnDRACapacity(n *nodeObservation) {
+	if p.dra && n.kwok && n.gpu.capacity.value != "" && n.gpu.capacity.value != "0" {
+		node := &corev1.Node{ObjectMeta: n.ObjectMeta}
+		p.recorder.Eventf(node, corev1.EventTypeWarning, "GPUCapacityConflict",
+			"Node advertises %s=%s in DRA mode. A GPU can be offered twice", gpuResource, n.gpu.capacity.value)
+	}
+}
+
 func (p *labelPublisher) nodeUpdated(old, current any) {
 	a, b := old.(*nodeObservation), current.(*nodeObservation)
+	if a.UID != b.UID || a.kwok != b.kwok || a.gpu.capacity.value != b.gpu.capacity.value {
+		p.warnDRACapacity(b)
+	}
 	if a.UID != b.UID {
 		p.views.forgetNode(a.UID)
 	}
@@ -130,7 +142,10 @@ func (p *labelPublisher) run(ctx context.Context) error {
 	if err := p.nodeWatch.SetTransform(observeNode); err != nil {
 		return err
 	}
-	_, err := p.nodeWatch.AddEventHandler(cache.ResourceEventHandlerFuncs{AddFunc: p.enqueue, UpdateFunc: p.nodeUpdated, DeleteFunc: func(obj any) {
+	_, err := p.nodeWatch.AddEventHandler(cache.ResourceEventHandlerFuncs{AddFunc: func(obj any) {
+		p.warnDRACapacity(obj.(*nodeObservation))
+		p.enqueue(obj)
+	}, UpdateFunc: p.nodeUpdated, DeleteFunc: func(obj any) {
 		if t, ok := obj.(cache.DeletedFinalStateUnknown); ok {
 			obj = t.Obj
 		}
@@ -194,7 +209,11 @@ func (p *labelPublisher) reconcile(ctx context.Context, name string) error {
 }
 
 func (p *labelPublisher) publishResources(ctx context.Context, node *corev1.Node, desired map[string]string) error {
-	updated, err := p.publishCapacity(ctx, node, desired[metadata.GPUCountLabel])
+	capacity := desired[metadata.GPUCountLabel]
+	if p.dra {
+		capacity = ""
+	}
+	updated, err := p.publishCapacity(ctx, node, capacity)
 	if err != nil {
 		return err
 	}

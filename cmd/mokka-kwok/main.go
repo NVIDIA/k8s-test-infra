@@ -29,6 +29,7 @@ import (
 const fieldManager = "mokka-kwok-data-plane"
 
 type config struct {
+	features
 	shard        string
 	listen       string
 	controlPlane string
@@ -41,6 +42,10 @@ func parseConfig(args []string) (config, error) {
 		return c, errors.New("usage: mokka-kwok data-plane --shard-name NAME")
 	}
 	flags := flag.NewFlagSet("data-plane", flag.ContinueOnError)
+	flags.StringVar(&c.gpuPublishing, "gpu-publishing", "DevicePlugin", "GPU publishing mode: DevicePlugin or DRA")
+	flags.StringVar(&c.gpuDriver, "gpu-driver", "gpu.nvidia.com", "GPU DRA driver and DeviceClass name")
+	flags.BoolVar(&c.computeDomains, "compute-domains", false, "enable ComputeDomain API support")
+	flags.BoolVar(&c.nodeResourceTopology, "node-resource-topology", false, "enable NodeResourceTopology API support")
 	flags.StringVar(&c.shard, "shard-name", "", "replica name on assigned racks")
 	flags.StringVar(&c.listen, "listen-addr", ":8080", "health and readiness listener")
 	flags.StringVar(&c.controlPlane, "control-plane-url", "http://nvml-mock-control-plane:8080", "base URL of the Mokka control-plane Service")
@@ -52,6 +57,12 @@ func parseConfig(args []string) (config, error) {
 	}
 	if flags.NArg() != 0 || len(validation.IsDNS1123Label(c.shard)) != 0 {
 		return c, errors.New("expected a DNS label for --shard-name and no positional arguments")
+	}
+	if c.gpuPublishing != "DevicePlugin" && c.gpuPublishing != "DRA" {
+		return c, errors.New("expected DevicePlugin or DRA for --gpu-publishing")
+	}
+	if len(validation.IsDNS1123Subdomain(c.gpuDriver)) != 0 || len(c.gpuDriver) > 63 {
+		return c, errors.New("expected a DNS subdomain of at most 63 characters for --gpu-driver")
 	}
 	if _, _, err := net.SplitHostPort(c.listen); err != nil {
 		return c, fmt.Errorf("invalid listen address: %w", err)
