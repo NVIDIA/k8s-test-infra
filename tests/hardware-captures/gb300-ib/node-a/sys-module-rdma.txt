@@ -1,0 +1,47 @@
+== mlx5_core
+initstate=live
+version=25.10-2.4.1
+parameters/debug_mask=0
+parameters/num_of_groups=15
+parameters/prof_sel=2
+== mlx5_ib
+initstate=live
+== mlxfw
+initstate=live
+== mlxdevm
+initstate=live
+== mlx_compat
+initstate=live
+parameters/compat_base=mlnx-ofa_kernel-compat-20260319-1103-82395da
+parameters/compat_base_tree=https://:@git.example.com/r/a/mlnx_ofed/mlnx-ofa_kernel-4.0.git
+parameters/compat_base_tree_version=82395da
+parameters/compat_version=82395da
+== ib_core
+initstate=live
+parameters/mad_smp_window=0
+parameters/netns_mode=Y
+parameters/recv_queue_size=512
+parameters/send_queue_size=128
+== ib_uverbs
+initstate=live
+== ib_umad
+initstate=live
+== ib_ipoib
+initstate=live
+parameters/debug_level=0
+parameters/ipoib_enhanced=1
+parameters/max_nonsrq_conn_qp=128
+parameters/mcast_debug_level=0
+parameters/recv_queue_size=128
+parameters/send_queue_size=128
+== ib_cm
+initstate=live
+== iw_cm
+initstate=live
+== rdma_cm
+initstate=live
+== rdma_ucm
+initstate=live
+== gdrdrv
+initstate=live
+version=2.6

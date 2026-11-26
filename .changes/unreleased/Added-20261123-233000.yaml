@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  mokka-capture: `collect -exec-in namespace/name-part[/container]` takes the `host` and `network` captures read-only in a pod the cluster already runs on each node, creating, installing and deleting nothing. A command whose cluster connection drops is run again, and `network` reads only the captured nodes' NFD `NodeFeature`s instead of every node's.
+time: 2026-11-23T23:30:00Z

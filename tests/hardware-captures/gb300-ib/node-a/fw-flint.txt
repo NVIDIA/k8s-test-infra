@@ -1,0 +1,96 @@
+== 0000:03:00.0
+Image type:            FS5
+FW Version:            40.47.3576
+FW Release Date:       6.7.2026
+Product Version:       40.47.3576
+Rom Info:              type=UEFI version=14.40.10 cpu=AMD64,AARCH64
+                       type=PXE version=3.8.201 cpu=AMD64
+Base GUID:             0000000000000001        64
+Base MAC:              020000000001            64
+System GUID:           0000000000000001
+Node GUID:             0000000000000001
+Port GUID:             0000000000000001
+Allocated GUID:        0000000000000000
+Image VSD:             N/A
+Device VSD:            N/A
+PSID:                  MT_0000001513
+Security Attributes:   secure-fw
+Geographical Address:  ASIC 0
+Socket Direct:         Yes
+PCIe switch mode only: Disabled
+== 0002:03:00.0
+Image type:            FS5
+FW Version:            40.47.3576
+FW Release Date:       6.7.2026
+Product Version:       40.47.3576
+Rom Info:              type=UEFI version=14.40.10 cpu=AMD64,AARCH64
+                       type=PXE version=3.8.201 cpu=AMD64
+Base GUID:             0000000000000002        64
+Base MAC:              020000000002            64
+System GUID:           0000000000000002
+Node GUID:             0000000000000003
+Port GUID:             0000000000000003
+Allocated GUID:        0000000000000000
+Image VSD:             N/A
+Device VSD:            N/A
+PSID:                  MT_0000001513
+Security Attributes:   secure-fw
+Geographical Address:  ASIC 1
+Socket Direct:         Yes
+PCIe switch mode only: Disabled
+== 0010:03:00.0
+Image type:            FS5
+FW Version:            40.47.3576
+FW Release Date:       6.7.2026
+Product Version:       40.47.3576
+Rom Info:              type=UEFI version=14.40.10 cpu=AMD64,AARCH64
+                       type=PXE version=3.8.201 cpu=AMD64
+Base GUID:             0000000000000004        64
+Base MAC:              020000000003            64
+System GUID:           0000000000000004
+Node GUID:             0000000000000004
+Port GUID:             0000000000000004
+Allocated GUID:        0000000000000000
+Image VSD:             N/A
+Device VSD:            N/A
+PSID:                  MT_0000001513
+Security Attributes:   secure-fw
+Geographical Address:  ASIC 0
+Socket Direct:         Yes
+PCIe switch mode only: Disabled
+== 0012:03:00.0
+Image type:            FS5
+FW Version:            40.47.3576
+FW Release Date:       6.7.2026
+Product Version:       40.47.3576
+Rom Info:              type=UEFI version=14.40.10 cpu=AMD64,AARCH64
+                       type=PXE version=3.8.201 cpu=AMD64
+Base GUID:             0000000000000005        64
+Base MAC:              020000000004            64
+System GUID:           0000000000000005
+Node GUID:             0000000000000006
+Port GUID:             0000000000000006
+Allocated GUID:        0000000000000000
+Image VSD:             N/A
+Device VSD:            N/A
+PSID:                  MT_0000001513
+Security Attributes:   secure-fw
+Geographical Address:  ASIC 1
+Socket Direct:         Yes
+PCIe switch mode only: Disabled
+== 0016:01:00.0
+Image type:            FS4
+FW Version:            32.47.3576
+FW Release Date:       6.7.2026
+Product Version:       32.47.3576
+Rom Info:              type=UEFI Virtio net version=21.4.13 cpu=AMD64,AARCH64
+                       type=UEFI Virtio blk version=22.4.14 cpu=AMD64,AARCH64
+                       type=UEFI version=14.40.10 cpu=AMD64,AARCH64
+                       type=PXE version=3.8.201 cpu=AMD64
+Description:           UID                GuidsNumber
+Base GUID:             0000000000000007        38
+Base MAC:              020000000005            38
+Image VSD:             N/A
+Device VSD:            N/A
+PSID:                  MT_0000001188
+Security Attributes:   secure-fw

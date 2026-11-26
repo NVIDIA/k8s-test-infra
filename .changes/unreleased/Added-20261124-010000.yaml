@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  mokka-capture: `nic-surfaces` lists a captured node's NIC surfaces as one normalized list, keyed by PCI function and port rather than device name, each record with the capture file it came from.
+time: 2026-11-24T01:00:00Z

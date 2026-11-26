@@ -1,0 +1,5 @@
+mlx5_core version=26.01-1.0.0 parameters=debug_mask num_of_groups prof_sel 
+mlx5_ib version=cat: can't open '/sys/module/mlx5_ib/version': No such file or directory parameters=ls: /sys/module/mlx5_ib/parameters: No such file or directory 
+ib_core version=cat: can't open '/sys/module/ib_core/version': No such file or directory parameters=mad_smp_window netns_mode recv_queue_size send_queue_size 
+ib_uverbs version=cat: can't open '/sys/module/ib_uverbs/version': No such file or directory parameters=ls: /sys/module/ib_uverbs/parameters: No such file or directory 
+nvidia version=610.57.04 parameters=ls: /sys/module/nvidia/parameters: No such file or directory 

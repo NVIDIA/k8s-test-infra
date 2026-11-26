@@ -1,0 +1,220 @@
+== 0000:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Prime
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000002
+[V3] Vendor specific: 00000000000000000000000000000006
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000007MLNXS0D0F0
+== 0000:03:00.1
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Prime
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000002
+[V3] Vendor specific: 00000000000000000000000000000006
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000007MLNXS0D0F1
+== 0000:03:00.2
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Prime
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000002
+[V3] Vendor specific: 00000000000000000000000000000006
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000007MLNXS0D0F2
+== 0000:03:00.3
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Prime
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000002
+[V3] Vendor specific: 00000000000000000000000000000006
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000007MLNXS0D0F3
+== 0002:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Aux[1]
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000002
+[V3] Vendor specific: 00000000000000000000000000000008
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000009MLNXS0D0F0
+== 0002:03:00.1
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Aux[1]
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000002
+[V3] Vendor specific: 00000000000000000000000000000008
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000009MLNXS0D0F1
+== 0002:03:00.2
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Aux[1]
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000002
+[V3] Vendor specific: 00000000000000000000000000000008
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000009MLNXS0D0F2
+== 0002:03:00.3
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Aux[1]
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000002
+[V3] Vendor specific: 00000000000000000000000000000008
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000009MLNXS0D0F3
+== 0007:01:00.0
+Product Name: ConnectX-7 HHHL adapter Card, 200GbE (default mode) / NDR200 IB, Dual-port QSFP112, PCIe 5.0 x16, Crypto and Secure Boot, Short Bracket -Prime
+[PN] Part number: 8219495
+[EC] Engineering changes: 03
+[V2] Vendor specific: 8219495
+[SN] Serial number: 1650000000001
+[V3] Vendor specific: 0000000000000000000000000000000a
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=CX755106A
+[V0] Vendor specific: PCIeGen5 x16
+[VU] Vendor specific: 0000000000000000000000000000000bMLNXS0D0F0
+== 0008:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Prime
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000002
+[V3] Vendor specific: 00000000000000000000000000000008
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000007MLNXDDIS0D0F0
+== 0009:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Aux[1]
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A3
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000002
+[V3] Vendor specific: 00000000000000000000000000000006
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 00000000000000000000000000000009MLNXDDIS0D0F0
+== 0010:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Prime
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A5
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000003
+[V3] Vendor specific: 0000000000000000000000000000000c
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 0000000000000000000000000000000dMLNXS0D0F0
+== 0010:03:00.1
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Prime
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A5
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000003
+[V3] Vendor specific: 0000000000000000000000000000000c
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 0000000000000000000000000000000dMLNXS0D0F1
+== 0010:03:00.2
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Prime
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A5
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000003
+[V3] Vendor specific: 0000000000000000000000000000000c
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 0000000000000000000000000000000dMLNXS0D0F2
+== 0010:03:00.3
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Prime
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A5
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000003
+[V3] Vendor specific: 0000000000000000000000000000000c
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 0000000000000000000000000000000dMLNXS0D0F3
+== 0012:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Aux[1]
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A5
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000003
+[V3] Vendor specific: 0000000000000000000000000000000e
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 0000000000000000000000000000000fMLNXS0D0F0
+== 0012:03:00.1
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Aux[1]
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A5
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000003
+[V3] Vendor specific: 0000000000000000000000000000000e
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 0000000000000000000000000000000fMLNXS0D0F1
+== 0012:03:00.2
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Aux[1]
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A5
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000003
+[V3] Vendor specific: 0000000000000000000000000000000e
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 0000000000000000000000000000000fMLNXS0D0F2
+== 0012:03:00.3
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Aux[1]
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A5
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000003
+[V3] Vendor specific: 0000000000000000000000000000000e
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 0000000000000000000000000000000fMLNXS0D0F3
+== 0017:01:00.0
+Product Name: ConnectX-7 HHHL adapter Card, 200GbE (default mode) / NDR200 IB, Dual-port QSFP112, PCIe 5.0 x16, Crypto and Secure Boot, Short Bracket -Aux[1]
+[PN] Part number: 8219495
+[EC] Engineering changes: 03
+[V2] Vendor specific: 8219495
+[SN] Serial number: 1650000000001
+[V3] Vendor specific: 0000000000000000000000000000000a
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=CX755106A
+[V0] Vendor specific: PCIeGen5 x16
+[VU] Vendor specific: 00000000000000000000000000000010MLNXS0D0F0
+== 0018:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Prime
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A5
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000003
+[V3] Vendor specific: 0000000000000000000000000000000e
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 0000000000000000000000000000000dMLNXDDIS0D0F0
+== 0019:03:00.0
+Product Name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled. -Aux[1]
+[PN] Part number: 900-9X86E-00CX-ST0
+[EC] Engineering changes: A5
+[V2] Vendor specific: 900-9X86E-00CX-ST0
+[SN] Serial number: 1650000000003
+[V3] Vendor specific: 0000000000000000000000000000000c
+[VA] Vendor specific: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+[V0] Vendor specific: PCIeGen6 x48
+[VU] Vendor specific: 0000000000000000000000000000000fMLNXDDIS0D0F0
