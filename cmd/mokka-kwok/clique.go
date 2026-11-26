@@ -151,22 +151,23 @@ func reportManager(node string) string {
 }
 
 func (d *daemonReports) sync(ctx context.Context, node string, slot state.NodePayload, pod *corev1.Pod) error {
-	var desired string
-	if pod != nil {
-		fabric := slot.Hardware.Fabric
-		clique := fmt.Sprintf("%s.%d", fabric.FabricUUID, fabric.CliqueID)
-		if pod.Labels[cliqueLabel] != clique {
-			label := applycore.Pod(pod.Name, pod.Namespace).WithUID(pod.UID).WithResourceVersion(pod.ResourceVersion).WithLabels(map[string]string{cliqueLabel: clique})
-			if _, err := d.pods.Apply(ctx, label, metav1.ApplyOptions{FieldManager: domainManager}); err != nil {
-				return err
-			}
+	if pod == nil {
+		return d.withdrawOther(ctx, node, "")
+	}
+	fabric := slot.Hardware.Fabric
+	clique := fmt.Sprintf("%s.%d", fabric.FabricUUID, fabric.CliqueID)
+	if pod.Labels[cliqueLabel] != clique {
+		label := applycore.Pod(pod.Name, pod.Namespace).WithUID(pod.UID).WithResourceVersion(pod.ResourceVersion).WithLabels(map[string]string{cliqueLabel: clique})
+		if _, err := d.pods.Apply(ctx, label, metav1.ApplyOptions{FieldManager: domainManager}); err != nil {
+			return err
 		}
-		if pod.Status.PodIP != "" {
-			desired = pod.Labels[domainLabel] + "." + clique
-			if err := d.publish(ctx, pod, desired, clique, slot.Index); err != nil {
-				return err
-			}
-		}
+	}
+	if pod.Status.PodIP == "" {
+		return d.withdrawOther(ctx, node, "")
+	}
+	desired := pod.Labels[domainLabel] + "." + clique
+	if err := d.publish(ctx, pod, desired, clique, slot.Index); err != nil {
+		return err
 	}
 	return d.withdrawOther(ctx, node, desired)
 }

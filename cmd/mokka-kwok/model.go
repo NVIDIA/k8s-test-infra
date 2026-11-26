@@ -136,7 +136,7 @@ func (m model) run(ctx context.Context, c config) error {
 		if reason := prerequisites.Load().(string); reason != "" {
 			return health.Unhealthy("%s", reason)
 		}
-		if c.computeDomains && (!m.discovery.slices.domains.watch.HasSynced() || !m.discovery.slices.domains.reports.watch.HasSynced()) {
+		if c.computeDomains && !m.discovery.slices.domains.hasSynced() {
 			return health.Unhealthy("waiting for ComputeDomain cache")
 		}
 		if !m.claimsSynced() {

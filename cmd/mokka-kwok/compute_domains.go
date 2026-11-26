@@ -51,6 +51,10 @@ func newDomainChannels(client metadata.Interface, reports *daemonReports) *domai
 	return &domainChannels{reports: reports, watch: metadatainformer.NewFilteredMetadataInformer(client, gvr, metav1.NamespaceAll, 0, cache.Indexers{domainLabel: index}, nil).Informer()}
 }
 
+func (d *domainChannels) hasSynced() bool {
+	return d.watch.HasSynced() && d.reports.watch.HasSynced()
+}
+
 func (p *labelPublisher) watchDomains(ctx context.Context) error {
 	w := p.slices.domains.watch
 	_, err := w.AddEventHandler(p.domainEvents(ctx))
@@ -124,7 +128,7 @@ func (p *labelPublisher) publishDomain(ctx context.Context, node *corev1.Node, s
 func (p *labelPublisher) prepareChannels(ctx context.Context, node *corev1.Node, slot state.NodePayload) error {
 	d := p.slices.domains
 	pods := d.claims.pods.allocationSnapshot(node.Name)
-	if pods == nil || !d.claims.hasSynced() || !d.watch.HasSynced() || !d.reports.watch.HasSynced() {
+	if pods == nil || !d.claims.hasSynced() || !d.hasSynced() {
 		p.queue.AddAfter(node.Name, time.Second)
 		return nil
 	}
