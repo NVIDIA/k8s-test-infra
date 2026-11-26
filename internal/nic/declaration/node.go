@@ -21,29 +21,7 @@ import (
 func Select(slots []v1alpha1.NICSlot, choices []v1alpha1.NICConfigurationChoice,
 	profiles Profiles) (map[string]*v1alpha1.NICConfiguration, error) {
 	var pr problems
-	known := make(map[string]bool, len(slots))
-	for i := range slots {
-		known[slots[i].Slot] = true
-	}
-	chosen := map[string]string{} // slot -> configuration
-	choice := map[string]int{}    // slot -> the choice that names it
-	for n, c := range choices {
-		where := fmt.Sprintf("NIC configuration choice %d", n)
-		pr.check(len(c.Slots) > 0, "%s names no slots", where)
-		pr.check(c.Configuration != "", "%s names no configuration", where)
-		for _, name := range c.Slots {
-			if !known[name] {
-				pr.check(false, "%s: unknown slot %q", where, name)
-				continue
-			}
-			if prev, twice := choice[name]; twice {
-				pr.check(false, "%s: slot %s is already in choice %d", where, name, prev)
-				continue
-			}
-			choice[name], chosen[name] = n, c.Configuration
-		}
-	}
-
+	chosen, choice := chooseSlots(&pr, slots, choices)
 	out := make(map[string]*v1alpha1.NICConfiguration, len(slots))
 	for i := range slots {
 		s := &slots[i]
@@ -65,6 +43,34 @@ func Select(slots []v1alpha1.NICSlot, choices []v1alpha1.NICConfigurationChoice,
 		out[s.Slot] = c
 	}
 	return out, pr.err()
+}
+
+// chooseSlots checks the configuration choices and returns the configuration
+// each slot they name runs and the choice that names it.
+func chooseSlots(pr *problems, slots []v1alpha1.NICSlot,
+	choices []v1alpha1.NICConfigurationChoice) (chosen map[string]string, choice map[string]int) {
+	known := make(map[string]bool, len(slots))
+	for i := range slots {
+		known[slots[i].Slot] = true
+	}
+	chosen, choice = map[string]string{}, map[string]int{}
+	for n, c := range choices {
+		where := fmt.Sprintf("NIC configuration choice %d", n)
+		pr.check(len(c.Slots) > 0, "%s names no slots", where)
+		pr.check(c.Configuration != "", "%s names no configuration", where)
+		for _, name := range c.Slots {
+			if !known[name] {
+				pr.check(false, "%s: unknown slot %q", where, name)
+				continue
+			}
+			if prev, twice := choice[name]; twice {
+				pr.check(false, "%s: slot %s is already in choice %d", where, name, prev)
+				continue
+			}
+			choice[name], chosen[name] = n, c.Configuration
+		}
+	}
+	return chosen, choice
 }
 
 // ValidateNode checks a Node's NIC slots, each running the configuration the
