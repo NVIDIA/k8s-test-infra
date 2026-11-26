@@ -107,7 +107,7 @@ func (s *shardPods) apply(pod *corev1.Pod, deleted bool) error {
 }
 
 func allocationChanged(previous, pod *corev1.Pod, deleted bool) bool {
-	if !gpuPod(pod) && (previous == nil || !gpuPod(previous)) {
+	if !needsDeviceAdmission(pod) && (previous == nil || !needsDeviceAdmission(previous)) {
 		return false
 	}
 	return deleted || previous == nil || previous.UID != pod.UID || previous.Generation != pod.Generation || terminalPod(previous) != terminalPod(pod) ||
@@ -210,7 +210,10 @@ func (node *nodePods) mergeList(name string, items []corev1.Pod) {
 	}
 }
 
-func gpuPod(pod *corev1.Pod) bool {
+func needsDeviceAdmission(pod *corev1.Pod) bool {
+	if len(pod.Spec.ResourceClaims) > 0 {
+		return true
+	}
 	for _, containers := range [][]corev1.Container{pod.Spec.InitContainers, pod.Spec.Containers} {
 		for i := range containers {
 			if requestedGPUs(&containers[i]) > 0 {
@@ -245,7 +248,7 @@ func (s *shardPods) allocationSnapshot(name string) map[types.UID]*corev1.Pod {
 	}
 	live := make(map[types.UID]*corev1.Pod)
 	for _, p := range n.pods {
-		if gpuPod(p) {
+		if needsDeviceAdmission(p) {
 			live[p.UID] = p
 		}
 	}

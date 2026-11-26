@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: Gate KWOK Pods with resource claims and report whole-GPU admission failures with the kubelet message.
+time: 2026-11-24T07:57:49Z
+custom:
+  Issue: "1311"

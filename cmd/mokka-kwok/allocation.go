@@ -316,9 +316,13 @@ func (p *nodeAllocationPlan) assignPending(used sets.Set[string]) {
 		}
 	}
 	for _, pod := range pendingPods(p.pending) {
-		allocation, count := allocatePod(pod, free)
+		allocation, count, _ := allocatePod(pod, free)
 		if allocation != nil {
 			p.syncGrant(pod, *allocation, true)
+			// A claim-only Pod passes this gate without reserving a whole GPU.
+			if count == 0 {
+				continue
+			}
 			p.kept = append(p.kept, *allocation)
 			used.Insert(free[:count]...)
 			free = free[count:]
@@ -358,16 +362,17 @@ func requestedGPUs(c *corev1.Container) int64 {
 
 // Ordinary init containers finish before the next container starts. A
 // restartable init container holds its GPU while later containers run.
-func allocatePod(p *corev1.Pod, free []string) (*api.PodAllocation, int) {
+func allocatePod(p *corev1.Pod, free []string) (*api.PodAllocation, int, error) {
 	allocation := api.PodAllocation{Pod: cache.MetaObjectToName(p).String(), UID: p.UID}
 	persistent, peak := 0, 0
-	assign := func(c *corev1.Container, keep bool) bool {
+	assign := func(c *corev1.Container, keep bool) error {
 		count := requestedGPUs(c)
 		if count == 0 {
-			return true
+			return nil
 		}
 		if count < 0 || count > int64(len(free)-persistent) {
-			return false
+			// The kubelet uses GPUs from completed init containers first.
+			return fmt.Errorf("requested number of devices unavailable for %s. Requested: %d, Available: %d", gpuResource, count-int64(peak-persistent), len(free)-peak)
 		}
 		end := persistent + int(count)
 		peak = max(peak, end)
@@ -375,21 +380,18 @@ func allocatePod(p *corev1.Pod, free []string) (*api.PodAllocation, int) {
 		if keep {
 			persistent = end
 		}
-		return true
+		return nil
 	}
 	for i := range p.Spec.InitContainers {
 		c := &p.Spec.InitContainers[i]
-		if !assign(c, ptr.Deref(c.RestartPolicy, "") == corev1.ContainerRestartPolicyAlways) {
-			return nil, 0
+		if err := assign(c, ptr.Deref(c.RestartPolicy, "") == corev1.ContainerRestartPolicyAlways); err != nil {
+			return nil, 0, err
 		}
 	}
 	for i := range p.Spec.Containers {
-		if !assign(&p.Spec.Containers[i], true) {
-			return nil, 0
+		if err := assign(&p.Spec.Containers[i], true); err != nil {
+			return nil, 0, err
 		}
 	}
-	if len(allocation.Containers) == 0 {
-		return nil, 0
-	}
-	return &allocation, peak
+	return &allocation, peak, nil
 }

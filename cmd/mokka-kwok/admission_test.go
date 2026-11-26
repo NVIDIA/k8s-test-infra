@@ -89,8 +89,33 @@ func TestAdmissionWaitsForIPAndConfirmsShortage(t *testing.T) {
 	observed := check()
 	require.Equal(t, corev1.PodFailed, observed.Status.Phase)
 	require.Equal(t, "UnexpectedAdmissionError", observed.Status.Reason)
+	require.Equal(t, "Pod was rejected: Allocate failed due to requested number of devices unavailable for nvidia.com/gpu. Requested: 2, Available: 1, which is unexpected", observed.Status.Message)
 	require.NotContains(t, observed.Annotations, gpuAllocationAnnotation)
 	require.Empty(t, f.record(t))
+}
+
+func TestAdmissionWithResourceClaims(t *testing.T) {
+	t.Parallel()
+	claim := pendingTestPod("claim")
+	name := "external-device"
+	claim.Spec.ResourceClaims = []corev1.PodResourceClaim{{Name: "device", ResourceClaimName: &name}}
+	mixed := claim.DeepCopy()
+	mixed.Name, mixed.UID = "mixed", "mixed-uid"
+	claim.Spec.Containers[0].Resources = corev1.ResourceRequirements{}
+	f := newAllocationFixture(t, nil, map[string][]string{"worker": {"gpu-a"}}, claim, mixed)
+	pods := f.kube.CoreV1().Pods(claim.Namespace)
+	for _, p := range []*corev1.Pod{claim, mixed} {
+		_, err := pods.Create(t.Context(), p, metav1.CreateOptions{})
+		require.NoError(t, err)
+		require.True(t, allocationChanged(nil, p, false))
+	}
+	require.NoError(t, f.allocator.reconcile(t.Context(), f.rack.Name))
+	for name, grant := range map[string]string{"claim": "{}", "mixed": `{"main":["gpu-a"]}`} {
+		p, err := pods.Get(t.Context(), name, metav1.GetOptions{})
+		require.NoError(t, err)
+		require.JSONEq(t, grant, p.Annotations[gpuAllocationAnnotation])
+	}
+	require.Equal(t, []api.NodeAllocation{{Name: "worker", Pods: []api.PodAllocation{savedPod(mixed, "gpu-a")}}}, f.record(t))
 }
 
 func pendingTestPod(name string) *corev1.Pod {

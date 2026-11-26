@@ -18,10 +18,11 @@ items:
         key: '.status.conditions.[] | select(.type == "Ready") | .status'
         operator: NotIn
         values: ["True"]
-      - key: &requestsGPU >-
-          [(.spec.initContainers // [])[], (.spec.containers // [])[] |
+      - key: &needsAdmission >-
+          ((.spec.resourceClaims // [] | length > 0) or
+          ([(.spec.initContainers // [])[], (.spec.containers // [])[] |
           (.resources.requests["nvidia.com/gpu"] // .resources.limits["nvidia.com/gpu"] // "0") |
-          select(. != "0")] | length > 0 | tostring
+          select(. != "0")] | length > 0)) | tostring
         operator: In
         values: ["false"]
     next: &ready
@@ -105,7 +106,7 @@ items:
       matchExpressions:
       - *active
       - *pending
-      - &gpu {key: *requestsGPU, operator: In, values: ["true"]}
+      - &gated {key: *needsAdmission, operator: In, values: ["true"]}
       - {key: .status.podIP, operator: DoesNotExist}
     # stage-fast normally sets the IP and Running in the same update.
     # Give the Pod its IP while admission is still pending.
@@ -130,7 +131,7 @@ items:
       - *active
       - *pending
       - *unready
-      - *gpu
+      - *gated
       - {key: .status.podIP, operator: Exists}
       - {key: '.metadata.annotations["mokka.nvidia.com/gpu-allocation"]', operator: Exists}
     next: *ready

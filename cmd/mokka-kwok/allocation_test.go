@@ -46,13 +46,15 @@ func TestAllocatePodSharesOnlyAcrossSequentialPhases(t *testing.T) {
 	sidecar.RestartPolicy = ptr.To(corev1.ContainerRestartPolicyAlways)
 	pod.Spec.InitContainers = []corev1.Container{sidecar, requestingContainer("prepare", "2")}
 	pod.Spec.Containers = []corev1.Container{requestingContainer("main", "1"), requestingContainer("worker", "1")}
-	got, peak := allocatePod(pod, []string{"A", "B", "C"})
+	got, peak, err := allocatePod(pod, []string{"A", "B", "C"})
+	require.NoError(t, err)
 	require.Equal(t, []api.ContainerAllocation{
 		{Name: "sidecar", GPUs: []string{"A"}}, {Name: "prepare", GPUs: []string{"B", "C"}},
 		{Name: "main", GPUs: []string{"B"}}, {Name: "worker", GPUs: []string{"C"}},
 	}, got.Containers)
 	require.Equal(t, 3, peak)
-	refused, peak := allocatePod(pod, []string{"A", "B"})
+	refused, peak, err := allocatePod(pod, []string{"A", "B"})
+	require.Error(t, err)
 	require.Nil(t, refused)
 	require.Zero(t, peak)
 }
@@ -71,7 +73,7 @@ func TestAllocationRetryKeepsWinnerAndReusesReleasedGPUs(t *testing.T) {
 			return false, nil, nil
 		}
 		winner := api.NewSGPURackAllocation(rack)
-		allocation, _ := allocatePod(second, []string{"A"})
+		allocation, _, _ := allocatePod(second, []string{"A"})
 		winner.Nodes = []api.NodeAllocation{{Name: "node", Pods: []api.PodAllocation{*allocation}}}
 		if err := mokka.Tracker().Update(action.GetResource(), winner, ""); err != nil {
 			return true, nil, err
@@ -156,7 +158,7 @@ func boundTestPod(name, node string) *corev1.Pod {
 }
 
 func savedPod(p *corev1.Pod, gpu string) api.PodAllocation {
-	a, _ := allocatePod(p, []string{gpu})
+	a, _, _ := allocatePod(p, []string{gpu})
 	return *a
 }
 
