@@ -1,4 +1,0 @@
-kind: Security
-body: |-
-  build: nvml-mock-ctl and the control plane move to golang.org/x/net v0.63.0, fixing GO-2026-6860 (excessive CPU when parsing HTML with many short text runs); klauspost/compress moves to v1.20.5, fixing CVE-2026-116591 (zstd decoder panic).
-time: 2026-11-24T16:56:03Z
