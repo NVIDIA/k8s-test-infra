@@ -142,6 +142,10 @@ func (c *collector) captureNVMLDump() {
 	// One path per run, so two captures of the same node never replace or
 	// remove each other's binary.
 	path := "/tmp/mokka-capture-" + c.suffix
+	// Leave nothing behind, even when the run is interrupted mid-copy or
+	// mid-dump: with -host-driver the binary is in the node's own /tmp, which
+	// deleting the stand-in pod does not clear.
+	defer c.removeFromDriver(c.ctx, path)
 	errs := c.errorsLog()
 	defer func() { _ = errs.Close() }()
 	if err := c.exec(bin, io.Discard, errs, c.drvStdin("sh", "-c", `cat > "$1" && chmod +x "$1"`, "sh", path)...); err != nil {
@@ -150,8 +154,18 @@ func (c *collector) captureNVMLDump() {
 		return
 	}
 	c.capture("nvml-dump.json", nil, c.drv(path, "dump")...)
-	// Leave nothing behind in the driver container.
-	_ = c.exec(nil, io.Discard, io.Discard, c.drv("rm", "-f", path)...)
+}
+
+// removeFromDriver deletes path where the driver commands run. Like stopPod it
+// must still run after an interrupt has cancelled the run, so it keeps ctx's
+// values but not its cancellation, and has a timeout of its own. A failure is
+// ignored: the file is in /tmp and named for this run, so it harms nothing.
+func (c *collector) removeFromDriver(ctx context.Context, path string) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+	defer cancel()
+	argv := c.drv("rm", "-f", path)
+	cmd := exec.CommandContext(ctx, c.kubectl, argv[1:]...)
+	_ = cmd.Run()
 }
 
 // drvStdin is drv with standard input attached.

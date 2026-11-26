@@ -175,6 +175,12 @@ func registered(names ...string) source {
 			return nil, procDevices + " not captured"
 		}
 		majors := deviceMajors(text)
+		// Every GPU node lists the nvidia device, so a file without one is a
+		// capture that failed (collect writes the file either way), not a
+		// kernel without IMEX.
+		if _, ok := majors["nvidia"]; !ok {
+			return nil, procDevices + " lists no nvidia device"
+		}
 		listed := make([]string, 0, len(names))
 		for _, name := range names {
 			major, ok := majors[name]

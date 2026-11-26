@@ -706,12 +706,23 @@ func TestIMEXIsDisabledWhenTheKernelListsNoChannels(t *testing.T) {
 }
 
 // Without collect host, the capture cannot tell, so the key is left out rather
-// than guessed either way.
+// than guessed either way. So it is when the command failed and left an empty
+// file: a GPU node always lists the nvidia device.
 func TestIMEXIsLeftOutWithoutProcDevices(t *testing.T) {
 	t.Parallel()
-	_, profile := generateFrom(t, writeCapture(t, []map[string]any{{}}, nil), nil)
-	require.Contains(t, profile, "# imex.enabled: left out, host-proc-devices.txt = host-proc-devices.txt not captured")
-	require.NotContains(t, profile, "create_channel0")
+	for _, tc := range []struct {
+		files map[string]string
+		why   string
+	}{
+		{nil, "host-proc-devices.txt not captured"},
+		{map[string]string{procDevices: ""}, "host-proc-devices.txt lists no nvidia device"},
+		{map[string]string{procDevices: "\n \n"}, "host-proc-devices.txt lists no nvidia device"},
+	} {
+		_, profile := generateFrom(t, writeCapture(t, []map[string]any{{}}, tc.files), nil)
+		require.Contains(t, profile, "# imex.enabled: left out, host-proc-devices.txt = "+tc.why)
+		require.NotContains(t, profile, "enabled: false")
+		require.NotContains(t, profile, "create_channel0")
+	}
 }
 
 // runCLI runs `mokka-capture profile` with args and returns its exit code.

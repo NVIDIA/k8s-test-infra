@@ -207,6 +207,22 @@ func TestHostDriverRunsTheDriverCommandsInTheNodesRoot(t *testing.T) {
 	require.NotContains(t, got, "apt-get")
 }
 
+// An interrupt during the dump still removes the binary from the node: with
+// -host-driver it is in the node's /tmp, which deleting the pod leaves alone.
+func TestDumpBinaryIsRemovedAfterAnInterrupt(t *testing.T) {
+	dir, log, kubectl := setup(t, "")
+	bin := filepath.Join(dir, "mokka-capture-linux")
+	require.NoError(t, os.WriteFile(bin, []byte("binary"), 0o600))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	c := &collector{
+		cfg: config{dumpBinary: bin, hostDriver: true}, ctx: ctx, stderr: io.Discard, kubectl: kubectl, suffix: "7", dir: dir,
+		driverPod: "stand-in", driverNS: "default", driverCtr: podContainer, driverChroot: []string{"chroot", "/host"},
+	}
+	c.captureNVMLDump()
+	require.Contains(t, calls(t, log), "-n default exec stand-in -c c -- chroot /host rm -f /tmp/mokka-capture-7")
+}
+
 func TestHostDriverAndMockExcludeEachOther(t *testing.T) {
 	dir, log, kubectl := setup(t, "")
 	require.Equal(t, 2, runCLI(kubectl, "-out", filepath.Join(dir, "c"), "-mock", "-host-driver", "driver", "node-a"))

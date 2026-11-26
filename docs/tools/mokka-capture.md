@@ -328,7 +328,9 @@ not follow `nvlink.multi_node`. The majors are the ones the kernel assigned on
 the captured node, so they appear only in the comment. `create_channel0` is the
 driver's `NVreg_CreateImexChannel0` parameter: whether the driver creates
 `/dev/nvidia-caps-imex-channels/channel0` when it loads. Without
-`host-proc-devices.txt`, from `collect host`, the block is left out.
+`host-proc-devices.txt`, from `collect host`, the block is left out, and so it
+is when that file lists no `nvidia` device: every GPU node lists one, so the
+command that wrote it failed.
 
 !!! note
     The mock engine and the node agent do not read the `imex` block yet. The
