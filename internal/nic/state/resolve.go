@@ -515,9 +515,11 @@ func ipoibAddress(guid string) string {
 	return strings.Join(parts, ":")
 }
 
-// functionNumber is the function number of a PCI address.
+// functionNumber is the function number of a PCI address. Validation allows
+// only 0 to 7, so the parse never fails here; bounding it to 32 bits keeps the
+// conversion exact all the same.
 func functionNumber(addr string) int32 {
-	n, _ := strconv.Atoi(addr[strings.LastIndex(addr, ".")+1:])
+	n, _ := strconv.ParseInt(addr[strings.LastIndex(addr, ".")+1:], 10, 32)
 	return int32(n)
 }
 

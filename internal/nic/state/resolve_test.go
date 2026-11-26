@@ -133,7 +133,11 @@ func TestResolveGB300(t *testing.T) {
 	require.Equal(t, "mlx5_1", second.Name)
 
 	// The BlueField-3's two RoCE ports get Ethernet netdevs, and with IPoIB
-	// loaded each ConnectX-8 port an IPoIB one, named as the capture shows.
+	// loaded each ConnectX-8 port an IPoIB one. The IPoIB names are the
+	// capture's. The BlueField-3's aren't: it sits in physical slot 22, so
+	// the capture names them enP22s22f0np0 and enP22s22f1np1, from a slot
+	// number the declaration has no field for, and these are the names
+	// without one.
 	names := make([]string, 0, len(n.Netdevs))
 	for _, nd := range n.Netdevs {
 		names = append(names, nd.Name)
@@ -264,6 +268,79 @@ func identifiers(n *NICs) map[string][]string {
 		}
 	}
 	return out
+}
+
+// twoIBPorts gives the first ConnectX-8 profile's InfiniBand configuration a
+// second port on PF0's RDMA device, so it has a port after the first.
+func twoIBPorts(in *Input) {
+	p := in.Profiles["cx8-c8280z"].DeepCopy()
+	c := &p.Spec.Configurations[0]
+	second := c.Ports[0]
+	second.ID = "p1"
+	c.Ports = append(c.Ports, second)
+	c.Functions[0].Ports = []string{"p0", "p1"}
+	c.RDMADevices[0].Ports = []string{"p0", "p1"}
+	in.Profiles["cx8-c8280z"] = p
+}
+
+// TestIdentifierValuesArePinned pins one generated identifier of each kind,
+// for a file-mode node and a control-plane node, as the GPU UUIDs from the
+// same scheme are pinned: the same declaration must give the same GUIDs,
+// MACs, serial numbers and switch IDs in every release, or a subnet manager
+// and topology tools see new hardware.
+func TestIdentifierValuesArePinned(t *testing.T) {
+	t.Parallel()
+	type pinned struct {
+		nodeGUID, portTwoGUID, distinct, mac, ipoib, switchID, sn, v3, vu string
+	}
+	for _, tc := range []struct {
+		node Node
+		want pinned
+	}{
+		{FileNode("node-a"), pinned{
+			nodeGUID:    "45b4:9edd:9d88:5cbd",
+			portTwoGUID: "f281:31e2:c297:5217",
+			distinct:    "32b7:7b4d:0e22:5dcb",
+			mac:         "62:ad:75:62:26:78",
+			ipoib:       "00:00:00:00:fe:80:00:00:00:00:00:00:45:b4:9e:dd:9d:88:5c:bd",
+			switchID:    "2672ef9590fa5a7aa92892516582c26f",
+			sn:          "541e906970675e12b3535ca410e3101c",
+			v3:          "6ad6f3bf1c945da09605c31a1ef98f8f",
+			vu:          "2d8479126be45700a2f3a0d99f80a407MLNXS0D0F0",
+		}},
+		{RackNode("inventory-uid", "training", 3, 7), pinned{
+			nodeGUID:    "772f:597d:7501:564d",
+			portTwoGUID: "29ce:e116:ad47:5b29",
+			distinct:    "c18a:298e:ff02:5b0c",
+			mac:         "fe:48:2c:10:d7:59",
+			ipoib:       "00:00:00:00:fe:80:00:00:00:00:00:00:77:2f:59:7d:75:01:56:4d",
+			switchID:    "29c21c3061d95d278e15c34faa90eea3",
+			sn:          "00d942eb802b5087ba955d450b768f33",
+			v3:          "ed2547d64ff751afa63e0891be812e69",
+			vu:          "766c777f46435c979361ca7f1fe81ea3MLNXS0D0F0",
+		}},
+	} {
+		n := resolve(t, input(t, "gb300-nvl72", tc.node))
+		netdev := func(name string) string {
+			i := slices.IndexFunc(n.Netdevs, func(nd Netdev) bool { return nd.Name == name })
+			require.GreaterOrEqual(t, i, 0, name)
+			return n.Netdevs[i].Address
+		}
+		two := input(t, "gb300-nvl72", tc.node)
+		twoIBPorts(&two)
+		pf0 := functionAt(t, n, "0000:03:00.0")
+		require.Equal(t, tc.want, pinned{
+			nodeGUID:    deviceOn(t, n, "0000:03:00.0").NodeGUID,
+			portTwoGUID: deviceOn(t, resolve(t, two), "0000:03:00.0").Ports[1].GUID,
+			distinct:    deviceOn(t, n, "0002:03:00.0").SystemImageGUID,
+			mac:         netdev("enP22p1s0f0np0"),
+			ipoib:       netdev("ibp3s0"),
+			switchID:    instance(t, n, "nic0").SwitchID,
+			sn:          pf0.VPD["SN"],
+			v3:          pf0.VPD["V3"],
+			vu:          pf0.VPD["VU"],
+		}, "%v", tc.node)
+	}
 }
 
 // TestIdentifiersAreDeterministic checks that identifiers depend only on the
@@ -527,17 +604,53 @@ func TestSlotVPDWithoutProfileVPD(t *testing.T) {
 	require.Equal(t, "OEM-0001", functionAt(t, resolve(t, in), "0002:03:00.0").VPD["PN"])
 }
 
+// twoPortFunction gives gb300-ethernet's first PF both of the first two
+// RoCE ports, which the shipped profiles never do: one function per port.
+func twoPortFunction(in *Input) {
+	p := in.Profiles["cx8-c8280z"].DeepCopy()
+	c, _ := p.Spec.Configuration("eth-multiplane")
+	c.Functions[0].Ports = []string{"p0", "p1"}
+	c.Functions = slices.Delete(c.Functions, 1, 2)
+	c.RDMADevices[0].Ports = []string{"p0", "p1"}
+	c.RDMADevices = slices.Delete(c.RDMADevices, 1, 2)
+	in.Profiles["cx8-c8280z"] = p
+}
+
 // TestPortOrderDecidesNothing reverses every function's port list, a set,
 // and the order of the slots and of each slot's GPUs: the state stays the
 // same. A port's identifiers and names follow its physical number, its
 // position in the configuration's ports.
 func TestPortOrderDecidesNothing(t *testing.T) {
 	t.Parallel()
-	for _, rack := range []string{"gb300-ethernet", "vr-nvl72", "gb300-nvl72"} {
-		in := input(t, rack, FileNode("node-a"))
-		want := resolve(t, in)
+	for _, tc := range []struct {
+		rack   string
+		mutate func(*Input)
+	}{
+		{rack: "gb300-ethernet"}, {rack: "vr-nvl72"}, {rack: "gb300-nvl72"},
+		// Shipped functions own one port each, so reversing their lists
+		// changes nothing; a function with two ports gives it something to do.
+		{rack: "gb300-ethernet", mutate: twoPortFunction},
+	} {
+		load := func() Input {
+			in := input(t, tc.rack, FileNode("node-a"))
+			if tc.mutate != nil {
+				tc.mutate(&in)
+			}
+			return in
+		}
+		want := resolve(t, load())
+		if tc.mutate != nil {
+			var macs []string
+			for _, nd := range want.Netdevs {
+				if nd.Function == "0000:03:00.0" {
+					macs = append(macs, nd.Address)
+				}
+			}
+			require.Len(t, macs, 2, "PF0 has a netdev per port")
+			require.NotEqual(t, macs[0], macs[1])
+		}
 
-		shuffled := input(t, rack, FileNode("node-a"))
+		shuffled := load()
 		for name, p := range shuffled.Profiles {
 			p = p.DeepCopy()
 			for i := range p.Spec.Configurations {
@@ -553,7 +666,7 @@ func TestPortOrderDecidesNothing(t *testing.T) {
 		for i := range shuffled.Topology.NICs {
 			slices.Reverse(shuffled.Topology.NICs[i].GPUs)
 		}
-		require.Equal(t, want, resolve(t, shuffled), rack)
+		require.Equal(t, want, resolve(t, shuffled), tc.rack)
 	}
 }
 
@@ -584,6 +697,9 @@ func TestPortsNumberInDeviceOrder(t *testing.T) {
 	require.Equal(t, "p0", e.Ports[0].ID)
 	require.Equal(t, d.NodeGUID, e.Ports[0].GUID)
 	require.NotEqual(t, d.Ports[0].GUID, e.Ports[1].GUID, "p1's own GUID differs from the node GUID it took as port 1")
+	// Port 2 is p0 one way and p1 the other: a GUID that followed the
+	// device's numbering instead of the physical number would be the same.
+	require.NotEqual(t, d.Ports[1].GUID, e.Ports[1].GUID)
 }
 
 // TestBlueFieldVUStartsWithItsSerial checks a VPD identity that reuses
@@ -609,7 +725,12 @@ func TestRoCEPortsHaveTwoGIDs(t *testing.T) {
 	port := deviceOn(t, n, "0016:01:00.0").Ports[0]
 	i := slices.IndexFunc(n.Netdevs, func(nd Netdev) bool { return nd.Name == port.Netdev })
 	require.GreaterOrEqual(t, i, 0)
-	ll := linkLocalGID(n.Netdevs[i].Address)
+	// The MAC is hashed from the node's coordinates; the GID is its modified
+	// EUI-64 link-local address, worked out by hand: the first byte's
+	// universal/local bit flipped (62 -> 60) and ff:fe in the middle.
+	require.Equal(t, "enP22p1s0f0np0", port.Netdev)
+	require.Equal(t, "62:ad:75:62:26:78", n.Netdevs[i].Address)
+	const ll = "fe80:0000:0000:0000:60ad:75ff:fe62:2678"
 	require.Equal(t, []GID{
 		{Index: 0, Address: ll, Type: GIDTypeIBRoCEv1, Netdev: port.Netdev},
 		{Index: 1, Address: ll, Type: GIDTypeRoCEv2, Netdev: port.Netdev},
