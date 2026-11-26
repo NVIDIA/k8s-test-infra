@@ -209,6 +209,11 @@ func (p *labelPublisher) reconcile(ctx context.Context, name string) error {
 		}
 		return p.publishResources(ctx, node, nil)
 	}
+	// A terminating Node can outlive its slice while a finalizer holds the Node.
+	// Do not recreate a pool that Kubernetes is garbage collecting.
+	if node.DeletionTimestamp != nil {
+		return nil
+	}
 	return p.publishBoundNode(ctx, node)
 }
 

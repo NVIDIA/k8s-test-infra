@@ -6,6 +6,7 @@ package main
 import (
 	"fmt"
 	"maps"
+	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	"golang.org/x/text/cases"
@@ -14,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/utils/ptr"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/gpuarch"
 	state "github.com/NVIDIA/k8s-test-infra/pkg/rackstate/v1alpha1"
 )
 
@@ -34,7 +36,7 @@ func sliceDevices(slot state.NodePayload) ([]resourcev1.Device, error) {
 		"type": {StringValue: ptr.To("gpu")}, "brand": {StringValue: &brand},
 	}
 	for name, value := range map[resourcev1.QualifiedName]string{
-		"productName": model.ProductName, "architecture": cases.Title(language.Und).String(model.Architecture),
+		"productName": model.ProductName, "architecture": driverArchitecture(model.Architecture),
 		"addressingMode": model.AddressingMode,
 	} {
 		if value != "" {
@@ -67,4 +69,17 @@ func sliceDevices(slot state.NodePayload) ([]resourcev1.Device, error) {
 		})
 	}
 	return devices, nil
+}
+
+// The mock NVML engine accepts architecture aliases. DRA selectors use the
+// spelling returned by NVIDIA's GetArchitectureAsString for that generation.
+func driverArchitecture(value string) string {
+	if value == "" {
+		return ""
+	}
+	arch, _ := gpuarch.Parse(value)
+	if arch == gpuarch.Ada || strings.EqualFold(strings.TrimSpace(value), "Ada Lovelace") {
+		return "Ada Lovelace"
+	}
+	return cases.Title(language.Und).String(arch.String())
 }

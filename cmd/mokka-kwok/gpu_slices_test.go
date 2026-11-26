@@ -107,3 +107,20 @@ func TestDeletionPrecedesWithdrawalAndModeChange(t *testing.T) {
 	require.ErrorContains(t, p.publishResources(ctx, node, map[string]string{metadata.GPUCountLabel: "4"}), "DRA pool")
 	require.Len(t, kube.Actions(), 1)
 }
+
+func TestDriverArchitecture(t *testing.T) {
+	t.Parallel()
+	for input, want := range map[string]string{"ada_lovelace": "Ada Lovelace", "ada": "Ada Lovelace", " Hopper ": "Hopper", "unrecognized": "Unknown", "": ""} {
+		require.Equal(t, want, driverArchitecture(input), input)
+	}
+}
+
+func TestTerminatingBoundNodeDoesNotRepublish(t *testing.T) {
+	t.Parallel()
+	now := metav1.Now()
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "retiring", DeletionTimestamp: &now, Labels: map[string]string{"mokka.nvidia.com/node-type": "KWOK", metadata.AssignedLabel: "true"}, Annotations: map[string]string{metadata.AssignmentAnnotation: "previous binding"}}}
+	kube := fake.NewSimpleClientset(node)
+	p := labelPublisher{nodes: kube.CoreV1().Nodes(), dra: true, slices: &gpuSlices{client: kube.ResourceV1().ResourceSlices()}}
+	require.NoError(t, p.reconcile(t.Context(), node.Name))
+	require.Len(t, kube.Actions(), 1)
+}
