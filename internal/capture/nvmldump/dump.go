@@ -75,7 +75,7 @@ func runDump(stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintf(stderr, "DeviceGetHandleByIndex(%d): %s\n", i, retName(ret))
 			return out.end(nil, 1, stderr)
 		}
-		calls, skip := callGetters(dev)
+		calls, skip := callGetters(dev, librarySymbol)
 		// Each device is written as soon as it is done, so a crash in the driver
 		// on a later device keeps the earlier ones.
 		out.device(deviceDump{Index: i, Calls: calls})
@@ -167,13 +167,29 @@ func recordPair(value any, ret nvml.Return) call {
 	return call{Ret: retName(ret), Value: sanitize(reflect.ValueOf(value))}
 }
 
+// librarySymbol reports whether the loaded NVML library exports symbol.
+func librarySymbol(symbol string) bool { return nvml.Extensions().LookupSymbol(symbol) == nil }
+
+// deviceSymbol is the C function behind a go-nvml Device method: GetClockInfo
+// is nvmlDeviceGetClockInfo. Where NVML has several versions of a function,
+// go-nvml binds the newest the library has under the unversioned name, which
+// every library exports.
+func deviceSymbol(method string) string { return "nvmlDevice" + method }
+
 // callGetters calls every getter on obj that it can and returns the answers by
 // method name. A getter with no arguments is recorded as "Name". One whose
 // arguments are all integers or enums is called over a fixed range of values
 // and recorded as "Name(a,b)". Anything else is returned in the skipped list.
 // A method counts as a getter when its name starts with Get or Is, so nothing
 // that changes state is ever called.
-func callGetters(obj any) (map[string]call, []string) {
+//
+// go-nvml declares every function of the NVML headers it was built from, and
+// an older driver's library lacks the newer ones: calling one ends the process
+// with an unresolved symbol. So a getter whose symbol the library does not
+// export, as exists reports, is not called. It is recorded under the same keys
+// as ERROR_FUNCTION_NOT_FOUND, which is what that driver answers an
+// application that looks the function up.
+func callGetters(obj any, exists func(symbol string) bool) (map[string]call, []string) {
 	v := reflect.ValueOf(obj)
 	t := v.Type()
 	calls := map[string]call{}
@@ -185,18 +201,33 @@ func callGetters(obj any) (map[string]call, []string) {
 			continue
 		}
 		m := v.Method(i)
+		inv, missing := invoker(name, exists)
 
 		switch {
 		case name == "GetFieldValues" && isFieldValuesGetter(m.Type()):
-			callFieldValues(m, calls)
+			callFieldValues(m, calls, missing)
 		case m.Type().NumIn() == 0 && !m.Type().IsVariadic():
-			calls[name] = invoke(m, nil)
-		case callWithArgs(name, m, calls):
+			calls[name] = inv(m, nil)
+		case callWithArgs(name, m, calls, inv):
 		default:
 			skipped = append(skipped, name)
 		}
 	}
 	return calls, skipped
+}
+
+// invoker is how the getter name is called: invoke, or notFound, with missing
+// set, when the library does not export its symbol.
+func invoker(name string, exists func(string) bool) (inv func(reflect.Value, []reflect.Value) call, missing bool) {
+	if exists(deviceSymbol(name)) {
+		return invoke, false
+	}
+	return notFound, true
+}
+
+// notFound stands in for invoke when the library lacks the getter.
+func notFound(reflect.Value, []reflect.Value) call {
+	return call{Ret: retName(nvml.ERROR_FUNCTION_NOT_FOUND)}
 }
 
 // invoke calls a getter. A panic is recorded as an error

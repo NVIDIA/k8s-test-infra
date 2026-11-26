@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -73,8 +74,62 @@ func (fakeDevice) SetPersistenceMode(int) nvml.Return {
 	panic("a setter must never be called")
 }
 
+func allSymbols(string) bool { return true }
+
+// A getter the library does not export is never called, since calling it ends
+// the process; it is recorded under the keys a call would have, as not found.
+func TestCallGettersRecordsAMissingSymbolAsNotFound(t *testing.T) {
+	missing := map[string]bool{
+		"nvmlDeviceGetPanicky":     true,
+		"nvmlDeviceGetClockInfo":   true,
+		"nvmlDeviceGetFieldValues": true,
+	}
+	var asked []string
+	calls, _ := callGetters(fakeDevice{}, func(symbol string) bool {
+		asked = append(asked, symbol)
+		return !missing[symbol]
+	})
+
+	notFound := call{Ret: "ERROR_FUNCTION_NOT_FOUND"}
+	require.Equal(t, notFound, calls["GetPanicky"], "a missing getter must not be called")
+	require.ElementsMatch(t, []string{"GetClockInfo(0)", "GetClockInfo(1)", "GetClockInfo(2)", "GetClockInfo(3)"},
+		filterPrefix(calls, "GetClockInfo("))
+	require.Equal(t, notFound, calls["GetClockInfo(2)"])
+	require.Len(t, filterPrefix(calls, "GetFieldValues(id="), fieldIDLimit)
+	require.Equal(t, notFound, calls["GetFieldValues(id=193)"])
+	require.Equal(t, call{Ret: "SUCCESS", Value: "Board"}, calls["GetName"])
+	require.Contains(t, asked, "nvmlDeviceGetName")
+	require.NotContains(t, asked, "nvmlDeviceSetPersistenceMode")
+}
+
+// Every getter a real driver answered is exported under the name deviceSymbol
+// gives it, so a supported getter is never mistaken for a missing one. The
+// committed capture lists its library's symbols beside its dump.
+func TestDeviceSymbolsAreTheLibrarysNames(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join("..", "..", "..", "tests", "hardware-captures", "vr-nvl72", "node-a")
+	d, err := Load(filepath.Join(dir, "nvml-dump.json.gz"))
+	require.NoError(t, err)
+	raw, err := os.ReadFile(filepath.Join(dir, "nvml-symbols.txt"))
+	require.NoError(t, err)
+	exported := map[string]bool{}
+	for _, s := range strings.Fields(string(raw)) {
+		exported[s] = true
+	}
+	methods := map[string]bool{}
+	for key, c := range d.Devices[0].Calls {
+		if c.Ret != "ERROR_FUNCTION_NOT_FOUND" {
+			methods[strings.SplitN(key, "(", 2)[0]] = true
+		}
+	}
+	require.NotEmpty(t, methods)
+	for m := range methods {
+		require.True(t, exported[deviceSymbol(m)], "%s answered, but the library exports no %s", m, deviceSymbol(m))
+	}
+}
+
 func TestCallGettersRecordsReturnCodesAndValues(t *testing.T) {
-	calls, _ := callGetters(fakeDevice{})
+	calls, _ := callGetters(fakeDevice{}, allSymbols)
 
 	require.Equal(t, call{Ret: "SUCCESS", Value: "Board"}, calls["GetName"])
 	require.Equal(t, "ERROR_NOT_SUPPORTED", calls["GetSerial"].Ret)
@@ -83,7 +138,7 @@ func TestCallGettersRecordsReturnCodesAndValues(t *testing.T) {
 }
 
 func TestCallGettersSkipsArgumentsAndNeverCallsSetters(t *testing.T) {
-	calls, skipped := callGetters(fakeDevice{})
+	calls, skipped := callGetters(fakeDevice{}, allSymbols)
 	_ = calls
 
 	require.ElementsMatch(t, []string{"GetMemoryLimits", "GetNeedsStruct"}, skipped)
@@ -91,7 +146,7 @@ func TestCallGettersSkipsArgumentsAndNeverCallsSetters(t *testing.T) {
 }
 
 func TestCallGettersSurvivesAPanickingGetter(t *testing.T) {
-	calls, _ := callGetters(fakeDevice{})
+	calls, _ := callGetters(fakeDevice{}, allSymbols)
 
 	require.Contains(t, calls["GetPanicky"].Ret, "PANIC")
 	require.Equal(t, "SUCCESS", calls["GetName"].Ret)
@@ -149,7 +204,7 @@ func TestRetNameDoesNotDependOnTheLoadedLibrary(t *testing.T) {
 }
 
 func TestCallGettersEnumeratesIntegerAndEnumArguments(t *testing.T) {
-	calls, _ := callGetters(fakeDevice{})
+	calls, _ := callGetters(fakeDevice{}, allSymbols)
 
 	// A plain int index is tried at 0 and 1.
 	require.Equal(t, call{Ret: "SUCCESS", Value: uint32(0)}, calls["GetTemperature(0)"])
@@ -169,7 +224,7 @@ func TestCallGettersEnumeratesIntegerAndEnumArguments(t *testing.T) {
 }
 
 func TestCallGettersProbesEveryFieldID(t *testing.T) {
-	calls, _ := callGetters(fakeDevice{})
+	calls, _ := callGetters(fakeDevice{}, allSymbols)
 
 	require.Len(t, filterPrefix(calls, "GetFieldValues("), fieldIDLimit)
 	require.Equal(t, "SUCCESS", calls["GetFieldValues(id=3)"].Ret)

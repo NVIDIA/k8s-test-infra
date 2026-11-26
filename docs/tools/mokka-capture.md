@@ -484,6 +484,15 @@ call is named in `skipped`.
 - A getter with any other kind of argument (a struct, a handle, a string) is
   listed under `skipped` and not called, so the coverage of a dump is visible in
   the dump.
+- A getter the library does not export is not called. go-nvml declares every
+  function of the NVML headers it was built from, and an older driver's library
+  lacks the newer ones (driver 580.105.08 has no
+  `nvmlDeviceGetAccountingStats_v2`): calling one ends the process. Before each
+  getter the dump looks up its C function, `nvmlDevice<Name>`, and records a
+  missing one under the keys a call would have, as `ERROR_FUNCTION_NOT_FOUND`,
+  which is what an application that looks the function up gets from that
+  driver. Where NVML has several versions of a function, go-nvml calls the
+  newest the library has, so an older library still answers that getter.
 
 Each call is recorded with its NVML return code, as a fixed name such as
 `ERROR_NOT_SUPPORTED`, and its value. A getter the library answers with
