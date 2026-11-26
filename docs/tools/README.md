@@ -8,6 +8,7 @@ The chart runs most of them for you. The [kubelet helper](../components/mokka-ku
 |------|---------|
 | [`node-agent`](node-agent.md) | Compiles a mock NVML profile into on-host state and keeps it reconciled. The process the nvml-mock DaemonSet runs. |
 | [`nri-plugin`](nri-plugin.md) | containerd NRI plugin that injects the mock driver overlay, LD_PRELOAD shims and device nodes into containers at creation time. |
+| [`mokka-kwok`](mokka-kwok.md) | Watches assigned KWOK racks and bound Pods. |
 | [`control-plane`](control-plane.md) | Runs the [Mokka control plane](../control-plane.md) and serves liveness and controller-readiness probes. |
 | [`nvml-mock-ctl`](../nvml-mock-ctl.md) | Mutate the simulated GPU state of a running node without a restart. |
 
