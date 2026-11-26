@@ -4,7 +4,9 @@
 package main
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -106,4 +108,24 @@ func TestDRALeavesDeviceSelectionToScheduler(t *testing.T) {
 	require.NoError(t, f.allocator.reconcile(t.Context(), f.rack.Name))
 	require.Empty(t, f.record(t))
 	require.Empty(t, f.kube.Actions())
+}
+
+func TestAPIWaitReportsReasonAndRecovers(t *testing.T) {
+	t.Parallel()
+	f := features{nodeResourceTopology: true}
+	kube := kubefake.NewSimpleClientset()
+	var reasons []string
+	ok := f.waitForAPIs(t.Context(), kube, time.Millisecond, func(reason string) {
+		reasons = append(reasons, reason)
+		kube.Resources = []*metav1.APIResourceList{{GroupVersion: "topology.node.k8s.io/v1alpha2", APIResources: []metav1.APIResource{{Name: "noderesourcetopologies"}}}}
+	})
+	require.True(t, ok)
+	require.Len(t, reasons, 2)
+	require.Contains(t, reasons[0], "topology.node.k8s.io/v1alpha2")
+	require.Empty(t, reasons[1])
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	kube.Resources = nil
+	require.False(t, f.waitForAPIs(ctx, kube, time.Hour, func(string) { cancel() }))
 }

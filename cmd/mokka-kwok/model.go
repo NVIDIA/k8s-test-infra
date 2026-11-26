@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -104,7 +105,12 @@ func (m model) run(ctx context.Context, c config) error {
 		return err
 	}
 	server := health.NewServer(c.listen, health.DefaultShutdownTimeout)
+	var prerequisites atomic.Value
+	prerequisites.Store("checking the configured Kubernetes APIs")
 	server.SetReadiness(func() health.Probe {
+		if reason := prerequisites.Load().(string); reason != "" {
+			return health.Unhealthy("%s", reason)
+		}
 		if !rackEvents.HasSynced() || !m.pods.hasSynced() || !m.discovery.nodeWatch.HasSynced() {
 			return health.Unhealthy("waiting for rack, pod and node caches")
 		}
@@ -112,8 +118,8 @@ func (m model) run(ctx context.Context, c config) error {
 	})
 	group.Go(func() error { return server.Run(ctx) })
 	group.Go(func() error {
-		if err := c.waitForAPIs(ctx, m.kube, 10*time.Second); err != nil {
-			return err
+		if !c.waitForAPIs(ctx, m.kube, 10*time.Second, func(reason string) { prerequisites.Store(reason) }) {
+			return nil
 		}
 		return m.runWorkers(ctx, c, rackEvents)
 	})

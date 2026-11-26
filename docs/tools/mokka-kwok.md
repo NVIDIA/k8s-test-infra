@@ -65,7 +65,7 @@ capacity owned by another component in place.
 ComputeDomains require the resource and NVIDIA ComputeDomain APIs.
 NodeResourceTopology requires the NFD topology API. During startup the replica
 serves `/healthz` and retries missing APIs before it starts its workers.
-Its log identifies the missing API. The switches configure readiness and RBAC.
+Its log and the response body from `/readyz` identify the missing API. The switches configure readiness and RBAC.
 Publishing ResourceSlices, allocating from claims, and writing ComputeDomain
 and topology objects are separate implementation steps.
 

@@ -81,17 +81,20 @@ func (f features) checkAPIs(ctx context.Context, kube kubernetes.Interface) erro
 	return nil
 }
 
-func (f features) waitForAPIs(ctx context.Context, kube kubernetes.Interface, interval time.Duration) error {
+func (f features) waitForAPIs(ctx context.Context, kube kubernetes.Interface, interval time.Duration, report func(string)) bool {
 	var lastError string
-	return wait.PollUntilContextCancel(ctx, interval, true, func(ctx context.Context) (bool, error) {
+	err := wait.PollUntilContextCancel(ctx, interval, true, func(ctx context.Context) (bool, error) {
 		err := f.checkAPIs(ctx, kube)
 		if err == nil {
+			report("")
 			return true, nil
 		}
-		if err.Error() != lastError {
+		if ctx.Err() == nil && err.Error() != lastError {
+			report(err.Error())
 			zap.L().Warn("Waiting for KWOK data plane APIs", zap.Error(err))
 			lastError = err.Error()
 		}
 		return false, nil
 	})
+	return err == nil
 }
