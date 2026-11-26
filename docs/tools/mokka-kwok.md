@@ -65,13 +65,22 @@ capacity owned by another component in place.
 ComputeDomains require the resource and NVIDIA ComputeDomain APIs.
 NodeResourceTopology requires the NFD topology API. During startup the replica
 serves `/healthz` and retries missing APIs before it starts its workers.
-Its log and the response body from `/readyz` identify the missing API. The switches configure readiness and RBAC.
-Publishing ResourceSlices, allocating from claims, and writing ComputeDomain
-and topology objects are separate implementation steps.
+Its log and the response body from `/readyz` identify the missing API. In DRA mode, each bound KWOK Node owns one GPU ResourceSlice. The pool name
+is the Node name. Each device is named `gpu-<minor>` and carries its UUID,
+memory, PCI and NUMA placement, and the model and software attributes supplied
+by the rack. Set `spec.node.gpus.model.addressingMode` on the rack profile
+when known (`ATS`, `HMM`, or `None`). The optional `brand` defaults to
+`Nvidia`. Changes to the devices advance the pool generation.
+
+Release the KWOK rack slots in DRA mode before switching back to device-plugin
+mode. Mokka waits for the slices to disappear before it clears the Node's
+discovery fields. A Node that still carries its DRA pool marker will not
+advertise device-plugin capacity. Recording allocations from claims and
+publishing ComputeDomain and topology objects are separate steps.
 
 ## GPU capacity
 
-A bound KWOK node advertises the number of GPUs in its rack slot as
+In device-plugin mode a bound KWOK node advertises the number of GPUs in its rack slot as
 `nvidia.com/gpu` in both `status.capacity` and `status.allocatable`. A Pod
 can request this resource through its container limits. Both totals stay
 fixed as Pods bind and leave. The scheduler tracks the requests against that total.

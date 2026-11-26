@@ -135,6 +135,15 @@ type GPUModel struct {
 	ProductName string `json:"productName,omitempty"`
 
 	// +optional
+	// Brand is the NVIDIA driver brand string (for example, Nvidia or Tesla).
+	Brand string `json:"brand,omitempty"`
+
+	// +optional
+	// +kubebuilder:validation:Enum=ATS;HMM;None
+	// AddressingMode is the GPU system-memory addressing mode reported by NVML.
+	AddressingMode string `json:"addressingMode,omitempty"`
+
+	// +optional
 	// Architecture is the GPU architecture name.
 	Architecture string `json:"architecture,omitempty"`
 

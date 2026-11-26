@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  kwok: Publish the GPUs of each bound virtual Node in a DRA ResourceSlice. The slice follows rack changes and is removed before Mokka releases the Node.
+time: 2026-11-25T16:19:30Z
+custom:
+  Issue: "1316"

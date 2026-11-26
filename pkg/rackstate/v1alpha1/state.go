@@ -30,6 +30,8 @@ type Hardware struct {
 
 // GPUModel describes the hardware common to all GPUs of this profile.
 type GPUModel struct {
+	Brand             string           `json:"brand,omitempty"`
+	AddressingMode    string           `json:"addressingMode,omitempty"`
 	MIGCapable        bool             `json:"migCapable,omitempty"`
 	Vendor            string           `json:"vendor,omitempty"`
 	Product           string           `json:"product,omitempty"`

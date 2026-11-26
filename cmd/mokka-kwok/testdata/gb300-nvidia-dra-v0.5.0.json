@@ -1,0 +1,186 @@
+[
+  {
+    "attributes": {
+      "addressingMode": {
+        "string": "ATS"
+      },
+      "architecture": {
+        "string": "Blackwell"
+      },
+      "brand": {
+        "string": "Nvidia"
+      },
+      "cudaComputeCapability": {
+        "version": "10.0.0"
+      },
+      "cudaDriverVersion": {
+        "version": "13.0.0"
+      },
+      "driverVersion": {
+        "version": "580.65.6"
+      },
+      "productName": {
+        "string": "NVIDIA GB300 NVL"
+      },
+      "resource.kubernetes.io/numaNode": {
+        "int": 0
+      },
+      "resource.kubernetes.io/pciBusID": {
+        "string": "0000:0a:00.0"
+      },
+      "resource.kubernetes.io/pcieRoot": {
+        "string": "pci0000:00"
+      },
+      "type": {
+        "string": "gpu"
+      },
+      "uuid": {
+        "string": "GPU-b300b300-0000-0000-0000-000000000000"
+      }
+    },
+    "capacity": {
+      "memory": {
+        "value": "278Gi"
+      }
+    },
+    "name": "gpu-0"
+  },
+  {
+    "attributes": {
+      "addressingMode": {
+        "string": "ATS"
+      },
+      "architecture": {
+        "string": "Blackwell"
+      },
+      "brand": {
+        "string": "Nvidia"
+      },
+      "cudaComputeCapability": {
+        "version": "10.0.0"
+      },
+      "cudaDriverVersion": {
+        "version": "13.0.0"
+      },
+      "driverVersion": {
+        "version": "580.65.6"
+      },
+      "productName": {
+        "string": "NVIDIA GB300 NVL"
+      },
+      "resource.kubernetes.io/numaNode": {
+        "int": 0
+      },
+      "resource.kubernetes.io/pciBusID": {
+        "string": "0000:0b:00.0"
+      },
+      "resource.kubernetes.io/pcieRoot": {
+        "string": "pci0000:00"
+      },
+      "type": {
+        "string": "gpu"
+      },
+      "uuid": {
+        "string": "GPU-b300b300-0000-0000-0000-000000000001"
+      }
+    },
+    "capacity": {
+      "memory": {
+        "value": "278Gi"
+      }
+    },
+    "name": "gpu-1"
+  },
+  {
+    "attributes": {
+      "addressingMode": {
+        "string": "ATS"
+      },
+      "architecture": {
+        "string": "Blackwell"
+      },
+      "brand": {
+        "string": "Nvidia"
+      },
+      "cudaComputeCapability": {
+        "version": "10.0.0"
+      },
+      "cudaDriverVersion": {
+        "version": "13.0.0"
+      },
+      "driverVersion": {
+        "version": "580.65.6"
+      },
+      "productName": {
+        "string": "NVIDIA GB300 NVL"
+      },
+      "resource.kubernetes.io/numaNode": {
+        "int": 1
+      },
+      "resource.kubernetes.io/pciBusID": {
+        "string": "0000:4a:00.0"
+      },
+      "resource.kubernetes.io/pcieRoot": {
+        "string": "pci0000:40"
+      },
+      "type": {
+        "string": "gpu"
+      },
+      "uuid": {
+        "string": "GPU-b300b300-0000-0000-0000-000000000002"
+      }
+    },
+    "capacity": {
+      "memory": {
+        "value": "278Gi"
+      }
+    },
+    "name": "gpu-2"
+  },
+  {
+    "attributes": {
+      "addressingMode": {
+        "string": "ATS"
+      },
+      "architecture": {
+        "string": "Blackwell"
+      },
+      "brand": {
+        "string": "Nvidia"
+      },
+      "cudaComputeCapability": {
+        "version": "10.0.0"
+      },
+      "cudaDriverVersion": {
+        "version": "13.0.0"
+      },
+      "driverVersion": {
+        "version": "580.65.6"
+      },
+      "productName": {
+        "string": "NVIDIA GB300 NVL"
+      },
+      "resource.kubernetes.io/numaNode": {
+        "int": 1
+      },
+      "resource.kubernetes.io/pciBusID": {
+        "string": "0000:4b:00.0"
+      },
+      "resource.kubernetes.io/pcieRoot": {
+        "string": "pci0000:40"
+      },
+      "type": {
+        "string": "gpu"
+      },
+      "uuid": {
+        "string": "GPU-b300b300-0000-0000-0000-000000000003"
+      }
+    },
+    "capacity": {
+      "memory": {
+        "value": "278Gi"
+      }
+    },
+    "name": "gpu-3"
+  }
+]
