@@ -84,8 +84,8 @@ spec:
         {{- with omit (.Values.podAnnotations | default dict) "checksum/config" "checksum/mig-profiles" "kubectl.kubernetes.io/default-container" }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-        # Roll the DaemonSet on any config.yaml change.
-        checksum/config: {{ include "nvml-mock.gpuConfig" . | sha256sum }}
+        # Roll the DaemonSet on any config.yaml change, NIC part included.
+        checksum/config: {{ include "nvml-mock.nodeConfig" . | sha256sum }}
         {{- if $migProfiles }}
         # And on any change to the board's MIG table, which is a ConfigMap of
         # its own and so does not move the checksum above.
@@ -231,6 +231,20 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            # The pod the agent records its Events on, such as an ignored NIC
+            # declaration.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
             - name: GPU_COUNT
               value: "{{ include "nvml-mock.gpuCount" . }}"
             - name: DRIVER_VERSION
@@ -343,6 +357,11 @@ spec:
             # Where the simulators write. Every path they stage is rooted here.
             - name: mokka-root
               mountPath: /host/var/lib/nvml-mock
+            # API access for this container alone, which the pod doesn't
+            # automount: the Role allows recording Events and nothing else.
+            - name: node-agent-token
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
             # The same tree at the path its contents name. MOCK_PCI_ROOT and
             # MOCK_IB_ROOT are host-absolute, so the LD_PRELOAD shims and any
             # tool run via `kubectl exec` only resolve them through this mount.
@@ -584,6 +603,23 @@ spec:
         - name: mokka-profile
           configMap:
             name: {{ include "nvml-mock.fullname" . }}-config
+        # What the API server would automount, for the node agent only.
+        - name: node-agent-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3607
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
         - name: cdi-specs
           hostPath:
             path: /var/run/cdi

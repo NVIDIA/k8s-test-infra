@@ -20,6 +20,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/numatopology"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/nvlink"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/pcibus"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/podevents"
 	"github.com/urfave/cli/v3"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -302,6 +303,9 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		enrichers = append(enrichers, numatopology.NewEnricher(h))
 	}
 
+	events, stopEvents := podEvents(log)
+	defer stopEvents()
+
 	a := agent.New(agent.Config{
 		Simulators: []agent.Simulator{
 			numaSimulator,
@@ -330,6 +334,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,
 		StagingLockPath: cmd.String("staging-lock-path"),
+		Events:          events,
 	})
 
 	healthSrv.SetLiveness(a.Liveness)
@@ -427,4 +432,16 @@ func resetRuntimeOverrides(h *host.Host, log *zap.Logger) error {
 	}
 	log.Info("reset runtime overrides from previous pod lifetime", zap.Strings("paths", paths))
 	return nil
+}
+
+// podEvents records Events on the agent's own pod, which surface what it
+// degrades without failing, such as an ignored NIC declaration. Without API
+// access it returns no recorder, and the agent only logs.
+func podEvents(log *zap.Logger) (agent.Events, func()) {
+	rec, err := podevents.FromEnv(os.Getenv("NODE_NAME"))
+	if err != nil {
+		log.Info("not recording Kubernetes Events", zap.Error(err))
+		return nil, func() {}
+	}
+	return rec, rec.Shutdown
 }

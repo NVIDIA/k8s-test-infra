@@ -1,0 +1,116 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# The mock InfiniBand stack follows the infiniband block alone until the ib
+# simulator renders the NIC state (#1355): NIC slots (MEP-0016) are resolved
+# and reported, but neither they nor configuration choices change what a node
+# shows.
+suite: InfiniBand gating ignores NIC slots
+templates:
+  - templates/daemonset.yaml
+  - templates/service-ibping.yaml
+# Render against a fixed chart version so releasing a new chart never
+# rewrites expectations or snapshots here.
+chart:
+  version: 0.0.0-dev
+  appVersion: 0.0.0-dev
+# Before native sidecars the node agent is the first container, whatever
+# else the pod runs.
+capabilities:
+  majorVersion: "1"
+  minorVersion: "28"
+tests:
+  - it: should keep the sysfs tier for slots with RDMA devices and no infiniband block
+    template: templates/daemonset.yaml
+    set:
+      gpu:
+        customConfig: &slotsOnly |
+          version: "1.0"
+          system:
+            driver_version: "580.65.06"
+          device_defaults:
+            name: "Custom GPU"
+          devices:
+            - index: 0
+          nics:
+            rootPorts:
+              - {address: "0007:00:00.0", rootComplex: pci0007:00}
+              - {address: "0017:00:00.0", rootComplex: pci0017:00}
+            slots:
+              - slot: frontend0
+                profile: cx7-hhhl
+                devices:
+                  - {name: hostA, rootComplex: pci0007:00, address: "0007:01:00", parent: "0007:00:00.0", numaNode: 0}
+                  - {name: hostB, rootComplex: pci0017:00, address: "0017:01:00", parent: "0017:00:00.0", numaNode: 1}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB
+            value: "sysfs"
+
+  - it: should render no ibping Service for slots alone
+    template: templates/service-ibping.yaml
+    set:
+      gpu:
+        customConfig: *slotsOnly
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should keep the full tier of the infiniband block when the NIC slots have no RDMA device
+    template: templates/daemonset.yaml
+    set:
+      gpu:
+        profile: gb300
+      nics:
+        slots:
+          - slot: nic0
+            profile: eth-only
+            devices:
+              - {name: network, rootComplex: pci0000:00, address: "0000:01:00", numaNode: 0}
+        customProfiles:
+          - apiVersion: mokka.nvidia.com/v1alpha1
+            kind: SNICProfile
+            metadata:
+              name: eth-only
+            spec:
+              identity: {model: Ethernet}
+              functionTypes:
+                - {name: network, vendorID: "15b3", deviceID: "1021", driver: mlx5_core}
+              defaultConfiguration: eth
+              configurations:
+                - name: eth
+                  functions:
+                    - {id: pf0, type: network, pciDevice: network, function: 0, class: "0x020000"}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB
+            value: "full"
+
+  # The NIC declaration is checked before the gates are computed.
+  - it: should fail the gates' render on a custom profile whose default it doesn't define
+    template: templates/service-ibping.yaml
+    set:
+      gpu:
+        profile: gb300
+      nics:
+        customProfiles:
+          - apiVersion: mokka.nvidia.com/v1alpha1
+            kind: SNICProfile
+            metadata:
+              name: bf-oem
+            spec:
+              identity: {model: BlueField}
+              functionTypes:
+                - {name: network, vendorID: "15b3", deviceID: "a2dc", driver: mlx5_core}
+              defaultConfiguration: missing
+              configurations:
+                - name: eth
+                  functions:
+                    - {id: pf0, type: network, pciDevice: network, function: 0, class: "0x020000"}
+    asserts:
+      - failedTemplate:
+          errorMessage: "nics.customProfiles: bf-oem's defaultConfiguration \"missing\" is not one of its configurations: eth"

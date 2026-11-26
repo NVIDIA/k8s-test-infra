@@ -1,6 +1,6 @@
 should match config checksum snapshot with vrnvl72 profile:
   1: |
-    2f2e941d3dcb1f4b783de086cfe9ff8bbed1898dc2c4ae73d52f4c093243285c
+    828d4aa8c3007f2314e6905c6351d6ed095400133c0f73261c70489c7a0223f1
 should match snapshot with all overrides:
   1: |
     apiVersion: apps/v1
@@ -126,6 +126,18 @@ should match snapshot with all overrides:
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: POD_UID
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.uid
                 - name: GPU_COUNT
                   value: "2"
                 - name: DRIVER_VERSION
@@ -199,6 +211,9 @@ should match snapshot with all overrides:
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: mokka-root
+                - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+                  name: node-agent-token
+                  readOnly: true
                 - mountPath: /var/lib/nvml-mock
                   name: mokka-root
                 - mountPath: /host/run/nvidia
@@ -256,6 +271,22 @@ should match snapshot with all overrides:
             - configMap:
                 name: nvml-mock-custom-config
               name: mokka-profile
+            - name: node-agent-token
+              projected:
+                sources:
+                  - serviceAccountToken:
+                      expirationSeconds: 3607
+                      path: token
+                  - configMap:
+                      items:
+                        - key: ca.crt
+                          path: ca.crt
+                      name: kube-root-ca.crt
+                  - downwardAPI:
+                      items:
+                        - fieldRef:
+                            fieldPath: metadata.namespace
+                          path: namespace
             - hostPath:
                 path: /var/run/cdi
                 type: DirectoryOrCreate
@@ -448,6 +479,18 @@ should match snapshot with b200 profile:
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: POD_UID
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.uid
                 - name: GPU_COUNT
                   value: "4"
                 - name: DRIVER_VERSION
@@ -519,6 +562,9 @@ should match snapshot with b200 profile:
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: mokka-root
+                - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+                  name: node-agent-token
+                  readOnly: true
                 - mountPath: /var/lib/nvml-mock
                   name: mokka-root
                 - mountPath: /host/run/nvidia
@@ -570,6 +616,22 @@ should match snapshot with b200 profile:
             - configMap:
                 name: RELEASE-NAME-nvml-mock-config
               name: mokka-profile
+            - name: node-agent-token
+              projected:
+                sources:
+                  - serviceAccountToken:
+                      expirationSeconds: 3607
+                      path: token
+                  - configMap:
+                      items:
+                        - key: ca.crt
+                          path: ca.crt
+                      name: kube-root-ca.crt
+                  - downwardAPI:
+                      items:
+                        - fieldRef:
+                            fieldPath: metadata.namespace
+                          path: namespace
             - hostPath:
                 path: /var/run/cdi
                 type: DirectoryOrCreate
@@ -654,7 +716,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: 3ccbc8e8d6d44fed056017089035a73a4cfa73330fb469873d1d4dd69ad0fb38
+            checksum/config: b9c1ab79126e10af7602e0b8eb791eba3f08c1ab393e3e9994f4d88360a2c800
             checksum/mig-profiles: fb2ebf8b158ede295783bcc2f137d194ef2e4f7648855ea626d419f41e62cf2d
             kubectl.kubernetes.io/default-container: node-agent
           labels:
@@ -758,6 +820,18 @@ should match snapshot with default values:
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: POD_UID
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.uid
                 - name: GPU_COUNT
                   value: "4"
                 - name: DRIVER_VERSION
@@ -831,6 +905,9 @@ should match snapshot with default values:
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: mokka-root
+                - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+                  name: node-agent-token
+                  readOnly: true
                 - mountPath: /var/lib/nvml-mock
                   name: mokka-root
                 - mountPath: /host/run/nvidia
@@ -884,6 +961,22 @@ should match snapshot with default values:
             - configMap:
                 name: RELEASE-NAME-nvml-mock-config
               name: mokka-profile
+            - name: node-agent-token
+              projected:
+                sources:
+                  - serviceAccountToken:
+                      expirationSeconds: 3607
+                      path: token
+                  - configMap:
+                      items:
+                        - key: ca.crt
+                          path: ca.crt
+                      name: kube-root-ca.crt
+                  - downwardAPI:
+                      items:
+                        - fieldRef:
+                            fieldPath: metadata.namespace
+                          path: namespace
             - hostPath:
                 path: /var/run/cdi
                 type: DirectoryOrCreate

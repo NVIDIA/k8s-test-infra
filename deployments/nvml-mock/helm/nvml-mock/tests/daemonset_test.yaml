@@ -275,6 +275,34 @@ tests:
               fieldRef:
                 fieldPath: spec.nodeName
 
+  # The node agent records Events on its own pod: it needs the pod's identity
+  # and, alone in the pod, an API token.
+  - it: should give the node agent its pod and a token of its own
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: POD_UID
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.uid
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: node-agent-token
+            mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+            readOnly: true
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: node-agent-token
+            mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+            readOnly: true
+          any: true
+
   - it: should point MOCK_NVML_CONFIG at the mounted ConfigMap
     # Without this env var, nvidia-smi run inside the daemonset pod (e.g.
     # `kubectl exec ds/nvml-mock -- nvidia-smi`) cannot locate the GPU

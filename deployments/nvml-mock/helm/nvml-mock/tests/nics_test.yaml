@@ -1,0 +1,385 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# NIC slots (MEP-0016) in the node agent's config document: the chart appends
+# the NIC profiles the slots name, and the configuration choices.
+suite: NIC declaration in the config document
+templates:
+  - templates/configmap.yaml
+# Render against a fixed chart version so releasing a new chart never
+# rewrites expectations or snapshots here.
+chart:
+  version: 0.0.0-dev
+  appVersion: 0.0.0-dev
+tests:
+  - it: should append exactly the NIC profiles gb300's slots name
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^nic_configurations: \[\]$'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^    name: cx8-c8280z$'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^    name: bf3-b3240$'
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^    name: (bf4-vr|cx7-hhhl|cx8-aws-vf|cx9-vr|efa-c5n)$'
+      # The GPU profile stays as written, comments included.
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^# Mock NVML Configuration: GB300'
+
+  - it: should append exactly the NIC profiles vrnvl72's slots name
+    set:
+      gpu:
+        profile: vrnvl72
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^    name: cx9-vr$'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^    name: bf4-vr$'
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^    name: (bf3-b3240|cx7-hhhl|cx8-aws-vf|cx8-c8280z|efa-c5n)$'
+
+  - it: should append nothing for a profile without NIC slots
+    set:
+      gpu:
+        profile: a100
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^nic_(profiles|configurations):'
+
+  - it: should carry the configuration choices
+    set:
+      nics:
+        configurations:
+          - slots: [nic0, nic1, nic2, nic3]
+            configuration: eth-multiplane
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^nic_configurations:\n- configuration: eth-multiplane\n  slots:\n  - nic0'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^    name: cx8-c8280z$'
+
+  - it: should fail on a slot naming an unknown NIC profile, listing the available ones
+    set:
+      nics:
+        slots:
+          - slot: nic0
+            profile: cx10
+            devices:
+              - {name: network, rootComplex: pci0007:00, address: "0007:01:00", numaNode: 0}
+    asserts:
+      - failedTemplate:
+          errorMessage: 'NIC slot nic0 names unknown NIC profile "cx10". Available NIC profiles: bf3-b3240, bf4-vr, cx7-hhhl, cx8-aws-vf, cx8-c8280z, cx9-vr, efa-c5n. Or add it to nics.customProfiles.'
+
+  # Mistakes the chart can see fail the render, before any node drops its NICs.
+  - it: should fail on a choice naming an unknown slot, listing the node's
+    set:
+      nics:
+        configurations:
+          - slots: [nic9]
+            configuration: eth-multiplane
+    asserts:
+      - failedTemplate:
+          errorMessage: 'nics.configurations[0] names NIC slot "nic9", which the node doesn''t have. NIC slots: nic0, nic1, nic2, nic3, frontend0'
+
+  - it: should fail on a slot that two choices name
+    set:
+      nics:
+        configurations:
+          - slots: [nic0]
+            configuration: eth-multiplane
+          - slots: [nic1, nic0]
+            configuration: ib-xdr-4plane
+    asserts:
+      - failedTemplate:
+          errorMessage: 'nics.configurations[1] names NIC slot nic0, which nics.configurations[0] already names'
+
+  - it: should fail on a choice without slots
+    set:
+      nics:
+        configurations:
+          - configuration: eth-multiplane
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'slots'"
+
+  - it: should fail on a configuration the slot's profile doesn't have, listing its own
+    set:
+      nics:
+        configurations:
+          - slots: [nic0]
+            configuration: eth
+    asserts:
+      - failedTemplate:
+          errorMessage: 'nics.configurations[0]: NIC slot nic0''s profile cx8-c8280z has no configuration "eth". Configurations: ib-xdr-4plane, eth-multiplane'
+
+  - it: should use a custom NIC profile a slot names
+    set:
+      nics:
+        slots:
+          - slot: frontend0
+            profile: cx7-oem
+            devices:
+              - {name: host, rootComplex: pci0007:00, address: "0007:01:00", numaNode: 0}
+        customProfiles:
+          - apiVersion: mokka.nvidia.com/v1alpha1
+            kind: SNICProfile
+            metadata:
+              name: cx7-oem
+            spec:
+              identity: {model: ConnectX-7}
+              functionTypes:
+                - {name: network, vendorID: "15b3", deviceID: "1021", driver: mlx5_core}
+              defaultConfiguration: eth
+              configurations:
+                - name: eth
+                  functions:
+                    - {id: pf0, type: network, pciDevice: host, function: 0, class: "0x020000"}
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^    name: cx7-oem$'
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^    name: bf3-b3240$'
+
+  - it: should refuse a custom NIC profile that reuses a shipped name
+    set:
+      nics:
+        customProfiles:
+          - apiVersion: mokka.nvidia.com/v1alpha1
+            kind: SNICProfile
+            metadata:
+              name: cx8-c8280z
+            spec:
+              identity: {model: ConnectX-8}
+              functionTypes:
+                - {name: network, vendorID: "15b3", deviceID: "1023", driver: mlx5_core}
+              defaultConfiguration: eth
+              configurations:
+                - name: eth
+                  functions:
+                    - {id: pf0, type: network, pciDevice: network, function: 0, class: "0x020000"}
+    asserts:
+      - failedTemplate:
+          errorMessage: 'nics.customProfiles: "cx8-c8280z" is a NIC profile the chart ships; give the custom profile a name of its own'
+
+  - it: should refuse configuration choices on a node without NIC slots
+    set:
+      gpu:
+        profile: a100
+      nics:
+        configurations:
+          - slots: [nic0]
+            configuration: eth-multiplane
+    asserts:
+      - failedTemplate:
+          errorMessage: 'nics.configurations is set, but the node has no NIC slots: the GPU profile declares none and nics.slots is empty'
+
+  - it: should replace the GPU profile's slots with nics.slots
+    set:
+      gpu:
+        profile: a100
+      nics:
+        rootPorts:
+          - {address: "0007:00:00.0", rootComplex: pci0007:00}
+          - {address: "0017:00:00.0", rootComplex: pci0017:00}
+        gpuParents: {"0": "0007:00:00.0"}
+        slots:
+          - slot: frontend0
+            profile: cx7-hhhl
+            devices:
+              - {name: hostA, rootComplex: pci0007:00, address: "0007:01:00", parent: "0007:00:00.0", numaNode: 0}
+              - {name: hostB, rootComplex: pci0017:00, address: "0017:01:00", parent: "0017:00:00.0", numaNode: 1}
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^nics:\n  gpuParents:\n    "0": "0007:00:00\.0"\n  rootPorts:\n  - address: "0007:00:00\.0"\n    rootComplex: pci0007:00\n'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^  slots:\n  - devices:'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^    name: cx7-hhhl$'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'NVIDIA A100'
+
+  # The schema follows the CRDs, so a misspelled field fails the render, as it
+  # would fail the node agent on every node a Helm change rolls.
+  - it: should refuse a misspelled field inside a NIC slot
+    set:
+      nics:
+        slots:
+          - slot: frontend0
+            profile: cx7-hhhl
+            systemImage: distinct
+            devices:
+              - {name: hostA, rootComplex: pci0007:00, address: "0007:01:00", numaNode: 0}
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'systemImage' not allowed"
+
+  - it: should refuse a misspelled field in a custom NIC profile's spec
+    set:
+      nics:
+        customProfiles:
+          - apiVersion: mokka.nvidia.com/v1alpha1
+            kind: SNICProfile
+            metadata:
+              name: cx7-oem
+            spec:
+              identity: {model: ConnectX-7}
+              functionTypez:
+                - {name: network, vendorID: "15b3", deviceID: "1021", driver: mlx5_core}
+              defaultConfiguration: eth
+              configurations:
+                - name: eth
+                  functions:
+                    - {id: pf0, type: network, pciDevice: network, function: 0, class: "0x020000"}
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'functionTypez' not allowed"
+
+  # helm upgrade --reuse-values from a chart version without nics values
+  # leaves the release with no nics block at all.
+  - it: should render a release whose values have no nics block
+    set:
+      nics: null
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^    name: cx8-c8280z$'
+
+  # A profile's root ports and GPU parents name addresses in its own slots, so
+  # nics.slots replaces all three.
+  - it: should drop the GPU profile's root ports and GPU parents with nics.slots
+    set:
+      gpu:
+        profile: gb300
+      nics:
+        slots:
+          - slot: frontend0
+            profile: cx7-hhhl
+            devices:
+              - {name: hostA, rootComplex: pci0007:00, address: "0007:01:00", numaNode: 0}
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^  (rootPorts|gpuParents):'
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: 'slot: nic0'
+
+  - it: should refuse root ports without nics.slots
+    set:
+      nics:
+        rootPorts:
+          - {address: "0007:00:00.0", rootComplex: pci0007:00}
+    asserts:
+      - failedTemplate:
+          errorMessage: "nics.rootPorts and nics.gpuParents place the root ports and GPUs for nics.slots; set nics.slots too, or leave them empty to keep the GPU profile's"
+
+  # The node agent decodes a NIC profile only with its apiVersion.
+  - it: should refuse a custom NIC profile without apiVersion
+    set:
+      nics:
+        customProfiles:
+          - kind: SNICProfile
+            metadata:
+              name: cx7-oem
+            spec: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'apiVersion'"
+
+  - it: should merge nics.rdma over the profile's software.rdma, false included
+    set:
+      gpu:
+        profile: gb300
+      nics:
+        rdma:
+          ipoib: false
+          umadMode: "666"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '(?m)^software:\n  rdma:\n    driverVersion: 25\.10-2\.4\.1\n    ipoib: false\n    umad: true\n    umadMode: "666"$'
+
+  - it: should refuse a GPU profile document that repeats a top-level NIC key
+    set:
+      gpu:
+        customConfig: |
+          version: "1.0"
+          system:
+            driver_version: "580.65.06"
+          devices:
+            - index: 0
+          software:
+            rdma: {umad: true}
+          software:
+            rdma: {umad: false}
+    asserts:
+      - failedTemplate:
+          errorMessage: 'the GPU profile document repeats the top-level key "software"; merge the two'
+
+  # The chart writes nic_profiles and nic_configurations itself, so a
+  # document that has them, such as a rendered config passed back as
+  # gpu.customConfig, would hold each twice.
+  - it: should refuse a GPU profile document that sets nic_configurations
+    set:
+      gpu:
+        customConfig: |
+          version: "1.0"
+          system:
+            driver_version: "580.65.06"
+          devices:
+            - index: 0
+          nic_configurations: []
+    asserts:
+      - failedTemplate:
+          errorMessage: 'the GPU profile document sets the top-level key "nic_configurations", which the chart writes from values; set NIC profiles in nics.customProfiles and configuration choices in nics.configurations instead'
+
+  - it: should refuse a GPU profile document that sets nic_profiles
+    set:
+      gpu:
+        customConfig: |
+          version: "1.0"
+          system:
+            driver_version: "580.65.06"
+          devices:
+            - index: 0
+          nic_profiles: []
+    asserts:
+      - failedTemplate:
+          errorMessage: 'the GPU profile document sets the top-level key "nic_profiles", which the chart writes from values; set NIC profiles in nics.customProfiles and configuration choices in nics.configurations instead'
+
+  # GPU overlays turn the document into a map, which would drop the repeat.
+  - it: should refuse a repeated top-level NIC key with a GPU overlay set
+    set:
+      driverVersion: "580.95.05"
+      gpu:
+        customConfig: |
+          version: "1.0"
+          system:
+            driver_version: "580.65.06"
+          devices:
+            - index: 0
+          software:
+            rdma: {umad: true}
+          software:
+            rdma: {umad: false}
+    asserts:
+      - failedTemplate:
+          errorMessage: 'the GPU profile document repeats the top-level key "software"; merge the two'
+

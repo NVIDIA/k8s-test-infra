@@ -107,7 +107,7 @@ func decode(data []byte, kind string, meta *metav1.TypeMeta, into any, paths ...
 		return fmt.Errorf("decode %s: %w", kind, err)
 	}
 	if meta.Kind != kind || meta.APIVersion != v1alpha1.GroupVersion.String() {
-		return fmt.Errorf("got %s %s, want %s %s", meta.APIVersion, meta.Kind, v1alpha1.GroupVersion, kind)
+		return fmt.Errorf("apiVersion %q and kind %q, want %q and %q", meta.APIVersion, meta.Kind, v1alpha1.GroupVersion, kind)
 	}
 	if err := DecodeRaw(data, kind, paths...); err != nil {
 		return fmt.Errorf("decode %s: %w", kind, err)

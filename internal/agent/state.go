@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/migcaps"
+	nicstate "github.com/NVIDIA/k8s-test-infra/internal/nic/state"
 )
 
 // State is the compiled desired simulation state the agent reconciles toward.
@@ -24,6 +25,18 @@ type State struct {
 	Fabric     FabricState
 	IMEX       IMEXState
 	MIG        MIGState
+	// NICs is the node's resolved NIC state (MEP-0016): empty for a profile
+	// without NIC slots. It is reported, not rendered, until the ib simulator
+	// renders it (#1355); NodeShape.Network drives what the node shows. When
+	// the NIC declaration is invalid, it is the state last accepted, if that
+	// still fits the node's GPUs, or no NICs, with the GPUs and root ports.
+	NICs nicstate.NICs
+	// NICError says why the NIC declaration was ignored; empty when it
+	// resolved. A bad NIC declaration never stops the GPUs from rendering.
+	NICError string
+	// NICsKept is set when NICs is the state last resolved, kept in place of
+	// the declaration NICError names.
+	NICsKept bool
 	// ConfigRaw holds the raw YAML profile bytes so gpudriver can write the
 	// engine config without re-deriving it from the narrower State fields.
 	// TODO(https://github.com/NVIDIA/k8s-test-infra/issues/717): replace with Profile/Runtime *config.YAMLConfig split — Profile carries
@@ -492,4 +505,18 @@ type Update struct {
 	State *State
 	Err   error
 	At    time.Time
+}
+
+// NICStatus says what the node does about an ignored NIC declaration, for
+// the log, the node agent's Event and /readyz; empty when the declaration
+// resolved.
+func (s *State) NICStatus() string {
+	switch {
+	case s.NICError == "":
+		return ""
+	case s.NICsKept:
+		return "NIC declaration ignored, keeping the NICs last resolved: " + s.NICError
+	default:
+		return "NIC declaration ignored, the node has no NICs until it resolves: " + s.NICError
+	}
 }

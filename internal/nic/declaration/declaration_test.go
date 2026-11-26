@@ -611,7 +611,7 @@ func TestDecodeIsStrict(t *testing.T) {
 	_, err := DecodeProfile([]byte("apiVersion: mokka.nvidia.com/v1alpha1\nkind: SNICProfile\nmetadata: {name: x}\nspec: {identiy: {}}\n"))
 	require.ErrorContains(t, err, `unknown field "identiy"`)
 	_, err = DecodeProfile([]byte("apiVersion: mokka.nvidia.com/v1alpha1\nkind: SGPURackProfile\nmetadata: {name: x}\n"))
-	require.ErrorContains(t, err, "want mokka.nvidia.com/v1alpha1 SNICProfile")
+	require.ErrorContains(t, err, `kind "SGPURackProfile", want "mokka.nvidia.com/v1alpha1" and "SNICProfile"`)
 }
 
 // loadChartProfiles decodes every NIC profile the chart ships.

@@ -173,7 +173,7 @@ Both probes are served on port 9091 and answer different questions:
 | Probe | Passes when | Reports |
 |---|---|---|
 | `/healthz` | the last `Stage` wave completed without error | the simulators that failed. Recovers on the next successful staging |
-| `/readyz` | every simulator reports itself ready | which simulator is not serving |
+| `/readyz` | every simulator reports itself ready | which simulator is not serving, and under `nics` why the profile's NIC declaration was ignored, if it was. An ignored NIC declaration doesn't fail the probe: the node still serves its GPUs |
 
 Neither consults the state source. Liveness reflects what staging did, not
 whether new state can be fetched — so an unreachable source leaves the node

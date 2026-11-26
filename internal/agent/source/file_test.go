@@ -267,20 +267,22 @@ func shippedConfigs(t *testing.T) []string {
 }
 
 // The runtime ConfigMap is rendered from the Helm profiles (see
-// nvml-mock.gpuConfigBase in _helpers.tpl), and only those carry an
+// nvml-mock.nodeConfig in _helpers.tpl), and only those carry NIC slots or an
 // infiniband block — the pkg/gpu/mocknvml/configs copies do not.
 func TestCompileState_NetworkResolvedForEveryProfile(t *testing.T) {
+	t.Setenv("NODE_NAME", "node-a")
 	profiles, err := filepath.Glob(helmProfileGlob)
 	require.NoError(t, err)
 	require.NotEmpty(t, profiles, "no Helm profiles found")
 
 	for _, path := range profiles {
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			data, err := os.ReadFile(path)
-			require.NoError(t, err)
+			// The chart appends the NIC profiles a profile's slots name.
+			data := assembledDocument(t, strings.TrimSuffix(filepath.Base(path), ".yaml"), "[]")
 
 			state, err := compileState(data, path)
 			require.NoError(t, err)
+			require.Empty(t, state.NICError)
 
 			net := state.NodeShape.Network
 			if !net.IBEnabled {

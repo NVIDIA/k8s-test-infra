@@ -1548,7 +1548,7 @@ should match snapshot with default gb300 profile:
             uuid: "GPU-b300b300-0000-0000-0000-000000000000"
             serial: "1573041103700"         # superchip board serial, shared with GPU 1
             pci:
-              bus_id: "0000:0A:00.0"
+              bus_id: "0008:06:00.0"
             minor_number: 0
             grace_cpu_pair: 0               # Paired with Grace CPU 0
             platform:
@@ -1558,7 +1558,7 @@ should match snapshot with default gb300 profile:
             uuid: "GPU-b300b300-0000-0000-0000-000000000001"
             serial: "1573041103700"
             pci:
-              bus_id: "0000:0B:00.0"
+              bus_id: "0009:06:00.0"
             minor_number: 1
             grace_cpu_pair: 0               # Same superchip as GPU 0
             platform:
@@ -1568,7 +1568,7 @@ should match snapshot with default gb300 profile:
             uuid: "GPU-b300b300-0000-0000-0000-000000000002"
             serial: "1573041103701"         # second superchip, shared with GPU 3
             pci:
-              bus_id: "0000:4A:00.0"
+              bus_id: "0018:06:00.0"
             minor_number: 2
             grace_cpu_pair: 1
             platform:
@@ -1578,7 +1578,7 @@ should match snapshot with default gb300 profile:
             uuid: "GPU-b300b300-0000-0000-0000-000000000003"
             serial: "1573041103701"
             pci:
-              bus_id: "0000:4B:00.0"
+              bus_id: "0019:06:00.0"
             minor_number: 3
             grace_cpu_pair: 1
             platform:
@@ -1618,14 +1618,17 @@ should match snapshot with default gb300 profile:
           # trays, reached over the NVLink cable cartridge, so the compute tray's PCIe
           # bus never sees them and `lspci` shows the GPUs alone. Contrast HGX A100 /
           # H100, whose baseboard switches are PCIe endpoints the node enumerates.
+          # Their addresses are ones no GPU or NIC function of the tray uses: the NIC
+          # slots below put nic0's switch and network function on 0000:01 to 0000:05,
+          # and the node agent rejects an address two of them claim.
           switches:
-            - bdf: "0000:01:00.0"
+            - bdf: "0000:c1:00.0"
               uuid: "NVSwitch-GB300-0000-0000-0000-000000000000"
-            - bdf: "0000:02:00.0"
+            - bdf: "0000:c2:00.0"
               uuid: "NVSwitch-GB300-0000-0000-0000-000000000001"
-            - bdf: "0000:03:00.0"
+            - bdf: "0000:c3:00.0"
               uuid: "NVSwitch-GB300-0000-0000-0000-000000000002"
-            - bdf: "0000:04:00.0"
+            - bdf: "0000:c4:00.0"
               uuid: "NVSwitch-GB300-0000-0000-0000-000000000003"
 
         # =============================================================================
@@ -1648,21 +1651,469 @@ should match snapshot with default gb300 profile:
         # =============================================================================
         # PCIe topology (consumed by render-pci-sysfs to materialize
         # /sys/bus/pci/devices/<bdf> -> ../../../devices/pciDDDD:BB/<bdf> symlinks
-        # and per-device numa_node files). Mirrors the GB300 NVL superchip layout:
-        # one PCI root complex per Grace+2×B300 superchip, NUMA-aligned per superchip.
+        # and per-device numa_node files). As captured on a GB300 NVL72 tray: each
+        # GPU in a PCIe domain of its own, below a ConnectX-8's Data Direct switch,
+        # and on the NUMA node of its superchip's Grace CPU.
         # =============================================================================
         pcie_topology:
           root_complexes:
-            - id: "pci0000:00"
+            - id: "pci0008:00"
               numa_node: 0
               devices:
-                - "0000:0A:00.0"
-                - "0000:0B:00.0"
-            - id: "pci0000:40"
+                - "0008:06:00.0"
+            - id: "pci0009:00"
+              numa_node: 0
+              devices:
+                - "0009:06:00.0"
+            - id: "pci0018:00"
               numa_node: 1
               devices:
-                - "0000:4A:00.0"
-                - "0000:4B:00.0"
+                - "0018:06:00.0"
+            - id: "pci0019:00"
+              numa_node: 1
+              devices:
+                - "0019:06:00.0"
+
+        # =============================================================================
+        # NICs (MEP-0016): the tray's four ConnectX-8 ASICs on two dual-ASIC boards,
+        # each with a Data Direct function in a GPU's PCIe domain, and the
+        # BlueField-3 front-end NIC, as captured on a GB300 NVL72 tray running
+        # InfiniBand (tests/hardware-captures/gb300-ib). Each slot names a NIC profile
+        # in the chart's nics/ directory and places its PCI devices. GPUs, NIC devices
+        # and NIC switch ports share one PCIe tree below the root ports. The same
+        # slots, root ports and GPU parents are in
+        # internal/nic/testdata/rackprofiles/gb300.yaml, and a test keeps them
+        # equal.
+        #
+        # The node agent resolves these slots into its NIC state, which it reports but
+        # doesn't render yet: the infiniband block above still drives what the node
+        # shows until the ib simulator renders the NIC state (#1355).
+        # =============================================================================
+        # The node image's RDMA stack: whether ib_umad and ib_ipoib load, and the
+        # version the NIC driver module reports.
+        software:
+          rdma: {umad: true, ipoib: true, driverVersion: 25.10-2.4.1}
+        nics:
+          # The PCIe root ports, which GPUs, NIC devices and NIC switch ports name
+          # as parents.
+          rootPorts:
+            - {address: "0000:00:00.0", rootComplex: pci0000:00, id: {vendorID: "10de", deviceID: "22b2"}}
+            - {address: "0002:00:00.0", rootComplex: pci0002:00, id: {vendorID: "10de", deviceID: "22b2"}}
+            - {address: "0008:00:00.0", rootComplex: pci0008:00, id: {vendorID: "10de", deviceID: "22b1"}}
+            - {address: "0009:00:00.0", rootComplex: pci0009:00, id: {vendorID: "10de", deviceID: "22b1"}}
+            - {address: "0010:00:00.0", rootComplex: pci0010:00, id: {vendorID: "10de", deviceID: "22b2"}}
+            - {address: "0012:00:00.0", rootComplex: pci0012:00, id: {vendorID: "10de", deviceID: "22b2"}}
+            - {address: "0016:00:00.0", rootComplex: pci0016:00, id: {vendorID: "10de", deviceID: "22b2"}}
+            - {address: "0018:00:00.0", rootComplex: pci0018:00, id: {vendorID: "10de", deviceID: "22b1"}}
+            - {address: "0019:00:00.0", rootComplex: pci0019:00, id: {vendorID: "10de", deviceID: "22b1"}}
+          # Where each GPU sits, by index: a root port or a NIC switch port.
+          gpuParents:
+            0: "0008:05:00.0"
+            1: "0009:05:00.0"
+            2: "0018:05:00.0"
+            3: "0019:05:00.0"
+          slots:
+            - slot: nic0
+              profile: cx8-c8280z
+              board: 0
+              gpus: [1]
+              devices:
+                - name: network
+                  rootComplex: pci0000:00
+                  bridges:
+                    - {address: "0000:01:00.0", parent: "0000:00:00.0"}
+                    - {address: "0000:02:00.0", parent: "0000:01:00.0"}
+                    - {address: "0000:02:03.0", parent: "0000:01:00.0"}
+                    - {address: "0000:04:00.0", parent: "0000:02:03.0"}
+                    - {address: "0000:05:08.0", parent: "0000:04:00.0"}
+                    - {address: "0000:05:0c.0", parent: "0000:04:00.0"}
+                  address: "0000:03:00"
+                  parent: "0000:02:00.0"
+                  numaNode: 0
+                  vpdPosition: "-Prime"
+                - name: dataDirect
+                  rootComplex: pci0009:00
+                  bridges:
+                    - {address: "0009:01:00.0", parent: "0009:00:00.0"}
+                    - {address: "0009:02:00.0", parent: "0009:01:00.0"}
+                    - {address: "0009:02:01.0", parent: "0009:01:00.0"}
+                    - {address: "0009:04:00.0", parent: "0009:02:01.0"}
+                    - {address: "0009:05:00.0", parent: "0009:04:00.0"}
+                  address: "0009:03:00"
+                  parent: "0009:02:00.0"
+                  numaNode: 0
+                  vpdPosition: "-Aux[1]"
+            - slot: nic1
+              profile: cx8-c8280z
+              board: 0
+              systemImageGUID: distinct
+              gpus: [0]
+              devices:
+                - name: network
+                  rootComplex: pci0002:00
+                  bridges:
+                    - {address: "0002:01:00.0", parent: "0002:00:00.0"}
+                    - {address: "0002:02:00.0", parent: "0002:01:00.0"}
+                    - {address: "0002:02:01.0", parent: "0002:01:00.0"}
+                    - {address: "0002:04:00.0", parent: "0002:02:01.0"}
+                    - {address: "0002:05:08.0", parent: "0002:04:00.0"}
+                    - {address: "0002:05:0c.0", parent: "0002:04:00.0"}
+                  address: "0002:03:00"
+                  parent: "0002:02:00.0"
+                  numaNode: 0
+                  vpdPosition: "-Aux[1]"
+                - name: dataDirect
+                  rootComplex: pci0008:00
+                  bridges:
+                    - {address: "0008:01:00.0", parent: "0008:00:00.0"}
+                    - {address: "0008:02:00.0", parent: "0008:01:00.0"}
+                    - {address: "0008:02:03.0", parent: "0008:01:00.0"}
+                    - {address: "0008:04:00.0", parent: "0008:02:03.0"}
+                    - {address: "0008:05:00.0", parent: "0008:04:00.0"}
+                  address: "0008:03:00"
+                  parent: "0008:02:00.0"
+                  numaNode: 0
+                  vpdPosition: "-Prime"
+            - slot: nic2
+              profile: cx8-c8280z
+              board: 1
+              gpus: [3]
+              devices:
+                - name: network
+                  rootComplex: pci0010:00
+                  bridges:
+                    - {address: "0010:01:00.0", parent: "0010:00:00.0"}
+                    - {address: "0010:02:00.0", parent: "0010:01:00.0"}
+                    - {address: "0010:02:03.0", parent: "0010:01:00.0"}
+                    - {address: "0010:04:00.0", parent: "0010:02:03.0"}
+                    - {address: "0010:05:08.0", parent: "0010:04:00.0"}
+                    - {address: "0010:05:0c.0", parent: "0010:04:00.0"}
+                  address: "0010:03:00"
+                  parent: "0010:02:00.0"
+                  numaNode: 1
+                  vpdPosition: "-Prime"
+                - name: dataDirect
+                  rootComplex: pci0019:00
+                  bridges:
+                    - {address: "0019:01:00.0", parent: "0019:00:00.0"}
+                    - {address: "0019:02:00.0", parent: "0019:01:00.0"}
+                    - {address: "0019:02:01.0", parent: "0019:01:00.0"}
+                    - {address: "0019:04:00.0", parent: "0019:02:01.0"}
+                    - {address: "0019:05:00.0", parent: "0019:04:00.0"}
+                  address: "0019:03:00"
+                  parent: "0019:02:00.0"
+                  numaNode: 1
+                  vpdPosition: "-Aux[1]"
+            - slot: nic3
+              profile: cx8-c8280z
+              board: 1
+              systemImageGUID: distinct
+              gpus: [2]
+              devices:
+                - name: network
+                  rootComplex: pci0012:00
+                  bridges:
+                    - {address: "0012:01:00.0", parent: "0012:00:00.0"}
+                    - {address: "0012:02:00.0", parent: "0012:01:00.0"}
+                    - {address: "0012:02:01.0", parent: "0012:01:00.0"}
+                    - {address: "0012:04:00.0", parent: "0012:02:01.0"}
+                    - {address: "0012:05:08.0", parent: "0012:04:00.0"}
+                    - {address: "0012:05:0c.0", parent: "0012:04:00.0"}
+                  address: "0012:03:00"
+                  parent: "0012:02:00.0"
+                  numaNode: 1
+                  vpdPosition: "-Aux[1]"
+                - name: dataDirect
+                  rootComplex: pci0018:00
+                  bridges:
+                    - {address: "0018:01:00.0", parent: "0018:00:00.0"}
+                    - {address: "0018:02:00.0", parent: "0018:01:00.0"}
+                    - {address: "0018:02:03.0", parent: "0018:01:00.0"}
+                    - {address: "0018:04:00.0", parent: "0018:02:03.0"}
+                    - {address: "0018:05:00.0", parent: "0018:04:00.0"}
+                  address: "0018:03:00"
+                  parent: "0018:02:00.0"
+                  numaNode: 1
+                  vpdPosition: "-Prime"
+            - slot: frontend0
+              profile: bf3-b3240
+              devices:
+                - name: host
+                  rootComplex: pci0016:00
+                  address: "0016:01:00"
+                  parent: "0016:00:00.0"
+                  numaNode: 1
+        nic_configurations: []
+        nic_profiles:
+        - apiVersion: mokka.nvidia.com/v1alpha1
+          kind: SNICProfile
+          metadata:
+            name: bf3-b3240
+          spec:
+            configurations:
+            - functions:
+              - class: "0x020000"
+                function: 0
+                id: pf0
+                pciDevice: host
+                ports:
+                - p0
+                type: network
+              - class: "0x020000"
+                function: 1
+                id: pf1
+                pciDevice: host
+                ports:
+                - p1
+                type: network
+              - class: "0x080100"
+                function: 2
+                id: soc
+                pciDevice: host
+                type: socManagement
+              name: eth-2x400
+              ports:
+              - id: p0
+                laneSpeed: NDR
+                planes: 0
+                technology: roce
+                width: 4
+              - id: p1
+                laneSpeed: NDR
+                planes: 0
+                technology: roce
+                width: 4
+              rdmaDevices:
+              - function: pf0
+                id: rdma0
+                ports:
+                - p0
+              - function: pf1
+                id: rdma1
+                ports:
+                - p1
+            defaultConfiguration: eth-2x400
+            functionTypes:
+            - deviceID: a2dc
+              driver: mlx5_core
+              name: network
+              pcieLink:
+                speed: 32.0 GT/s PCIe
+                width: 16
+              rdmaNamePrefix: mlx5_
+              revision: "0x01"
+              subsystemDeviceID: "0041"
+              subsystemVendorID: 15b3
+              totalVFs: 16
+              vendorID: 15b3
+              vpd: true
+              vpdSuffixes:
+                VU: MLNXS0D0F{function}
+            - deviceID: c2d5
+              driver: vfio-pci
+              name: socManagement
+              pcieLink:
+                speed: 32.0 GT/s PCIe
+                width: 16
+              revision: "0x01"
+              subsystemDeviceID: "0041"
+              subsystemVendorID: 15b3
+              vendorID: 15b3
+              vpd: true
+              vpdOmit:
+              - VU
+            identity:
+              boardID: MT_0000001188
+              firmwareVersion: 32.47.3576
+              hcaType: MT41692
+              hwRev: "0x1"
+              model: BlueField-3
+              partNumber: 900-9D3B6-00CN-PA0
+              vendorOUI: "0x02c9"
+            sources:
+            - tests/hardware-captures/gb300-ib/node-a
+            vpd:
+              identities:
+                SN: asic
+                V3: asic
+                VU: SN
+              keywords:
+                EC: A5
+                V0: PCIeGen5 x16
+                V2: 900-9D3B6-00CN-PA0
+                VA: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=D3B6
+                name: BlueField-3 B3240 P-Series FHHL DPU for Cold Aisle, 400GbE / NDR IB,
+                  Dual-port QSFP, PCIe Gen5.0 x16 with x16 PCIe extension option, 16 Arm cores,
+                  32GB on-board DDR, integrated BMC
+        - apiVersion: mokka.nvidia.com/v1alpha1
+          kind: SNICProfile
+          metadata:
+            name: cx8-c8280z
+          spec:
+            configurations:
+            - functions:
+              - class: "0x020700"
+                function: 0
+                id: pf0
+                pciDevice: network
+                ports:
+                - p0
+                type: network
+              - class: "0x080100"
+                function: 0
+                id: dd0
+                pciDevice: dataDirect
+                type: dataDirect
+              name: ib-xdr-4plane
+              ports:
+              - capMask: "0xa751ec48"
+                id: p0
+                laneSpeed: XDR
+                planes: 4
+                technology: ib
+                width: 4
+              rdmaDevices:
+              - function: pf0
+                id: rdma0
+                ports:
+                - p0
+            - functions:
+              - class: "0x020000"
+                function: 0
+                id: pf0
+                pciDevice: network
+                ports:
+                - p0
+                type: network
+              - class: "0x020000"
+                function: 1
+                id: pf1
+                pciDevice: network
+                ports:
+                - p1
+                type: network
+              - class: "0x020000"
+                function: 2
+                id: pf2
+                pciDevice: network
+                ports:
+                - p2
+                type: network
+              - class: "0x020000"
+                function: 3
+                id: pf3
+                pciDevice: network
+                ports:
+                - p3
+                type: network
+              - class: "0x080100"
+                function: 0
+                id: dd0
+                pciDevice: dataDirect
+                type: dataDirect
+              name: eth-multiplane
+              ports:
+              - id: p0
+                laneSpeed: NDR
+                planes: 0
+                technology: roce
+                width: 2
+              - id: p1
+                laneSpeed: NDR
+                planes: 0
+                technology: roce
+                width: 2
+              - id: p2
+                laneSpeed: NDR
+                planes: 0
+                technology: roce
+                width: 2
+              - id: p3
+                laneSpeed: NDR
+                planes: 0
+                technology: roce
+                width: 2
+              rdmaDevices:
+              - function: pf0
+                id: rdma0
+                ports:
+                - p0
+              - function: pf1
+                id: rdma1
+                ports:
+                - p1
+              - function: pf2
+                id: rdma2
+                ports:
+                - p2
+              - function: pf3
+                id: rdma3
+                ports:
+                - p3
+            defaultConfiguration: ib-xdr-4plane
+            functionTypes:
+            - deviceID: "1023"
+              driver: mlx5_core
+              name: network
+              pcieLink:
+                speed: 64.0 GT/s PCIe
+                width: 16
+              rdmaNamePrefix: mlx5_
+              revision: "0x00"
+              subsystemDeviceID: "0208"
+              subsystemVendorID: 15b3
+              totalVFs: 16
+              vendorID: 15b3
+              vfType: vf
+              vpd: true
+              vpdSuffixes:
+                VU: MLNXS0D0F{function}
+            - deviceID: "2100"
+              driver: mlx5_ib
+              name: dataDirect
+              pcieLink:
+                speed: 64.0 GT/s PCIe
+                width: 16
+              revision: "0x00"
+              subsystemDeviceID: "0208"
+              subsystemVendorID: 15b3
+              vendorID: 15b3
+              vpd: true
+              vpdSuffixes:
+                VU: MLNXDDIS0D0F0
+            - deviceID: 101e
+              driver: mlx5_core
+              name: vf
+              rdmaNamePrefix: mlx5_
+              revision: "0x00"
+              subsystemDeviceID: "0208"
+              subsystemVendorID: 15b3
+              vendorID: 15b3
+            identity:
+              boardID: MT_0000001513
+              firmwareVersion: 40.47.3576
+              hcaType: MT4131
+              model: ConnectX-8
+              partNumber: 900-9X86E-00CX-ST0
+              vendorOUI: "0x02c9"
+            sources:
+            - tests/hardware-captures/gb300-ib/node-a
+            - tests/hardware-captures/gb300-roce/node-a
+            switchPort:
+              deviceID: 197c
+              vendorID: 15b3
+            vpd:
+              identities:
+                SN: board
+                V3: asic
+                VU: boardPosition
+              keywords:
+                EC: A3
+                V0: PCIeGen6 x48
+                V2: 900-9X86E-00CX-ST0
+                VA: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+                name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems,
+                  Crypto Enabled, Secure Boot Enabled, Partner cooled.
     kind: ConfigMap
     metadata:
       labels:
@@ -4347,6 +4798,299 @@ should match snapshot with vrnvl72 profile:
               numa_node: 1
               devices:
                 - "000A:E1:00.0"
+
+        # =============================================================================
+        # NICs (MEP-0016): four ConnectX-9 NICs and a BlueField-4 with two host
+        # links, as captured on a VR NVL72 tray (tests/hardware-captures/vr-nvl72).
+        # Each slot names a NIC profile in the chart's nics/ directory and places its
+        # PCI devices. GPUs, NIC devices and NIC switch ports share one PCIe tree
+        # below the root ports. The same slots, root ports and GPU parents are in
+        # internal/nic/testdata/rackprofiles/vrnvl72.yaml, and a test keeps them
+        # equal.
+        #
+        # The node agent resolves these slots into its NIC state, which it reports but
+        # doesn't render yet: the infiniband block above still drives what the node
+        # shows until the ib simulator renders the NIC state (#1355).
+        # =============================================================================
+        # The node image's RDMA stack: whether ib_umad and ib_ipoib load, and the
+        # version the NIC driver module reports.
+        software:
+          rdma: {umad: false, ipoib: false}
+        nics:
+          # The PCIe root ports, which GPUs, NIC devices and NIC switch ports name
+          # as parents.
+          rootPorts:
+            - {address: "0001:00:00.0", rootComplex: pci0001:00, id: {vendorID: "10de", deviceID: "2f95"}}
+            - {address: "0002:80:00.0", rootComplex: pci0002:80}
+            - {address: "0002:c0:00.0", rootComplex: pci0002:c0}
+            - {address: "0003:00:00.0", rootComplex: pci0003:00, id: {vendorID: "10de", deviceID: "2f95"}}
+            - {address: "0004:00:00.0", rootComplex: pci0004:00, id: {vendorID: "10de", deviceID: "2f95"}}
+            - {address: "0005:40:00.0", rootComplex: pci0005:40, id: {vendorID: "10de", deviceID: "2f96"}}
+            - {address: "0006:00:00.0", rootComplex: pci0006:00, id: {vendorID: "10de", deviceID: "2f95"}}
+            - {address: "0009:00:00.0", rootComplex: pci0009:00, id: {vendorID: "10de", deviceID: "2f95"}}
+            - {address: "000a:80:00.0", rootComplex: pci000a:80}
+            - {address: "000a:e0:00.0", rootComplex: pci000a:e0}
+            - {address: "000b:00:00.0", rootComplex: pci000b:00, id: {vendorID: "10de", deviceID: "2f95"}}
+            - {address: "000c:00:00.0", rootComplex: pci000c:00, id: {vendorID: "10de", deviceID: "2f95"}}
+            - {address: "000d:40:00.0", rootComplex: pci000d:40, id: {vendorID: "10de", deviceID: "2f96"}}
+            - {address: "000e:00:00.0", rootComplex: pci000e:00, id: {vendorID: "10de", deviceID: "2f95"}}
+          # Where each GPU sits, by index: a root port or a NIC switch port.
+          gpuParents:
+            0: "0002:80:00.0"
+            1: "0002:c0:00.0"
+            2: "000a:80:00.0"
+            3: "000a:e0:00.0"
+          slots:
+            - slot: nic0
+              profile: cx9-vr
+              gpus: [0, 1]
+              devices:
+                - name: network
+                  rootComplex: pci0001:00
+                  # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
+                  bridges:
+                    - {address: "0001:01:00.0", parent: "0001:00:00.0"}
+                    - {address: "0001:02:00.0", parent: "0001:01:00.0"}
+                    - {address: "0001:02:01.0", parent: "0001:01:00.0"}
+                    - {address: "0001:04:00.0", parent: "0001:02:01.0"}
+                    - {address: "0001:05:04.0", parent: "0001:04:00.0"}
+                  address: "0001:03:00"
+                  parent: "0001:02:00.0"
+                  numaNode: 0
+            - slot: nic1
+              profile: cx9-vr
+              gpus: [0, 1]
+              devices:
+                - name: network
+                  rootComplex: pci0003:00
+                  address: "0003:01:00"
+                  parent: "0003:00:00.0"
+                  numaNode: 0
+            - slot: nic2
+              profile: cx9-vr
+              gpus: [0, 1]
+              devices:
+                - name: network
+                  rootComplex: pci0004:00
+                  # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
+                  bridges:
+                    - {address: "0004:01:00.0", parent: "0004:00:00.0"}
+                    - {address: "0004:02:00.0", parent: "0004:01:00.0"}
+                    - {address: "0004:02:01.0", parent: "0004:01:00.0"}
+                    - {address: "0004:04:00.0", parent: "0004:02:01.0"}
+                    - {address: "0004:05:04.0", parent: "0004:04:00.0"}
+                  address: "0004:03:00"
+                  parent: "0004:02:00.0"
+                  numaNode: 0
+            - slot: nic3
+              profile: cx9-vr
+              gpus: [0, 1]
+              devices:
+                - name: network
+                  rootComplex: pci0006:00
+                  address: "0006:01:00"
+                  parent: "0006:00:00.0"
+                  numaNode: 0
+            - slot: nic4
+              profile: cx9-vr
+              gpus: [2, 3]
+              devices:
+                - name: network
+                  rootComplex: pci0009:00
+                  # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
+                  bridges:
+                    - {address: "0009:01:00.0", parent: "0009:00:00.0"}
+                    - {address: "0009:02:00.0", parent: "0009:01:00.0"}
+                    - {address: "0009:02:01.0", parent: "0009:01:00.0"}
+                    - {address: "0009:04:00.0", parent: "0009:02:01.0"}
+                    - {address: "0009:05:04.0", parent: "0009:04:00.0"}
+                  address: "0009:03:00"
+                  parent: "0009:02:00.0"
+                  numaNode: 1
+            - slot: nic5
+              profile: cx9-vr
+              gpus: [2, 3]
+              devices:
+                - name: network
+                  rootComplex: pci000b:00
+                  address: "000b:01:00"
+                  parent: "000b:00:00.0"
+                  numaNode: 1
+            - slot: nic6
+              profile: cx9-vr
+              gpus: [2, 3]
+              devices:
+                - name: network
+                  rootComplex: pci000c:00
+                  # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
+                  bridges:
+                    - {address: "000c:01:00.0", parent: "000c:00:00.0"}
+                    - {address: "000c:02:00.0", parent: "000c:01:00.0"}
+                    - {address: "000c:02:01.0", parent: "000c:01:00.0"}
+                    - {address: "000c:04:00.0", parent: "000c:02:01.0"}
+                    - {address: "000c:05:04.0", parent: "000c:04:00.0"}
+                  address: "000c:03:00"
+                  parent: "000c:02:00.0"
+                  numaNode: 1
+            - slot: nic7
+              profile: cx9-vr
+              gpus: [2, 3]
+              devices:
+                - name: network
+                  rootComplex: pci000e:00
+                  address: "000e:01:00"
+                  parent: "000e:00:00.0"
+                  numaNode: 1
+            - slot: frontend0
+              profile: bf4-vr
+              # One ASIC; its system image GUID is the node GUID of host link B's p0 PF.
+              systemImageGUID: rdma-b0
+              devices:
+                - name: hostA
+                  rootComplex: pci0005:40
+                  address: "0005:41:00"
+                  parent: "0005:40:00.0"
+                  numaNode: 0
+                - name: hostB
+                  rootComplex: pci000d:40
+                  address: "000d:41:00"
+                  parent: "000d:40:00.0"
+                  numaNode: 1
+        nic_configurations: []
+        nic_profiles:
+        - apiVersion: mokka.nvidia.com/v1alpha1
+          kind: SNICProfile
+          metadata:
+            name: bf4-vr
+          spec:
+            configurations:
+            - functions:
+              - class: "0x020000"
+                function: 0
+                id: a0
+                pciDevice: hostA
+                ports:
+                - p0
+                type: network
+              - class: "0x020000"
+                function: 1
+                id: a1
+                pciDevice: hostA
+                ports:
+                - p1
+                type: network
+              - class: "0x020000"
+                function: 0
+                id: b0
+                pciDevice: hostB
+                ports:
+                - p0
+                type: network
+              - class: "0x020000"
+                function: 1
+                id: b1
+                pciDevice: hostB
+                ports:
+                - p1
+                type: network
+              name: eth-2x400-2host
+              ports:
+              - id: p0
+                laneSpeed: NDR
+                planes: 0
+                technology: roce
+                width: 4
+              - id: p1
+                laneSpeed: NDR
+                planes: 0
+                technology: roce
+                width: 4
+              rdmaDevices:
+              - function: a0
+                id: rdma-a0
+                ports:
+                - p0
+              - function: a1
+                id: rdma-a1
+                ports:
+                - p1
+              - function: b0
+                id: rdma-b0
+                ports:
+                - p0
+              - function: b1
+                id: rdma-b1
+                ports:
+                - p1
+            defaultConfiguration: eth-2x400-2host
+            functionTypes:
+            - deviceID: a2df
+              driver: mlx5_core
+              name: network
+              rdmaNamePrefix: mlx5_
+              subsystemDeviceID: "2000"
+              subsystemVendorID: 15b3
+              totalVFs: 46
+              vendorID: 15b3
+              vpd: true
+            identity:
+              boardID: MT_0000001875
+              firmwareVersion: 82.48.4238
+              hcaType: MT41695
+              model: BlueField-4
+              partNumber: 900-9D4A4-00CB-TS6EC
+              vendorOUI: "0x02c9"
+            sources:
+            - tests/hardware-captures/vr-nvl72/node-a
+        - apiVersion: mokka.nvidia.com/v1alpha1
+          kind: SNICProfile
+          metadata:
+            name: cx9-vr
+          spec:
+            configurations:
+            - functions:
+              - class: "0x020000"
+                function: 0
+                id: pf0
+                pciDevice: network
+                ports:
+                - p0
+                type: network
+              name: eth-1x200
+              ports:
+              - id: p0
+                laneSpeed: XDR
+                planes: 0
+                technology: roce
+                width: 1
+              rdmaDevices:
+              - function: pf0
+                id: rdma0
+                ports:
+                - p0
+            defaultConfiguration: eth-1x200
+            functionTypes:
+            - deviceID: "1025"
+              driver: mlx5_core
+              name: network
+              rdmaNamePrefix: mlx5_
+              subsystemDeviceID: "0671"
+              subsystemVendorID: 15b3
+              totalVFs: 1
+              vendorID: 15b3
+              vpd: true
+            identity:
+              boardID: MT_0000001658
+              firmwareVersion: 82.48.4222
+              hcaType: MT4133
+              model: ConnectX-9
+              partNumber: 900-9X9BE-00PB-TS5EC
+              vendorOUI: "0x02c9"
+            sources:
+            - tests/hardware-captures/vr-nvl72/node-a
+            switchPort:
+              deviceID: 197c
+              vendorID: 15b3
     kind: ConfigMap
     metadata:
       labels:

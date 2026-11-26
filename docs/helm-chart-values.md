@@ -93,6 +93,12 @@ Kubernetes: `>= 1.28.0-0`
 | integrations.fakeGpuOperator.enabled | bool | `false` | Enable fake-gpu-operator profile integration. |
 | integrations.fakeGpuOperator.profileLabels."run.ai/gpu-profile" | string | `"true"` | Additional label applied to generated fake-gpu-operator profiles. |
 | integrations.fakeGpuOperator.targetNamespace | string | `""` | Namespace where fake-gpu-operator reads profile ConfigMaps. |
+| nics.configurations | list | `[]` | The configuration NIC slots run, as an SGPUInventory's `nicConfigurations` select it: each entry names `slots` and one `configuration` of their profile, and a slot appears in one entry at most. A slot no entry names runs its profile's default. For example `[{slots: [nic0, nic1, nic2, nic3], configuration: eth-multiplane}]` runs GB300's ConnectX-8 NICs on Ethernet. |
+| nics.customProfiles | list | `[]` | SNICProfiles for NIC models the chart doesn't ship, in the schema of the files in nics/, `apiVersion` included. A name must not repeat a shipped profile's. |
+| nics.gpuParents | object | `{}` | Where each GPU sits for `nics.slots`, by GPU index: a root port or a NIC switch port, for example `{0: "0008:05:00.0"}`. A GPU left out has no parent. |
+| nics.rdma | object | `{}` | Changes to the GPU profile's `software.rdma`, merged over it field by field: `umad`, `ipoib`, `umadMode` and `driverVersion`. For example `{ipoib: false}` keeps ib_ipoib unloaded on a profile that loads it. |
+| nics.rootPorts | list | `[]` | PCIe root ports for `nics.slots`, which their devices and switch ports name as parents. Same schema as `nics.rootPorts` in profiles/gb300.yaml. |
+| nics.slots | list | `[]` | NIC slots that replace the GPU profile's, for a platform the profile doesn't describe. Same schema as `nics.slots` in profiles/gb300.yaml. Setting them also drops the profile's `nics.rootPorts` and `nics.gpuParents`, whose addresses belong to its own slots. |
 | nodeAgent.kernelLog.enabled | bool | `false` | Announce injected Xids through the host kernel log. |
 | nodeAgent.livenessProbe | object | `{"httpGet":{"path":"/healthz","port":"health"}}` | Liveness probe; /healthz fails when the last Stage wave failed. Set to null to disable. |
 | nodeAgent.livenessProbe.httpGet.path | string | `"/healthz"` | Liveness probe endpoint path. |
