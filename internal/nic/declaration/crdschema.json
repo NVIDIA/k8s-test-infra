@@ -552,6 +552,9 @@
          "model": {
           "type": "object",
           "properties": {
+           "addressingMode": {
+            "type": "string"
+           },
            "architecture": {
             "type": "string"
            },
@@ -562,6 +565,9 @@
               "type": "string"
              }
             }
+           },
+           "brand": {
+            "type": "string"
            },
            "computeCapability": {
             "type": "object",
