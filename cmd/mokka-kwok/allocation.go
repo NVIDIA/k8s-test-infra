@@ -32,7 +32,7 @@ import (
 
 type rackAllocator struct {
 	claims       *shardClaims
-	slices       *gpuSlices
+	slices       *nodeSlices
 	dra          bool
 	records      client.SGPURackAllocationInterface
 	rackAPI      client.SGPURackInterface

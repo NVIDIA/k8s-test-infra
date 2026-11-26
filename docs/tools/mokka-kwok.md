@@ -86,6 +86,21 @@ and then to the Pod's `mokka.nvidia.com/gpu-allocation` annotation. A Pod that
 uses only another driver's devices has an empty GPU annotation (`{}`) and
 no GPU entry in the rack. The claims remain under Kubernetes control.
 
+## ComputeDomain channels
+
+Set `kwok.dataPlane.computeDomains.enabled: true` with NVIDIA's ComputeDomain
+controller and DeviceClasses installed. This works in both GPU publishing modes.
+For each bound KWOK Node in an NVLink rack, Mokka publishes a separate
+`compute-domain.nvidia.com` ResourceSlice with two devices, `channel-0` for a
+workload and `daemon-0` for the IMEX daemon.
+
+When a bound Pod holds an allocated channel claim, Mokka sets
+`resource.nvidia.com/computeDomain` on the Node to the domain UID. The domain
+and claim must be in the same namespace. NVIDIA's controller uses the label
+to place its daemon. Mokka removes its label after the last holder finishes
+or leaves. During rack release it waits for slice deletion before it clears
+the Node fields. Release the slots before disabling ComputeDomains.
+
 ## GPU capacity
 
 In device-plugin mode a bound KWOK node advertises the number of GPUs in its rack slot as

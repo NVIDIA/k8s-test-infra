@@ -62,7 +62,7 @@ func TestRackModel(t *testing.T) {
 	allowReply := make(chan struct{})
 	server := rackModelServer(t, firstRequest, allowReply)
 	c := config{shard: "replica-0", listen: "127.0.0.1:0", controlPlane: server.URL, batch: batchOptions{100, time.Millisecond, 2}}
-	m := newModel(mokka, kube, c)
+	m := newModel(mokka, kube, c, nil)
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { done <- m.run(runCtx, c) }()

@@ -22,6 +22,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 
@@ -46,7 +47,7 @@ type model struct {
 	allocator  *rackAllocator
 }
 
-func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) model {
+func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config, domainMeta metadata.Interface) model {
 	racks := mokkainformers.NewFilteredSGPURackInformer(mokka, 0, cache.Indexers{
 		inventory.RackByNodeUIDIndex: inventory.Indexers()[inventory.RackByNodeUIDIndex],
 		rackUIDIndex: func(obj any) ([]string, error) {
@@ -74,13 +75,21 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) 
 	discovery := newLabelPublisher(kube, racks)
 	discovery.dra = c.gpuPublishing == "DRA"
 	var claimWatch *cache.Reflector
-	if discovery.dra {
+	if discovery.dra || c.computeDomains {
 		pods.claims = &shardClaims{pods: pods, client: kube.ResourceV1(), driver: c.gpuDriver, locations: make(map[cache.ObjectName]sets.Set[string])}
 		claims := kube.ResourceV1().ResourceClaims(metav1.NamespaceAll)
 		lw := &cache.ListWatch{ListWithContextFunc: func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) { return claims.List(ctx, o) }, WatchFuncWithContext: claims.Watch}
 		claimWatch = cache.NewReflectorWithOptions(cache.ToListWatcherWithWatchListSemantics(lw, kube), &resourcev1.ResourceClaim{}, pods.claims, cache.ReflectorOptions{Name: "allocated ResourceClaims"})
 
-		discovery.slices = &gpuSlices{client: kube.ResourceV1().ResourceSlices(), driver: c.gpuDriver}
+		discovery.slices = &nodeSlices{client: kube.ResourceV1().ResourceSlices()}
+		if discovery.dra {
+			discovery.slices.driver = c.gpuDriver
+		}
+		if c.computeDomains {
+			discovery.slices.domains = newDomainChannels(domainMeta, pods.claims)
+			discovery.slices.domains.retry = discovery.queue.AddAfter
+			pods.notifyNode = discovery.queue.Add
+		}
 	}
 	views := newRackViews(pods, discovery.queue.Add)
 	discovery.views = views
@@ -126,6 +135,9 @@ func (m model) run(ctx context.Context, c config) error {
 		if reason := prerequisites.Load().(string); reason != "" {
 			return health.Unhealthy("%s", reason)
 		}
+		if c.computeDomains && !m.discovery.slices.domains.watch.HasSynced() {
+			return health.Unhealthy("waiting for ComputeDomain cache")
+		}
 		if !m.claimsSynced() {
 			return health.Unhealthy("waiting for ResourceClaim cache")
 		}
@@ -152,8 +164,12 @@ func (m model) runWorkers(ctx context.Context, c config, rackEvents cache.Resour
 	recorder := b.NewRecorder(scheme.Scheme, corev1.EventSource{Component: fieldManager})
 	m.discovery.recorder = recorder
 	m.allocator.recorder = recorder
-	if m.discovery.slices != nil {
-		group.Go(func() error { return m.discovery.watchSlices(ctx, m.kube) })
+	if m.discovery.dra {
+		group.Go(func() error { return m.discovery.watchSlices(ctx, m.kube, gpuSliceKey) })
+	}
+	if c.computeDomains {
+		group.Go(func() error { return m.discovery.watchSlices(ctx, m.kube, domainSliceKey) })
+		group.Go(func() error { return m.discovery.watchDomains(ctx) })
 	}
 	if m.claimWatch != nil {
 		group.Go(func() error {

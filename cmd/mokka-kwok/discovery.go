@@ -32,7 +32,7 @@ import (
 )
 
 type labelPublisher struct {
-	slices    *gpuSlices
+	slices    *nodeSlices
 	dra       bool
 	nodes     coreclient.NodeInterface
 	views     *rackViews
@@ -44,23 +44,30 @@ type labelPublisher struct {
 
 func newLabelPublisher(kube kubernetes.Interface, racks cache.SharedIndexInformer) *labelPublisher {
 	return &labelPublisher{
-		nodes:     kube.CoreV1().Nodes(),
-		racks:     racks,
-		queue:     workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
-		nodeWatch: coreinformers.NewNodeInformer(kube, 0, cache.Indexers{}),
+		nodes: kube.CoreV1().Nodes(),
+		racks: racks,
+		queue: workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
+		nodeWatch: coreinformers.NewNodeInformer(kube, 0, cache.Indexers{domainLabel: func(obj any) ([]string, error) {
+			id := obj.(*nodeObservation).Labels[domainLabel]
+			if id == "" {
+				return nil, nil
+			}
+			return []string{id}, nil
+		}}),
 	}
 }
 
 // Nodes can lose their binding or their last discovery label while the process
 // is down. Keep only discovery metadata and the two GPU status fields in the watch cache.
+type poolMarkers struct{ sliceMarker, domainMarker string }
 type nodeObservation struct {
 	metav1.PartialObjectMetadata
-	sliceMarker string
-	assignment  string
-	ownership   string
-	gpu         gpuStatus
-	kwok        bool
-	assigned    bool
+	poolMarkers
+	assignment string
+	ownership  string
+	gpu        gpuStatus
+	kwok       bool
+	assigned   bool
 }
 
 func observeNode(obj any) (any, error) {
@@ -75,7 +82,7 @@ func observeNode(obj any) (any, error) {
 	}
 	n := &nodeObservation{
 		PartialObjectMetadata: metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Name: node.Name, UID: node.UID, ResourceVersion: node.ResourceVersion}},
-		sliceMarker:           node.Annotations[gpuSliceKey],
+		poolMarkers:           poolMarkers{sliceMarker: node.Annotations[gpuSliceKey], domainMarker: node.Annotations[domainSliceKey]},
 		assignment:            node.Annotations[metadata.AssignmentAnnotation],
 		kwok:                  isKWOK(node.ObjectMeta),
 		assigned:              node.Labels[metadata.AssignedLabel] == "true",
@@ -84,6 +91,9 @@ func observeNode(obj any) (any, error) {
 	}
 	if n.relevant() {
 		n.Labels = make(map[string]string)
+		if id := node.Labels[domainLabel]; id != "" {
+			n.Labels[domainLabel] = id
+		}
 		for _, key := range metadata.DiscoveryLabelKeys() {
 			if value, exists := node.Labels[key]; exists {
 				n.Labels[key] = value
@@ -103,7 +113,7 @@ func appliedNodeFields(entries []metav1.ManagedFieldsEntry) string {
 }
 
 func (n *nodeObservation) relevant() bool {
-	return n.sliceMarker != "" || n.ownership != "" || n.gpu.capacity.owned || n.gpu.allocatable.owned || n.kwok && n.assignment != ""
+	return n.domainMarker != "" || n.sliceMarker != "" || n.ownership != "" || n.gpu.capacity.owned || n.gpu.allocatable.owned || n.kwok && n.assignment != ""
 }
 
 func isKWOK(node metav1.ObjectMeta) bool {
@@ -136,7 +146,7 @@ func (p *labelPublisher) nodeUpdated(old, current any) {
 	if a.UID != b.UID {
 		p.views.forgetNode(a.UID)
 	}
-	if a.UID != b.UID || a.sliceMarker != b.sliceMarker || a.assignment != b.assignment || a.gpu != b.gpu || a.ownership != b.ownership || a.kwok != b.kwok || a.assigned != b.assigned || !maps.Equal(a.Labels, b.Labels) {
+	if a.UID != b.UID || a.poolMarkers != b.poolMarkers || a.assignment != b.assignment || a.gpu != b.gpu || a.ownership != b.ownership || a.kwok != b.kwok || a.assigned != b.assigned || !maps.Equal(a.Labels, b.Labels) {
 		p.enqueue(b)
 	}
 }
@@ -226,8 +236,8 @@ func (p *labelPublisher) publishBoundNode(ctx context.Context, node *corev1.Node
 	if err != nil {
 		return err
 	}
-	if p.slices != nil {
-		node, err = p.markSlice(ctx, node, sliceName(node.UID))
+	if p.dra && p.slices != nil {
+		node, err = p.markSlice(ctx, node, gpuSliceKey, sliceName(node.UID))
 		if err != nil {
 			return err
 		}
@@ -235,19 +245,28 @@ func (p *labelPublisher) publishBoundNode(ctx context.Context, node *corev1.Node
 	if err := p.publishResources(ctx, node, desired); err != nil {
 		return err
 	}
-	if p.slices != nil {
-		return p.slices.publish(ctx, node, *slot)
+	return p.publishPools(ctx, node, *slot)
+}
+
+func (p *labelPublisher) publishPools(ctx context.Context, node *corev1.Node, slot state.NodePayload) error {
+	if p.slices == nil {
+		return nil
+	}
+	if p.dra {
+		if err := p.slices.publish(ctx, node, slot); err != nil {
+			return err
+		}
+	}
+	if p.slices.domains != nil {
+		return p.publishDomain(ctx, node, slot)
 	}
 	return nil
 }
 
 func (p *labelPublisher) publishResources(ctx context.Context, node *corev1.Node, desired map[string]string) error {
-	if desired == nil && p.slices != nil {
-		if err := p.slices.remove(ctx, node.Name, node.UID); err != nil {
-			return err
-		}
+	if desired == nil {
 		var err error
-		node, err = p.markSlice(ctx, node, "")
+		node, err = p.withdrawPools(ctx, node)
 		if err != nil {
 			return err
 		}
