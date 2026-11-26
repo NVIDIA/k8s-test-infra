@@ -115,7 +115,7 @@ func instance(t *testing.T, n *NICs, slot string) Instance {
 
 func TestResolveGB300(t *testing.T) {
 	t.Parallel()
-	n := resolve(t, input(t, "gb300-nvl72", FileNode("node-a")))
+	n := resolve(t, input(t, "gb300", FileNode("node-a")))
 
 	require.Equal(t, RDMA{UMAD: true, IPoIB: true, UMADMode: "600", DriverVersion: "25.10-2.4.1"}, n.RDMA)
 	require.Len(t, n.Instances, 5)
@@ -190,7 +190,7 @@ func TestResolveDeclaredAbsentAndEmptyAttributes(t *testing.T) {
 
 func TestResolveSystemImageGUIDFromNamedDevice(t *testing.T) {
 	t.Parallel()
-	n := resolve(t, input(t, "vr-nvl72", FileNode("node-a")))
+	n := resolve(t, input(t, "vrnvl72", FileNode("node-a")))
 	var b0 RDMADevice
 	for _, d := range n.Devices {
 		if d.Slot == "frontend0" && d.ID == "rdma-b0" {
@@ -210,7 +210,7 @@ func TestResolveSystemImageGUIDFromNamedDevice(t *testing.T) {
 // version, and that an unknown configuration is rejected.
 func TestSelectionOrder(t *testing.T) {
 	t.Parallel()
-	base := input(t, "gb300-nvl72", FileNode("node-a"))
+	base := input(t, "gb300", FileNode("node-a"))
 	require.Equal(t, "ib-xdr-4plane", instance(t, resolve(t, base), "nic0").Configuration, "the profile's default")
 
 	chosen := base
@@ -237,7 +237,7 @@ func TestSelectionOrder(t *testing.T) {
 // follow PCI order.
 func TestConfigurationSwitch(t *testing.T) {
 	t.Parallel()
-	in := input(t, "gb300-nvl72", FileNode("node-a"))
+	in := input(t, "gb300", FileNode("node-a"))
 	before := resolve(t, in)
 	in.Configurations = []v1alpha1.NICConfigurationChoice{{Slots: []string{"nic0"}, Configuration: "eth-multiplane"}}
 	after := resolve(t, in)
@@ -358,13 +358,13 @@ func TestIdentifierValuesArePinned(t *testing.T) {
 			vu:          "766c777f46435c979361ca7f1fe81ea3MLNXS0D0F0",
 		}},
 	} {
-		n := resolve(t, input(t, "gb300-nvl72", tc.node))
+		n := resolve(t, input(t, "gb300", tc.node))
 		netdev := func(name string) string {
 			i := slices.IndexFunc(n.Netdevs, func(nd Netdev) bool { return nd.Name == name })
 			require.GreaterOrEqual(t, i, 0, name)
 			return n.Netdevs[i].Address
 		}
-		two := input(t, "gb300-nvl72", tc.node)
+		two := input(t, "gb300", tc.node)
 		twoIBPorts(&two)
 		pf0 := functionAt(t, n, "0000:03:00.0")
 		require.Equal(t, tc.want, pinned{
@@ -385,7 +385,7 @@ func TestIdentifierValuesArePinned(t *testing.T) {
 // Node's coordinates and where something sits on it.
 func TestIdentifiersAreDeterministic(t *testing.T) {
 	t.Parallel()
-	in := input(t, "gb300-nvl72", RackNode("inventory-uid", "training", 3, 7))
+	in := input(t, "gb300", RackNode("inventory-uid", "training", 3, 7))
 	first, second := resolve(t, in), resolve(t, in)
 	require.Equal(t, first, second)
 
@@ -426,7 +426,7 @@ func TestIdentifiersAreUniqueAcrossACluster(t *testing.T) {
 	for _, mode := range []string{"control plane", "file"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
-			in := input(t, "gb300-ethernet", Node{})
+			in := input(t, "gb300-cx7", Node{})
 			seen := map[string]map[string]string{}
 			for rack := range int32(racks) {
 				for node := range int32(perRack) {
@@ -580,7 +580,7 @@ func withoutIDs(n *NICs) *NICs {
 // address ending in the port's GID.
 func TestIPoIBNetdevs(t *testing.T) {
 	t.Parallel()
-	in := input(t, "gb300-nvl72", FileNode("node-a"))
+	in := input(t, "gb300", FileNode("node-a"))
 	n := resolve(t, in)
 	d := deviceOn(t, n, "0002:03:00.0")
 	i := slices.IndexFunc(n.Netdevs, func(nd Netdev) bool { return nd.Function == "0002:03:00.0" })
@@ -609,7 +609,7 @@ func TestIPoIBNetdevs(t *testing.T) {
 // own, and each has its own GID and IPoIB netdev.
 func TestInfiniBandPortsHaveTheirOwnGUIDs(t *testing.T) {
 	t.Parallel()
-	in := input(t, "gb300-nvl72", FileNode("node-a"))
+	in := input(t, "gb300", FileNode("node-a"))
 	p := in.Profiles["cx8-c8280z"].DeepCopy()
 	c := &p.Spec.Configurations[0]
 	second := c.Ports[0]
@@ -632,7 +632,7 @@ func TestInfiniBandPortsHaveTheirOwnGUIDs(t *testing.T) {
 // declares no VPD block.
 func TestSlotVPDWithoutProfileVPD(t *testing.T) {
 	t.Parallel()
-	in := input(t, "gb300-nvl72", FileNode("node-a"))
+	in := input(t, "gb300", FileNode("node-a"))
 	p := in.Profiles["cx8-c8280z"].DeepCopy()
 	p.Spec.VPD = nil
 	in.Profiles["cx8-c8280z"] = p
@@ -642,7 +642,7 @@ func TestSlotVPDWithoutProfileVPD(t *testing.T) {
 	require.Equal(t, "OEM-0001", functionAt(t, resolve(t, in), "0002:03:00.0").VPD["PN"])
 }
 
-// twoPortFunction gives gb300-ethernet's first PF both of the first two
+// twoPortFunction gives gb300-cx7's first PF both of the first two
 // RoCE ports, which the shipped profiles never do: one function per port.
 func twoPortFunction(in *Input) {
 	p := in.Profiles["cx8-c8280z"].DeepCopy()
@@ -664,10 +664,10 @@ func TestPortOrderDecidesNothing(t *testing.T) {
 		rack   string
 		mutate func(*Input)
 	}{
-		{rack: "gb300-ethernet"}, {rack: "vr-nvl72"}, {rack: "gb300-nvl72"},
+		{rack: "gb300-cx7"}, {rack: "vrnvl72"}, {rack: "gb300"},
 		// Shipped functions own one port each, so reversing their lists
 		// changes nothing; a function with two ports gives it something to do.
-		{rack: "gb300-ethernet", mutate: twoPortFunction},
+		{rack: "gb300-cx7", mutate: twoPortFunction},
 	} {
 		load := func() Input {
 			in := input(t, tc.rack, FileNode("node-a"))
@@ -713,7 +713,7 @@ func TestPortOrderDecidesNothing(t *testing.T) {
 // GUID, while each port's other identifiers follow its physical number.
 func TestPortsNumberInDeviceOrder(t *testing.T) {
 	t.Parallel()
-	in := input(t, "gb300-nvl72", FileNode("node-a"))
+	in := input(t, "gb300", FileNode("node-a"))
 	p := in.Profiles["cx8-c8280z"].DeepCopy()
 	c := &p.Spec.Configurations[0]
 	second := c.Ports[0]
@@ -745,7 +745,7 @@ func TestPortsNumberInDeviceOrder(t *testing.T) {
 // the function's suffix.
 func TestBlueFieldVUStartsWithItsSerial(t *testing.T) {
 	t.Parallel()
-	n := resolve(t, input(t, "gb300-nvl72", FileNode("node-a")))
+	n := resolve(t, input(t, "gb300", FileNode("node-a")))
 	for _, addr := range []string{"0016:01:00.0", "0016:01:00.1"} {
 		f := functionAt(t, n, addr)
 		require.NotEmpty(t, f.VPD["SN"], addr)
@@ -759,7 +759,7 @@ func TestBlueFieldVUStartsWithItsSerial(t *testing.T) {
 // to the netdev.
 func TestRoCEPortsHaveTwoGIDs(t *testing.T) {
 	t.Parallel()
-	n := resolve(t, input(t, "gb300-nvl72", FileNode("node-a")))
+	n := resolve(t, input(t, "gb300", FileNode("node-a")))
 	port := deviceOn(t, n, "0016:01:00.0").Ports[0]
 	i := slices.IndexFunc(n.Netdevs, func(nd Netdev) bool { return nd.Name == port.Netdev })
 	require.GreaterOrEqual(t, i, 0)

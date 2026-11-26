@@ -10,7 +10,7 @@
 apiVersion: mokka.nvidia.com/v1alpha1
 kind: SGPURackProfile
 metadata:
-  name: gb300-nvl72
+  name: gb300
 spec:
   rack: {nodesPerRack: 18}
   software:
