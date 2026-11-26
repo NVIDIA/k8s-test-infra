@@ -22,6 +22,7 @@ kind load docker-image --name "$cluster" nvml-mock:e2e mokka-control-plane:e2e m
 curl -fsSL --retry 3 "$release/kwok.yaml" | "${k[@]}" apply --server-side -f -
 "${k[@]}" wait --for=condition=Established crd/stages.kwok.x-k8s.io --timeout=90s
 curl -fsSL --retry 3 "$release/stage-fast.yaml" | "${k[@]}" apply -f -
+"${k[@]}" apply -f deployments/mokka-kwok/stages/pod-admission.yaml
 "${k[@]}" rollout status -n kube-system deployment/kwok-controller --timeout=3m
 
 "${h[@]}" upgrade --install mokka-crds deployments/mokka-crds/helm/mokka-crds --create-namespace --wait

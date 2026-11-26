@@ -64,13 +64,45 @@ kubectl get sgpurackallocation "$RACK" -o yaml
 ```
 
 All containers in a Pod must fit before the data plane saves its assignment.
+A Pod that is already terminating keeps its saved reservation until release.
+Mokka skips terminating Pods when it makes new assignments.
 Sequential init containers can reuse GPUs within the same Pod. Restartable
 init containers keep their GPUs while the application runs.
 
 The data plane recovers saved assignments after restart. When a Pod reaches
 `Succeeded` or `Failed`, or is deleted, its GPUs become available for other
-Pods. The rack record can remain empty. Pod annotations and the KWOK stages
-that gate readiness follow in a separate step.
+Pods. The rack record can remain empty.
+
+### Make whole-GPU Pods wait for allocation
+
+On a KWOK v0.8.0 cluster that uses `stage-fast.yaml`, apply the admission stages
+after the upstream stages and before creating test Pods:
+
+```sh
+kubectl apply -f deployments/mokka-kwok/stages/pod-admission.yaml
+```
+
+This replaces the cluster-wide KWOK `pod-ready` stage. Use it on test clusters
+where Mokka manages the KWOK nodes that receive whole-GPU Pods. Pods without
+whole-GPU requests use the upstream ready behavior. A GPU Pod on an unmanaged
+KWOK node waits for an allocation that Mokka cannot supply.
+
+After the rack write succeeds, Mokka copies each container’s UUIDs to the Pod:
+
+```yaml
+metadata:
+  annotations:
+    mokka.nvidia.com/gpu-allocation: '{"trainer":["GPU-0d9170ae-bf02-5d35-b505-d37a29ee1bae"]}'
+```
+
+Leave this annotation to the data plane. KWOK sets the Pod IP while the Pod is
+Pending and marks the Pod Ready once the annotation exists. If a saved GPU
+leaves the slot while its Pod is Pending, Mokka removes the annotation and
+keeps the UUID reserved. If the slot contains all the saved GPUs again, Mokka
+restores the annotation. Before failing a Pod for a shortage, Mokka checks the
+live node binding and the current rack delivery. If an already-bound
+Pod cannot fit on its node, Mokka sets its phase to `Failed` and its reason to
+`UnexpectedAdmissionError`. An unbound Pod still waits for the scheduler.
 
 ## Hardware discovery labels
 

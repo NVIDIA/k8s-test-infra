@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+# The ready status template and base selectors come from KWOK v0.8.0 stage-fast.
+apiVersion: v1
+kind: List
+items:
+- apiVersion: kwok.x-k8s.io/v1alpha1
+  kind: Stage
+  metadata:
+    name: pod-ready
+  spec:
+    resourceRef: &pod {apiGroup: v1, kind: Pod}
+    selector:
+      matchExpressions:
+      - &active {key: .metadata.deletionTimestamp, operator: DoesNotExist}
+      - &pending {key: .status.phase, operator: In, values: [Pending]}
+      - &unready
+        key: '.status.conditions.[] | select(.type == "Ready") | .status'
+        operator: NotIn
+        values: ["True"]
+      - key: &requestsGPU >-
+          [(.spec.initContainers // [])[], (.spec.containers // [])[] |
+          (.resources.requests["nvidia.com/gpu"] // .resources.limits["nvidia.com/gpu"] // "0") |
+          select(. != "0")] | length > 0 | tostring
+        operator: In
+        values: ["false"]
+    next: &ready
+      statusTemplate: |
+        {{ $now := Now }}
+
+        conditions:
+        - lastTransitionTime: {{ $now | Quote }}
+          status: "True"
+          type: Initialized
+        - lastTransitionTime: {{ $now | Quote }}
+          status: "True"
+          type: Ready
+        - lastTransitionTime: {{ $now | Quote }}
+          status: "True"
+          type: ContainersReady
+        {{ range .spec.readinessGates }}
+        - lastTransitionTime: {{ $now | Quote }}
+          status: "True"
+          type: {{ .conditionType | Quote }}
+        {{ end }}
+
+        containerStatuses:
+        {{ range .spec.containers }}
+        - image: {{ .image | Quote }}
+          name: {{ .name | Quote }}
+          ready: true
+          restartCount: 0
+          state:
+            running:
+              startedAt: {{ $now | Quote }}
+        {{ end }}
+
+        initContainerStatuses:
+        {{ range .spec.initContainers }}
+        - image: {{ .image | Quote }}
+          name: {{ .name | Quote }}
+          ready: true
+          restartCount: 0
+          {{ if eq .restartPolicy "Always" }}
+          started: true
+          state:
+            running:
+              startedAt: {{ $now | Quote }}
+          {{ else }}
+          state:
+            terminated:
+              exitCode: 0
+              finishedAt: {{ $now | Quote }}
+              reason: Completed
+              startedAt: {{ $now | Quote }}
+          {{ end }}
+        {{ end }}
+        {{ $hostIPs := NodeIPsWith .spec.nodeName }}
+        {{ with $hostIPs }}
+        hostIP: {{ index . 0 | Quote }}
+        hostIPs:
+        {{ range . }}
+        - ip: {{ . | Quote }}
+        {{ end }}
+        {{ end }}
+        {{ if not .status.podIP }}
+        {{ $podIPs := PodIPsWith .spec.nodeName ( or .spec.hostNetwork false ) ( or .metadata.uid "" ) ( or .metadata.name "" ) ( or .metadata.namespace "" ) }}
+        {{ with $podIPs }}
+        podIP: {{ index . 0 | Quote }}
+        podIPs:
+        {{ range . }}
+        - ip: {{ . | Quote }}
+        {{ end }}
+        {{ end }}
+        {{ end }}
+        phase: Running
+        startTime: {{ $now | Quote }}
+- apiVersion: kwok.x-k8s.io/v1alpha1
+  kind: Stage
+  metadata:
+    name: mokka-pod-prepare
+  spec:
+    resourceRef: *pod
+    selector:
+      matchExpressions:
+      - *active
+      - *pending
+      - &gpu {key: *requestsGPU, operator: In, values: ["true"]}
+      - {key: .status.podIP, operator: DoesNotExist}
+    # stage-fast normally sets the IP and Running in the same update.
+    # Give the Pod its IP while admission is still pending.
+    next:
+      statusTemplate: |
+        {{ $ips := PodIPsWith .spec.nodeName (or .spec.hostNetwork false) (or .metadata.uid "") (or .metadata.name "") (or .metadata.namespace "") }}
+        {{ with $ips }}
+        podIP: {{ index . 0 | Quote }}
+        podIPs:
+        {{ range . }}
+        - ip: {{ . | Quote }}
+        {{ end }}
+        {{ end }}
+- apiVersion: kwok.x-k8s.io/v1alpha1
+  kind: Stage
+  metadata:
+    name: mokka-pod-ready
+  spec:
+    resourceRef: *pod
+    selector:
+      matchExpressions:
+      - *active
+      - *pending
+      - *unready
+      - *gpu
+      - {key: .status.podIP, operator: Exists}
+      - {key: '.metadata.annotations["mokka.nvidia.com/gpu-allocation"]', operator: Exists}
+    next: *ready
