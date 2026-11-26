@@ -23,7 +23,7 @@ import (
 
 func TestNodeWatchInitialListCanTransformTwice(t *testing.T) {
 	t.Parallel()
-	node := &metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Name: "worker", UID: "node-uid", ResourceVersion: "42"}}
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker", UID: "node-uid", ResourceVersion: "42"}}
 	first, err := observeNode(node)
 	require.NoError(t, err)
 	second, err := observeNode(first)

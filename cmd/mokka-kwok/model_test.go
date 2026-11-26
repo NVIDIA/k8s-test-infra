@@ -20,7 +20,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	kubefake "k8s.io/client-go/kubernetes/fake"
-	metafake "k8s.io/client-go/metadata/fake"
 	clienttesting "k8s.io/client-go/testing"
 
 	mokkav1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
@@ -63,7 +62,7 @@ func TestRackModel(t *testing.T) {
 	allowReply := make(chan struct{})
 	server := rackModelServer(t, firstRequest, allowReply)
 	c := config{shard: "replica-0", listen: "127.0.0.1:0", controlPlane: server.URL, batch: batchOptions{100, time.Millisecond, 2}}
-	m := newModel(mokka, kube, metafake.NewSimpleMetadataClient(runtime.NewScheme()), c)
+	m := newModel(mokka, kube, c)
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { done <- m.run(runCtx, c) }()

@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  helm: Bound KWOK nodes advertise simulated GPU capacity so the Kubernetes scheduler can place Pods that request whole GPUs.
+time: 2026-11-23T12:39:55Z

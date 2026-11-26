@@ -17,7 +17,7 @@ import (
 )
 
 var _ = Describe("KWOK rack binding", Label("kwok"), func() {
-	It("binds each node to its own rack type and publishes the virtual GPU labels", func(ctx SpecContext) {
+	It("binds each node to its rack type and advertises the virtual GPUs to the scheduler", func(ctx SpecContext) {
 		h := setupCluster(ctx, "kwok")
 		realName := config.ClusterName() + "-worker"
 		const virtualName = "kwok-worker"
@@ -52,6 +52,32 @@ var _ = Describe("KWOK rack binding", Label("kwok"), func() {
 			g.Expect(kwokNode.Labels).To(HaveKeyWithValue("nvidia.com/gpu.memory", "40960"))
 			g.Expect(kwokNode.Labels).To(HaveKeyWithValue("nvidia.com/mig.strategy", "none"))
 			g.Expect(kwokNode.Labels).To(HaveKeyWithValue("feature.node.kubernetes.io/pci-10de.present", "true"))
+		}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
+
+		By("scheduling a one-GPU Pod on the virtual node")
+		probe := []byte(`apiVersion: v1
+kind: Pod
+metadata: {name: kwok-capacity-e2e, namespace: default}
+spec:
+  schedulerName: default-scheduler
+  nodeSelector: {mokka.nvidia.com/pool: binding-e2e, mokka.nvidia.com/node-type: KWOK}
+  tolerations: [{key: kwok.x-k8s.io/node, operator: Exists, effect: NoSchedule}]
+  containers:
+    - name: probe
+      image: registry.k8s.io/pause:3.10
+      resources: {limits: {nvidia.com/gpu: 1}}
+`)
+		Expect(h.Kube.Apply(ctx, probe)).To(Succeed())
+		DeferCleanup(func(ctx SpecContext) { Expect(h.Kube.Delete(ctx, probe)).To(Succeed()) })
+		Eventually(func(g Gomega) {
+			var pod corev1.Pod
+			g.Expect(h.Kube.GetJSON(ctx, &pod, "pod", "kwok-capacity-e2e", "-n", "default")).To(Succeed())
+			g.Expect(pod.Spec.NodeName).To(Equal(virtualName))
+			g.Expect(h.Kube.GetJSON(ctx, &kwokNode, "node", virtualName)).To(Succeed())
+			for _, resources := range []corev1.ResourceList{kwokNode.Status.Capacity, kwokNode.Status.Allocatable} {
+				gpus := resources["nvidia.com/gpu"]
+				g.Expect(gpus.Value()).To(Equal(int64(8)))
+			}
 		}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
 
 		By("checking actual node-daemon Pods after the DaemonSet has converged")
