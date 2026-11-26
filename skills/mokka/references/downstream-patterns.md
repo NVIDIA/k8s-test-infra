@@ -70,12 +70,16 @@ spec serves it at `/etc/nvml-mock/machine-type`. See
 operator schedules no operands. Prometheus Operator CRDs go before an NFD
 chart that creates a `PodMonitor`.
 
-**ComputeDomains need the IMEX surface.** On a multi-node NVLink profile such
-as `gb200`, the node agent renders a substitute `/proc/devices` at
-`/var/lib/nvml-mock/imex/proc-devices`. Set the DRA driver's
-`altProcDevices` to that path, or its compute-domain kubelet plugin aborts with
-`error parsing '/proc/devices'`. Older Mokka releases gated this behind an
-`imex.*` chart value, so check the values for your version.
+**The DRA compute-domain plugin needs the IMEX surface.** The node agent
+renders a substitute `/proc/devices` at `/var/lib/nvml-mock/imex/proc-devices`.
+Set the DRA driver's `altProcDevices` to that path whenever
+`resources.computeDomains.enabled` is true, or its compute-domain kubelet plugin
+aborts with `error parsing '/proc/devices'`. Every profile renders the file,
+because the kernel module registers those majors on any node; running a
+ComputeDomain still needs a multi-node NVLink profile such as `gb200`. Mokka
+0.6.0 to 0.8.0 rendered it on multi-node NVLink profiles only, and releases
+before 0.6.0 gated it behind `imex.mockChannels.enabled`, so check the values
+for your version.
 
 **Every node on a profile reports the same GPU UUIDs.** That is fine for
 per-node consumers. A consumer that compares UUIDs or fabric GUIDs across

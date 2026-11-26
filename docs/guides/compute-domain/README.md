@@ -200,7 +200,7 @@ kubectl -n mokka rollout status ds/nvml-mock --timeout=10m
 
 | Setting | Why |
 |---|---|
-| `gpu.profile=gb200` | A multi-node NVLink profile, as `gb300` is; the node agent stages IMEX only on such profiles |
+| `gpu.profile=gb200` | A multi-node NVLink profile, as `gb300` is; only such profiles get `channel0` and the IMEX node software a ComputeDomain runs |
 | `-f topology.yaml` | The two racks; pass it with `-f`, not `--set-file`, so Helm parses the list |
 | `nodeSelector` | Workers only: the topology gives the control plane no clique |
 | `imex.binaries.image.*` | The binaries image from step 3 |

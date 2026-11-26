@@ -402,7 +402,13 @@ type FabricState struct {
 
 // IMEXState describes the IMEX capability surface for the DRA compute-domain plugin.
 type IMEXState struct {
-	Enabled   bool
+	// Enabled stages what the NVIDIA kernel module registers on every node it
+	// loads on: the IMEX device numbers in /proc/devices and the
+	// fabric-imex-mgmt capability.
+	Enabled bool
+	// MultiNode also stages channel0 and the IMEX node software, which only a
+	// board whose NVLink domain spans nodes uses.
+	MultiNode bool
 	IMEXMajor int
 	CapsMajor int
 }

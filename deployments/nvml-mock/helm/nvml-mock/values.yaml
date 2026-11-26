@@ -527,9 +527,10 @@ imex:
   # there is no NVIDIA kernel module, so the entry is absent and the plugin
   # aborts with "error parsing '/proc/devices': unexpected regex match: []".
   #
-  # Multi-node NVLink profiles (nvlink.multi_node, such as gb200) render:
+  # Every profile renders what the kernel module registers on any node:
   #   <hostPath>/imex/proc-devices                       substitute /proc/devices
   #   <driverRoot>/proc/driver/nvidia/capabilities/...   fabric-imex-mgmt
+  # Multi-node NVLink profiles (nvlink.multi_node, such as gb200) also render:
   #   <driverRoot>/dev/nvidia-caps-imex-channels/channel0  channel device node
   #
   # Pair it with the DRA driver chart 0.5.0 or later, which runs its upstream
@@ -537,8 +538,7 @@ imex:
   #   --set altProcDevices=/var/lib/nvml-mock/imex/proc-devices
   #   --set resources.computeDomains.enabled=true
   #
-  # Other profiles render none of it. The settings below pick its device
-  # numbers.
+  # The settings below pick its device numbers.
   deviceNumbers:
     # Device majors advertised in the rendered proc-devices file. Defaults match
     # the DRA driver's own CI fixtures. They must differ from each other. A
