@@ -10,9 +10,12 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -26,8 +29,10 @@ import (
 const fieldManager = "mokka-kwok-data-plane"
 
 type config struct {
-	shard  string
-	listen string
+	shard        string
+	listen       string
+	controlPlane string
+	batch        batchOptions
 }
 
 func parseConfig(args []string) (config, error) {
@@ -38,6 +43,10 @@ func parseConfig(args []string) (config, error) {
 	flags := flag.NewFlagSet("data-plane", flag.ContinueOnError)
 	flags.StringVar(&c.shard, "shard-name", "", "replica name on assigned racks")
 	flags.StringVar(&c.listen, "listen-addr", ":8080", "health and readiness listener")
+	flags.StringVar(&c.controlPlane, "control-plane-url", "http://nvml-mock-control-plane:8080", "base URL of the Mokka control-plane Service")
+	flags.IntVar(&c.batch.size, "batch-size", 100, "maximum racks per request (1-100)")
+	flags.DurationVar(&c.batch.window, "batch-window", time.Second, "maximum time to collect a batch")
+	flags.IntVar(&c.batch.workers, "max-in-flight", 2, "maximum concurrent rack requests")
 	if err := flags.Parse(args[1:]); err != nil {
 		return c, err
 	}
@@ -47,7 +56,19 @@ func parseConfig(args []string) (config, error) {
 	if _, _, err := net.SplitHostPort(c.listen); err != nil {
 		return c, fmt.Errorf("invalid listen address: %w", err)
 	}
-	return c, nil
+	c.controlPlane = strings.TrimRight(c.controlPlane, "/")
+	return c, c.validateRackClient()
+}
+
+func (c config) validateRackClient() error {
+	u, err := url.Parse(c.controlPlane)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return errors.New("expected an http(s) --control-plane-url")
+	}
+	if c.batch.size < 1 || c.batch.size > 100 || c.batch.window <= 0 || c.batch.workers < 1 {
+		return errors.New("invalid rack batch limits")
+	}
+	return nil
 }
 
 func run(ctx context.Context, args []string) error {
@@ -68,7 +89,7 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	m := newModel(mokka, kube, c.shard) //nolint:contextcheck // RunWithContext uses the generated context-aware list and watch callbacks.
+	m := newModel(mokka, kube, c) //nolint:contextcheck // RunWithContext uses the generated context-aware list and watch callbacks.
 	return m.run(ctx, c)
 }
 
