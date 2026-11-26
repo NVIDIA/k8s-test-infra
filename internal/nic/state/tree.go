@@ -24,12 +24,12 @@ type treeSwitchPort struct {
 	id     PCIID
 }
 
-func newTree(topology *v1alpha1.SGPUTopology, slots []v1alpha1.NICSlot, profiles declaration.Profiles) tree {
+func newTree(topology *v1alpha1.SGPUTopology, profiles declaration.Profiles) tree {
 	t := tree{rootPorts: map[string]v1alpha1.RootPort{}, switchPorts: map[string]treeSwitchPort{}}
 	for _, rp := range topology.RootPorts {
 		t.rootPorts[rp.Address] = rp
 	}
-	for _, s := range slots {
+	for _, s := range topology.NICs {
 		sw := profiles[s.Profile].Spec.SwitchPort
 		for _, d := range s.Devices {
 			for _, b := range d.Bridges {

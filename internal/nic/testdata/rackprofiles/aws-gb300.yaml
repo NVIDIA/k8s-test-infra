@@ -35,27 +35,27 @@ spec:
           profile: cx8-aws-vf
           gpus: [0]
           devices:
-            vfA: {rootComplex: pci0000:9e, address: "0000:a1:00", parent: "0000:9e:00.0", numaNode: 0}
-            vfB: {rootComplex: pci0000:9e, address: "0000:a2:00", parent: "0000:9e:00.0", numaNode: 0}
-            dataDirect: {rootComplex: pci0000:98, address: "0000:9c:00", parent: "0000:98:00.0", numaNode: 0}
+            - {name: vfA, rootComplex: pci0000:9e, address: "0000:a1:00", parent: "0000:9e:00.0", numaNode: 0}
+            - {name: vfB, rootComplex: pci0000:9e, address: "0000:a2:00", parent: "0000:9e:00.0", numaNode: 0}
+            - {name: dataDirect, rootComplex: pci0000:98, address: "0000:9c:00", parent: "0000:98:00.0", numaNode: 0}
         - slot: aws1
           profile: cx8-aws-vf
           gpus: [1]
           devices:
-            vfA: {rootComplex: pci0000:a9, address: "0000:ac:00", parent: "0000:a9:00.0", numaNode: 0}
-            vfB: {rootComplex: pci0000:a9, address: "0000:ad:00", parent: "0000:a9:00.0", numaNode: 0}
-            dataDirect: {rootComplex: pci0000:a3, address: "0000:a7:00", parent: "0000:a3:00.0", numaNode: 0}
+            - {name: vfA, rootComplex: pci0000:a9, address: "0000:ac:00", parent: "0000:a9:00.0", numaNode: 0}
+            - {name: vfB, rootComplex: pci0000:a9, address: "0000:ad:00", parent: "0000:a9:00.0", numaNode: 0}
+            - {name: dataDirect, rootComplex: pci0000:a3, address: "0000:a7:00", parent: "0000:a3:00.0", numaNode: 0}
         - slot: aws2
           profile: cx8-aws-vf
           gpus: [2]
           devices:
-            vfA: {rootComplex: pci0000:bb, address: "0000:be:00", parent: "0000:bb:00.0", numaNode: 1}
-            vfB: {rootComplex: pci0000:bb, address: "0000:bf:00", parent: "0000:bb:00.0", numaNode: 1}
-            dataDirect: {rootComplex: pci0000:b5, address: "0000:b9:00", parent: "0000:b5:00.0", numaNode: 1}
+            - {name: vfA, rootComplex: pci0000:bb, address: "0000:be:00", parent: "0000:bb:00.0", numaNode: 1}
+            - {name: vfB, rootComplex: pci0000:bb, address: "0000:bf:00", parent: "0000:bb:00.0", numaNode: 1}
+            - {name: dataDirect, rootComplex: pci0000:b5, address: "0000:b9:00", parent: "0000:b5:00.0", numaNode: 1}
         - slot: aws3
           profile: cx8-aws-vf
           gpus: [3]
           devices:
-            vfA: {rootComplex: pci0000:c6, address: "0000:c9:00", parent: "0000:c6:00.0", numaNode: 1}
-            vfB: {rootComplex: pci0000:c6, address: "0000:ca:00", parent: "0000:c6:00.0", numaNode: 1}
-            dataDirect: {rootComplex: pci0000:c0, address: "0000:c4:00", parent: "0000:c0:00.0", numaNode: 1}
+            - {name: vfA, rootComplex: pci0000:c6, address: "0000:c9:00", parent: "0000:c6:00.0", numaNode: 1}
+            - {name: vfB, rootComplex: pci0000:c6, address: "0000:ca:00", parent: "0000:c6:00.0", numaNode: 1}
+            - {name: dataDirect, rootComplex: pci0000:c0, address: "0000:c4:00", parent: "0000:c0:00.0", numaNode: 1}

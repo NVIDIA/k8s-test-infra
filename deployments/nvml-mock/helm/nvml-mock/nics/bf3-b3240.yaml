@@ -23,7 +23,7 @@ spec:
       V0: PCIeGen5 x16
     identities: {SN: asic, V3: asic, VU: SN}
   functionTypes:
-    network:
+    - name: network
       vendorID: "15b3"
       deviceID: "a2dc"
       subsystemVendorID: "15b3"
@@ -35,7 +35,7 @@ spec:
       totalVFs: 16
       vpd: true
       vpdSuffixes: {VU: "MLNXS0D0F{function}"}
-    socManagement:
+    - name: socManagement
       vendorID: "15b3"
       deviceID: "c2d5"
       subsystemVendorID: "15b3"

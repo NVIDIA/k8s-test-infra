@@ -13,7 +13,7 @@ spec:
   sources:
     - EFA capture on an AWS c5n.9xlarge instance (see internal/nic/conformance/testdata/converted)
   functionTypes:
-    efa:
+    - name: efa
       vendorID: "1d0f"
       deviceID: "efa0"
       subsystemVendorID: "1d0f"

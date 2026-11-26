@@ -25,18 +25,12 @@
         "id": {
          "type": "string"
         },
-        "nicOverrides": {
+        "nicConfigurations": {
          "type": "array",
          "items": {
           "type": "object",
           "properties": {
            "configuration": {
-            "type": "string"
-           },
-           "firmwareVersion": {
-            "type": "string"
-           },
-           "profile": {
             "type": "string"
            },
            "slots": {
@@ -45,18 +39,10 @@
              "type": "string"
             },
             "x-kubernetes-list-type": "set"
-           },
-           "systemImageGUID": {
-            "type": "string"
-           },
-           "vpd": {
-            "type": "object",
-            "additionalProperties": {
-             "type": "string"
-            }
            }
           },
           "required": [
+           "configuration",
            "slots"
           ]
          },
@@ -811,12 +797,9 @@
             "board": {
              "type": "integer"
             },
-            "configuration": {
-             "type": "string"
-            },
             "devices": {
-             "type": "object",
-             "additionalProperties": {
+             "type": "array",
+             "items": {
               "type": "object",
               "properties": {
                "address": {
@@ -841,6 +824,9 @@
                 },
                 "x-kubernetes-list-type": "atomic"
                },
+               "name": {
+                "type": "string"
+               },
                "numaNode": {
                 "type": "integer"
                },
@@ -856,13 +842,15 @@
               },
               "required": [
                "address",
+               "name",
                "numaNode",
                "rootComplex"
               ]
-             }
-            },
-            "firmwareVersion": {
-             "type": "string"
+             },
+             "x-kubernetes-list-type": "map",
+             "x-kubernetes-list-map-keys": [
+              "name"
+             ]
             },
             "gpus": {
              "type": "array",
@@ -1145,14 +1133,17 @@
       "type": "string"
      },
      "functionTypes": {
-      "type": "object",
-      "additionalProperties": {
+      "type": "array",
+      "items": {
        "type": "object",
        "properties": {
         "deviceID": {
          "type": "string"
         },
         "driver": {
+         "type": "string"
+        },
+        "name": {
          "type": "string"
         },
         "pcieLink": {
@@ -1231,9 +1222,14 @@
        "required": [
         "deviceID",
         "driver",
+        "name",
         "vendorID"
        ]
-      }
+      },
+      "x-kubernetes-list-type": "map",
+      "x-kubernetes-list-map-keys": [
+       "name"
+      ]
      },
      "identity": {
       "type": "object",

@@ -24,7 +24,7 @@ type NICs struct {
 	// GPUs are where the GPUs sit in the PCIe tree they share with the NICs,
 	// by index.
 	GPUs []GPU
-	// Instances are the NIC slots, in declaration order.
+	// Instances are the NIC slots, by slot name.
 	Instances []Instance
 	// Bridges are the NICs' PCIe switch ports, by address.
 	Bridges []Bridge
@@ -58,7 +58,8 @@ type Instance struct {
 	Profile       string
 	Configuration string
 	Model         string
-	// FirmwareVersion is the slot's firmware version, or the profile's.
+	// FirmwareVersion is the profile's firmware version, the only one a
+	// declaration sets until runtime policies can change it.
 	FirmwareVersion string
 	BoardID         string
 	// Board is the board the NIC's ASIC is on; nil when the slot names none.

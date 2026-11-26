@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 )
@@ -19,6 +20,9 @@ import (
 const (
 	chartNICs    = "../../../deployments/nvml-mock/helm/nvml-mock/nics"
 	rackFixtures = "../testdata/rackprofiles"
+	// inventoryFixtures select the configurations of rack fixtures that don't
+	// run their profiles' defaults.
+	inventoryFixtures = "../testdata/inventories"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -26,8 +30,8 @@ func ptr[T any](v T) *T { return &v }
 func validProfile() *v1alpha1.SNICProfile {
 	p := &v1alpha1.SNICProfile{Spec: v1alpha1.SNICProfileSpec{
 		Identity: v1alpha1.NICIdentity{Model: "nic"},
-		FunctionTypes: map[string]v1alpha1.NICFunctionType{
-			"network": {VendorID: "15b3", DeviceID: "1025", Driver: "mlx5_core"},
+		FunctionTypes: []v1alpha1.NICFunctionType{
+			{Name: "network", VendorID: "15b3", DeviceID: "1025", Driver: "mlx5_core"},
 		},
 		DefaultConfiguration: "eth",
 		Configurations: []v1alpha1.NICConfiguration{{
@@ -90,35 +94,29 @@ func TestProfileValidate(t *testing.T) {
 		}, "RDMA devices r0 and r1 are both on function pf0, which has one"},
 		{"uppercase vendor OUI", func(p *v1alpha1.SNICProfile) { p.Spec.Identity.VendorOUI = "0x02C9" }, "vendorOUI"},
 		{"function type without a driver", func(p *v1alpha1.SNICProfile) {
-			ft := p.Spec.FunctionTypes["network"]
+			ft, _ := p.Spec.FunctionType("network")
 			ft.Driver = ""
-			p.Spec.FunctionTypes["network"] = ft
 		}, "driver is empty"},
 		{"uppercase PCI ID", func(p *v1alpha1.SNICProfile) {
-			ft := p.Spec.FunctionTypes["network"]
+			ft, _ := p.Spec.FunctionType("network")
 			ft.DeviceID = "A2DC"
-			p.Spec.FunctionTypes["network"] = ft
 		}, "not four lowercase hex digits"},
 		{"attribute both absent and empty", func(p *v1alpha1.SNICProfile) {
-			ft := p.Spec.FunctionTypes["network"]
+			ft, _ := p.Spec.FunctionType("network")
 			ft.RDMAOmit, ft.RDMAEmpty = []v1alpha1.RDMAAttribute{"fw_ver"}, []v1alpha1.RDMAAttribute{"fw_ver"}
-			p.Spec.FunctionTypes["network"] = ft
 		}, "fw_ver is in both rdmaOmit and rdmaEmpty"},
 		{"unknown optional attribute", func(p *v1alpha1.SNICProfile) {
-			ft := p.Spec.FunctionTypes["network"]
+			ft, _ := p.Spec.FunctionType("network")
 			ft.RDMAOmit = []v1alpha1.RDMAAttribute{"node_guid"}
-			p.Spec.FunctionTypes["network"] = ft
 		}, `"node_guid" can't be omitted`},
 		{"VF type that doesn't exist", func(p *v1alpha1.SNICProfile) {
-			ft := p.Spec.FunctionTypes["network"]
+			ft, _ := p.Spec.FunctionType("network")
 			ft.TotalVFs, ft.VFType = 16, "vf"
-			p.Spec.FunctionTypes["network"] = ft
 		}, `vfType "vf" is not another function type`},
 		{"VF type without SR-IOV", func(p *v1alpha1.SNICProfile) {
-			ft := p.Spec.FunctionTypes["network"]
+			ft, _ := p.Spec.FunctionType("network")
 			ft.VFType = "vf"
-			p.Spec.FunctionTypes["network"] = ft
-			p.Spec.FunctionTypes["vf"] = v1alpha1.NICFunctionType{VendorID: "15b3", DeviceID: "101e", Driver: "mlx5_core"}
+			p.Spec.FunctionTypes = append(p.Spec.FunctionTypes, v1alpha1.NICFunctionType{Name: "vf", VendorID: "15b3", DeviceID: "101e", Driver: "mlx5_core"})
 		}, "vfType needs totalVFs"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -134,10 +132,9 @@ func TestProfileValidate(t *testing.T) {
 func TestVFType(t *testing.T) {
 	t.Parallel()
 	p := validProfile()
-	ft := p.Spec.FunctionTypes["network"]
+	ft, _ := p.Spec.FunctionType("network")
 	ft.TotalVFs, ft.VFType = 16, "vf"
-	p.Spec.FunctionTypes["network"] = ft
-	p.Spec.FunctionTypes["vf"] = v1alpha1.NICFunctionType{VendorID: "15b3", DeviceID: "101e", Driver: "mlx5_core"}
+	p.Spec.FunctionTypes = append(p.Spec.FunctionTypes, v1alpha1.NICFunctionType{Name: "vf", VendorID: "15b3", DeviceID: "101e", Driver: "mlx5_core"})
 	require.NoError(t, ValidateProfile(p))
 }
 
@@ -146,15 +143,12 @@ func TestVFType(t *testing.T) {
 func TestSubsystemIDsAreOptionalOnTheirOwn(t *testing.T) {
 	t.Parallel()
 	p := validProfile()
-	ft := p.Spec.FunctionTypes["network"]
+	ft, _ := p.Spec.FunctionType("network")
 	ft.SubsystemVendorID = "15b3"
-	p.Spec.FunctionTypes["network"] = ft
 	require.NoError(t, ValidateProfile(p))
 	ft.SubsystemVendorID, ft.SubsystemDeviceID = "", "0208"
-	p.Spec.FunctionTypes["network"] = ft
 	require.NoError(t, ValidateProfile(p))
 	ft.SubsystemDeviceID = "208"
-	p.Spec.FunctionTypes["network"] = ft
 	require.ErrorContains(t, ValidateProfile(p), `subsystemDeviceID "208"`)
 }
 
@@ -167,8 +161,8 @@ func singleSlot() *v1alpha1.SGPUTopology {
 		RootPorts: []v1alpha1.RootPort{rootPort("0003"), rootPort("0004")},
 		NICs: []v1alpha1.NICSlot{{
 			Slot: "nic0", Profile: "nic",
-			Devices: map[string]v1alpha1.NICDevicePlacement{"network": {
-				RootComplex: "pci0003:00", Address: "0003:01:00", Parent: "0003:00:00.0",
+			Devices: []v1alpha1.NICDevicePlacement{{
+				Name: "network", RootComplex: "pci0003:00", Address: "0003:01:00", Parent: "0003:00:00.0",
 			}},
 		}},
 	}
@@ -188,9 +182,8 @@ func withSwitch(p Profiles, r *v1alpha1.SGPUTopology) {
 }
 
 func setDevice(topo *v1alpha1.SGPUTopology, slot int, name string, mutate func(*v1alpha1.NICDevicePlacement)) {
-	d := topo.NICs[slot].Devices[name]
-	mutate(&d)
-	topo.NICs[slot].Devices[name] = d
+	d, _ := topo.NICs[slot].Device(name)
+	mutate(d)
 }
 
 func TestNodeValidate(t *testing.T) {
@@ -204,16 +197,15 @@ func TestNodeValidate(t *testing.T) {
 		want   string
 	}{
 		{"unknown profile", func(r *v1alpha1.SGPUTopology) { r.NICs[0].Profile = "x" }, "unknown profile"},
-		{"unknown configuration", func(r *v1alpha1.SGPUTopology) { r.NICs[0].Configuration = "ib" }, `no configuration "ib"`},
 		{"duplicate slot", func(r *v1alpha1.SGPUTopology) {
 			s := *r.NICs[0].DeepCopy()
-			s.Devices = map[string]v1alpha1.NICDevicePlacement{"network": {
-				RootComplex: "pci0004:00", Address: "0004:01:00", Parent: "0004:00:00.0",
+			s.Devices = []v1alpha1.NICDevicePlacement{{
+				Name: "network", RootComplex: "pci0004:00", Address: "0004:01:00", Parent: "0004:00:00.0",
 			}}
 			r.NICs = append(r.NICs, s)
 		}, `slot name "nic0" is empty or used twice`},
 		{"device not placed", func(r *v1alpha1.SGPUTopology) {
-			r.NICs[0].Devices = map[string]v1alpha1.NICDevicePlacement{}
+			r.NICs[0].Devices = []v1alpha1.NICDevicePlacement{}
 		}, "doesn't place"},
 		{"bad parent", func(r *v1alpha1.SGPUTopology) {
 			setDevice(r, 0, "network", func(d *v1alpha1.NICDevicePlacement) { d.Parent = "0003:09:00.0" })
@@ -287,8 +279,8 @@ func TestVPDAndPlacementValidate(t *testing.T) {
 			GPUSlots:  []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0008:00", PCIAddress: "0008:06:00.0"}},
 			NICs: []v1alpha1.NICSlot{{
 				Slot: "nic0", Profile: "nic", Board: ptr[int32](0), GPUs: []int32{0},
-				Devices: map[string]v1alpha1.NICDevicePlacement{"network": {
-					RootComplex: "pci0003:00", Address: "0003:01:00",
+				Devices: []v1alpha1.NICDevicePlacement{{
+					Name: "network", RootComplex: "pci0003:00", Address: "0003:01:00",
 					Parent: "0003:00:00.0", VPDPosition: "-Prime",
 				}},
 			}},
@@ -359,7 +351,7 @@ func TestGPUBelowANICSwitchPort(t *testing.T) {
 	topo.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:03:01.0", Parent: "0003:02:00.0"}}
 	require.NoError(t, ValidateNode(topo, nil, profiles))
 
-	d := topo.NICs[0].Devices["network"]
+	d, _ := topo.NICs[0].Device("network")
 	slices.Reverse(d.Bridges)
 	require.NoError(t, ValidateNode(topo, nil, profiles), "switch ports may come in any order")
 
@@ -383,7 +375,7 @@ func TestPCIBuses(t *testing.T) {
 			r.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:40:00.0", Parent: "0003:00:00.0"}}
 		}},
 		"device without a parent off the root bus": {mutate: func(r *v1alpha1.SGPUTopology) {
-			r.NICs[0].Devices = map[string]v1alpha1.NICDevicePlacement{"network": {RootComplex: "pci0003:00", Address: "0003:08:1f"}}
+			r.NICs[0].Devices = []v1alpha1.NICDevicePlacement{{Name: "network", RootComplex: "pci0003:00", Address: "0003:08:1f"}}
 		}, want: "has no parent, but 0003:08:1f isn't on pci0003:00's root bus"},
 		"root port off the root bus": {mutate: func(r *v1alpha1.SGPUTopology) {
 			r.RootPorts = append(r.RootPorts, v1alpha1.RootPort{Address: "0003:10:00.0", RootComplex: "pci0003:00"})
@@ -398,9 +390,8 @@ func TestPCIBuses(t *testing.T) {
 			r.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:02:01.0", Parent: "0003:02:00.0"}}
 		}, want: "GPU slot 0: on the bus of its parent 0003:02:00.0, not below it"},
 		"two switch ports above one bus": {mutate: func(r *v1alpha1.SGPUTopology) {
-			d := r.NICs[0].Devices["network"]
+			d, _ := r.NICs[0].Device("network")
 			d.Bridges = append(d.Bridges, v1alpha1.PCIBridge{Address: "0003:02:01.0", Parent: "0003:01:00.0"})
-			r.NICs[0].Devices["network"] = d
 			r.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:03:01.0", Parent: "0003:02:01.0"}}
 		}, want: "bus 0003:03 is below both 0003:02:01.0 and 0003:02:00.0"},
 	} {
@@ -427,11 +418,35 @@ func TestUnknownConfigurationKeepsThePlacement(t *testing.T) {
 	profiles, topo := Profiles{"nic": validProfile()}, singleSlot()
 	withSwitch(profiles, topo)
 	topo.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:03:01.0", Parent: "0003:02:00.0"}}
-	err := ValidateNode(topo, []v1alpha1.NICOverride{{Slots: []string{topo.NICs[0].Slot}, Configuration: "missing"}}, profiles)
-	require.EqualError(t, err, `slot `+topo.NICs[0].Slot+` (with NIC overrides): profile nic has no configuration "missing"`)
+	err := ValidateNode(topo, []v1alpha1.NICConfigurationChoice{{Slots: []string{topo.NICs[0].Slot}, Configuration: "missing"}}, profiles)
+	require.EqualError(t, err, `NIC configuration choice 0: profile nic of slot `+topo.NICs[0].Slot+` has no configuration "missing"`)
 
 	topo.NICs[0].Profile = "missing"
 	require.EqualError(t, ValidateNode(topo, nil, profiles), `slot `+topo.NICs[0].Slot+`: unknown profile "missing"`)
+}
+
+// TestOnePCIDevicePerOwner checks that a PCI device's functions belong to one
+// owner: two slots, or a slot and a GPU, can't split a device between them,
+// as each would take it for a single-function device and name its netdevs
+// alike.
+func TestOnePCIDevicePerOwner(t *testing.T) {
+	t.Parallel()
+	fn1 := validProfile()
+	fn1.Name = "nic-fn1"
+	fn1.Spec.Configurations[0].Functions[0].Function = 1
+	profiles := Profiles{"nic": validProfile(), "nic-fn1": fn1}
+	require.NoError(t, ValidateProfile(fn1))
+
+	topo := singleSlot()
+	second := *topo.NICs[0].DeepCopy()
+	second.Slot, second.Profile = "nic1", "nic-fn1"
+	topo.NICs = append(topo.NICs, second)
+	require.ErrorContains(t, ValidateNode(topo, nil, profiles),
+		"PCI device 0003:01:00 is placed by slot nic0: device network and slot nic1: device network")
+
+	topo = singleSlot()
+	topo.GPUSlots = []v1alpha1.GPUSlot{{Index: 0, RootComplex: "pci0003:00", PCIAddress: "0003:01:00.1", Parent: "0003:00:00.0"}}
+	require.ErrorContains(t, ValidateNode(topo, nil, profiles), "PCI device 0003:01:00 is placed by GPU 0 and slot nic0: device network")
 }
 
 // TestMultiHostPorts checks that one port may belong to one function per PCI
@@ -495,8 +510,8 @@ func TestBoardHoldsOneModel(t *testing.T) {
 	other.Name = "other"
 	profiles := Profiles{"nic": validProfile(), "other": other}
 	slot := func(name, profile, domain string) v1alpha1.NICSlot {
-		return v1alpha1.NICSlot{Slot: name, Profile: profile, Board: ptr[int32](0), Devices: map[string]v1alpha1.NICDevicePlacement{"network": {
-			RootComplex: "pci" + domain + ":00", Address: domain + ":01:00", Parent: domain + ":00:00.0",
+		return v1alpha1.NICSlot{Slot: name, Profile: profile, Board: ptr[int32](0), Devices: []v1alpha1.NICDevicePlacement{{
+			Name: "network", RootComplex: "pci" + domain + ":00", Address: domain + ":01:00", Parent: domain + ":00:00.0",
 		}}}
 	}
 	topo := &v1alpha1.SGPUTopology{
@@ -508,88 +523,80 @@ func TestBoardHoldsOneModel(t *testing.T) {
 	require.ErrorContains(t, ValidateNode(topo, nil, profiles), "board 0 holds both nic and other")
 }
 
+// TestSelect checks the selection order: a configuration choice, else the
+// profile's default, and the rules on the choices.
 func TestSelect(t *testing.T) {
 	t.Parallel()
-	slots := []v1alpha1.NICSlot{
-		{Slot: "nic0", Profile: "a", Configuration: "ib", FirmwareVersion: "1", VPD: map[string]string{"EC": "A1"}},
-		{Slot: "nic1", Profile: "a", Configuration: "ib"},
+	p := validProfile()
+	p.Spec.Configurations = append(p.Spec.Configurations, *p.Spec.Configurations[0].DeepCopy())
+	p.Spec.Configurations[1].Name = "ib"
+	other := validProfile()
+	other.Name = "other"
+	profiles := Profiles{"nic": p, "other": other}
+	slots := []v1alpha1.NICSlot{{Slot: "nic0", Profile: "nic"}, {Slot: "nic1", Profile: "nic"}, {Slot: "fe0", Profile: "other"}}
+	name := func(c *v1alpha1.NICConfiguration) string { return c.Name }
+
+	got, err := Select(slots, nil, profiles)
+	require.NoError(t, err)
+	require.Equal(t, "eth", name(got["nic0"]), "a slot no choice names runs its profile's default")
+
+	got, err = Select(slots, []v1alpha1.NICConfigurationChoice{{Slots: []string{"nic1"}, Configuration: "ib"}}, profiles)
+	require.NoError(t, err)
+	require.Equal(t, "eth", name(got["nic0"]))
+	require.Equal(t, "ib", name(got["nic1"]))
+	require.Equal(t, "eth", name(got["fe0"]))
+
+	for _, tc := range []struct {
+		name    string
+		choices []v1alpha1.NICConfigurationChoice
+		want    string
+	}{
+		{"no slots", []v1alpha1.NICConfigurationChoice{{Configuration: "ib"}}, "choice 0 names no slots"},
+		{"no configuration", []v1alpha1.NICConfigurationChoice{{Slots: []string{"nic0"}}}, "choice 0 names no configuration"},
+		{"unknown slot", []v1alpha1.NICConfigurationChoice{{Slots: []string{"nic9"}, Configuration: "ib"}}, `choice 0: unknown slot "nic9"`},
+		{"slot named twice", []v1alpha1.NICConfigurationChoice{
+			{Slots: []string{"nic0"}, Configuration: "ib"}, {Slots: []string{"nic1", "nic0"}, Configuration: "eth"},
+		}, "choice 1: slot nic0 is already in choice 0"},
+		{"configuration one listed slot's profile lacks", []v1alpha1.NICConfigurationChoice{
+			{Slots: []string{"nic0", "fe0"}, Configuration: "ib"},
+		}, `choice 0: profile other of slot fe0 has no configuration "ib"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := Select(slots, tc.choices, profiles)
+			require.ErrorContains(t, err, tc.want)
+		})
 	}
-
-	got, err := Select(slots, []v1alpha1.NICOverride{
-		{Slots: []string{"nic0", "nic1"}, Configuration: "eth", VPD: map[string]string{"EC": "A3"}},
-		{Slots: []string{"nic1"}, FirmwareVersion: "2"},
-	})
-	require.NoError(t, err)
-	require.Equal(t, "eth", got[0].Configuration)
-	require.Equal(t, "1", got[0].FirmwareVersion, "a field no override sets keeps the slot's value")
-	require.Equal(t, map[string]string{"EC": "A3"}, got[0].VPD)
-	require.Equal(t, "2", got[1].FirmwareVersion)
-	require.Equal(t, "A1", slots[0].VPD["EC"], "the declared slots are left unchanged")
-
-	// A new profile drops the old model's configuration, firmware version and
-	// VPD, so the new profile's own apply; the same or a later override can
-	// still set them.
-	got, err = Select(slots, []v1alpha1.NICOverride{{Slots: []string{"nic0"}, Profile: "b"}})
-	require.NoError(t, err)
-	require.Equal(t, v1alpha1.NICSlot{Slot: "nic0", Profile: "b"}, got[0])
-	got, err = Select(slots, []v1alpha1.NICOverride{
-		{Slots: []string{"nic0"}, Profile: "b", FirmwareVersion: "2", VPD: map[string]string{"EC": "B1"}},
-		{Slots: []string{"nic0"}, Configuration: "roce"},
-	})
-	require.NoError(t, err)
-	require.Equal(t, v1alpha1.NICSlot{Slot: "nic0", Profile: "b", Configuration: "roce", FirmwareVersion: "2",
-		VPD: map[string]string{"EC": "B1"}}, got[0])
-
-	// A systemImageGUID that names an RDMA device belongs to the old model and
-	// goes with it, unless the override names one of the new; distinct names
-	// no device, so it carries over.
-	named := []v1alpha1.NICSlot{{Slot: "nic0", Profile: "a", SystemImageGUID: "rdma-b0"}}
-	got, err = Select(named, []v1alpha1.NICOverride{{Slots: []string{"nic0"}, Profile: "b"}})
-	require.NoError(t, err)
-	require.Empty(t, got[0].SystemImageGUID)
-	got, err = Select(named, []v1alpha1.NICOverride{{Slots: []string{"nic0"}, Profile: "b", SystemImageGUID: "r0"}})
-	require.NoError(t, err)
-	require.Equal(t, "r0", got[0].SystemImageGUID)
-	got, err = Select(named, []v1alpha1.NICOverride{{Slots: []string{"nic0"}, Configuration: "other"}})
-	require.NoError(t, err)
-	require.Equal(t, "rdma-b0", got[0].SystemImageGUID, "the same profile keeps its device IDs")
-	distinct := []v1alpha1.NICSlot{{Slot: "nic0", Profile: "a", SystemImageGUID: v1alpha1.SystemImageGUIDDistinct}}
-	got, err = Select(distinct, []v1alpha1.NICOverride{{Slots: []string{"nic0"}, Profile: "b"}})
-	require.NoError(t, err)
-	require.Equal(t, v1alpha1.SystemImageGUIDDistinct, got[0].SystemImageGUID)
-
-	_, err = Select(slots, []v1alpha1.NICOverride{{Slots: []string{"nic9"}, Configuration: "eth"}})
-	require.ErrorContains(t, err, `unknown slot "nic9"`)
-	_, err = Select(slots, []v1alpha1.NICOverride{{Configuration: "eth"}})
-	require.ErrorContains(t, err, "names no slots")
 }
 
-// TestOverridesAreValidated checks that the rack rules run on the slots as the
-// overrides leave them: an override may select a profile or configuration
-// whose PCI devices the slot doesn't place.
-func TestOverridesAreValidated(t *testing.T) {
+// TestChoicesAreValidated checks that the rack rules run on the selection: a
+// choice may select a configuration whose PCI devices the slot doesn't place,
+// or that lacks the RDMA device a systemImageGUID names.
+func TestChoicesAreValidated(t *testing.T) {
 	t.Parallel()
-	twoHost := validProfile()
+	nic := validProfile()
+	c := &nic.Spec.Configurations[0]
+	twoHost := *c.DeepCopy()
 	twoHost.Name = "two-host"
-	c := &twoHost.Spec.Configurations[0]
-	c.Functions = append(c.Functions, v1alpha1.NICFunction{ID: "b0", Type: "network", PCIDevice: "hostB", Class: "0x020000", Ports: []string{"p0"}})
-	twoHost.Spec.Configurations = append(twoHost.Spec.Configurations, v1alpha1.NICConfiguration{
-		Name:      "one-host",
-		Ports:     c.Ports,
-		Functions: c.Functions[:1],
-	})
-	profiles := Profiles{"nic": validProfile(), "two-host": twoHost}
-	require.NoError(t, ValidateProfile(twoHost))
+	twoHost.Functions = append(twoHost.Functions, v1alpha1.NICFunction{ID: "b0", Type: "network", PCIDevice: "hostB", Class: "0x020000", Ports: []string{"p0"}})
+	noRDMA := *c.DeepCopy()
+	noRDMA.Name, noRDMA.RDMADevices = "no-rdma", nil
+	nic.Spec.Configurations = append(nic.Spec.Configurations, twoHost, noRDMA)
+	profiles := Profiles{"nic": nic}
+	require.NoError(t, ValidateProfile(nic))
+	choose := func(conf string) []v1alpha1.NICConfigurationChoice {
+		return []v1alpha1.NICConfigurationChoice{{Slots: []string{"nic0"}, Configuration: conf}}
+	}
 
-	err := ValidateNode(singleSlot(), []v1alpha1.NICOverride{{Slots: []string{"nic0"}, Profile: "two-host"}}, profiles)
-	require.ErrorContains(t, err, `slot nic0 (with NIC overrides): configuration eth puts function b0 on PCI device "hostB", which the slot doesn't place`)
+	require.NoError(t, ValidateNode(singleSlot(), nil, profiles))
+	err := ValidateNode(singleSlot(), choose("two-host"), profiles)
+	require.ErrorContains(t, err, `slot nic0: configuration two-host puts function b0 on PCI device "hostB", which the slot doesn't place`)
 
-	// The same profile in a configuration that uses only the placed device is fine.
-	require.NoError(t, ValidateNode(singleSlot(),
-		[]v1alpha1.NICOverride{{Slots: []string{"nic0"}, Profile: "two-host", Configuration: "one-host"}}, profiles))
-
-	err = ValidateNode(singleSlot(), []v1alpha1.NICOverride{{Slots: []string{"nic0"}, Configuration: "ib"}}, profiles)
-	require.ErrorContains(t, err, `profile nic has no configuration "ib"`)
+	topo := singleSlot()
+	topo.NICs[0].SystemImageGUID = "r0"
+	require.NoError(t, ValidateNode(topo, nil, profiles))
+	err = ValidateNode(topo, choose("no-rdma"), profiles)
+	require.ErrorContains(t, err, `systemImageGUID "r0" is neither "distinct" nor an RDMA device of configuration no-rdma`)
 }
 
 func TestValidateRDMA(t *testing.T) {
@@ -643,5 +650,26 @@ func TestShippedProfilesAndRackFixtures(t *testing.T) {
 		require.NoError(t, ValidateNode(r.Spec.Node.Topology, nil, profiles), path)
 		require.NotNil(t, r.Spec.Software, path)
 		require.NoError(t, ValidateRDMA(r.Spec.Software.RDMA), path)
+	}
+
+	// An inventory fixture's configuration choices hold for the rack fixture
+	// each of its rack groups runs.
+	paths, err = filepath.Glob(filepath.Join(inventoryFixtures, "*.yaml"))
+	require.NoError(t, err)
+	require.NotEmpty(t, paths)
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		require.NoError(t, DecodeRaw(data, "SGPUInventory", "spec.rackGroups"), path)
+		var inv v1alpha1.SGPUInventory
+		require.NoError(t, yaml.UnmarshalStrict(data, &inv), path)
+		for _, g := range inv.Spec.RackGroups {
+			require.NotEmpty(t, g.NICConfigurations, path)
+			data, err := os.ReadFile(filepath.Join(rackFixtures, g.ProfileRef.Name+".yaml"))
+			require.NoError(t, err, path)
+			r, err := DecodeRackProfile(data)
+			require.NoError(t, err, path)
+			require.NoError(t, ValidateNode(r.Spec.Node.Topology, g.NICConfigurations, profiles), path)
+		}
 	}
 }

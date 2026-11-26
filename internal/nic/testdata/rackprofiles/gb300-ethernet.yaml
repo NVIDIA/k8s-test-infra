@@ -1,7 +1,9 @@
 # NIC slots of one GB300 NVL72 tray at a cloud provider
 # (tests/hardware-captures/gb300-roce/node-a): the same ConnectX-8 boards as
-# gb300-nvl72 in their Ethernet multi-plane configuration, on newer firmware,
-# and a ConnectX-7 front-end card.
+# gb300-nvl72, and a ConnectX-7 front-end card. The cluster's inventory
+# (../inventories) runs the boards in their Ethernet multi-plane
+# configuration. They run newer firmware (40.48.1102) than the profile's
+# default, which only a runtime policy will be able to set.
 # A fragment of an SGPURackProfile: the fields NIC declaration reads.
 apiVersion: mokka.nvidia.com/v1alpha1
 kind: SGPURackProfile
@@ -35,12 +37,10 @@ spec:
       nics:
         - slot: nic0
           profile: cx8-c8280z
-          configuration: eth-multiplane
-          firmwareVersion: "40.48.1102"
           board: 0
           gpus: [1]
           devices:
-            network:
+            - name: network
               rootComplex: pci0000:00
               bridges:
                 - {address: "0000:01:00.0", parent: "0000:00:00.0"}
@@ -53,7 +53,7 @@ spec:
               parent: "0000:02:00.0"
               numaNode: 0
               vpdPosition: "-Prime"
-            dataDirect:
+            - name: dataDirect
               rootComplex: pci0009:00
               bridges:
                 - {address: "0009:01:00.0", parent: "0009:00:00.0"}
@@ -67,13 +67,11 @@ spec:
               vpdPosition: "-Aux[1]"
         - slot: nic1
           profile: cx8-c8280z
-          configuration: eth-multiplane
-          firmwareVersion: "40.48.1102"
           board: 0
           systemImageGUID: distinct
           gpus: [0]
           devices:
-            network:
+            - name: network
               rootComplex: pci0002:00
               bridges:
                 - {address: "0002:01:00.0", parent: "0002:00:00.0"}
@@ -86,7 +84,7 @@ spec:
               parent: "0002:02:00.0"
               numaNode: 0
               vpdPosition: "-Aux[1]"
-            dataDirect:
+            - name: dataDirect
               rootComplex: pci0008:00
               bridges:
                 - {address: "0008:01:00.0", parent: "0008:00:00.0"}
@@ -100,13 +98,11 @@ spec:
               vpdPosition: "-Prime"
         - slot: nic2
           profile: cx8-c8280z
-          configuration: eth-multiplane
-          firmwareVersion: "40.48.1102"
           vpd: {EC: A5}
           board: 1
           gpus: [3]
           devices:
-            network:
+            - name: network
               rootComplex: pci0010:00
               bridges:
                 - {address: "0010:01:00.0", parent: "0010:00:00.0"}
@@ -119,7 +115,7 @@ spec:
               parent: "0010:02:00.0"
               numaNode: 1
               vpdPosition: "-Prime"
-            dataDirect:
+            - name: dataDirect
               rootComplex: pci0019:00
               bridges:
                 - {address: "0019:01:00.0", parent: "0019:00:00.0"}
@@ -133,14 +129,12 @@ spec:
               vpdPosition: "-Aux[1]"
         - slot: nic3
           profile: cx8-c8280z
-          configuration: eth-multiplane
-          firmwareVersion: "40.48.1102"
           vpd: {EC: A5}
           board: 1
           systemImageGUID: distinct
           gpus: [2]
           devices:
-            network:
+            - name: network
               rootComplex: pci0012:00
               bridges:
                 - {address: "0012:01:00.0", parent: "0012:00:00.0"}
@@ -153,7 +147,7 @@ spec:
               parent: "0012:02:00.0"
               numaNode: 1
               vpdPosition: "-Aux[1]"
-            dataDirect:
+            - name: dataDirect
               rootComplex: pci0018:00
               bridges:
                 - {address: "0018:01:00.0", parent: "0018:00:00.0"}
@@ -169,13 +163,13 @@ spec:
           profile: cx7-hhhl
           board: 2
           devices:
-            hostA:
+            - name: hostA
               rootComplex: pci0007:00
               address: "0007:01:00"
               parent: "0007:00:00.0"
               numaNode: 0
               vpdPosition: "-Prime"
-            hostB:
+            - name: hostB
               rootComplex: pci0017:00
               address: "0017:01:00"
               parent: "0017:00:00.0"

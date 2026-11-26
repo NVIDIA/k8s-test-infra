@@ -15,7 +15,7 @@ spec:
     - tests/hardware-captures/vr-nvl72/node-a
   switchPort: {vendorID: "15b3", deviceID: "197c"}
   functionTypes:
-    network:
+    - name: network
       vendorID: "15b3"
       deviceID: "1025"
       subsystemVendorID: "15b3"

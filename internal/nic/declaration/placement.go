@@ -17,6 +17,7 @@ import (
 type nodePlacement struct {
 	pr          *problems
 	owners      map[string]string // PCI address -> what claims it
+	devices     map[string]string // PCI device, DDDD:BB:DD -> what places it
 	rootPorts   map[string]string // address -> root complex
 	switchPorts map[string]switchPort
 	parents     []parentRef
@@ -29,13 +30,23 @@ type switchPort struct{ rootComplex, parent string }
 type parentRef struct{ who, parent, rootComplex, child string }
 
 func newNodePlacement(pr *problems) *nodePlacement {
-	return &nodePlacement{pr: pr, owners: map[string]string{}, rootPorts: map[string]string{}, switchPorts: map[string]switchPort{}}
+	return &nodePlacement{pr: pr, owners: map[string]string{}, devices: map[string]string{}, rootPorts: map[string]string{},
+		switchPorts: map[string]switchPort{}}
 }
 
 func (n *nodePlacement) claim(addr, owner string) {
 	prev, taken := n.owners[addr]
 	n.pr.check(!taken, "PCI address %s is used by %s and %s", addr, prev, owner)
 	n.owners[addr] = owner
+}
+
+// claimDevice claims a whole PCI device, DDDD:BB:DD, for one GPU or one PCI
+// device of a NIC: its functions belong to one owner. Two owners sharing a
+// device would each count it as single-function and name its netdevs alike.
+func (n *nodePlacement) claimDevice(device, owner string) {
+	prev, taken := n.devices[device]
+	n.pr.check(!taken, "PCI device %s is placed by %s and %s", device, prev, owner)
+	n.devices[device] = owner
 }
 
 // addRootPorts checks the Node's root ports, each declared once.

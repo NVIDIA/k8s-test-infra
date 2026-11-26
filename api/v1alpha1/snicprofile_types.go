@@ -55,14 +55,16 @@ type SNICProfileSpec struct {
 	// VPD is the vital product data of the functions whose type has vpd set.
 	VPD *NICVPD `json:"vpd,omitempty"`
 
-	// +kubebuilder:validation:MinProperties=1
-	// FunctionTypes are the kinds of PCI function the NIC can expose, keyed by
-	// the name configurations use.
-	FunctionTypes map[string]NICFunctionType `json:"functionTypes"`
+	// +kubebuilder:validation:MinItems=1
+	// +listType=map
+	// +listMapKey=name
+	// FunctionTypes are the kinds of PCI function the NIC can expose, each
+	// named for the configurations to refer to.
+	FunctionTypes []NICFunctionType `json:"functionTypes"`
 
 	// +kubebuilder:validation:MinLength=1
-	// DefaultConfiguration names the configuration used when neither the
-	// cluster nor the slot selects one.
+	// DefaultConfiguration names the configuration a slot runs when the
+	// cluster selects none.
 	DefaultConfiguration string `json:"defaultConfiguration"`
 
 	// +kubebuilder:validation:MinItems=1
@@ -71,6 +73,16 @@ type SNICProfileSpec struct {
 	// Configurations are the firmware configurations the card can run, each
 	// declared as its result.
 	Configurations []NICConfiguration `json:"configurations"`
+}
+
+// FunctionType returns the function type with the given name.
+func (s *SNICProfileSpec) FunctionType(name string) (*NICFunctionType, bool) {
+	for i := range s.FunctionTypes {
+		if s.FunctionTypes[i].Name == name {
+			return &s.FunctionTypes[i], true
+		}
+	}
+	return nil, false
 }
 
 // Configuration returns the named configuration, or the default one when name
@@ -170,6 +182,10 @@ type RDMAAttribute string
 // NICFunctionType is the hardware identity and driver binding of one kind of
 // PCI function. The class isn't here: the configuration decides it.
 type NICFunctionType struct {
+	// +kubebuilder:validation:MinLength=1
+	// Name is what a function's type and a vfType refer to, such as network.
+	Name string `json:"name"`
+
 	// +kubebuilder:validation:Pattern=`^[0-9a-f]{4}$`
 	// VendorID is four lowercase hex digits, without 0x.
 	VendorID string `json:"vendorID"`
