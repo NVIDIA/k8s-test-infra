@@ -264,15 +264,15 @@ func (p *labelPublisher) publishPools(ctx context.Context, node *corev1.Node, sl
 }
 
 func (p *labelPublisher) publishResources(ctx context.Context, node *corev1.Node, desired map[string]string) error {
+	if !p.dra && node.Annotations[gpuSliceKey] != "" {
+		return fmt.Errorf("node %s still has a DRA pool: release its rack slot in DRA mode before enabling device-plugin capacity", node.Name)
+	}
 	if desired == nil {
 		var err error
 		node, err = p.withdrawPools(ctx, node)
 		if err != nil {
 			return err
 		}
-	}
-	if !p.dra && node.Annotations[gpuSliceKey] != "" {
-		return fmt.Errorf("node %s still has a DRA pool: release its rack slot in DRA mode before enabling device-plugin capacity", node.Name)
 	}
 	capacity := desired[metadata.GPUCountLabel]
 	if p.dra {

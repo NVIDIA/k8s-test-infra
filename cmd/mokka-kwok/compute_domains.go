@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -53,26 +52,41 @@ func newDomainChannels(client metadata.Interface, claims *shardClaims) *domainCh
 
 func (p *labelPublisher) watchDomains(ctx context.Context) error {
 	w := p.slices.domains.watch
-	_, err := w.AddEventHandler(cache.ResourceEventHandlerFuncs{DeleteFunc: func(obj any) {
-		if t, ok := obj.(cache.DeletedFinalStateUnknown); ok {
-			obj = t.Obj
-		}
-		if m, ok := obj.(metav1.Object); ok {
-			nodes, err := p.nodeWatch.GetIndexer().IndexKeys(domainLabel, string(m.GetUID()))
-			if err != nil {
-				utilruntime.HandleErrorWithContext(ctx, err, "Find Nodes for deleted ComputeDomain")
-				return
-			}
-			for _, name := range nodes {
-				p.queue.Add(name)
-			}
-		}
-	}})
+	_, err := w.AddEventHandler(p.domainEvents(ctx))
 	if err != nil {
 		return err
 	}
 	w.RunWithContext(ctx)
 	return nil
+}
+
+func (p *labelPublisher) domainEvents(ctx context.Context) cache.ResourceEventHandlerFuncs {
+	removed := func(obj any) {
+		if t, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+			obj = t.Obj
+		}
+		m, ok := obj.(metav1.Object)
+		if !ok {
+			return
+		}
+		nodes, err := p.nodeWatch.GetIndexer().IndexKeys(domainLabel, string(m.GetUID()))
+		if err != nil {
+			utilruntime.HandleErrorWithContext(ctx, err, "Find Nodes for deleted ComputeDomain")
+			return
+		}
+		for _, name := range nodes {
+			p.queue.Add(name)
+		}
+	}
+	return cache.ResourceEventHandlerFuncs{
+		DeleteFunc: removed,
+		UpdateFunc: func(old, cur any) {
+			// A relist can report a delete and recreate at the same key as an update.
+			if old.(metav1.Object).GetUID() != cur.(metav1.Object).GetUID() {
+				removed(old)
+			}
+		},
+	}
 }
 
 func domainSliceName(uid types.UID) string { return "mokka-kwok-domain-" + string(uid) }
@@ -178,36 +192,53 @@ func (d *domainChannels) addClaim(node string, claim *resourcev1.ResourceClaim, 
 	return nil
 }
 
-// The NVIDIA plugin takes the last matching claim config, falling back to
-// the last matching DeviceClass config. Daemon configs do not prepare channels.
+// Decode the driver's configs before using the last matching entry from each
+// source. An invalid claim override must not select a DeviceClass default.
 func channelDomain(configs []resourcev1.DeviceAllocationConfiguration, request string) string {
-	base, _, _ := strings.Cut(request, "/")
-	for _, source := range []resourcev1.AllocationConfigSource{resourcev1.AllocationConfigSourceClaim, resourcev1.AllocationConfigSourceClass} {
-		for i := len(configs) - 1; i >= 0; i-- {
-			c := configs[i]
-			if c.Source != source || c.Opaque == nil || c.Opaque.Driver != domainDriver {
-				continue
-			}
-			if len(c.Requests) > 0 && !slices.Contains(c.Requests, base) && !slices.Contains(c.Requests, request) {
-				continue
-			}
-			if id := decodeChannelID(c.Opaque.Parameters.Raw); id != "" {
-				return id
-			}
+	selected := make(map[resourcev1.AllocationConfigSource]string, 2)
+	for _, c := range configs {
+		if c.Opaque == nil || (c.Source != resourcev1.AllocationConfigSourceClass && c.Source != resourcev1.AllocationConfigSourceClaim) {
+			return ""
+		}
+		if c.Opaque.Driver != domainDriver {
+			continue
+		}
+		id, matches, err := matchChannelConfig(c, request)
+		if err != nil {
+			return ""
+		}
+		if matches {
+			selected[c.Source] = id
 		}
 	}
-	return ""
+	if id, ok := selected[resourcev1.AllocationConfigSourceClaim]; ok {
+		return id
+	}
+	return selected[resourcev1.AllocationConfigSourceClass]
 }
 
-func decodeChannelID(raw []byte) string {
+func matchChannelConfig(c resourcev1.DeviceAllocationConfiguration, request string) (id string, matches bool, err error) {
 	var config struct {
 		metav1.TypeMeta
 		DomainID string `json:"domainID"`
 	}
-	if json.Unmarshal(raw, &config) != nil || config.APIVersion != domainAPI || config.Kind != "ComputeDomainChannelConfig" {
-		return ""
+	if err := json.Unmarshal(c.Opaque.Parameters.Raw, &config); err != nil {
+		return "", false, err
 	}
-	return config.DomainID
+	if config.APIVersion != domainAPI {
+		return "", false, fmt.Errorf("unknown ComputeDomain config version %q", config.APIVersion)
+	}
+	explicit := slices.Contains(c.Requests, request)
+	switch config.Kind {
+	case "ComputeDomainChannelConfig":
+		return config.DomainID, explicit || len(c.Requests) == 0, nil
+	case "ComputeDomainDaemonConfig":
+		// An unscoped daemon config applies only to daemons. A daemon
+		// config explicitly selected for a channel cannot prepare it.
+		return "", explicit, nil
+	default:
+		return "", false, fmt.Errorf("unknown ComputeDomain config kind %q", config.Kind)
+	}
 }
 
 func (p *labelPublisher) applyDomainLabel(ctx context.Context, node *corev1.Node, id string) (*corev1.Node, error) {

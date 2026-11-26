@@ -90,3 +90,66 @@ func TestDomainSliceBlocksNodeReleaseInBothGPUModes(t *testing.T) {
 		})
 	}
 }
+
+func TestChannelConfigSelection(t *testing.T) {
+	t.Parallel()
+	class := channelConfig("class", resourcev1.AllocationConfigSourceClass)
+	class.Requests = nil
+	claim := channelConfig("claim", resourcev1.AllocationConfigSourceClaim)
+	empty := channelConfig("", resourcev1.AllocationConfigSourceClaim)
+	daemon := channelConfig("daemon", resourcev1.AllocationConfigSourceClaim)
+	daemon.Opaque.Parameters.Raw = []byte(`{"apiVersion":"resource.nvidia.com/v1beta1","kind":"ComputeDomainDaemonConfig","domainID":"daemon"}`)
+	unscopedDaemon := daemon
+	unscopedDaemon.Requests = nil
+	unknown := channelConfig("unknown", resourcev1.AllocationConfigSourceClass)
+	unknown.Opaque.Parameters.Raw = []byte(`{"apiVersion":"resource.nvidia.com/v1beta1","kind":"Unknown"}`)
+	foreign := channelConfig("", resourcev1.AllocationConfigSourceClaim)
+	foreign.Opaque.Driver = "example.com"
+	sub := claim
+	sub.Requests = []string{"channel/sub"}
+	for _, tc := range []struct {
+		name, request, want string
+		configs             []resourcev1.DeviceAllocationConfiguration
+	}{
+		{"claim overrides class", "channel", "claim", []resourcev1.DeviceAllocationConfiguration{claim, class}},
+		{"empty override", "channel", "", []resourcev1.DeviceAllocationConfiguration{class, claim, empty}},
+		{"explicit daemon", "channel", "", []resourcev1.DeviceAllocationConfiguration{class, daemon}},
+		{"unscoped daemon", "channel", "class", []resourcev1.DeviceAllocationConfiguration{unscopedDaemon, class}},
+		{"unknown type invalidates claim", "channel", "", []resourcev1.DeviceAllocationConfiguration{unknown, claim}},
+		{"other driver", "channel", "class", []resourcev1.DeviceAllocationConfiguration{class, foreign}},
+		{"parent request", "channel/sub", "class", []resourcev1.DeviceAllocationConfiguration{class, claim}},
+		{"exact subrequest", "channel/sub", "claim", []resourcev1.DeviceAllocationConfiguration{class, sub}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, channelDomain(tc.configs, tc.request))
+		})
+	}
+}
+
+func TestRecreatedDomainQueuesOldHolders(t *testing.T) {
+	t.Parallel()
+	p := newLabelPublisher(fake.NewSimpleClientset(), nil)
+	t.Cleanup(p.queue.ShutDown)
+	old := &metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Name: "domain", UID: "old"}}
+	replacement := old.DeepCopy()
+	replacement.UID = "new"
+	node := &nodeObservation{PartialObjectMetadata: metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Name: "worker", Labels: map[string]string{domainLabel: "old"}}}}
+	require.NoError(t, p.nodeWatch.GetStore().Add(node))
+	events := p.domainEvents(t.Context())
+	events.OnUpdate(old, old.DeepCopy())
+	require.Zero(t, p.queue.Len())
+	events.OnUpdate(old, replacement)
+	require.Equal(t, 1, p.queue.Len())
+	key, _ := p.queue.Get()
+	p.queue.Done(key)
+	require.Equal(t, "worker", key)
+}
+
+func TestGPUModeChangeBlocksChannelWithdrawal(t *testing.T) {
+	t.Parallel()
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker", UID: "uid", Annotations: map[string]string{gpuSliceKey: "gpu-slice", domainSliceKey: "channel-slice"}}}
+	kube := fake.NewSimpleClientset(node)
+	p := labelPublisher{nodes: kube.CoreV1().Nodes(), slices: &nodeSlices{domains: &domainChannels{}, client: kube.ResourceV1().ResourceSlices()}}
+	require.ErrorContains(t, p.publishResources(t.Context(), node, nil), "still has a DRA pool")
+	require.Empty(t, kube.Actions())
+}
