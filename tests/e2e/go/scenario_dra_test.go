@@ -7,7 +7,10 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"strings"
 	"time"
 
@@ -317,3 +320,51 @@ func waitDRATestPodRunning(ctx context.Context, h *harness.Harness, name string)
 	}
 	Fail(fmt.Sprintf("DRA test pod %s did not reach Running (last phase=%q, err=%v)\n%s", name, lastPhase, lastErr, describe))
 }
+
+// KWOK exposes the scheduler's GPU choice through Kubernetes API objects.
+var _ = Describe("DRA on a KWOK rack", Label("kwok", "kwok-dra"), func() {
+	It("publishes GPU slices and records the distinct GPUs selected for two claims on one Node", func(ctx SpecContext) {
+		h, ns, nodes := setupKWOKClaims(ctx)
+		Eventually(func(g Gomega) {
+			var published resourcev1.ResourceSliceList
+			g.Expect(h.Kube.GetJSON(ctx, &published, "resourceslices", "--field-selector", "spec.driver=gpu.nvidia.com")).To(Succeed())
+			counts := map[string]int{}
+			for _, s := range published.Items {
+				if s.Spec.NodeName != nil {
+					counts[*s.Spec.NodeName] += len(s.Spec.Devices)
+				}
+			}
+			for _, n := range nodes {
+				g.Expect(counts).To(HaveKeyWithValue(n, 4))
+			}
+		}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
+		template := fmt.Sprintf(`apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata: {name: gpu, namespace: %s}
+spec:
+  spec:
+    devices:
+      requests: [{name: gpu, exactly: {deviceClassName: gpu.nvidia.com}}]
+`, ns)
+		Expect(h.Kube.Apply(ctx, []byte(template))).To(Succeed())
+		uuids := make([]string, 0, 2)
+		for _, name := range []string{"first", "second"} {
+			applyKWOKClaimPod(ctx, h, ns, name, "gpu", nodes[0])
+			waitKWOKClaimPod(ctx, h, ns, name, nodes[0])
+			ref := kube.PodRef{Namespace: ns, Pod: name, Container: "job"}
+			allocated, err := h.Kube.DRAAllocatedGPUUUIDs(ctx, ref)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(allocated).To(HaveLen(1))
+			Expect(allocated[0]).To(HavePrefix("GPU-"))
+			Eventually(func(g Gomega) {
+				var pod corev1.Pod
+				g.Expect(h.Kube.GetJSON(ctx, &pod, "pod", name, "-n", ns)).To(Succeed())
+				var recorded map[string][]string
+				g.Expect(json.Unmarshal([]byte(pod.Annotations["mokka.nvidia.com/gpu-allocation"]), &recorded)).To(Succeed())
+				g.Expect(recorded["job"]).To(ConsistOf(allocated))
+			}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
+			Expect(uuids).NotTo(ContainElement(allocated[0]))
+			uuids = append(uuids, allocated[0])
+		}
+	})
+})

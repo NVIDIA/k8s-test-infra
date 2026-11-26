@@ -8,6 +8,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"os"
 	"slices"
 	"strconv"
@@ -179,7 +180,7 @@ var _ = Describe("ComputeDomains through the DRA driver", Label("dra-compute-dom
 		Expect(channels).To(ContainElements("channel0", "channel"+strconv.Itoa(cdMaxChannels-1)))
 
 		deleteCDWorkload(ctx, h, "all-channels-a")
-		Expect(h.Kube.Delete(ctx, computeDomainManifest("all-channels", 1, "All"))).To(Succeed())
+		Expect(h.Kube.Delete(ctx, computeDomainManifest(cdNamespace, "all-channels", 1, "All"))).To(Succeed())
 	})
 
 	// A node holds one IMEX channel 0, so a second workload pinned to a busy
@@ -491,7 +492,7 @@ func cdNamespaceManifest() []byte {
 	return []byte("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: " + cdNamespace + "\n")
 }
 
-func computeDomainManifest(name string, numNodes int, allocationMode string) []byte {
+func computeDomainManifest(namespace, name string, numNodes int, allocationMode string) []byte {
 	return []byte(fmt.Sprintf(`apiVersion: resource.nvidia.com/v1beta1
 kind: ComputeDomain
 metadata:
@@ -503,12 +504,12 @@ spec:
     resourceClaimTemplate:
       name: %[1]s-channel
     allocationMode: %[4]s
-`, name, cdNamespace, numNodes, allocationMode))
+`, name, namespace, numNodes, allocationMode))
 }
 
 func applyComputeDomain(ctx context.Context, h *harness.Harness, name string, numNodes int, allocationMode string) {
 	GinkgoHelper()
-	Expect(h.Kube.Apply(ctx, computeDomainManifest(name, numNodes, allocationMode))).To(Succeed(), "apply ComputeDomain %s", name)
+	Expect(h.Kube.Apply(ctx, computeDomainManifest(cdNamespace, name, numNodes, allocationMode))).To(Succeed(), "apply ComputeDomain %s", name)
 }
 
 // cdWorkloadManifest renders a workload of a ComputeDomain pinned to node by
@@ -613,7 +614,8 @@ func cdWorkloadEventReasons(ctx context.Context, g Gomega, h *harness.Harness, n
 
 type computeDomain struct {
 	Metadata struct {
-		UID string `json:"uid"`
+		UID           string                      `json:"uid"`
+		ManagedFields []metav1.ManagedFieldsEntry `json:"managedFields"`
 	} `json:"metadata"`
 	Status struct {
 		Status string `json:"status"`
@@ -758,3 +760,36 @@ func gpuClaimContainer(ctx context.Context, g Gomega, h *harness.Harness) gpuCla
 	g.Expect(pod.Status.ContainerStatuses).To(HaveLen(1), "%s has one container status", gpuClaimPod)
 	return pod.Status.ContainerStatuses[0]
 }
+
+var _ = Describe("ComputeDomain on a KWOK rack", Label("kwok", "kwok-dra"), func() {
+	It("becomes Ready through NVIDIA's controller when four Nodes hold channels and loses a Node when its workload leaves", func(ctx SpecContext) {
+		h, ns, nodes := setupKWOKClaims(ctx)
+		const name = "four-node-job"
+		Expect(h.Kube.Apply(ctx, computeDomainManifest(ns, name, 4, "Single"))).To(Succeed())
+		for i, node := range nodes {
+			applyKWOKClaimPod(ctx, h, ns, fmt.Sprintf("worker-%d", i), name+"-channel", node)
+		}
+		for i, node := range nodes {
+			waitKWOKClaimPod(ctx, h, ns, fmt.Sprintf("worker-%d", i), node)
+		}
+		waitDomain := func(want string, members []string) {
+			GinkgoHelper()
+			Eventually(func(g Gomega) {
+				var cd computeDomain
+				g.Expect(h.Kube.GetJSON(ctx, &cd, "computedomain", name, "-n", ns, "--show-managed-fields")).To(Succeed())
+				g.Expect(cd.Status.Status).To(Equal(want))
+				g.Expect(cd.nodeNames()).To(ConsistOf(members))
+				g.Expect(cd.Metadata.ManagedFields).To(ContainElement(And(HaveField("Manager", "compute-domain-controller"), HaveField("Subresource", "status"))))
+				clique, ok, err := h.Kube.NodeLabel(ctx, members[0], "nvidia.com/gpu.clique")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(ok).To(BeTrue())
+				g.Expect(cd.cliques()).To(ConsistOf(clique))
+				g.Expect(daemonNodes(ctx, g, h, cd.Metadata.UID, true)).To(ConsistOf(members))
+			}).WithContext(ctx).WithTimeout(config.OperandSettleTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
+		}
+		waitDomain("Ready", nodes)
+		out, err := h.Kube.KubectlCombined(ctx, "delete", "pod", "worker-3", "-n", ns, "--timeout=1m")
+		Expect(err).NotTo(HaveOccurred(), out)
+		waitDomain("NotReady", nodes[:3])
+	})
+})

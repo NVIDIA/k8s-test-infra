@@ -60,7 +60,7 @@ func TestComputeDomainManifests(t *testing.T) {
 			} `json:"channel"`
 		} `json:"spec"`
 	}
-	require.NoError(t, yaml.Unmarshal(computeDomainManifest("rack-1", 2, "All"), &cd))
+	require.NoError(t, yaml.Unmarshal(computeDomainManifest(cdNamespace, "rack-1", 2, "All"), &cd))
 	require.Equal(t, "ComputeDomain", cd.Kind)
 	require.Equal(t, 2, cd.Spec.NumNodes)
 	require.Equal(t, "All", cd.Spec.Channel.AllocationMode)

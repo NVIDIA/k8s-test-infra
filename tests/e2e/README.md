@@ -108,6 +108,20 @@ The setup uses KWOK v0.8.0 with its controller and default fast Stages.
 Repeat `make e2e-kwok` to check the running cluster. Remove the test cluster
 with `make cluster-delete KIND_CLUSTER_NAME=mokka-kwok-e2e`.
 
+## KWOK DRA and ComputeDomain
+
+Use a separate kind cluster for the DRA scenarios. Setup installs the NVIDIA
+driver version pinned in the version matrix and creates one NVLink rack with
+four virtual Nodes. The GPU test compares each Pod's recorded GPU UUID with
+its scheduler allocation. The ComputeDomain test waits for NVIDIA's controller
+to report four ready Nodes and then removes one workload to check release.
+
+```bash
+make cluster-create KIND_CLUSTER_NAME=mokka-kwok-dra KIND_CLUSTER_CONFIG=tests/e2e/kind-dra-config.yaml
+make e2e-kwok-setup KWOK_E2E_CLUSTER=mokka-kwok-dra KWOK_E2E_MODE=dra
+make e2e-kwok-dra KWOK_E2E_CLUSTER=mokka-kwok-dra
+```
+
 ## Getting started
 
 ### Prerequisites
