@@ -16,14 +16,14 @@ spec:
   vpd:
     identities: {VU: asic}
   functionTypes:
-    vf:
+    - name: vf
       vendorID: "15b3"
       deviceID: "101e"
       driver: mlx5_core
       rdmaNamePrefix: mlx5_
       vpd: true
       vpdOmit: [VU]
-    dataDirect:
+    - name: dataDirect
       vendorID: "15b3"
       deviceID: "2100"
       driver: mlx5_ib

@@ -4,10 +4,12 @@
 package state
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/nic/declaration"
@@ -24,6 +27,9 @@ import (
 const (
 	chartNICs    = "../../../deployments/nvml-mock/helm/nvml-mock/nics"
 	rackFixtures = "../testdata/rackprofiles"
+	// inventoryFixtures holds, for a rack fixture that runs other than its
+	// profiles' defaults, the inventory that selects its configurations.
+	inventoryFixtures = "../testdata/inventories"
 )
 
 func loadProfiles(t *testing.T) declaration.Profiles {
@@ -50,11 +56,33 @@ func loadRack(t *testing.T, name string) *v1alpha1.SGPURackProfile {
 	return r
 }
 
-// input is the declaration of one Node of a rack fixture.
+// choices are the configuration choices of the rack group that runs a rack
+// fixture, from its inventory fixture, or none when it has none.
+func choices(t *testing.T, rack string) []v1alpha1.NICConfigurationChoice {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(inventoryFixtures, rack+".yaml"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	require.NoError(t, err)
+	var inv v1alpha1.SGPUInventory
+	require.NoError(t, yaml.UnmarshalStrict(data, &inv))
+	for _, g := range inv.Spec.RackGroups {
+		if g.ProfileRef.Name == rack {
+			return g.NICConfigurations
+		}
+	}
+	require.Failf(t, "no rack group", "%s names no rack group for %s", inventoryFixtures, rack)
+	return nil
+}
+
+// input is the declaration of one Node of a rack fixture, as its inventory
+// fixture runs it.
 func input(t *testing.T, rack string, node Node) Input {
 	t.Helper()
 	r := loadRack(t, rack)
-	return Input{Node: node, Topology: r.Spec.Node.Topology, RDMA: r.Spec.Software.RDMA, Profiles: loadProfiles(t)}
+	return Input{Node: node, Topology: r.Spec.Node.Topology, Configurations: choices(t, rack), RDMA: r.Spec.Software.RDMA,
+		Profiles: loadProfiles(t)}
 }
 
 func resolve(t *testing.T, in Input) *NICs {
@@ -173,49 +201,41 @@ func TestResolveSystemImageGUIDFromNamedDevice(t *testing.T) {
 	}
 }
 
-// TestSelectionOrder checks that a slot runs the rack group's override, then
-// its own configuration, then its profile's default, and that an unknown
-// profile or configuration is rejected.
+// TestSelectionOrder checks that a slot runs the configuration a choice
+// selects, else its profile's default, always at the profile's firmware
+// version, and that an unknown configuration is rejected.
 func TestSelectionOrder(t *testing.T) {
 	t.Parallel()
 	base := input(t, "gb300-nvl72", FileNode("node-a"))
-	configuration := func(in Input, slot string) string {
-		return instance(t, resolve(t, in), slot).Configuration
+	require.Equal(t, "ib-xdr-4plane", instance(t, resolve(t, base), "nic0").Configuration, "the profile's default")
+
+	chosen := base
+	chosen.Configurations = []v1alpha1.NICConfigurationChoice{{Slots: []string{"nic0", "nic1"}, Configuration: "eth-multiplane"}}
+	n := resolve(t, chosen)
+	require.Equal(t, "eth-multiplane", instance(t, n, "nic0").Configuration, "the choice")
+	require.Equal(t, "ib-xdr-4plane", instance(t, n, "nic2").Configuration, "a slot no choice names")
+	for _, addr := range []string{"0000:03:00.0", "0010:03:00.0"} {
+		require.Equal(t, "40.47.3576", deviceOn(t, n, addr).FirmwareVersion, "the profile's firmware, chosen or not")
 	}
 
-	require.Equal(t, "ib-xdr-4plane", configuration(base, "nic0"), "the profile's default")
-
-	withSlot := base
-	withSlot.Topology = base.Topology.DeepCopy()
-	withSlot.Topology.NICs[0].Configuration = "eth-multiplane"
-	require.Equal(t, "eth-multiplane", configuration(withSlot, "nic0"), "the slot's configuration")
-
-	withOverride := withSlot
-	withOverride.Overrides = []v1alpha1.NICOverride{{Slots: []string{"nic0", "nic1"}, Configuration: "ib-xdr-4plane", FirmwareVersion: "40.48.1102"}}
-	n := resolve(t, withOverride)
-	require.Equal(t, "ib-xdr-4plane", instance(t, n, "nic0").Configuration, "the override wins over the slot")
-	require.Equal(t, "40.48.1102", deviceOn(t, n, "0000:03:00.0").FirmwareVersion)
-	require.Equal(t, "40.47.3576", deviceOn(t, n, "0010:03:00.0").FirmwareVersion, "a slot the override doesn't name")
-
 	unknown := base
-	unknown.Overrides = []v1alpha1.NICOverride{{Slots: []string{"nic0"}, Configuration: "eth-2x400"}}
+	unknown.Configurations = []v1alpha1.NICConfigurationChoice{{Slots: []string{"nic0"}, Configuration: "eth-2x400"}}
 	_, err := Resolve(unknown)
-	require.ErrorContains(t, err, `profile cx8-c8280z has no configuration "eth-2x400"`)
-
-	unknown.Overrides = []v1alpha1.NICOverride{{Slots: []string{"nic0"}, Profile: "cx9-nonexistent"}}
-	_, err = Resolve(unknown)
-	require.ErrorContains(t, err, `unknown profile "cx9-nonexistent"`)
+	require.ErrorContains(t, err, `profile cx8-c8280z of slot nic0 has no configuration "eth-2x400"`)
 }
 
 // TestConfigurationSwitch checks that selecting another configuration changes
 // a NIC's functions and nothing in its placement: GB300's first ConnectX-8
 // goes from one InfiniBand PF to four Ethernet PFs at the same PCI device,
-// and its Data Direct function stays where it was.
+// and its Data Direct function stays where it was. A switch re-probes every
+// NIC on the Node, so the other NICs come back at the same addresses with the
+// same identifiers; only their RDMA device names may shift, since names
+// follow PCI order.
 func TestConfigurationSwitch(t *testing.T) {
 	t.Parallel()
 	in := input(t, "gb300-nvl72", FileNode("node-a"))
 	before := resolve(t, in)
-	in.Overrides = []v1alpha1.NICOverride{{Slots: []string{"nic0"}, Configuration: "eth-multiplane"}}
+	in.Configurations = []v1alpha1.NICConfigurationChoice{{Slots: []string{"nic0"}, Configuration: "eth-multiplane"}}
 	after := resolve(t, in)
 
 	require.Equal(t, "0x020700", functionAt(t, before, "0000:03:00.0").Class)
@@ -228,11 +248,29 @@ func TestConfigurationSwitch(t *testing.T) {
 		deviceOn(t, after, addr)
 	}
 	require.Equal(t, functionAt(t, before, "0009:03:00.0"), functionAt(t, after, "0009:03:00.0"), "the Data Direct function doesn't move")
-	require.Equal(t, "0x020700", functionAt(t, after, "0002:03:00.0").Class, "the other NICs keep their configuration")
 	// Four Ethernet netdevs replace PF0's IPoIB netdev.
 	require.Len(t, after.Netdevs, len(before.Netdevs)+3)
 	// PF0 sits where it sat, so its RDMA device keeps its GUID, as on hardware.
 	require.Equal(t, deviceOn(t, before, "0000:03:00.0").NodeGUID, deviceOn(t, after, "0000:03:00.0").NodeGUID)
+
+	unnamed := func(d RDMADevice) RDMADevice {
+		d.Name = ""
+		return d
+	}
+	others := 0
+	for _, f := range before.Functions {
+		if f.Slot == "nic0" {
+			continue
+		}
+		others++
+		require.Equal(t, f, functionAt(t, after, f.Address), "another NIC's function %s", f.Address)
+	}
+	for _, d := range before.Devices {
+		if d.Slot != "nic0" {
+			require.Equal(t, unnamed(d), unnamed(deviceOn(t, after, d.Function)), "another NIC's RDMA device on %s", d.Function)
+		}
+	}
+	require.Positive(t, others)
 }
 
 // identifiers lists every generated identifier on a Node by kind.

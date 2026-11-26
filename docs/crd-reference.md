@@ -520,6 +520,24 @@ _Appears in:_
 | `rdmaDevices` _[NICRDMADevice](#nicrdmadevice) array_ | RDMADevices are the RDMA devices the driver creates. |  | Optional: \{\} <br /> |
 
 
+#### NICConfigurationChoice
+
+
+
+NICConfigurationChoice selects one configuration for NIC slots of a rack
+profile. Only the choice lives here; the configuration is the profile's.
+
+
+
+_Appears in:_
+- [RackGroup](#rackgroup)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `slots` _string array_ | Slots are the names of the slots that run the configuration. A slot<br />appears in one choice at most. |  | MinItems: 1 <br />items:MinLength: 1 <br /> |
+| `configuration` _string_ | Configuration is one of the configurations of every listed slot's<br />profile. |  | MinLength: 1 <br /> |
+
+
 #### NICDevicePlacement
 
 
@@ -534,6 +552,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `name` _string_ | Name is the PCI device the configurations' functions name in their<br />pciDevice, such as network or hostA. |  | MinLength: 1 <br /> |
 | `rootComplex` _string_ | RootComplex is the root complex, such as pci0009:00. A GPU slot naming<br />the same root complex shares it. |  | Pattern: `^pci[0-9a-f]\{4\}:[0-9a-f]\{2\}$` <br /> |
 | `bridges` _[PCIBridge](#pcibridge) array_ | Bridges are the NIC's switch ports above or beside the device, parents<br />first. A GPU slot may name one as its parent. |  | Optional: \{\} <br /> |
 | `address` _string_ | Address is the device's DDDD:BB:DD address. |  | Pattern: `^[0-9a-f]\{4\}:[0-9a-f]\{2\}:[0-9a-f]\{2\}$` <br /> |
@@ -577,6 +596,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `name` _string_ | Name is what a function's type and a vfType refer to, such as network. |  | MinLength: 1 <br /> |
 | `vendorID` _string_ | VendorID is four lowercase hex digits, without 0x. |  | Pattern: `^[0-9a-f]\{4\}$` <br /> |
 | `deviceID` _string_ | DeviceID is four lowercase hex digits, without 0x. |  | Pattern: `^[0-9a-f]\{4\}$` <br /> |
 | `subsystemVendorID` _string_ | SubsystemVendorID is four lowercase hex digits; empty means 0000. |  | Pattern: `^[0-9a-f]\{4\}$` <br />Optional: \{\} <br /> |
@@ -615,27 +635,6 @@ _Appears in:_
 | `partNumber` _string_ | PartNumber is the board part number and the default for VPD PN. |  | Optional: \{\} <br /> |
 | `hwRev` _string_ | HWRev is the RDMA hw_rev and the ibv_devinfo hw_ver; empty means 0x0. |  | Pattern: `^0x[0-9a-fA-F]+$` <br />Optional: \{\} <br /> |
 | `vendorOUI` _string_ | VendorOUI is the IEEE OUI verbs report as vendor_id, such as "0x02c9". |  | Pattern: `^0x[0-9a-f]+$` <br />Optional: \{\} <br /> |
-
-
-#### NICOverride
-
-
-
-NICOverride changes NIC slots of a rack profile for one rack group.
-
-
-
-_Appears in:_
-- [RackGroup](#rackgroup)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `slots` _string array_ | Slots are the names of the slots the override applies to. |  | MinItems: 1 <br /> |
-| `profile` _string_ | Profile replaces the slot's profile. The slot's configuration, firmware<br />version, VPD and a systemImageGUID that names an RDMA device belong to<br />the old model, so they no longer apply; the new profile's own do, unless<br />this override sets them. A distinct systemImageGUID carries over. |  | Optional: \{\} <br /> |
-| `configuration` _string_ | Configuration replaces the slot's configuration. |  | Optional: \{\} <br /> |
-| `firmwareVersion` _string_ | FirmwareVersion replaces the slot's firmware version. |  | Optional: \{\} <br /> |
-| `vpd` _object (keys:string, values:string)_ | VPD overrides model VPD keywords, on top of the slot's own overrides. |  | Optional: \{\} <br /> |
-| `systemImageGUID` _string_ | SystemImageGUID replaces the slot's systemImageGUID: "distinct", or an<br />RDMA device of the selected configuration. |  | Optional: \{\} <br /> |
 
 
 #### NICPCIeLink
@@ -701,8 +700,9 @@ _Appears in:_
 
 
 
-NICSlot is one NIC instance on a Node. It names the profile and selects one
-of its configurations; configuration data never lives in the slot.
+NICSlot is one NIC instance on a Node. It names the profile and places its
+PCI devices; the configuration it runs is the cluster's choice, made in the
+SGPUInventory, and configuration data never lives in the slot.
 
 
 
@@ -713,13 +713,11 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `slot` _string_ | Slot names the instance, unique per Node, such as nic0 or frontend0. |  | MaxLength: 63 <br />MinLength: 1 <br /> |
 | `profile` _string_ | Profile is the name of an SNICProfile. |  | MinLength: 1 <br /> |
-| `configuration` _string_ | Configuration is one of the profile's configurations; empty means its<br />default. |  | Optional: \{\} <br /> |
 | `board` _integer_ | Board groups the slots whose ASICs share one physical board. Board<br />numbers are Node-wide. |  | Minimum: 0 <br />Optional: \{\} <br /> |
 | `systemImageGUID` _string_ | SystemImageGUID is the system image GUID of the NIC's RDMA devices:<br />empty for the node GUID of its lowest-addressed RDMA device, an RDMA<br />device ID for that device's node GUID, or "distinct" for a GUID that is<br />no device's node GUID. |  | Optional: \{\} <br /> |
 | `gpus` _integer array_ | GPUs are the indexes of the GPUs the NIC serves. They record locality;<br />they don't restrict which GPUs may use the NIC. |  | items:Maximum: 63 <br />items:Minimum: 0 <br />Optional: \{\} <br /> |
-| `firmwareVersion` _string_ | FirmwareVersion overrides the profile's identity.firmwareVersion. |  | Optional: \{\} <br /> |
 | `vpd` _object (keys:string, values:string)_ | VPD overrides model VPD keywords, such as EC. |  | Optional: \{\} <br /> |
-| `devices` _object (keys:string, values:[NICDevicePlacement](#nicdeviceplacement))_ | Devices places each PCI device the profile's configurations name. One<br />NIC's devices may sit under different root complexes. |  | MinProperties: 1 <br /> |
+| `devices` _[NICDevicePlacement](#nicdeviceplacement) array_ | Devices places each PCI device the profile's configurations name. One<br />NIC's devices may sit under different root complexes. |  | MinItems: 1 <br /> |
 
 
 #### NICTechnology
@@ -958,7 +956,7 @@ _Appears in:_
 | `count` _integer_ | Count is the number of racks to materialize from this group. |  | Maximum: 100000 <br />Minimum: 1 <br /> |
 | `profileRef` _[ProfileReference](#profilereference)_ | ProfileRef names the rack profile used to materialize each rack. |  |  |
 | `placement` _[RackPlacement](#rackplacement)_ | Placement optionally restricts the Nodes eligible for this rack group. |  | Optional: \{\} <br /> |
-| `nicOverrides` _[NICOverride](#nicoverride) array_ | NICOverrides replace the profile, configuration, firmware or VPD of NIC<br />slots for this group's racks, so groups sharing a rack profile can run<br />other NICs or modes. Overrides apply in order; a later one wins for a<br />field both set. |  | Optional: \{\} <br /> |
+| `nicConfigurations` _[NICConfigurationChoice](#nicconfigurationchoice) array_ | NICConfigurations select the configuration NIC slots of this group's<br />racks run, so groups sharing a rack profile can run their NICs in other<br />modes. A slot no entry names runs its profile's default configuration. |  | Optional: \{\} <br /> |
 
 
 #### RackGroupStatus
@@ -1564,8 +1562,8 @@ _Appears in:_
 | `sources` _string array_ | Sources cites the captures or documents the values come from. |  | Optional: \{\} <br /> |
 | `switchPort` _[PCIID](#pciid)_ | SwitchPort identifies the ports of the NIC's own PCIe switch, which slots<br />place as bridges. |  | Optional: \{\} <br /> |
 | `vpd` _[NICVPD](#nicvpd)_ | VPD is the vital product data of the functions whose type has vpd set. |  | Optional: \{\} <br /> |
-| `functionTypes` _object (keys:string, values:[NICFunctionType](#nicfunctiontype))_ | FunctionTypes are the kinds of PCI function the NIC can expose, keyed by<br />the name configurations use. |  | MinProperties: 1 <br /> |
-| `defaultConfiguration` _string_ | DefaultConfiguration names the configuration used when neither the<br />cluster nor the slot selects one. |  | MinLength: 1 <br /> |
+| `functionTypes` _[NICFunctionType](#nicfunctiontype) array_ | FunctionTypes are the kinds of PCI function the NIC can expose, each<br />named for the configurations to refer to. |  | MinItems: 1 <br /> |
+| `defaultConfiguration` _string_ | DefaultConfiguration names the configuration a slot runs when the<br />cluster selects none. |  | MinLength: 1 <br /> |
 | `configurations` _[NICConfiguration](#nicconfiguration) array_ | Configurations are the firmware configurations the card can run, each<br />declared as its result. |  | MinItems: 1 <br /> |
 
 

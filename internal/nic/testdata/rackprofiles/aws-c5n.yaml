@@ -13,4 +13,4 @@ spec:
         - slot: efa0
           profile: efa-c5n
           devices:
-            efa: {rootComplex: pci0000:00, address: "0000:00:1f", numaNode: -1}
+            - {name: efa, rootComplex: pci0000:00, address: "0000:00:1f", numaNode: -1}

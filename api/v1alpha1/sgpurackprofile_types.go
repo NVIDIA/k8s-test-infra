@@ -465,8 +465,9 @@ type SGPUTopology struct {
 // is no device's node GUID.
 const SystemImageGUIDDistinct = "distinct"
 
-// NICSlot is one NIC instance on a Node. It names the profile and selects one
-// of its configurations; configuration data never lives in the slot.
+// NICSlot is one NIC instance on a Node. It names the profile and places its
+// PCI devices; the configuration it runs is the cluster's choice, made in the
+// SGPUInventory, and configuration data never lives in the slot.
 type NICSlot struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
@@ -476,11 +477,6 @@ type NICSlot struct {
 	// +kubebuilder:validation:MinLength=1
 	// Profile is the name of an SNICProfile.
 	Profile string `json:"profile"`
-
-	// +optional
-	// Configuration is one of the profile's configurations; empty means its
-	// default.
-	Configuration string `json:"configuration,omitempty"`
 
 	// +optional
 	// +kubebuilder:validation:Minimum=0
@@ -504,22 +500,35 @@ type NICSlot struct {
 	GPUs []int32 `json:"gpus,omitempty"`
 
 	// +optional
-	// FirmwareVersion overrides the profile's identity.firmwareVersion.
-	FirmwareVersion string `json:"firmwareVersion,omitempty"`
-
-	// +optional
 	// VPD overrides model VPD keywords, such as EC.
 	VPD map[string]string `json:"vpd,omitempty"`
 
-	// +kubebuilder:validation:MinProperties=1
+	// +kubebuilder:validation:MinItems=1
+	// +listType=map
+	// +listMapKey=name
 	// Devices places each PCI device the profile's configurations name. One
 	// NIC's devices may sit under different root complexes.
-	Devices map[string]NICDevicePlacement `json:"devices"`
+	Devices []NICDevicePlacement `json:"devices"`
+}
+
+// Device returns the placement of the PCI device with the given name.
+func (s *NICSlot) Device(name string) (*NICDevicePlacement, bool) {
+	for i := range s.Devices {
+		if s.Devices[i].Name == name {
+			return &s.Devices[i], true
+		}
+	}
+	return nil, false
 }
 
 // NICDevicePlacement places one PCI device of a NIC. Function numbers come
 // from the configuration, so switching configuration never moves a device.
 type NICDevicePlacement struct {
+	// +kubebuilder:validation:MinLength=1
+	// Name is the PCI device the configurations' functions name in their
+	// pciDevice, such as network or hostA.
+	Name string `json:"name"`
+
 	// +kubebuilder:validation:Pattern=`^pci[0-9a-f]{4}:[0-9a-f]{2}$`
 	// RootComplex is the root complex, such as pci0009:00. A GPU slot naming
 	// the same root complex shares it.

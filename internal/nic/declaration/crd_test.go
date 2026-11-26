@@ -65,9 +65,8 @@ func TestShapesMatchTheCRD(t *testing.T) {
 	}
 
 	setType := func(p *v1alpha1.SNICProfile, mutate func(*v1alpha1.NICFunctionType)) {
-		ft := p.Spec.FunctionTypes["network"]
-		mutate(&ft)
-		p.Spec.FunctionTypes["network"] = ft
+		ft, _ := p.Spec.FunctionType("network")
+		mutate(ft)
 	}
 	port := func(p *v1alpha1.SNICProfile) *v1alpha1.NICPort { return &p.Spec.Configurations[0].Ports[0] }
 	function := func(p *v1alpha1.SNICProfile) *v1alpha1.NICFunction { return &p.Spec.Configurations[0].Functions[0] }
@@ -154,8 +153,8 @@ func TestSlotShapesMatchTheCRD(t *testing.T) {
 		r.Spec.Node.Topology.RootPorts = append(r.Spec.Node.Topology.RootPorts, v1alpha1.RootPort{Address: "0000:20:00.0", RootComplex: "pci0000:20"})
 		r.Spec.Node.Topology.NICs = []v1alpha1.NICSlot{{
 			Slot: "efa0", Profile: "efa-c5n", Board: ptr[int32](0), GPUs: []int32{0},
-			Devices: map[string]v1alpha1.NICDevicePlacement{
-				"efa": {RootComplex: "pci0000:00", Address: "0000:00:1f", NUMANode: -1},
+			Devices: []v1alpha1.NICDevicePlacement{
+				{Name: "efa", RootComplex: "pci0000:00", Address: "0000:00:1f", NUMANode: -1},
 			},
 		}}
 		return &r
@@ -168,9 +167,8 @@ func TestSlotShapesMatchTheCRD(t *testing.T) {
 	require.NoError(t, goErr(r))
 
 	device := func(r *v1alpha1.SGPURackProfile, mutate func(*v1alpha1.NICDevicePlacement)) {
-		d := r.Spec.Node.Topology.NICs[0].Devices["efa"]
-		mutate(&d)
-		r.Spec.Node.Topology.NICs[0].Devices["efa"] = d
+		d, _ := r.Spec.Node.Topology.NICs[0].Device("efa")
+		mutate(d)
 	}
 	for name, mutate := range map[string]func(*v1alpha1.SGPURackProfile){
 		"slot name empty": func(r *v1alpha1.SGPURackProfile) { r.Spec.Node.Topology.NICs[0].Slot = "" },
@@ -278,12 +276,20 @@ func TestRawDocumentsMatchTheCRD(t *testing.T) {
 			s := get(r, "spec").(map[string]any)
 			s["configurations"] = append(s["configurations"].([]any), get(r, "spec.configurations.0"))
 		}},
+		"function type repeated": {mutate: func(r map[string]any) {
+			s := get(r, "spec").(map[string]any)
+			s["functionTypes"] = append(s["functionTypes"].([]any), get(r, "spec.functionTypes.0"))
+		}},
 		"rack as shipped": {rack: true, valid: true, mutate: func(map[string]any) {}},
 		"numaNode omitted": {rack: true, mutate: func(r map[string]any) {
-			delete(get(r, slot+".devices.hostA").(map[string]any), "numaNode")
+			delete(get(r, slot+".devices.0").(map[string]any), "numaNode")
 		}},
 		"numaNode zero": {rack: true, valid: true, mutate: func(r map[string]any) {
-			get(r, slot+".devices.hostA").(map[string]any)["numaNode"] = 0
+			get(r, slot+".devices.0").(map[string]any)["numaNode"] = 0
+		}},
+		"device repeated": {rack: true, mutate: func(r map[string]any) {
+			s := get(r, slot).(map[string]any)
+			s["devices"] = append(s["devices"].([]any), get(r, slot+".devices.0"))
 		}},
 		"a slot's GPU repeated": {rack: true, mutate: func(r map[string]any) { get(r, slot).(map[string]any)["gpus"] = []any{0, 0} }},
 		"slot repeated": {rack: true, mutate: func(r map[string]any) {

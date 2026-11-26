@@ -25,8 +25,12 @@ func ValidateProfile(p *v1alpha1.SNICProfile) error {
 	validateIdentity(&pr, s)
 	validateVPD(&pr, s.VPD)
 	pr.check(len(s.FunctionTypes) > 0, "no functionTypes")
-	for _, name := range slices.Sorted(maps.Keys(s.FunctionTypes)) {
-		validateFunctionType(&pr, name, s.FunctionTypes)
+	names := map[string]bool{}
+	for i := range s.FunctionTypes {
+		name := s.FunctionTypes[i].Name
+		pr.check(name != "" && !names[name], "function type name %q is empty or used twice", name)
+		names[name] = true
+		validateFunctionType(&pr, &s.FunctionTypes[i], s)
 	}
 	validateConfigurations(&pr, s)
 	return pr.err()
@@ -58,8 +62,8 @@ func validateVPD(pr *problems, v *v1alpha1.NICVPD) {
 	}
 }
 
-func validateFunctionType(pr *problems, name string, types map[string]v1alpha1.NICFunctionType) {
-	ft := types[name]
+func validateFunctionType(pr *problems, ft *v1alpha1.NICFunctionType, s *v1alpha1.SNICProfileSpec) {
+	name := ft.Name
 	where := "functionTypes." + name
 	checkPCIID(pr, where, v1alpha1.PCIID{VendorID: ft.VendorID, DeviceID: ft.DeviceID})
 	// Either subsystem ID may be left out, and is then 0000.
@@ -71,10 +75,10 @@ func validateFunctionType(pr *problems, name string, types map[string]v1alpha1.N
 		pr.check(l.Speed != "" && l.Width >= 0 && l.MaxWidth >= 0,
 			"%s: pcieLink needs a speed and widths that aren't negative", where)
 	}
-	validateRDMAAttributes(pr, where, &ft)
+	validateRDMAAttributes(pr, where, ft)
 	pr.check(ft.TotalVFs >= 0, "%s: totalVFs is negative", where)
 	if ft.VFType != "" {
-		_, known := types[ft.VFType]
+		_, known := s.FunctionType(ft.VFType)
 		pr.check(known && ft.VFType != name, "%s: vfType %q is not another function type", where, ft.VFType)
 		pr.check(ft.TotalVFs > 0, "%s: vfType needs totalVFs", where)
 	}
@@ -99,7 +103,7 @@ func validateConfigurations(pr *problems, s *v1alpha1.SNICProfileSpec) {
 
 		where := "configuration " + c.Name
 		ports := validatePorts(pr, where, c.Ports)
-		functions := validateFunctions(pr, where, c.Functions, ports, s.FunctionTypes)
+		functions := validateFunctions(pr, where, c.Functions, ports, s)
 		validatePortOwners(pr, where, c)
 		validateRDMADevices(pr, where, c.RDMADevices, ports, functions)
 	}
@@ -126,7 +130,7 @@ func validatePorts(pr *problems, where string, ports []v1alpha1.NICPort) map[str
 // validateFunctions checks a configuration's functions and returns the ports
 // each owns, by function ID.
 func validateFunctions(pr *problems, where string, functions []v1alpha1.NICFunction, ports map[string]bool,
-	types map[string]v1alpha1.NICFunctionType) map[string][]string {
+	s *v1alpha1.SNICProfileSpec) map[string][]string {
 	pr.check(len(functions) > 0, "%s: no functions", where)
 	ids := map[string][]string{}
 	numbers := map[string]bool{} // PCI device + "." + function number
@@ -134,7 +138,7 @@ func validateFunctions(pr *problems, where string, functions []v1alpha1.NICFunct
 		_, dup := ids[f.ID]
 		pr.check(f.ID != "" && !dup, "%s: function ID %q is empty or used twice", where, f.ID)
 		ids[f.ID] = f.Ports
-		_, knownType := types[f.Type]
+		_, knownType := s.FunctionType(f.Type)
 		pr.check(knownType, "%s: function %s: unknown type %q", where, f.ID, f.Type)
 		pr.check(f.PCIDevice != "", "%s: function %s: pciDevice is empty", where, f.ID)
 		pr.check(f.Function >= 0 && f.Function <= 7, "%s: function %s: function number %d is out of range", where, f.ID, f.Function)

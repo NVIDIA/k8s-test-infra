@@ -739,8 +739,9 @@ spec:
                           configuration it runs and where each of its PCI devices sits.
                         items:
                           description: |-
-                            NICSlot is one NIC instance on a Node. It names the profile and selects one
-                            of its configurations; configuration data never lives in the slot.
+                            NICSlot is one NIC instance on a Node. It names the profile and places its
+                            PCI devices; the configuration it runs is the cluster's choice, made in the
+                            SGPUInventory, and configuration data never lives in the slot.
                           properties:
                             board:
                               description: |-
@@ -749,13 +750,11 @@ spec:
                               format: int32
                               minimum: 0
                               type: integer
-                            configuration:
-                              description: |-
-                                Configuration is one of the profile's configurations; empty means its
-                                default.
-                              type: string
                             devices:
-                              additionalProperties:
+                              description: |-
+                                Devices places each PCI device the profile's configurations name. One
+                                NIC's devices may sit under different root complexes.
+                              items:
                                 description: |-
                                   NICDevicePlacement places one PCI device of a NIC. Function numbers come
                                   from the configuration, so switching configuration never moves a device.
@@ -788,6 +787,12 @@ spec:
                                       type: object
                                     type: array
                                     x-kubernetes-list-type: atomic
+                                  name:
+                                    description: |-
+                                      Name is the PCI device the configurations' functions name in their
+                                      pciDevice, such as network or hostA.
+                                    minLength: 1
+                                    type: string
                                   numaNode:
                                     description: NUMANode is the device's NUMA node;
                                       -1 means unknown.
@@ -813,18 +818,15 @@ spec:
                                     type: string
                                 required:
                                 - address
+                                - name
                                 - numaNode
                                 - rootComplex
                                 type: object
-                              description: |-
-                                Devices places each PCI device the profile's configurations name. One
-                                NIC's devices may sit under different root complexes.
-                              minProperties: 1
-                              type: object
-                            firmwareVersion:
-                              description: FirmwareVersion overrides the profile's
-                                identity.firmwareVersion.
-                              type: string
+                              minItems: 1
+                              type: array
+                              x-kubernetes-list-map-keys:
+                              - name
+                              x-kubernetes-list-type: map
                             gpus:
                               description: |-
                                 GPUs are the indexes of the GPUs the NIC serves. They record locality;

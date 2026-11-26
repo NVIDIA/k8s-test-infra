@@ -132,8 +132,9 @@ func CanonicalProfileJSON(spec mokkav1alpha1.SGPURackProfileSpec) ([]byte, error
 	slices.SortFunc(topology.GPUSlots, func(a, b mokkav1alpha1.GPUSlot) int {
 		return cmp.Compare(a.Index, b.Index)
 	})
-	// Root ports and NIC slots are map lists and a slot's GPUs a set, so their
-	// order means nothing; bridges are ordered parents first, so they keep it.
+	// Root ports, NIC slots and a slot's devices are map lists and a slot's
+	// GPUs a set, so their order means nothing; bridges are ordered parents
+	// first, so they keep it.
 	slices.SortFunc(topology.RootPorts, func(a, b mokkav1alpha1.RootPort) int {
 		return cmp.Compare(a.Address, b.Address)
 	})
@@ -142,6 +143,9 @@ func CanonicalProfileJSON(spec mokkav1alpha1.SGPURackProfileSpec) ([]byte, error
 	})
 	for i := range topology.NICs {
 		slices.Sort(topology.NICs[i].GPUs)
+		slices.SortFunc(topology.NICs[i].Devices, func(a, b mokkav1alpha1.NICDevicePlacement) int {
+			return cmp.Compare(a.Name, b.Name)
+		})
 	}
 	if canonical.Node.GPUs.Clocks != nil {
 		for i := range canonical.Node.GPUs.Clocks.Supported {

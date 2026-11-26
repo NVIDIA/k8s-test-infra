@@ -6,6 +6,7 @@ package rackrender
 import (
 	"fmt"
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -174,8 +175,11 @@ func TestProfileRevisionIgnoresNICOrder(t *testing.T) {
 	topology.RootPorts = []mokkav1alpha1.RootPort{
 		{Address: "0000:00:01.0", RootComplex: "pci0000:00"}, {Address: "0000:00:02.0", RootComplex: "pci0000:00"},
 	}
-	device := func(addr, parent string) map[string]mokkav1alpha1.NICDevicePlacement {
-		return map[string]mokkav1alpha1.NICDevicePlacement{"network": {RootComplex: "pci0000:00", Address: addr, Parent: parent}}
+	device := func(addr, parent string) []mokkav1alpha1.NICDevicePlacement {
+		return []mokkav1alpha1.NICDevicePlacement{
+			{Name: "network", RootComplex: "pci0000:00", Address: addr, Parent: parent},
+			{Name: "dataDirect", RootComplex: "pci0000:00", Address: "0000:05:00", Parent: parent},
+		}
 	}
 	topology.NICs = []mokkav1alpha1.NICSlot{
 		{Slot: "nic0", Profile: "p", GPUs: []int32{1, 0}, Devices: device("0000:03:00", "0000:00:01.0")},
@@ -189,6 +193,7 @@ func TestProfileRevisionIgnoresNICOrder(t *testing.T) {
 	rt.RootPorts[0], rt.RootPorts[1] = rt.RootPorts[1], rt.RootPorts[0]
 	rt.NICs[0], rt.NICs[1] = rt.NICs[1], rt.NICs[0]
 	rt.NICs[1].GPUs = []int32{0, 1}
+	slices.Reverse(rt.NICs[0].Devices)
 	reorderedRevision, err := ProfileRevision(reordered)
 	require.NoError(t, err)
 	require.Equal(t, revision, reorderedRevision)

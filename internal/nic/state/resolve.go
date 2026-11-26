@@ -32,18 +32,18 @@ type Input struct {
 	Node Node
 	// Topology holds the Node's GPU slots and NIC slots.
 	Topology *v1alpha1.SGPUTopology
-	// Overrides are the rack group's NIC overrides, or the file-mode ones.
-	Overrides []v1alpha1.NICOverride
+	// Configurations are the configuration choices of the Node's rack group,
+	// or the file-mode ones.
+	Configurations []v1alpha1.NICConfigurationChoice
 	// RDMA is the Node image's RDMA stack; nil when the declaration has none.
 	RDMA *v1alpha1.RDMASoftware
 	// Profiles are the NIC profiles, by name.
 	Profiles declaration.Profiles
 }
 
-// Resolve validates a Node's NIC declaration and resolves it: the slots as
-// the overrides leave them, each running its selected configuration (the
-// override's, then the slot's, then the profile's default), with identifiers
-// derived from the Node's coordinates.
+// Resolve validates a Node's NIC declaration and resolves it: each slot
+// running the configuration a choice selects, else its profile's default,
+// with identifiers derived from the Node's coordinates.
 func Resolve(in Input) (*NICs, error) {
 	if in.Topology == nil {
 		return &NICs{RDMA: resolveRDMA(in.RDMA)}, nil
@@ -51,18 +51,17 @@ func Resolve(in Input) (*NICs, error) {
 	if err := validate(in); err != nil {
 		return nil, err
 	}
-	slots, err := declaration.Select(in.Topology.NICs, in.Overrides)
+	configs, err := declaration.Select(in.Topology.NICs, in.Configurations, in.Profiles)
 	if err != nil {
 		return nil, err // validate already rejected this; kept so it can't go unseen
 	}
 
-	r := resolver{node: in.Node, out: &NICs{RDMA: resolveRDMA(in.RDMA)}, tree: newTree(in.Topology, slots, in.Profiles)}
+	r := resolver{node: in.Node, out: &NICs{RDMA: resolveRDMA(in.RDMA)}, tree: newTree(in.Topology, in.Profiles)}
 	r.ipoib = r.out.RDMA.IPoIB
 	r.addTree(in.Topology)
-	for i := range slots {
-		p := in.Profiles[slots[i].Profile]
-		c, _ := p.Spec.Configuration(slots[i].Configuration)
-		r.addSlot(&slots[i], p, c)
+	for i := range in.Topology.NICs {
+		s := &in.Topology.NICs[i]
+		r.addSlot(s, in.Profiles[s.Profile], configs[s.Slot])
 	}
 	r.finish()
 	return r.out, nil
@@ -72,12 +71,11 @@ func Resolve(in Input) (*NICs, error) {
 // resolver can rely on each reference it follows.
 func validate(in Input) error {
 	errs := []error{
-		declaration.ValidateNode(in.Topology, in.Overrides, in.Profiles),
+		declaration.ValidateNode(in.Topology, in.Configurations, in.Profiles),
 		declaration.ValidateRDMA(in.RDMA),
 	}
-	slots, _ := declaration.Select(in.Topology.NICs, in.Overrides)
 	checked := map[string]bool{}
-	for _, s := range slots {
+	for _, s := range in.Topology.NICs {
 		p, ok := in.Profiles[s.Profile]
 		if !ok || checked[s.Profile] {
 			continue
@@ -172,7 +170,7 @@ func (r *resolver) addSlot(s *v1alpha1.NICSlot, p *v1alpha1.SNICProfile, c *v1al
 		Profile:         s.Profile,
 		Configuration:   c.Name,
 		Model:           p.Spec.Identity.Model,
-		FirmwareVersion: cmp.Or(s.FirmwareVersion, p.Spec.Identity.FirmwareVersion),
+		FirmwareVersion: p.Spec.Identity.FirmwareVersion,
 		BoardID:         p.Spec.Identity.BoardID,
 		Board:           s.Board,
 		GPUs:            slices.Sorted(slices.Values(s.GPUs)),
@@ -184,8 +182,7 @@ func (r *resolver) addSlot(s *v1alpha1.NICSlot, p *v1alpha1.SNICProfile, c *v1al
 	}
 	r.systemImage[s.Slot] = s.SystemImageGUID
 
-	for _, name := range slices.Sorted(maps.Keys(s.Devices)) {
-		d := s.Devices[name]
+	for _, d := range s.Devices {
 		for _, b := range d.Bridges {
 			r.out.Bridges = append(r.out.Bridges, Bridge{
 				Address: b.Address, Parent: b.Parent, RootComplex: d.RootComplex, ID: *p.Spec.SwitchPort, Slot: s.Slot,
@@ -208,8 +205,9 @@ func (r *resolver) addSlot(s *v1alpha1.NICSlot, p *v1alpha1.SNICProfile, c *v1al
 
 func (r *resolver) addFunction(inst *Instance, s *v1alpha1.NICSlot, p *v1alpha1.SNICProfile, c *v1alpha1.NICConfiguration,
 	f v1alpha1.NICFunction, multifunction bool) *placedFunction {
-	ft := p.Spec.FunctionTypes[f.Type]
-	d := s.Devices[f.PCIDevice]
+	ftp, _ := p.Spec.FunctionType(f.Type)
+	dp, _ := s.Device(f.PCIDevice)
+	ft, d := *ftp, *dp
 	fn := &Function{
 		Address:     fmt.Sprintf("%s.%d", d.Address, f.Function),
 		Slot:        s.Slot,
@@ -228,7 +226,8 @@ func (r *resolver) addFunction(inst *Instance, s *v1alpha1.NICSlot, p *v1alpha1.
 	}
 	fn.RootPort, fn.RootPortID, fn.Upstream = r.tree.above(d.Parent)
 	if ft.VFType != "" {
-		vf := p.Spec.FunctionTypes[ft.VFType]
+		vfp, _ := p.Spec.FunctionType(ft.VFType)
+		vf := *vfp
 		fn.VF = &VFType{PCI: PCIID{VendorID: vf.VendorID, DeviceID: vf.DeviceID}, Subsystem: subsystem(vf),
 			Revision: vf.Revision, Driver: vf.Driver}
 	}
@@ -326,7 +325,7 @@ func vpdPath(scope v1alpha1.VPDScope, keyword string, s *v1alpha1.NICSlot, d v1a
 
 func (r *resolver) addRDMADevice(inst *Instance, p *v1alpha1.SNICProfile, c *v1alpha1.NICConfiguration,
 	d v1alpha1.NICRDMADevice, fn *placedFunction) {
-	ft := p.Spec.FunctionTypes[fn.Type]
+	ft, _ := p.Spec.FunctionType(fn.Type)
 	id := p.Spec.Identity
 	hwRev := cmp.Or(id.HWRev, defaultHWRev)
 	dev := RDMADevice{
