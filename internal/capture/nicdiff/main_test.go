@@ -375,3 +375,25 @@ func TestARelationIsABlindSpotWhenASideLacksAFileItReads(t *testing.T) {
 	require.Equal(t, notCompared, c.Status, "a GPU against none")
 	require.Equal(t, causeBlindSpot, c.Cause)
 }
+
+// A capture compared with the listing nic-surfaces wrote of it passes: either
+// side of diff nic can be a listing.
+func TestACaptureMatchesItsListing(t *testing.T) {
+	t.Parallel()
+	for _, capture := range []string{"gb300-ib", "gb300-roce"} {
+		t.Run(capture, func(t *testing.T) {
+			t.Parallel()
+			dir := filepath.Join("..", "..", "..", "tests", "hardware-captures", capture, "node-a")
+			n, err := nicsurfaces.Read(dir)
+			require.NoError(t, err)
+			var listing bytes.Buffer
+			require.NoError(t, n.Write(&listing))
+			path := filepath.Join(t.TempDir(), "nic-surfaces.tsv")
+			require.NoError(t, os.WriteFile(path, listing.Bytes(), 0o600))
+
+			var stdout, stderr bytes.Buffer
+			require.Zero(t, run(options{failed: true}, dir, path, &stdout, &stderr), stderr.String())
+			require.Contains(t, stdout.String(), "failed 0)")
+		})
+	}
+}

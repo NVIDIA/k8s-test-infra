@@ -67,6 +67,29 @@ type RackGroup struct {
 	// +optional
 	// Placement optionally restricts the Nodes eligible for this rack group.
 	Placement *RackPlacement `json:"placement,omitempty"`
+
+	// +optional
+	// +listType=atomic
+	// NICConfigurations select the configuration NIC slots of this group's
+	// racks run, so groups sharing a rack profile can run their NICs in other
+	// modes. A slot no entry names runs its profile's default configuration.
+	NICConfigurations []NICConfigurationChoice `json:"nicConfigurations,omitempty"`
+}
+
+// NICConfigurationChoice selects one configuration for NIC slots of a rack
+// profile. Only the choice lives here; the configuration is the profile's.
+type NICConfigurationChoice struct {
+	// +kubebuilder:validation:MinItems=1
+	// +listType=set
+	// +kubebuilder:validation:items:MinLength=1
+	// Slots are the names of the slots that run the configuration. A slot
+	// appears in one choice at most.
+	Slots []string `json:"slots"`
+
+	// +kubebuilder:validation:MinLength=1
+	// Configuration is one of the configurations of every listed slot's
+	// profile.
+	Configuration string `json:"configuration"`
 }
 
 // NodeSelector returns the group's placement Node selector, or nil when none

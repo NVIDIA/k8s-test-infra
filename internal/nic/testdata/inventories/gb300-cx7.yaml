@@ -1,0 +1,15 @@
+# The inventory of the cluster the gb300-roce capture comes from
+# (tests/hardware-captures/gb300-roce/node-a): its rack group runs the
+# ConnectX-8 boards in their Ethernet multi-plane configuration.
+# A fragment of an SGPUInventory: the fields NIC declaration reads.
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SGPUInventory
+metadata:
+  name: gb300-roce
+spec:
+  rackGroups:
+    - id: gb300-roce
+      count: 1
+      profileRef: {name: gb300-cx7}
+      nicConfigurations:
+        - {slots: [nic0, nic1, nic2, nic3], configuration: eth-multiplane}

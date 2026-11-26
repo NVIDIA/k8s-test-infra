@@ -1,0 +1,15 @@
+# Causes of the differences between the Node declared by the vrnvl72 rack
+# fixture and tests/hardware-captures/vr-nvl72/node-a/nic-surfaces.tsv, in the
+# format `mokka-capture diff nic -causes` reads. That listing was converted from
+# an older capture-node directory, so it lacks some records collect network
+# takes.
+
+- match: '^(uverbs|rel\.devnode)(\.\S+)? \S*uverbs/'
+  cause: capture blind spot
+  note: the older capture lists uverbs files but not which RDMA device each serves
+- match: '^(rel\.switch_id(\.\S+)? \S+|net\.phys_switch_id \S+)$|^(rdma\.hw_rev|port\.pkeys|port\.link_local_gid_from_mac|port\.lid_mask_count|pci\.modalias|net\.addr_len|node\.verbs_abi_version|node\.rdma_netns_mode) '
+  cause: capture blind spot
+  note: the older capture-node format does not record it
+- match: '^(net\.mtu net/000d:41:00\.0/p0|ibv\.port\.N\.active_mtu ibv/000d:41:00\.0/dev)$'
+  cause: by design
+  note: cluster networking sets MTU 9000 on the BlueField-4 netdev an OVS bridge uses; active_mtu follows it

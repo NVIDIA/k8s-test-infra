@@ -20,3 +20,7 @@ type SGPURackProfileListerExpansion interface{}
 // SGPURuntimePolicyListerExpansion allows custom methods to be added to
 // SGPURuntimePolicyLister.
 type SGPURuntimePolicyListerExpansion interface{}
+
+// SNICProfileListerExpansion allows custom methods to be added to
+// SNICProfileLister.
+type SNICProfileListerExpansion interface{}

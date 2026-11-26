@@ -32,7 +32,10 @@ reach it keeps working without IMEX; add
 
 ## Verify
 
+Wait until the node pod is ready on every node, then list the GPUs:
+
 ```bash
+kubectl -n mokka rollout status ds/nvml-mock --timeout=5m
 kubectl exec -n mokka ds/nvml-mock -- nvidia-smi -L
 ```
 

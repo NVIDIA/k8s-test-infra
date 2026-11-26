@@ -72,6 +72,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --set nri.enabled=true \
   --set 'nri.excludedNamespaces={gpu-operator}' \
   --wait --timeout 300s
+kubectl -n mokka rollout status ds/nvml-mock --timeout=300s
 ```
 
 `kubectl -n mokka get pods -o wide` should list an `nvml-mock` pod running on

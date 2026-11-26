@@ -19,6 +19,7 @@ type MokkaV1alpha1Interface interface {
 	SGPURacksGetter
 	SGPURackProfilesGetter
 	SGPURuntimePoliciesGetter
+	SNICProfilesGetter
 }
 
 // MokkaV1alpha1Client is used to interact with features provided by the mokka.nvidia.com group.
@@ -40,6 +41,10 @@ func (c *MokkaV1alpha1Client) SGPURackProfiles() SGPURackProfileInterface {
 
 func (c *MokkaV1alpha1Client) SGPURuntimePolicies() SGPURuntimePolicyInterface {
 	return newSGPURuntimePolicies(c)
+}
+
+func (c *MokkaV1alpha1Client) SNICProfiles() SNICProfileInterface {
+	return newSNICProfiles(c)
 }
 
 // NewForConfig creates a new MokkaV1alpha1Client for the given config.

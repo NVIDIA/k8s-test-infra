@@ -59,3 +59,10 @@ func dnsLabel(value string) string {
 	}
 	return strings.Trim(builder.String(), "-")
 }
+
+func appendLengthPrefixed(dst []byte, value string) []byte {
+	var length [4]byte
+	binary.BigEndian.PutUint32(length[:], uint32(len(value)))
+	dst = append(dst, length[:]...)
+	return append(dst, value...)
+}

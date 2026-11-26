@@ -1,0 +1,764 @@
+# not captured: host-lspci-mellanox-vv.txt (the capture predates collect network), rdma-system.txt (the capture predates collect network), rdma-link.txt (the capture predates collect network), sys-module-rdma.txt (the capture predates collect network), net-ecn-qos.txt (the capture predates collect network), net-ethtool.txt (the capture predates collect network), net-ethtool-m.txt (the capture predates collect network), host-ibstat.txt (the capture predates collect network), devlink-dev-info.txt (the capture predates collect network), devlink-port.txt (the capture predates collect network), devlink-eswitch.txt (the capture predates collect network), devlink-health.txt (the capture predates collect network), fw-mlxconfig.txt (the capture predates collect network), fw-flint.txt (the capture predates collect network), cable-mlxlink.txt (the capture predates collect network), smi-topo-m.txt (the capture predates collect network)
+bridge/0001:01:00.0	device	0x197c	pci-nic-sysfs.txt
+bridge/0001:01:00.0	root	pci0001:00	pci-nic-sysfs.txt
+bridge/0001:02:00.0	device	0x197c	pci-nic-sysfs.txt
+bridge/0001:02:00.0	root	pci0001:00	pci-nic-sysfs.txt
+bridge/0001:02:01.0	device	0x197c	pci-nic-sysfs.txt
+bridge/0001:02:01.0	root	pci0001:00	pci-nic-sysfs.txt
+bridge/0001:04:00.0	device	0x197c	pci-nic-sysfs.txt
+bridge/0001:04:00.0	root	pci0001:00	pci-nic-sysfs.txt
+bridge/0001:05:04.0	device	0x197c	pci-nic-sysfs.txt
+bridge/0001:05:04.0	root	pci0001:00	pci-nic-sysfs.txt
+bridge/0004:01:00.0	device	0x197c	pci-nic-sysfs.txt
+bridge/0004:01:00.0	root	pci0004:00	pci-nic-sysfs.txt
+bridge/0004:02:00.0	device	0x197c	pci-nic-sysfs.txt
+bridge/0004:02:00.0	root	pci0004:00	pci-nic-sysfs.txt
+bridge/0004:02:01.0	device	0x197c	pci-nic-sysfs.txt
+bridge/0004:02:01.0	root	pci0004:00	pci-nic-sysfs.txt
+bridge/0004:04:00.0	device	0x197c	pci-nic-sysfs.txt
+bridge/0004:04:00.0	root	pci0004:00	pci-nic-sysfs.txt
+bridge/0004:05:04.0	device	0x197c	pci-nic-sysfs.txt
+bridge/0004:05:04.0	root	pci0004:00	pci-nic-sysfs.txt
+bridge/0009:01:00.0	device	0x197c	pci-nic-sysfs.txt
+bridge/0009:01:00.0	root	pci0009:00	pci-nic-sysfs.txt
+bridge/0009:02:00.0	device	0x197c	pci-nic-sysfs.txt
+bridge/0009:02:00.0	root	pci0009:00	pci-nic-sysfs.txt
+bridge/0009:02:01.0	device	0x197c	pci-nic-sysfs.txt
+bridge/0009:02:01.0	root	pci0009:00	pci-nic-sysfs.txt
+bridge/0009:04:00.0	device	0x197c	pci-nic-sysfs.txt
+bridge/0009:04:00.0	root	pci0009:00	pci-nic-sysfs.txt
+bridge/0009:05:04.0	device	0x197c	pci-nic-sysfs.txt
+bridge/0009:05:04.0	root	pci0009:00	pci-nic-sysfs.txt
+bridge/000c:01:00.0	device	0x197c	pci-nic-sysfs.txt
+bridge/000c:01:00.0	root	pci000c:00	pci-nic-sysfs.txt
+bridge/000c:02:00.0	device	0x197c	pci-nic-sysfs.txt
+bridge/000c:02:00.0	root	pci000c:00	pci-nic-sysfs.txt
+bridge/000c:02:01.0	device	0x197c	pci-nic-sysfs.txt
+bridge/000c:02:01.0	root	pci000c:00	pci-nic-sysfs.txt
+bridge/000c:04:00.0	device	0x197c	pci-nic-sysfs.txt
+bridge/000c:04:00.0	root	pci000c:00	pci-nic-sysfs.txt
+bridge/000c:05:04.0	device	0x197c	pci-nic-sysfs.txt
+bridge/000c:05:04.0	root	pci000c:00	pci-nic-sysfs.txt
+devnode/rdma_cm	devnode	10:264 666	rdma-char-devices.txt
+gpu/0002:81:00.0	device	0x3041	pci-all-functions.txt
+gpu/0002:81:00.0	numa_node	0	pci-all-functions.txt
+gpu/0002:81:00.0	root	pci0002:80	pci-all-functions.txt
+gpu/0002:c1:00.0	device	0x3041	pci-all-functions.txt
+gpu/0002:c1:00.0	numa_node	0	pci-all-functions.txt
+gpu/0002:c1:00.0	root	pci0002:c0	pci-all-functions.txt
+gpu/000a:81:00.0	device	0x3041	pci-all-functions.txt
+gpu/000a:81:00.0	numa_node	1	pci-all-functions.txt
+gpu/000a:81:00.0	root	pci000a:80	pci-all-functions.txt
+gpu/000a:e1:00.0	device	0x3041	pci-all-functions.txt
+gpu/000a:e1:00.0	numa_node	1	pci-all-functions.txt
+gpu/000a:e1:00.0	root	pci000a:e0	pci-all-functions.txt
+ibv/0001:03:00.0/dev	board_id	MT_0000001658	host-ibv-devinfo.txt
+ibv/0001:03:00.0/dev	fw_ver	82.48.4222	host-ibv-devinfo.txt
+ibv/0001:03:00.0/dev	hw_ver	0x0	host-ibv-devinfo.txt
+ibv/0001:03:00.0/dev	phys_port_cnt	1	host-ibv-devinfo.txt
+ibv/0001:03:00.0/dev	port.1.active_mtu	1024 (3)	host-ibv-devinfo.txt
+ibv/0001:03:00.0/dev	port.1.link_layer	Ethernet	host-ibv-devinfo.txt
+ibv/0001:03:00.0/dev	port.1.max_mtu	4096 (5)	host-ibv-devinfo.txt
+ibv/0001:03:00.0/dev	port.1.port_lmc	0x00	host-ibv-devinfo.txt
+ibv/0001:03:00.0/dev	port.1.state	PORT_ACTIVE (4)	host-ibv-devinfo.txt
+ibv/0001:03:00.0/dev	transport	InfiniBand (0)	host-ibv-devinfo.txt
+ibv/0001:03:00.0/dev	vendor_id	0x02c9	host-ibv-devinfo.txt
+ibv/0001:03:00.0/dev	vendor_part_id	4133	host-ibv-devinfo.txt
+ibv/0003:01:00.0/dev	board_id	MT_0000001658	host-ibv-devinfo.txt
+ibv/0003:01:00.0/dev	fw_ver	82.48.4222	host-ibv-devinfo.txt
+ibv/0003:01:00.0/dev	hw_ver	0x0	host-ibv-devinfo.txt
+ibv/0003:01:00.0/dev	phys_port_cnt	1	host-ibv-devinfo.txt
+ibv/0003:01:00.0/dev	port.1.active_mtu	1024 (3)	host-ibv-devinfo.txt
+ibv/0003:01:00.0/dev	port.1.link_layer	Ethernet	host-ibv-devinfo.txt
+ibv/0003:01:00.0/dev	port.1.max_mtu	4096 (5)	host-ibv-devinfo.txt
+ibv/0003:01:00.0/dev	port.1.port_lmc	0x00	host-ibv-devinfo.txt
+ibv/0003:01:00.0/dev	port.1.state	PORT_ACTIVE (4)	host-ibv-devinfo.txt
+ibv/0003:01:00.0/dev	transport	InfiniBand (0)	host-ibv-devinfo.txt
+ibv/0003:01:00.0/dev	vendor_id	0x02c9	host-ibv-devinfo.txt
+ibv/0003:01:00.0/dev	vendor_part_id	4133	host-ibv-devinfo.txt
+ibv/0004:03:00.0/dev	board_id	MT_0000001658	host-ibv-devinfo.txt
+ibv/0004:03:00.0/dev	fw_ver	82.48.4222	host-ibv-devinfo.txt
+ibv/0004:03:00.0/dev	hw_ver	0x0	host-ibv-devinfo.txt
+ibv/0004:03:00.0/dev	phys_port_cnt	1	host-ibv-devinfo.txt
+ibv/0004:03:00.0/dev	port.1.active_mtu	1024 (3)	host-ibv-devinfo.txt
+ibv/0004:03:00.0/dev	port.1.link_layer	Ethernet	host-ibv-devinfo.txt
+ibv/0004:03:00.0/dev	port.1.max_mtu	4096 (5)	host-ibv-devinfo.txt
+ibv/0004:03:00.0/dev	port.1.port_lmc	0x00	host-ibv-devinfo.txt
+ibv/0004:03:00.0/dev	port.1.state	PORT_ACTIVE (4)	host-ibv-devinfo.txt
+ibv/0004:03:00.0/dev	transport	InfiniBand (0)	host-ibv-devinfo.txt
+ibv/0004:03:00.0/dev	vendor_id	0x02c9	host-ibv-devinfo.txt
+ibv/0004:03:00.0/dev	vendor_part_id	4133	host-ibv-devinfo.txt
+ibv/0005:41:00.0/dev	board_id	MT_0000001875	host-ibv-devinfo.txt
+ibv/0005:41:00.0/dev	fw_ver	82.48.4238	host-ibv-devinfo.txt
+ibv/0005:41:00.0/dev	hw_ver	0x0	host-ibv-devinfo.txt
+ibv/0005:41:00.0/dev	phys_port_cnt	1	host-ibv-devinfo.txt
+ibv/0005:41:00.0/dev	port.1.active_mtu	1024 (3)	host-ibv-devinfo.txt
+ibv/0005:41:00.0/dev	port.1.link_layer	Ethernet	host-ibv-devinfo.txt
+ibv/0005:41:00.0/dev	port.1.max_mtu	4096 (5)	host-ibv-devinfo.txt
+ibv/0005:41:00.0/dev	port.1.port_lmc	0x00	host-ibv-devinfo.txt
+ibv/0005:41:00.0/dev	port.1.state	PORT_ACTIVE (4)	host-ibv-devinfo.txt
+ibv/0005:41:00.0/dev	transport	InfiniBand (0)	host-ibv-devinfo.txt
+ibv/0005:41:00.0/dev	vendor_id	0x02c9	host-ibv-devinfo.txt
+ibv/0005:41:00.0/dev	vendor_part_id	41695	host-ibv-devinfo.txt
+ibv/0005:41:00.1/dev	board_id	MT_0000001875	host-ibv-devinfo.txt
+ibv/0005:41:00.1/dev	fw_ver	82.48.4238	host-ibv-devinfo.txt
+ibv/0005:41:00.1/dev	hw_ver	0x0	host-ibv-devinfo.txt
+ibv/0005:41:00.1/dev	phys_port_cnt	1	host-ibv-devinfo.txt
+ibv/0005:41:00.1/dev	port.1.active_mtu	1024 (3)	host-ibv-devinfo.txt
+ibv/0005:41:00.1/dev	port.1.link_layer	Ethernet	host-ibv-devinfo.txt
+ibv/0005:41:00.1/dev	port.1.max_mtu	4096 (5)	host-ibv-devinfo.txt
+ibv/0005:41:00.1/dev	port.1.port_lmc	0x00	host-ibv-devinfo.txt
+ibv/0005:41:00.1/dev	port.1.state	PORT_ACTIVE (4)	host-ibv-devinfo.txt
+ibv/0005:41:00.1/dev	transport	InfiniBand (0)	host-ibv-devinfo.txt
+ibv/0005:41:00.1/dev	vendor_id	0x02c9	host-ibv-devinfo.txt
+ibv/0005:41:00.1/dev	vendor_part_id	41695	host-ibv-devinfo.txt
+ibv/0006:01:00.0/dev	board_id	MT_0000001658	host-ibv-devinfo.txt
+ibv/0006:01:00.0/dev	fw_ver	82.48.4222	host-ibv-devinfo.txt
+ibv/0006:01:00.0/dev	hw_ver	0x0	host-ibv-devinfo.txt
+ibv/0006:01:00.0/dev	phys_port_cnt	1	host-ibv-devinfo.txt
+ibv/0006:01:00.0/dev	port.1.active_mtu	1024 (3)	host-ibv-devinfo.txt
+ibv/0006:01:00.0/dev	port.1.link_layer	Ethernet	host-ibv-devinfo.txt
+ibv/0006:01:00.0/dev	port.1.max_mtu	4096 (5)	host-ibv-devinfo.txt
+ibv/0006:01:00.0/dev	port.1.port_lmc	0x00	host-ibv-devinfo.txt
+ibv/0006:01:00.0/dev	port.1.state	PORT_ACTIVE (4)	host-ibv-devinfo.txt
+ibv/0006:01:00.0/dev	transport	InfiniBand (0)	host-ibv-devinfo.txt
+ibv/0006:01:00.0/dev	vendor_id	0x02c9	host-ibv-devinfo.txt
+ibv/0006:01:00.0/dev	vendor_part_id	4133	host-ibv-devinfo.txt
+ibv/0009:03:00.0/dev	board_id	MT_0000001658	host-ibv-devinfo.txt
+ibv/0009:03:00.0/dev	fw_ver	82.48.4222	host-ibv-devinfo.txt
+ibv/0009:03:00.0/dev	hw_ver	0x0	host-ibv-devinfo.txt
+ibv/0009:03:00.0/dev	phys_port_cnt	1	host-ibv-devinfo.txt
+ibv/0009:03:00.0/dev	port.1.active_mtu	1024 (3)	host-ibv-devinfo.txt
+ibv/0009:03:00.0/dev	port.1.link_layer	Ethernet	host-ibv-devinfo.txt
+ibv/0009:03:00.0/dev	port.1.max_mtu	4096 (5)	host-ibv-devinfo.txt
+ibv/0009:03:00.0/dev	port.1.port_lmc	0x00	host-ibv-devinfo.txt
+ibv/0009:03:00.0/dev	port.1.state	PORT_ACTIVE (4)	host-ibv-devinfo.txt
+ibv/0009:03:00.0/dev	transport	InfiniBand (0)	host-ibv-devinfo.txt
+ibv/0009:03:00.0/dev	vendor_id	0x02c9	host-ibv-devinfo.txt
+ibv/0009:03:00.0/dev	vendor_part_id	4133	host-ibv-devinfo.txt
+ibv/000b:01:00.0/dev	board_id	MT_0000001658	host-ibv-devinfo.txt
+ibv/000b:01:00.0/dev	fw_ver	82.48.4222	host-ibv-devinfo.txt
+ibv/000b:01:00.0/dev	hw_ver	0x0	host-ibv-devinfo.txt
+ibv/000b:01:00.0/dev	phys_port_cnt	1	host-ibv-devinfo.txt
+ibv/000b:01:00.0/dev	port.1.active_mtu	1024 (3)	host-ibv-devinfo.txt
+ibv/000b:01:00.0/dev	port.1.link_layer	Ethernet	host-ibv-devinfo.txt
+ibv/000b:01:00.0/dev	port.1.max_mtu	4096 (5)	host-ibv-devinfo.txt
+ibv/000b:01:00.0/dev	port.1.port_lmc	0x00	host-ibv-devinfo.txt
+ibv/000b:01:00.0/dev	port.1.state	PORT_ACTIVE (4)	host-ibv-devinfo.txt
+ibv/000b:01:00.0/dev	transport	InfiniBand (0)	host-ibv-devinfo.txt
+ibv/000b:01:00.0/dev	vendor_id	0x02c9	host-ibv-devinfo.txt
+ibv/000b:01:00.0/dev	vendor_part_id	4133	host-ibv-devinfo.txt
+ibv/000c:03:00.0/dev	board_id	MT_0000001658	host-ibv-devinfo.txt
+ibv/000c:03:00.0/dev	fw_ver	82.48.4222	host-ibv-devinfo.txt
+ibv/000c:03:00.0/dev	hw_ver	0x0	host-ibv-devinfo.txt
+ibv/000c:03:00.0/dev	phys_port_cnt	1	host-ibv-devinfo.txt
+ibv/000c:03:00.0/dev	port.1.active_mtu	1024 (3)	host-ibv-devinfo.txt
+ibv/000c:03:00.0/dev	port.1.link_layer	Ethernet	host-ibv-devinfo.txt
+ibv/000c:03:00.0/dev	port.1.max_mtu	4096 (5)	host-ibv-devinfo.txt
+ibv/000c:03:00.0/dev	port.1.port_lmc	0x00	host-ibv-devinfo.txt
+ibv/000c:03:00.0/dev	port.1.state	PORT_ACTIVE (4)	host-ibv-devinfo.txt
+ibv/000c:03:00.0/dev	transport	InfiniBand (0)	host-ibv-devinfo.txt
+ibv/000c:03:00.0/dev	vendor_id	0x02c9	host-ibv-devinfo.txt
+ibv/000c:03:00.0/dev	vendor_part_id	4133	host-ibv-devinfo.txt
+ibv/000d:41:00.0/dev	board_id	MT_0000001875	host-ibv-devinfo.txt
+ibv/000d:41:00.0/dev	fw_ver	82.48.4238	host-ibv-devinfo.txt
+ibv/000d:41:00.0/dev	hw_ver	0x0	host-ibv-devinfo.txt
+ibv/000d:41:00.0/dev	phys_port_cnt	1	host-ibv-devinfo.txt
+ibv/000d:41:00.0/dev	port.1.active_mtu	4096 (5)	host-ibv-devinfo.txt
+ibv/000d:41:00.0/dev	port.1.link_layer	Ethernet	host-ibv-devinfo.txt
+ibv/000d:41:00.0/dev	port.1.max_mtu	4096 (5)	host-ibv-devinfo.txt
+ibv/000d:41:00.0/dev	port.1.port_lmc	0x00	host-ibv-devinfo.txt
+ibv/000d:41:00.0/dev	port.1.state	PORT_ACTIVE (4)	host-ibv-devinfo.txt
+ibv/000d:41:00.0/dev	transport	InfiniBand (0)	host-ibv-devinfo.txt
+ibv/000d:41:00.0/dev	vendor_id	0x02c9	host-ibv-devinfo.txt
+ibv/000d:41:00.0/dev	vendor_part_id	41695	host-ibv-devinfo.txt
+ibv/000d:41:00.1/dev	board_id	MT_0000001875	host-ibv-devinfo.txt
+ibv/000d:41:00.1/dev	fw_ver	82.48.4238	host-ibv-devinfo.txt
+ibv/000d:41:00.1/dev	hw_ver	0x0	host-ibv-devinfo.txt
+ibv/000d:41:00.1/dev	phys_port_cnt	1	host-ibv-devinfo.txt
+ibv/000d:41:00.1/dev	port.1.active_mtu	1024 (3)	host-ibv-devinfo.txt
+ibv/000d:41:00.1/dev	port.1.link_layer	Ethernet	host-ibv-devinfo.txt
+ibv/000d:41:00.1/dev	port.1.max_mtu	4096 (5)	host-ibv-devinfo.txt
+ibv/000d:41:00.1/dev	port.1.port_lmc	0x00	host-ibv-devinfo.txt
+ibv/000d:41:00.1/dev	port.1.state	PORT_ACTIVE (4)	host-ibv-devinfo.txt
+ibv/000d:41:00.1/dev	transport	InfiniBand (0)	host-ibv-devinfo.txt
+ibv/000d:41:00.1/dev	vendor_id	0x02c9	host-ibv-devinfo.txt
+ibv/000d:41:00.1/dev	vendor_part_id	41695	host-ibv-devinfo.txt
+ibv/000e:01:00.0/dev	board_id	MT_0000001658	host-ibv-devinfo.txt
+ibv/000e:01:00.0/dev	fw_ver	82.48.4222	host-ibv-devinfo.txt
+ibv/000e:01:00.0/dev	hw_ver	0x0	host-ibv-devinfo.txt
+ibv/000e:01:00.0/dev	phys_port_cnt	1	host-ibv-devinfo.txt
+ibv/000e:01:00.0/dev	port.1.active_mtu	1024 (3)	host-ibv-devinfo.txt
+ibv/000e:01:00.0/dev	port.1.link_layer	Ethernet	host-ibv-devinfo.txt
+ibv/000e:01:00.0/dev	port.1.max_mtu	4096 (5)	host-ibv-devinfo.txt
+ibv/000e:01:00.0/dev	port.1.port_lmc	0x00	host-ibv-devinfo.txt
+ibv/000e:01:00.0/dev	port.1.state	PORT_ACTIVE (4)	host-ibv-devinfo.txt
+ibv/000e:01:00.0/dev	transport	InfiniBand (0)	host-ibv-devinfo.txt
+ibv/000e:01:00.0/dev	vendor_id	0x02c9	host-ibv-devinfo.txt
+ibv/000e:01:00.0/dev	vendor_part_id	4133	host-ibv-devinfo.txt
+net/0001:03:00.0/p0	address	02:00:00:00:00:02	net-sysfs.txt
+net/0001:03:00.0/p0	carrier	1	net-sysfs.txt
+net/0001:03:00.0/p0	dev_id	0x0	net-sysfs.txt
+net/0001:03:00.0/p0	dev_port	0	net-sysfs.txt
+net/0001:03:00.0/p0	ethtool.bus-info	0001:03:00.0	net-ethtool-i.txt
+net/0001:03:00.0/p0	ethtool.driver	mlx5_core	net-ethtool-i.txt
+net/0001:03:00.0/p0	ethtool.firmware-version	82.48.4222 (MT_0000001658)	net-ethtool-i.txt
+net/0001:03:00.0/p0	mtu	1500	net-sysfs.txt
+net/0001:03:00.0/p0	name	enP1p3s0np0	net-sysfs.txt
+net/0001:03:00.0/p0	operstate	up	net-sysfs.txt
+net/0001:03:00.0/p0	phys_port_name	p0	net-sysfs.txt
+net/0001:03:00.0/p0	speed	200000	net-sysfs.txt
+net/0001:03:00.0/p0	type	1	net-sysfs.txt
+net/0003:01:00.0/p0	address	02:00:00:00:00:03	net-sysfs.txt
+net/0003:01:00.0/p0	carrier	1	net-sysfs.txt
+net/0003:01:00.0/p0	dev_id	0x0	net-sysfs.txt
+net/0003:01:00.0/p0	dev_port	0	net-sysfs.txt
+net/0003:01:00.0/p0	ethtool.bus-info	0003:01:00.0	net-ethtool-i.txt
+net/0003:01:00.0/p0	ethtool.driver	mlx5_core	net-ethtool-i.txt
+net/0003:01:00.0/p0	ethtool.firmware-version	82.48.4222 (MT_0000001658)	net-ethtool-i.txt
+net/0003:01:00.0/p0	mtu	1500	net-sysfs.txt
+net/0003:01:00.0/p0	name	enP3p1s0np0	net-sysfs.txt
+net/0003:01:00.0/p0	operstate	up	net-sysfs.txt
+net/0003:01:00.0/p0	phys_port_name	p0	net-sysfs.txt
+net/0003:01:00.0/p0	speed	200000	net-sysfs.txt
+net/0003:01:00.0/p0	type	1	net-sysfs.txt
+net/0004:03:00.0/p0	address	02:00:00:00:00:04	net-sysfs.txt
+net/0004:03:00.0/p0	carrier	1	net-sysfs.txt
+net/0004:03:00.0/p0	dev_id	0x0	net-sysfs.txt
+net/0004:03:00.0/p0	dev_port	0	net-sysfs.txt
+net/0004:03:00.0/p0	ethtool.bus-info	0004:03:00.0	net-ethtool-i.txt
+net/0004:03:00.0/p0	ethtool.driver	mlx5_core	net-ethtool-i.txt
+net/0004:03:00.0/p0	ethtool.firmware-version	82.48.4222 (MT_0000001658)	net-ethtool-i.txt
+net/0004:03:00.0/p0	mtu	1500	net-sysfs.txt
+net/0004:03:00.0/p0	name	enP4p3s0np0	net-sysfs.txt
+net/0004:03:00.0/p0	operstate	up	net-sysfs.txt
+net/0004:03:00.0/p0	phys_port_name	p0	net-sysfs.txt
+net/0004:03:00.0/p0	speed	200000	net-sysfs.txt
+net/0004:03:00.0/p0	type	1	net-sysfs.txt
+net/0005:41:00.0/p0	address	02:00:00:00:00:05	net-sysfs.txt
+net/0005:41:00.0/p0	carrier	1	net-sysfs.txt
+net/0005:41:00.0/p0	dev_id	0x0	net-sysfs.txt
+net/0005:41:00.0/p0	dev_port	0	net-sysfs.txt
+net/0005:41:00.0/p0	ethtool.bus-info	0005:41:00.0	net-ethtool-i.txt
+net/0005:41:00.0/p0	ethtool.driver	mlx5_core	net-ethtool-i.txt
+net/0005:41:00.0/p0	ethtool.firmware-version	82.48.4238 (MT_0000001875)	net-ethtool-i.txt
+net/0005:41:00.0/p0	mtu	1500	net-sysfs.txt
+net/0005:41:00.0/p0	name	enP5p65s0f0np0	net-sysfs.txt
+net/0005:41:00.0/p0	operstate	up	net-sysfs.txt
+net/0005:41:00.0/p0	phys_port_name	p0	net-sysfs.txt
+net/0005:41:00.0/p0	speed	400000	net-sysfs.txt
+net/0005:41:00.0/p0	type	1	net-sysfs.txt
+net/0005:41:00.1/p1	address	02:00:00:00:00:06	net-sysfs.txt
+net/0005:41:00.1/p1	carrier	1	net-sysfs.txt
+net/0005:41:00.1/p1	dev_id	0x0	net-sysfs.txt
+net/0005:41:00.1/p1	dev_port	0	net-sysfs.txt
+net/0005:41:00.1/p1	ethtool.bus-info	0005:41:00.1	net-ethtool-i.txt
+net/0005:41:00.1/p1	ethtool.driver	mlx5_core	net-ethtool-i.txt
+net/0005:41:00.1/p1	ethtool.firmware-version	82.48.4238 (MT_0000001875)	net-ethtool-i.txt
+net/0005:41:00.1/p1	mtu	1500	net-sysfs.txt
+net/0005:41:00.1/p1	name	enP5p65s0f1np1	net-sysfs.txt
+net/0005:41:00.1/p1	operstate	up	net-sysfs.txt
+net/0005:41:00.1/p1	phys_port_name	p1	net-sysfs.txt
+net/0005:41:00.1/p1	speed	400000	net-sysfs.txt
+net/0005:41:00.1/p1	type	1	net-sysfs.txt
+net/0006:01:00.0/p0	address	02:00:00:00:00:07	net-sysfs.txt
+net/0006:01:00.0/p0	carrier	1	net-sysfs.txt
+net/0006:01:00.0/p0	dev_id	0x0	net-sysfs.txt
+net/0006:01:00.0/p0	dev_port	0	net-sysfs.txt
+net/0006:01:00.0/p0	ethtool.bus-info	0006:01:00.0	net-ethtool-i.txt
+net/0006:01:00.0/p0	ethtool.driver	mlx5_core	net-ethtool-i.txt
+net/0006:01:00.0/p0	ethtool.firmware-version	82.48.4222 (MT_0000001658)	net-ethtool-i.txt
+net/0006:01:00.0/p0	mtu	1500	net-sysfs.txt
+net/0006:01:00.0/p0	name	enP6p1s0np0	net-sysfs.txt
+net/0006:01:00.0/p0	operstate	up	net-sysfs.txt
+net/0006:01:00.0/p0	phys_port_name	p0	net-sysfs.txt
+net/0006:01:00.0/p0	speed	200000	net-sysfs.txt
+net/0006:01:00.0/p0	type	1	net-sysfs.txt
+net/0009:03:00.0/p0	address	02:00:00:00:00:08	net-sysfs.txt
+net/0009:03:00.0/p0	carrier	1	net-sysfs.txt
+net/0009:03:00.0/p0	dev_id	0x0	net-sysfs.txt
+net/0009:03:00.0/p0	dev_port	0	net-sysfs.txt
+net/0009:03:00.0/p0	ethtool.bus-info	0009:03:00.0	net-ethtool-i.txt
+net/0009:03:00.0/p0	ethtool.driver	mlx5_core	net-ethtool-i.txt
+net/0009:03:00.0/p0	ethtool.firmware-version	82.48.4222 (MT_0000001658)	net-ethtool-i.txt
+net/0009:03:00.0/p0	mtu	1500	net-sysfs.txt
+net/0009:03:00.0/p0	name	enP9p3s0np0	net-sysfs.txt
+net/0009:03:00.0/p0	operstate	up	net-sysfs.txt
+net/0009:03:00.0/p0	phys_port_name	p0	net-sysfs.txt
+net/0009:03:00.0/p0	speed	200000	net-sysfs.txt
+net/0009:03:00.0/p0	type	1	net-sysfs.txt
+net/000b:01:00.0/p0	address	02:00:00:00:00:09	net-sysfs.txt
+net/000b:01:00.0/p0	carrier	1	net-sysfs.txt
+net/000b:01:00.0/p0	dev_id	0x0	net-sysfs.txt
+net/000b:01:00.0/p0	dev_port	0	net-sysfs.txt
+net/000b:01:00.0/p0	ethtool.bus-info	000b:01:00.0	net-ethtool-i.txt
+net/000b:01:00.0/p0	ethtool.driver	mlx5_core	net-ethtool-i.txt
+net/000b:01:00.0/p0	ethtool.firmware-version	82.48.4222 (MT_0000001658)	net-ethtool-i.txt
+net/000b:01:00.0/p0	mtu	1500	net-sysfs.txt
+net/000b:01:00.0/p0	name	enP11p1s0np0	net-sysfs.txt
+net/000b:01:00.0/p0	operstate	up	net-sysfs.txt
+net/000b:01:00.0/p0	phys_port_name	p0	net-sysfs.txt
+net/000b:01:00.0/p0	speed	200000	net-sysfs.txt
+net/000b:01:00.0/p0	type	1	net-sysfs.txt
+net/000c:03:00.0/p0	address	02:00:00:00:00:0a	net-sysfs.txt
+net/000c:03:00.0/p0	carrier	1	net-sysfs.txt
+net/000c:03:00.0/p0	dev_id	0x0	net-sysfs.txt
+net/000c:03:00.0/p0	dev_port	0	net-sysfs.txt
+net/000c:03:00.0/p0	ethtool.bus-info	000c:03:00.0	net-ethtool-i.txt
+net/000c:03:00.0/p0	ethtool.driver	mlx5_core	net-ethtool-i.txt
+net/000c:03:00.0/p0	ethtool.firmware-version	82.48.4222 (MT_0000001658)	net-ethtool-i.txt
+net/000c:03:00.0/p0	mtu	1500	net-sysfs.txt
+net/000c:03:00.0/p0	name	enP12p3s0np0	net-sysfs.txt
+net/000c:03:00.0/p0	operstate	up	net-sysfs.txt
+net/000c:03:00.0/p0	phys_port_name	p0	net-sysfs.txt
+net/000c:03:00.0/p0	speed	200000	net-sysfs.txt
+net/000c:03:00.0/p0	type	1	net-sysfs.txt
+net/000d:41:00.0/p0	address	02:00:00:00:00:0b	net-sysfs.txt
+net/000d:41:00.0/p0	carrier	1	net-sysfs.txt
+net/000d:41:00.0/p0	dev_id	0x0	net-sysfs.txt
+net/000d:41:00.0/p0	dev_port	0	net-sysfs.txt
+net/000d:41:00.0/p0	ethtool.bus-info	000d:41:00.0	net-ethtool-i.txt
+net/000d:41:00.0/p0	ethtool.driver	mlx5_core	net-ethtool-i.txt
+net/000d:41:00.0/p0	ethtool.firmware-version	82.48.4238 (MT_0000001875)	net-ethtool-i.txt
+net/000d:41:00.0/p0	mtu	9000	net-sysfs.txt
+net/000d:41:00.0/p0	name	enP13p65s0f0np0	net-sysfs.txt
+net/000d:41:00.0/p0	operstate	up	net-sysfs.txt
+net/000d:41:00.0/p0	phys_port_name	p0	net-sysfs.txt
+net/000d:41:00.0/p0	speed	400000	net-sysfs.txt
+net/000d:41:00.0/p0	type	1	net-sysfs.txt
+net/000d:41:00.1/p1	address	02:00:00:00:00:0c	net-sysfs.txt
+net/000d:41:00.1/p1	carrier	1	net-sysfs.txt
+net/000d:41:00.1/p1	dev_id	0x0	net-sysfs.txt
+net/000d:41:00.1/p1	dev_port	0	net-sysfs.txt
+net/000d:41:00.1/p1	ethtool.bus-info	000d:41:00.1	net-ethtool-i.txt
+net/000d:41:00.1/p1	ethtool.driver	mlx5_core	net-ethtool-i.txt
+net/000d:41:00.1/p1	ethtool.firmware-version	82.48.4238 (MT_0000001875)	net-ethtool-i.txt
+net/000d:41:00.1/p1	mtu	1500	net-sysfs.txt
+net/000d:41:00.1/p1	name	enP13p65s0f1np1	net-sysfs.txt
+net/000d:41:00.1/p1	operstate	up	net-sysfs.txt
+net/000d:41:00.1/p1	phys_port_name	p1	net-sysfs.txt
+net/000d:41:00.1/p1	speed	400000	net-sysfs.txt
+net/000d:41:00.1/p1	type	1	net-sysfs.txt
+net/000e:01:00.0/p0	address	02:00:00:00:00:0d	net-sysfs.txt
+net/000e:01:00.0/p0	carrier	1	net-sysfs.txt
+net/000e:01:00.0/p0	dev_id	0x0	net-sysfs.txt
+net/000e:01:00.0/p0	dev_port	0	net-sysfs.txt
+net/000e:01:00.0/p0	ethtool.bus-info	000e:01:00.0	net-ethtool-i.txt
+net/000e:01:00.0/p0	ethtool.driver	mlx5_core	net-ethtool-i.txt
+net/000e:01:00.0/p0	ethtool.firmware-version	82.48.4222 (MT_0000001658)	net-ethtool-i.txt
+net/000e:01:00.0/p0	mtu	1500	net-sysfs.txt
+net/000e:01:00.0/p0	name	enP14p1s0np0	net-sysfs.txt
+net/000e:01:00.0/p0	operstate	up	net-sysfs.txt
+net/000e:01:00.0/p0	phys_port_name	p0	net-sysfs.txt
+net/000e:01:00.0/p0	speed	200000	net-sysfs.txt
+net/000e:01:00.0/p0	type	1	net-sysfs.txt
+node	dev_infiniband	rdma_cm,uverbs0,uverbs1,uverbs10,uverbs11,uverbs2,uverbs3,uverbs4,uverbs5,uverbs6,uverbs7,uverbs8,uverbs9	rdma-char-devices.txt
+node	mad_abi_version		rdma-char-devices.txt
+pci/0001:03:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/0001:03:00.0	device	0x1025	pci-nic-sysfs.txt
+pci/0001:03:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/0001:03:00.0	numa_node	0	pci-nic-sysfs.txt
+pci/0001:03:00.0	root	pci0001:00	pci-nic-sysfs.txt
+pci/0001:03:00.0	sriov_numvfs	0	pci-nic-sysfs.txt
+pci/0001:03:00.0	sriov_totalvfs	1	pci-nic-sysfs.txt
+pci/0001:03:00.0	subsystem_device	0x0671	pci-nic-sysfs.txt
+pci/0001:03:00.0	subsystem_vendor	0x15b3	pci-nic-sysfs.txt
+pci/0001:03:00.0	upstream	0x10de:0x2f95,0x15b3:0x197c,0x15b3:0x197c	pci-nic-sysfs.txt
+pci/0001:03:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0001:03:00.0	virtfn_count	0	pci-nic-sysfs.txt
+pci/0001:03:00.0	vpd.PN	900-9X9BE-00PB-TS5EC	pci-vpd-fields.txt
+pci/0003:01:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/0003:01:00.0	device	0x1025	pci-nic-sysfs.txt
+pci/0003:01:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/0003:01:00.0	numa_node	0	pci-nic-sysfs.txt
+pci/0003:01:00.0	root	pci0003:00	pci-nic-sysfs.txt
+pci/0003:01:00.0	sriov_numvfs	0	pci-nic-sysfs.txt
+pci/0003:01:00.0	sriov_totalvfs	1	pci-nic-sysfs.txt
+pci/0003:01:00.0	subsystem_device	0x0671	pci-nic-sysfs.txt
+pci/0003:01:00.0	subsystem_vendor	0x15b3	pci-nic-sysfs.txt
+pci/0003:01:00.0	upstream	0x10de:0x2f95	pci-nic-sysfs.txt
+pci/0003:01:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0003:01:00.0	virtfn_count	0	pci-nic-sysfs.txt
+pci/0003:01:00.0	vpd.PN	900-9X9BE-00PB-TS5EC	pci-vpd-fields.txt
+pci/0004:03:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/0004:03:00.0	device	0x1025	pci-nic-sysfs.txt
+pci/0004:03:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/0004:03:00.0	numa_node	0	pci-nic-sysfs.txt
+pci/0004:03:00.0	root	pci0004:00	pci-nic-sysfs.txt
+pci/0004:03:00.0	sriov_numvfs	0	pci-nic-sysfs.txt
+pci/0004:03:00.0	sriov_totalvfs	1	pci-nic-sysfs.txt
+pci/0004:03:00.0	subsystem_device	0x0671	pci-nic-sysfs.txt
+pci/0004:03:00.0	subsystem_vendor	0x15b3	pci-nic-sysfs.txt
+pci/0004:03:00.0	upstream	0x10de:0x2f95,0x15b3:0x197c,0x15b3:0x197c	pci-nic-sysfs.txt
+pci/0004:03:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0004:03:00.0	virtfn_count	0	pci-nic-sysfs.txt
+pci/0004:03:00.0	vpd.PN	900-9X9BE-00PB-TS5EC	pci-vpd-fields.txt
+pci/0005:41:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/0005:41:00.0	device	0xa2df	pci-nic-sysfs.txt
+pci/0005:41:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/0005:41:00.0	numa_node	0	pci-nic-sysfs.txt
+pci/0005:41:00.0	root	pci0005:40	pci-nic-sysfs.txt
+pci/0005:41:00.0	sriov_numvfs	0	pci-nic-sysfs.txt
+pci/0005:41:00.0	sriov_totalvfs	46	pci-nic-sysfs.txt
+pci/0005:41:00.0	subsystem_device	0x2000	pci-nic-sysfs.txt
+pci/0005:41:00.0	subsystem_vendor	0x15b3	pci-nic-sysfs.txt
+pci/0005:41:00.0	upstream	0x10de:0x2f96	pci-nic-sysfs.txt
+pci/0005:41:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0005:41:00.0	virtfn_count	0	pci-nic-sysfs.txt
+pci/0005:41:00.0	vpd.PN	900-9D4A4-00CB-TS6EC	pci-vpd-fields.txt
+pci/0005:41:00.1	class	0x020000	pci-nic-sysfs.txt
+pci/0005:41:00.1	device	0xa2df	pci-nic-sysfs.txt
+pci/0005:41:00.1	driver	mlx5_core	pci-nic-sysfs.txt
+pci/0005:41:00.1	numa_node	0	pci-nic-sysfs.txt
+pci/0005:41:00.1	root	pci0005:40	pci-nic-sysfs.txt
+pci/0005:41:00.1	sriov_numvfs	0	pci-nic-sysfs.txt
+pci/0005:41:00.1	sriov_totalvfs	46	pci-nic-sysfs.txt
+pci/0005:41:00.1	subsystem_device	0x2000	pci-nic-sysfs.txt
+pci/0005:41:00.1	subsystem_vendor	0x15b3	pci-nic-sysfs.txt
+pci/0005:41:00.1	upstream	0x10de:0x2f96	pci-nic-sysfs.txt
+pci/0005:41:00.1	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0005:41:00.1	virtfn_count	0	pci-nic-sysfs.txt
+pci/0005:41:00.1	vpd.PN	900-9D4A4-00CB-TS6EC	pci-vpd-fields.txt
+pci/0006:01:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/0006:01:00.0	device	0x1025	pci-nic-sysfs.txt
+pci/0006:01:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/0006:01:00.0	numa_node	0	pci-nic-sysfs.txt
+pci/0006:01:00.0	root	pci0006:00	pci-nic-sysfs.txt
+pci/0006:01:00.0	sriov_numvfs	0	pci-nic-sysfs.txt
+pci/0006:01:00.0	sriov_totalvfs	1	pci-nic-sysfs.txt
+pci/0006:01:00.0	subsystem_device	0x0671	pci-nic-sysfs.txt
+pci/0006:01:00.0	subsystem_vendor	0x15b3	pci-nic-sysfs.txt
+pci/0006:01:00.0	upstream	0x10de:0x2f95	pci-nic-sysfs.txt
+pci/0006:01:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0006:01:00.0	virtfn_count	0	pci-nic-sysfs.txt
+pci/0006:01:00.0	vpd.PN	900-9X9BE-00PB-TS5EC	pci-vpd-fields.txt
+pci/0009:03:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/0009:03:00.0	device	0x1025	pci-nic-sysfs.txt
+pci/0009:03:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/0009:03:00.0	numa_node	1	pci-nic-sysfs.txt
+pci/0009:03:00.0	root	pci0009:00	pci-nic-sysfs.txt
+pci/0009:03:00.0	sriov_numvfs	0	pci-nic-sysfs.txt
+pci/0009:03:00.0	sriov_totalvfs	1	pci-nic-sysfs.txt
+pci/0009:03:00.0	subsystem_device	0x0671	pci-nic-sysfs.txt
+pci/0009:03:00.0	subsystem_vendor	0x15b3	pci-nic-sysfs.txt
+pci/0009:03:00.0	upstream	0x10de:0x2f95,0x15b3:0x197c,0x15b3:0x197c	pci-nic-sysfs.txt
+pci/0009:03:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0009:03:00.0	virtfn_count	0	pci-nic-sysfs.txt
+pci/0009:03:00.0	vpd.PN	900-9X9BE-00PB-TS5EC	pci-vpd-fields.txt
+pci/000b:01:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/000b:01:00.0	device	0x1025	pci-nic-sysfs.txt
+pci/000b:01:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/000b:01:00.0	numa_node	1	pci-nic-sysfs.txt
+pci/000b:01:00.0	root	pci000b:00	pci-nic-sysfs.txt
+pci/000b:01:00.0	sriov_numvfs	0	pci-nic-sysfs.txt
+pci/000b:01:00.0	sriov_totalvfs	1	pci-nic-sysfs.txt
+pci/000b:01:00.0	subsystem_device	0x0671	pci-nic-sysfs.txt
+pci/000b:01:00.0	subsystem_vendor	0x15b3	pci-nic-sysfs.txt
+pci/000b:01:00.0	upstream	0x10de:0x2f95	pci-nic-sysfs.txt
+pci/000b:01:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/000b:01:00.0	virtfn_count	0	pci-nic-sysfs.txt
+pci/000b:01:00.0	vpd.PN	900-9X9BE-00PB-TS5EC	pci-vpd-fields.txt
+pci/000c:03:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/000c:03:00.0	device	0x1025	pci-nic-sysfs.txt
+pci/000c:03:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/000c:03:00.0	numa_node	1	pci-nic-sysfs.txt
+pci/000c:03:00.0	root	pci000c:00	pci-nic-sysfs.txt
+pci/000c:03:00.0	sriov_numvfs	0	pci-nic-sysfs.txt
+pci/000c:03:00.0	sriov_totalvfs	1	pci-nic-sysfs.txt
+pci/000c:03:00.0	subsystem_device	0x0671	pci-nic-sysfs.txt
+pci/000c:03:00.0	subsystem_vendor	0x15b3	pci-nic-sysfs.txt
+pci/000c:03:00.0	upstream	0x10de:0x2f95,0x15b3:0x197c,0x15b3:0x197c	pci-nic-sysfs.txt
+pci/000c:03:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/000c:03:00.0	virtfn_count	0	pci-nic-sysfs.txt
+pci/000c:03:00.0	vpd.PN	900-9X9BE-00PB-TS5EC	pci-vpd-fields.txt
+pci/000d:41:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/000d:41:00.0	device	0xa2df	pci-nic-sysfs.txt
+pci/000d:41:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/000d:41:00.0	numa_node	1	pci-nic-sysfs.txt
+pci/000d:41:00.0	root	pci000d:40	pci-nic-sysfs.txt
+pci/000d:41:00.0	sriov_numvfs	0	pci-nic-sysfs.txt
+pci/000d:41:00.0	sriov_totalvfs	46	pci-nic-sysfs.txt
+pci/000d:41:00.0	subsystem_device	0x2000	pci-nic-sysfs.txt
+pci/000d:41:00.0	subsystem_vendor	0x15b3	pci-nic-sysfs.txt
+pci/000d:41:00.0	upstream	0x10de:0x2f96	pci-nic-sysfs.txt
+pci/000d:41:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/000d:41:00.0	virtfn_count	0	pci-nic-sysfs.txt
+pci/000d:41:00.0	vpd.PN	900-9D4A4-00CB-TS6EC	pci-vpd-fields.txt
+pci/000d:41:00.1	class	0x020000	pci-nic-sysfs.txt
+pci/000d:41:00.1	device	0xa2df	pci-nic-sysfs.txt
+pci/000d:41:00.1	driver	mlx5_core	pci-nic-sysfs.txt
+pci/000d:41:00.1	numa_node	1	pci-nic-sysfs.txt
+pci/000d:41:00.1	root	pci000d:40	pci-nic-sysfs.txt
+pci/000d:41:00.1	sriov_numvfs	0	pci-nic-sysfs.txt
+pci/000d:41:00.1	sriov_totalvfs	46	pci-nic-sysfs.txt
+pci/000d:41:00.1	subsystem_device	0x2000	pci-nic-sysfs.txt
+pci/000d:41:00.1	subsystem_vendor	0x15b3	pci-nic-sysfs.txt
+pci/000d:41:00.1	upstream	0x10de:0x2f96	pci-nic-sysfs.txt
+pci/000d:41:00.1	vendor	0x15b3	pci-nic-sysfs.txt
+pci/000d:41:00.1	virtfn_count	0	pci-nic-sysfs.txt
+pci/000d:41:00.1	vpd.PN	900-9D4A4-00CB-TS6EC	pci-vpd-fields.txt
+pci/000e:01:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/000e:01:00.0	device	0x1025	pci-nic-sysfs.txt
+pci/000e:01:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/000e:01:00.0	numa_node	1	pci-nic-sysfs.txt
+pci/000e:01:00.0	root	pci000e:00	pci-nic-sysfs.txt
+pci/000e:01:00.0	sriov_numvfs	0	pci-nic-sysfs.txt
+pci/000e:01:00.0	sriov_totalvfs	1	pci-nic-sysfs.txt
+pci/000e:01:00.0	subsystem_device	0x0671	pci-nic-sysfs.txt
+pci/000e:01:00.0	subsystem_vendor	0x15b3	pci-nic-sysfs.txt
+pci/000e:01:00.0	upstream	0x10de:0x2f95	pci-nic-sysfs.txt
+pci/000e:01:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/000e:01:00.0	virtfn_count	0	pci-nic-sysfs.txt
+pci/000e:01:00.0	vpd.PN	900-9X9BE-00PB-TS5EC	pci-vpd-fields.txt
+port/0001:03:00.0/dev/1	cap_mask	0x00010000	rdma-sysfs.txt
+port/0001:03:00.0/dev/1	gid_ndevs	2	rdma-sysfs.txt
+port/0001:03:00.0/dev/1	gid_types	IB/RoCE v1,RoCE v2	rdma-sysfs.txt
+port/0001:03:00.0/dev/1	gids	fe80:0000:0000:0000:0000:0000:0000:0001	rdma-sysfs.txt
+port/0001:03:00.0/dev/1	lid	0x0	rdma-sysfs.txt
+port/0001:03:00.0/dev/1	link_layer	Ethernet	rdma-sysfs.txt
+port/0001:03:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0001:03:00.0/dev/1	rate	200 Gb/sec (1X XDR)	rdma-sysfs.txt
+port/0001:03:00.0/dev/1	sm_lid	0x0	rdma-sysfs.txt
+port/0001:03:00.0/dev/1	sm_sl	0	rdma-sysfs.txt
+port/0001:03:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/0003:01:00.0/dev/1	cap_mask	0x00010000	rdma-sysfs.txt
+port/0003:01:00.0/dev/1	gid_ndevs	2	rdma-sysfs.txt
+port/0003:01:00.0/dev/1	gid_types	IB/RoCE v1,RoCE v2	rdma-sysfs.txt
+port/0003:01:00.0/dev/1	gids	fe80:0000:0000:0000:0000:0000:0000:0002	rdma-sysfs.txt
+port/0003:01:00.0/dev/1	lid	0x0	rdma-sysfs.txt
+port/0003:01:00.0/dev/1	link_layer	Ethernet	rdma-sysfs.txt
+port/0003:01:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0003:01:00.0/dev/1	rate	200 Gb/sec (1X XDR)	rdma-sysfs.txt
+port/0003:01:00.0/dev/1	sm_lid	0x0	rdma-sysfs.txt
+port/0003:01:00.0/dev/1	sm_sl	0	rdma-sysfs.txt
+port/0003:01:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/0004:03:00.0/dev/1	cap_mask	0x00010000	rdma-sysfs.txt
+port/0004:03:00.0/dev/1	gid_ndevs	2	rdma-sysfs.txt
+port/0004:03:00.0/dev/1	gid_types	IB/RoCE v1,RoCE v2	rdma-sysfs.txt
+port/0004:03:00.0/dev/1	gids	fe80:0000:0000:0000:0000:0000:0000:0003	rdma-sysfs.txt
+port/0004:03:00.0/dev/1	lid	0x0	rdma-sysfs.txt
+port/0004:03:00.0/dev/1	link_layer	Ethernet	rdma-sysfs.txt
+port/0004:03:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0004:03:00.0/dev/1	rate	200 Gb/sec (1X XDR)	rdma-sysfs.txt
+port/0004:03:00.0/dev/1	sm_lid	0x0	rdma-sysfs.txt
+port/0004:03:00.0/dev/1	sm_sl	0	rdma-sysfs.txt
+port/0004:03:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/0005:41:00.0/dev/1	cap_mask	0x00010000	rdma-sysfs.txt
+port/0005:41:00.0/dev/1	gid_ndevs	2	rdma-sysfs.txt
+port/0005:41:00.0/dev/1	gid_types	IB/RoCE v1,RoCE v2	rdma-sysfs.txt
+port/0005:41:00.0/dev/1	gids	fe80:0000:0000:0000:0000:0000:0000:0004	rdma-sysfs.txt
+port/0005:41:00.0/dev/1	lid	0x0	rdma-sysfs.txt
+port/0005:41:00.0/dev/1	link_layer	Ethernet	rdma-sysfs.txt
+port/0005:41:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0005:41:00.0/dev/1	rate	400 Gb/sec (4X NDR)	rdma-sysfs.txt
+port/0005:41:00.0/dev/1	sm_lid	0x0	rdma-sysfs.txt
+port/0005:41:00.0/dev/1	sm_sl	0	rdma-sysfs.txt
+port/0005:41:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/0005:41:00.1/dev/1	cap_mask	0x00010000	rdma-sysfs.txt
+port/0005:41:00.1/dev/1	gid_ndevs	2	rdma-sysfs.txt
+port/0005:41:00.1/dev/1	gid_types	IB/RoCE v1,RoCE v2	rdma-sysfs.txt
+port/0005:41:00.1/dev/1	gids	fe80:0000:0000:0000:0000:0000:0000:0005	rdma-sysfs.txt
+port/0005:41:00.1/dev/1	lid	0x0	rdma-sysfs.txt
+port/0005:41:00.1/dev/1	link_layer	Ethernet	rdma-sysfs.txt
+port/0005:41:00.1/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0005:41:00.1/dev/1	rate	400 Gb/sec (4X NDR)	rdma-sysfs.txt
+port/0005:41:00.1/dev/1	sm_lid	0x0	rdma-sysfs.txt
+port/0005:41:00.1/dev/1	sm_sl	0	rdma-sysfs.txt
+port/0005:41:00.1/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/0006:01:00.0/dev/1	cap_mask	0x00010000	rdma-sysfs.txt
+port/0006:01:00.0/dev/1	gid_ndevs	2	rdma-sysfs.txt
+port/0006:01:00.0/dev/1	gid_types	IB/RoCE v1,RoCE v2	rdma-sysfs.txt
+port/0006:01:00.0/dev/1	gids	fe80:0000:0000:0000:0000:0000:0000:0006	rdma-sysfs.txt
+port/0006:01:00.0/dev/1	lid	0x0	rdma-sysfs.txt
+port/0006:01:00.0/dev/1	link_layer	Ethernet	rdma-sysfs.txt
+port/0006:01:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0006:01:00.0/dev/1	rate	200 Gb/sec (1X XDR)	rdma-sysfs.txt
+port/0006:01:00.0/dev/1	sm_lid	0x0	rdma-sysfs.txt
+port/0006:01:00.0/dev/1	sm_sl	0	rdma-sysfs.txt
+port/0006:01:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/0009:03:00.0/dev/1	cap_mask	0x00010000	rdma-sysfs.txt
+port/0009:03:00.0/dev/1	gid_ndevs	2	rdma-sysfs.txt
+port/0009:03:00.0/dev/1	gid_types	IB/RoCE v1,RoCE v2	rdma-sysfs.txt
+port/0009:03:00.0/dev/1	gids	fe80:0000:0000:0000:0000:0000:0000:0007	rdma-sysfs.txt
+port/0009:03:00.0/dev/1	lid	0x0	rdma-sysfs.txt
+port/0009:03:00.0/dev/1	link_layer	Ethernet	rdma-sysfs.txt
+port/0009:03:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0009:03:00.0/dev/1	rate	200 Gb/sec (1X XDR)	rdma-sysfs.txt
+port/0009:03:00.0/dev/1	sm_lid	0x0	rdma-sysfs.txt
+port/0009:03:00.0/dev/1	sm_sl	0	rdma-sysfs.txt
+port/0009:03:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/000b:01:00.0/dev/1	cap_mask	0x00010000	rdma-sysfs.txt
+port/000b:01:00.0/dev/1	gid_ndevs	2	rdma-sysfs.txt
+port/000b:01:00.0/dev/1	gid_types	IB/RoCE v1,RoCE v2	rdma-sysfs.txt
+port/000b:01:00.0/dev/1	gids	fe80:0000:0000:0000:0000:0000:0000:0008	rdma-sysfs.txt
+port/000b:01:00.0/dev/1	lid	0x0	rdma-sysfs.txt
+port/000b:01:00.0/dev/1	link_layer	Ethernet	rdma-sysfs.txt
+port/000b:01:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/000b:01:00.0/dev/1	rate	200 Gb/sec (1X XDR)	rdma-sysfs.txt
+port/000b:01:00.0/dev/1	sm_lid	0x0	rdma-sysfs.txt
+port/000b:01:00.0/dev/1	sm_sl	0	rdma-sysfs.txt
+port/000b:01:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/000c:03:00.0/dev/1	cap_mask	0x00010000	rdma-sysfs.txt
+port/000c:03:00.0/dev/1	gid_ndevs	2	rdma-sysfs.txt
+port/000c:03:00.0/dev/1	gid_types	IB/RoCE v1,RoCE v2	rdma-sysfs.txt
+port/000c:03:00.0/dev/1	gids	fe80:0000:0000:0000:0000:0000:0000:0009	rdma-sysfs.txt
+port/000c:03:00.0/dev/1	lid	0x0	rdma-sysfs.txt
+port/000c:03:00.0/dev/1	link_layer	Ethernet	rdma-sysfs.txt
+port/000c:03:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/000c:03:00.0/dev/1	rate	200 Gb/sec (1X XDR)	rdma-sysfs.txt
+port/000c:03:00.0/dev/1	sm_lid	0x0	rdma-sysfs.txt
+port/000c:03:00.0/dev/1	sm_sl	0	rdma-sysfs.txt
+port/000c:03:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/000d:41:00.0/dev/1	cap_mask	0x00010000	rdma-sysfs.txt
+port/000d:41:00.0/dev/1	gid_ndevs	2	rdma-sysfs.txt
+port/000d:41:00.0/dev/1	gid_types	IB/RoCE v1,RoCE v2	rdma-sysfs.txt
+port/000d:41:00.0/dev/1	gids	fe80:0000:0000:0000:0000:0000:0000:000a	rdma-sysfs.txt
+port/000d:41:00.0/dev/1	lid	0x0	rdma-sysfs.txt
+port/000d:41:00.0/dev/1	link_layer	Ethernet	rdma-sysfs.txt
+port/000d:41:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/000d:41:00.0/dev/1	rate	400 Gb/sec (4X NDR)	rdma-sysfs.txt
+port/000d:41:00.0/dev/1	sm_lid	0x0	rdma-sysfs.txt
+port/000d:41:00.0/dev/1	sm_sl	0	rdma-sysfs.txt
+port/000d:41:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/000d:41:00.1/dev/1	cap_mask	0x00010000	rdma-sysfs.txt
+port/000d:41:00.1/dev/1	gid_ndevs	2	rdma-sysfs.txt
+port/000d:41:00.1/dev/1	gid_types	IB/RoCE v1,RoCE v2	rdma-sysfs.txt
+port/000d:41:00.1/dev/1	gids	fe80:0000:0000:0000:0000:0000:0000:000b	rdma-sysfs.txt
+port/000d:41:00.1/dev/1	lid	0x0	rdma-sysfs.txt
+port/000d:41:00.1/dev/1	link_layer	Ethernet	rdma-sysfs.txt
+port/000d:41:00.1/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/000d:41:00.1/dev/1	rate	400 Gb/sec (4X NDR)	rdma-sysfs.txt
+port/000d:41:00.1/dev/1	sm_lid	0x0	rdma-sysfs.txt
+port/000d:41:00.1/dev/1	sm_sl	0	rdma-sysfs.txt
+port/000d:41:00.1/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/000e:01:00.0/dev/1	cap_mask	0x00010000	rdma-sysfs.txt
+port/000e:01:00.0/dev/1	gid_ndevs	2	rdma-sysfs.txt
+port/000e:01:00.0/dev/1	gid_types	IB/RoCE v1,RoCE v2	rdma-sysfs.txt
+port/000e:01:00.0/dev/1	gids	fe80:0000:0000:0000:0000:0000:0000:000c	rdma-sysfs.txt
+port/000e:01:00.0/dev/1	lid	0x0	rdma-sysfs.txt
+port/000e:01:00.0/dev/1	link_layer	Ethernet	rdma-sysfs.txt
+port/000e:01:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/000e:01:00.0/dev/1	rate	200 Gb/sec (1X XDR)	rdma-sysfs.txt
+port/000e:01:00.0/dev/1	sm_lid	0x0	rdma-sysfs.txt
+port/000e:01:00.0/dev/1	sm_sl	0	rdma-sysfs.txt
+port/000e:01:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+rdma/0001:03:00.0/dev	board_id	MT_0000001658	rdma-sysfs.txt
+rdma/0001:03:00.0/dev	fw_ver	82.48.4222	rdma-sysfs.txt
+rdma/0001:03:00.0/dev	hca_type	MT4133	rdma-sysfs.txt
+rdma/0001:03:00.0/dev	name	mlx5_0	rdma-sysfs.txt
+rdma/0001:03:00.0/dev	node_desc		rdma-sysfs.txt
+rdma/0001:03:00.0/dev	node_guid	0000:0000:0000:0001	rdma-sysfs.txt
+rdma/0001:03:00.0/dev	node_type	1: CA	rdma-sysfs.txt
+rdma/0001:03:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/0001:03:00.0/dev	ports	1	rdma-sysfs.txt
+rdma/0001:03:00.0/dev	sys_image_guid	0000:0000:0000:0001	rdma-sysfs.txt
+rdma/0003:01:00.0/dev	board_id	MT_0000001658	rdma-sysfs.txt
+rdma/0003:01:00.0/dev	fw_ver	82.48.4222	rdma-sysfs.txt
+rdma/0003:01:00.0/dev	hca_type	MT4133	rdma-sysfs.txt
+rdma/0003:01:00.0/dev	name	mlx5_1	rdma-sysfs.txt
+rdma/0003:01:00.0/dev	node_desc		rdma-sysfs.txt
+rdma/0003:01:00.0/dev	node_guid	0000:0000:0000:0002	rdma-sysfs.txt
+rdma/0003:01:00.0/dev	node_type	1: CA	rdma-sysfs.txt
+rdma/0003:01:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/0003:01:00.0/dev	ports	1	rdma-sysfs.txt
+rdma/0003:01:00.0/dev	sys_image_guid	0000:0000:0000:0002	rdma-sysfs.txt
+rdma/0004:03:00.0/dev	board_id	MT_0000001658	rdma-sysfs.txt
+rdma/0004:03:00.0/dev	fw_ver	82.48.4222	rdma-sysfs.txt
+rdma/0004:03:00.0/dev	hca_type	MT4133	rdma-sysfs.txt
+rdma/0004:03:00.0/dev	name	mlx5_2	rdma-sysfs.txt
+rdma/0004:03:00.0/dev	node_desc		rdma-sysfs.txt
+rdma/0004:03:00.0/dev	node_guid	0000:0000:0000:0005	rdma-sysfs.txt
+rdma/0004:03:00.0/dev	node_type	1: CA	rdma-sysfs.txt
+rdma/0004:03:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/0004:03:00.0/dev	ports	1	rdma-sysfs.txt
+rdma/0004:03:00.0/dev	sys_image_guid	0000:0000:0000:0005	rdma-sysfs.txt
+rdma/0005:41:00.0/dev	board_id	MT_0000001875	rdma-sysfs.txt
+rdma/0005:41:00.0/dev	fw_ver	82.48.4238	rdma-sysfs.txt
+rdma/0005:41:00.0/dev	hca_type	MT41695	rdma-sysfs.txt
+rdma/0005:41:00.0/dev	name	mlx5_3	rdma-sysfs.txt
+rdma/0005:41:00.0/dev	node_desc		rdma-sysfs.txt
+rdma/0005:41:00.0/dev	node_guid	0000:0000:0000:0006	rdma-sysfs.txt
+rdma/0005:41:00.0/dev	node_type	1: CA	rdma-sysfs.txt
+rdma/0005:41:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/0005:41:00.0/dev	ports	1	rdma-sysfs.txt
+rdma/0005:41:00.0/dev	sys_image_guid	0000:0000:0000:000c	rdma-sysfs.txt
+rdma/0005:41:00.1/dev	board_id	MT_0000001875	rdma-sysfs.txt
+rdma/0005:41:00.1/dev	fw_ver	82.48.4238	rdma-sysfs.txt
+rdma/0005:41:00.1/dev	hca_type	MT41695	rdma-sysfs.txt
+rdma/0005:41:00.1/dev	name	mlx5_4	rdma-sysfs.txt
+rdma/0005:41:00.1/dev	node_desc		rdma-sysfs.txt
+rdma/0005:41:00.1/dev	node_guid	0000:0000:0000:0007	rdma-sysfs.txt
+rdma/0005:41:00.1/dev	node_type	1: CA	rdma-sysfs.txt
+rdma/0005:41:00.1/dev	pci_function	yes	rdma-sysfs.txt
+rdma/0005:41:00.1/dev	ports	1	rdma-sysfs.txt
+rdma/0005:41:00.1/dev	sys_image_guid	0000:0000:0000:000c	rdma-sysfs.txt
+rdma/0006:01:00.0/dev	board_id	MT_0000001658	rdma-sysfs.txt
+rdma/0006:01:00.0/dev	fw_ver	82.48.4222	rdma-sysfs.txt
+rdma/0006:01:00.0/dev	hca_type	MT4133	rdma-sysfs.txt
+rdma/0006:01:00.0/dev	name	mlx5_5	rdma-sysfs.txt
+rdma/0006:01:00.0/dev	node_desc		rdma-sysfs.txt
+rdma/0006:01:00.0/dev	node_guid	0000:0000:0000:0008	rdma-sysfs.txt
+rdma/0006:01:00.0/dev	node_type	1: CA	rdma-sysfs.txt
+rdma/0006:01:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/0006:01:00.0/dev	ports	1	rdma-sysfs.txt
+rdma/0006:01:00.0/dev	sys_image_guid	0000:0000:0000:0008	rdma-sysfs.txt
+rdma/0009:03:00.0/dev	board_id	MT_0000001658	rdma-sysfs.txt
+rdma/0009:03:00.0/dev	fw_ver	82.48.4222	rdma-sysfs.txt
+rdma/0009:03:00.0/dev	hca_type	MT4133	rdma-sysfs.txt
+rdma/0009:03:00.0/dev	name	mlx5_6	rdma-sysfs.txt
+rdma/0009:03:00.0/dev	node_desc		rdma-sysfs.txt
+rdma/0009:03:00.0/dev	node_guid	0000:0000:0000:0009	rdma-sysfs.txt
+rdma/0009:03:00.0/dev	node_type	1: CA	rdma-sysfs.txt
+rdma/0009:03:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/0009:03:00.0/dev	ports	1	rdma-sysfs.txt
+rdma/0009:03:00.0/dev	sys_image_guid	0000:0000:0000:0009	rdma-sysfs.txt
+rdma/000b:01:00.0/dev	board_id	MT_0000001658	rdma-sysfs.txt
+rdma/000b:01:00.0/dev	fw_ver	82.48.4222	rdma-sysfs.txt
+rdma/000b:01:00.0/dev	hca_type	MT4133	rdma-sysfs.txt
+rdma/000b:01:00.0/dev	name	mlx5_7	rdma-sysfs.txt
+rdma/000b:01:00.0/dev	node_desc		rdma-sysfs.txt
+rdma/000b:01:00.0/dev	node_guid	0000:0000:0000:000a	rdma-sysfs.txt
+rdma/000b:01:00.0/dev	node_type	1: CA	rdma-sysfs.txt
+rdma/000b:01:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/000b:01:00.0/dev	ports	1	rdma-sysfs.txt
+rdma/000b:01:00.0/dev	sys_image_guid	0000:0000:0000:000a	rdma-sysfs.txt
+rdma/000c:03:00.0/dev	board_id	MT_0000001658	rdma-sysfs.txt
+rdma/000c:03:00.0/dev	fw_ver	82.48.4222	rdma-sysfs.txt
+rdma/000c:03:00.0/dev	hca_type	MT4133	rdma-sysfs.txt
+rdma/000c:03:00.0/dev	name	mlx5_8	rdma-sysfs.txt
+rdma/000c:03:00.0/dev	node_desc		rdma-sysfs.txt
+rdma/000c:03:00.0/dev	node_guid	0000:0000:0000:000b	rdma-sysfs.txt
+rdma/000c:03:00.0/dev	node_type	1: CA	rdma-sysfs.txt
+rdma/000c:03:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/000c:03:00.0/dev	ports	1	rdma-sysfs.txt
+rdma/000c:03:00.0/dev	sys_image_guid	0000:0000:0000:000b	rdma-sysfs.txt
+rdma/000d:41:00.0/dev	board_id	MT_0000001875	rdma-sysfs.txt
+rdma/000d:41:00.0/dev	fw_ver	82.48.4238	rdma-sysfs.txt
+rdma/000d:41:00.0/dev	hca_type	MT41695	rdma-sysfs.txt
+rdma/000d:41:00.0/dev	name	mlx5_9	rdma-sysfs.txt
+rdma/000d:41:00.0/dev	node_desc		rdma-sysfs.txt
+rdma/000d:41:00.0/dev	node_guid	0000:0000:0000:000c	rdma-sysfs.txt
+rdma/000d:41:00.0/dev	node_type	1: CA	rdma-sysfs.txt
+rdma/000d:41:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/000d:41:00.0/dev	ports	1	rdma-sysfs.txt
+rdma/000d:41:00.0/dev	sys_image_guid	0000:0000:0000:000c	rdma-sysfs.txt
+rdma/000d:41:00.1/dev	board_id	MT_0000001875	rdma-sysfs.txt
+rdma/000d:41:00.1/dev	fw_ver	82.48.4238	rdma-sysfs.txt
+rdma/000d:41:00.1/dev	hca_type	MT41695	rdma-sysfs.txt
+rdma/000d:41:00.1/dev	name	mlx5_10	rdma-sysfs.txt
+rdma/000d:41:00.1/dev	node_desc		rdma-sysfs.txt
+rdma/000d:41:00.1/dev	node_guid	0000:0000:0000:0003	rdma-sysfs.txt
+rdma/000d:41:00.1/dev	node_type	1: CA	rdma-sysfs.txt
+rdma/000d:41:00.1/dev	pci_function	yes	rdma-sysfs.txt
+rdma/000d:41:00.1/dev	ports	1	rdma-sysfs.txt
+rdma/000d:41:00.1/dev	sys_image_guid	0000:0000:0000:000c	rdma-sysfs.txt
+rdma/000e:01:00.0/dev	board_id	MT_0000001658	rdma-sysfs.txt
+rdma/000e:01:00.0/dev	fw_ver	82.48.4222	rdma-sysfs.txt
+rdma/000e:01:00.0/dev	hca_type	MT4133	rdma-sysfs.txt
+rdma/000e:01:00.0/dev	name	mlx5_11	rdma-sysfs.txt
+rdma/000e:01:00.0/dev	node_desc		rdma-sysfs.txt
+rdma/000e:01:00.0/dev	node_guid	0000:0000:0000:0004	rdma-sysfs.txt
+rdma/000e:01:00.0/dev	node_type	1: CA	rdma-sysfs.txt
+rdma/000e:01:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/000e:01:00.0/dev	ports	1	rdma-sysfs.txt
+rdma/000e:01:00.0/dev	sys_image_guid	0000:0000:0000:0004	rdma-sysfs.txt

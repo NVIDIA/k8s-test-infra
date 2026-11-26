@@ -154,7 +154,7 @@ helm uninstall "$MOKKA_RELEASE" --namespace "$MOKKA_NAMESPACE"
 
 Profiles, runtime policies, and the retained CRDs may remain for a later
 control-plane installation. To remove the API completely, uninstall the
-`mokka-crds` Helm release and then explicitly delete all four retained CRDs,
+`mokka-crds` Helm release and then explicitly delete all five retained CRDs,
 but only after the drain above:
 
 ```bash
@@ -165,7 +165,8 @@ kubectl delete customresourcedefinitions.apiextensions.k8s.io \
   sgpuinventories.mokka.nvidia.com \
   sgpuracks.mokka.nvidia.com \
   sgpurackprofiles.mokka.nvidia.com \
-  sgpuruntimepolicies.mokka.nvidia.com
+  sgpuruntimepolicies.mokka.nvidia.com \
+  snicprofiles.mokka.nvidia.com
 ```
 
 Build the image locally with:

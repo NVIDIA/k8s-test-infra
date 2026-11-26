@@ -102,8 +102,12 @@ func newNode() *Node {
 	}
 }
 
-// Read reads the NIC surfaces from a capture node directory.
+// Read reads the NIC surfaces from a capture node directory, or from a
+// listing `mokka-capture nic-surfaces` wrote, given as a file.
 func Read(dir string) (*Node, error) {
+	if info, err := os.Stat(dir); err == nil && !info.IsDir() {
+		return readListingFile(dir)
+	}
 	failed, err := failedFiles(dir)
 	if err != nil {
 		return nil, err
@@ -350,3 +354,8 @@ func (n *Node) Write(w io.Writer) error {
 func oneLine(v string) string {
 	return strings.NewReplacer("\n", "; ", "\t", " ").Replace(v)
 }
+
+// OneLine is a value as a listing prints it, with tabs as spaces and line
+// breaks as "; ", so a value read from a capture compares with the same value
+// read from a listing.
+func OneLine(v string) string { return oneLine(v) }

@@ -1,0 +1,136 @@
+# not captured: host-lspci-mellanox-vv.txt (the listing it was converted from lacks it), rdma-system.txt (the listing it was converted from lacks it), rdma-link.txt (the listing it was converted from lacks it), sys-module-rdma.txt (the listing it was converted from lacks it), net-ecn-qos.txt (the listing it was converted from lacks it), net-ethtool-i.txt (the listing it was converted from lacks it), net-ethtool.txt (the listing it was converted from lacks it), net-ethtool-m.txt (the listing it was converted from lacks it), host-ibv-devinfo.txt (the listing it was converted from lacks it), host-ibstat.txt (the listing it was converted from lacks it), devlink-dev-info.txt (the listing it was converted from lacks it), devlink-port.txt (the listing it was converted from lacks it), devlink-eswitch.txt (the listing it was converted from lacks it), devlink-health.txt (the listing it was converted from lacks it), fw-mlxconfig.txt (the listing it was converted from lacks it), fw-flint.txt (the listing it was converted from lacks it), cable-mlxlink.txt (the listing it was converted from lacks it), smi-topo-m.txt (the listing it was converted from lacks it)
+devnode/rdma_cm	devnode	10:261 666	rdma-char-devices.txt
+gpu/0000:9d:00.0	device	0x31c2	pci-all-functions.txt
+gpu/0000:9d:00.0	numa_node	0	pci-all-functions.txt
+gpu/0000:9d:00.0	root	pci0000:98	pci-all-functions.txt
+gpu/0000:a8:00.0	device	0x31c2	pci-all-functions.txt
+gpu/0000:a8:00.0	numa_node	0	pci-all-functions.txt
+gpu/0000:a8:00.0	root	pci0000:a3	pci-all-functions.txt
+gpu/0000:ba:00.0	device	0x31c2	pci-all-functions.txt
+gpu/0000:ba:00.0	numa_node	1	pci-all-functions.txt
+gpu/0000:ba:00.0	root	pci0000:b5	pci-all-functions.txt
+gpu/0000:c5:00.0	device	0x31c2	pci-all-functions.txt
+gpu/0000:c5:00.0	numa_node	1	pci-all-functions.txt
+gpu/0000:c5:00.0	root	pci0000:c0	pci-all-functions.txt
+pci/0000:9c:00.0	class	0x080100	pci-nic-sysfs.txt
+pci/0000:9c:00.0	device	0x2100	pci-nic-sysfs.txt
+pci/0000:9c:00.0	driver	mlx5_ib	pci-nic-sysfs.txt
+pci/0000:9c:00.0	numa_node	0	pci-nic-sysfs.txt
+pci/0000:9c:00.0	root	pci0000:98	pci-nic-sysfs.txt
+pci/0000:9c:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0000:9c:00.0	vpd.PN	900-9X86E-B4CX-ST0	pci-vpd-fields.txt
+pci/0000:9c:00.0	vpd.VU	00000000000000000000000000000001MLNXDDIS0D0F0	pci-vpd-fields.txt
+pci/0000:a1:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/0000:a1:00.0	device	0x101e	pci-nic-sysfs.txt
+pci/0000:a1:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/0000:a1:00.0	numa_node	0	pci-nic-sysfs.txt
+pci/0000:a1:00.0	root	pci0000:9e	pci-nic-sysfs.txt
+pci/0000:a1:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0000:a1:00.0	vpd.PN	900-9X86E-B4CX-ST0	pci-vpd-fields.txt
+pci/0000:a2:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/0000:a2:00.0	device	0x101e	pci-nic-sysfs.txt
+pci/0000:a2:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/0000:a2:00.0	numa_node	0	pci-nic-sysfs.txt
+pci/0000:a2:00.0	root	pci0000:9e	pci-nic-sysfs.txt
+pci/0000:a2:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0000:a2:00.0	vpd.PN	900-9X86E-B4CX-ST0	pci-vpd-fields.txt
+pci/0000:a7:00.0	class	0x080100	pci-nic-sysfs.txt
+pci/0000:a7:00.0	device	0x2100	pci-nic-sysfs.txt
+pci/0000:a7:00.0	driver	mlx5_ib	pci-nic-sysfs.txt
+pci/0000:a7:00.0	numa_node	0	pci-nic-sysfs.txt
+pci/0000:a7:00.0	root	pci0000:a3	pci-nic-sysfs.txt
+pci/0000:a7:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0000:a7:00.0	vpd.PN	900-9X86E-B4CX-ST0	pci-vpd-fields.txt
+pci/0000:a7:00.0	vpd.VU	00000000000000000000000000000002MLNXDDIS0D0F0	pci-vpd-fields.txt
+pci/0000:ac:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/0000:ac:00.0	device	0x101e	pci-nic-sysfs.txt
+pci/0000:ac:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/0000:ac:00.0	numa_node	0	pci-nic-sysfs.txt
+pci/0000:ac:00.0	root	pci0000:a9	pci-nic-sysfs.txt
+pci/0000:ac:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0000:ac:00.0	vpd.PN	900-9X86E-B4CX-ST0	pci-vpd-fields.txt
+pci/0000:ad:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/0000:ad:00.0	device	0x101e	pci-nic-sysfs.txt
+pci/0000:ad:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/0000:ad:00.0	numa_node	0	pci-nic-sysfs.txt
+pci/0000:ad:00.0	root	pci0000:a9	pci-nic-sysfs.txt
+pci/0000:ad:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0000:ad:00.0	vpd.PN	900-9X86E-B4CX-ST0	pci-vpd-fields.txt
+pci/0000:b9:00.0	class	0x080100	pci-nic-sysfs.txt
+pci/0000:b9:00.0	device	0x2100	pci-nic-sysfs.txt
+pci/0000:b9:00.0	driver	mlx5_ib	pci-nic-sysfs.txt
+pci/0000:b9:00.0	numa_node	1	pci-nic-sysfs.txt
+pci/0000:b9:00.0	root	pci0000:b5	pci-nic-sysfs.txt
+pci/0000:b9:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0000:be:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/0000:be:00.0	device	0x101e	pci-nic-sysfs.txt
+pci/0000:be:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/0000:be:00.0	numa_node	1	pci-nic-sysfs.txt
+pci/0000:be:00.0	root	pci0000:bb	pci-nic-sysfs.txt
+pci/0000:be:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0000:bf:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/0000:bf:00.0	device	0x101e	pci-nic-sysfs.txt
+pci/0000:bf:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/0000:bf:00.0	numa_node	1	pci-nic-sysfs.txt
+pci/0000:bf:00.0	root	pci0000:bb	pci-nic-sysfs.txt
+pci/0000:bf:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0000:c4:00.0	class	0x080100	pci-nic-sysfs.txt
+pci/0000:c4:00.0	device	0x2100	pci-nic-sysfs.txt
+pci/0000:c4:00.0	driver	mlx5_ib	pci-nic-sysfs.txt
+pci/0000:c4:00.0	numa_node	1	pci-nic-sysfs.txt
+pci/0000:c4:00.0	root	pci0000:c0	pci-nic-sysfs.txt
+pci/0000:c4:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0000:c9:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/0000:c9:00.0	device	0x101e	pci-nic-sysfs.txt
+pci/0000:c9:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/0000:c9:00.0	numa_node	1	pci-nic-sysfs.txt
+pci/0000:c9:00.0	root	pci0000:c6	pci-nic-sysfs.txt
+pci/0000:c9:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+pci/0000:ca:00.0	class	0x020000	pci-nic-sysfs.txt
+pci/0000:ca:00.0	device	0x101e	pci-nic-sysfs.txt
+pci/0000:ca:00.0	driver	mlx5_core	pci-nic-sysfs.txt
+pci/0000:ca:00.0	numa_node	1	pci-nic-sysfs.txt
+pci/0000:ca:00.0	root	pci0000:c6	pci-nic-sysfs.txt
+pci/0000:ca:00.0	vendor	0x15b3	pci-nic-sysfs.txt
+port/0000:a1:00.0/dev/1	gid_ndevs	4	rdma-sysfs.txt
+port/0000:a1:00.0/dev/1	gid_types	IB/RoCE v1,RoCE v2	rdma-sysfs.txt
+port/0000:a1:00.0/dev/1	gids	fe80:0000:0000:0000:0000:0000:0000:0001,0000:0000:0000:0000:0000:ffff:0000:0001	rdma-sysfs.txt
+port/0000:a1:00.0/dev/1	lid	0x0	rdma-sysfs.txt
+port/0000:a1:00.0/dev/1	link_layer	Ethernet	rdma-sysfs.txt
+port/0000:a1:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0000:a1:00.0/dev/1	rate	400 Gb/sec (4X NDR)	rdma-sysfs.txt
+port/0000:a1:00.0/dev/1	sm_lid	0x0	rdma-sysfs.txt
+port/0000:a1:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/0000:a2:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0000:a2:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/0000:ac:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0000:ac:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/0000:ad:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0000:ad:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/0000:be:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0000:be:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/0000:bf:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0000:bf:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/0000:c9:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0000:c9:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+port/0000:ca:00.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0000:ca:00.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+rdma/0000:a1:00.0/dev	fw_ver	40.47.1088	rdma-sysfs.txt
+rdma/0000:a1:00.0/dev	hca_type	MT4126	rdma-sysfs.txt
+rdma/0000:a1:00.0/dev	name	rocep161s0	rdma-sysfs.txt
+rdma/0000:a1:00.0/dev	node_type	1: CA	rdma-sysfs.txt
+rdma/0000:a1:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/0000:a2:00.0/dev	name	rocep162s0	rdma-sysfs.txt
+rdma/0000:a2:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/0000:ac:00.0/dev	name	rocep172s0	rdma-sysfs.txt
+rdma/0000:ac:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/0000:ad:00.0/dev	name	rocep173s0	rdma-sysfs.txt
+rdma/0000:ad:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/0000:be:00.0/dev	name	rocep190s0	rdma-sysfs.txt
+rdma/0000:be:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/0000:bf:00.0/dev	name	rocep191s0	rdma-sysfs.txt
+rdma/0000:bf:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/0000:c9:00.0/dev	name	rocep201s0	rdma-sysfs.txt
+rdma/0000:c9:00.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/0000:ca:00.0/dev	name	rocep202s0	rdma-sysfs.txt
+rdma/0000:ca:00.0/dev	pci_function	yes	rdma-sysfs.txt

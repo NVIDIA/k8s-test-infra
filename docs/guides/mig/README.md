@@ -39,6 +39,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --set 'gpu.mig.gpuInstances[0].profile=1g.10gb' \
   --set 'gpu.mig.gpuInstances[0].count=7' \
   --wait
+kubectl -n mokka rollout status ds/nvml-mock --timeout=5m
 ```
 
 That is two boards of seven slices each, so the node carries fourteen

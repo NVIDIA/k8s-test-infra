@@ -1,0 +1,60 @@
+# not captured: host-lspci-mellanox-vv.txt (the listing it was converted from lacks it), rdma-system.txt (the listing it was converted from lacks it), rdma-link.txt (the listing it was converted from lacks it), sys-module-rdma.txt (the listing it was converted from lacks it), net-ecn-qos.txt (the listing it was converted from lacks it), net-ethtool-i.txt (the listing it was converted from lacks it), net-ethtool.txt (the listing it was converted from lacks it), net-ethtool-m.txt (the listing it was converted from lacks it), host-ibstat.txt (the listing it was converted from lacks it), devlink-dev-info.txt (the listing it was converted from lacks it), devlink-port.txt (the listing it was converted from lacks it), devlink-eswitch.txt (the listing it was converted from lacks it), devlink-health.txt (the listing it was converted from lacks it), fw-mlxconfig.txt (the listing it was converted from lacks it), fw-flint.txt (the listing it was converted from lacks it), cable-mlxlink.txt (the listing it was converted from lacks it), smi-topo-m.txt (the listing it was converted from lacks it)
+devnode/rdma_cm	devnode	10:263 666	rdma-char-devices.txt
+ibv/0000:00:1f.0/dev	fw_ver	0.0.0.0	host-ibv-devinfo.txt
+ibv/0000:00:1f.0/dev	hw_ver	0xEFA0	host-ibv-devinfo.txt
+ibv/0000:00:1f.0/dev	phys_port_cnt	1	host-ibv-devinfo.txt
+ibv/0000:00:1f.0/dev	port.1.active_mtu	4096 (5)	host-ibv-devinfo.txt
+ibv/0000:00:1f.0/dev	port.1.link_layer	Unspecified	host-ibv-devinfo.txt
+ibv/0000:00:1f.0/dev	port.1.max_mtu	4096 (5)	host-ibv-devinfo.txt
+ibv/0000:00:1f.0/dev	port.1.port_lmc	0x01	host-ibv-devinfo.txt
+ibv/0000:00:1f.0/dev	port.1.state	PORT_ACTIVE (4)	host-ibv-devinfo.txt
+ibv/0000:00:1f.0/dev	transport	unspecified (4)	host-ibv-devinfo.txt
+ibv/0000:00:1f.0/dev	vendor_id	0x1d0f	host-ibv-devinfo.txt
+ibv/0000:00:1f.0/dev	vendor_part_id	61344	host-ibv-devinfo.txt
+node	dev_infiniband	by-ibdev,by-path,rdma_cm,uverbs0	rdma-char-devices.txt
+node	mad_abi_version		rdma-char-devices.txt
+node	verbs_abi_version	6	rdma-char-devices.txt
+pci/0000:00:1f.0	class	0x020000	pci-nic-sysfs.txt
+pci/0000:00:1f.0	current_link_speed	Unknown	pci-nic-sysfs.txt
+pci/0000:00:1f.0	current_link_width	0	pci-nic-sysfs.txt
+pci/0000:00:1f.0	device	0xefa0	pci-nic-sysfs.txt
+pci/0000:00:1f.0	driver	efa	pci-nic-sysfs.txt
+pci/0000:00:1f.0	max_link_speed	Unknown	pci-nic-sysfs.txt
+pci/0000:00:1f.0	max_link_width	255	pci-nic-sysfs.txt
+pci/0000:00:1f.0	modalias	pci:v00001D0Fd0000EFA0sv00001D0Fsd0000EFA0bc02sc00i00	pci-nic-sysfs.txt
+pci/0000:00:1f.0	numa_node	-1	pci-nic-sysfs.txt
+pci/0000:00:1f.0	revision	0x00	pci-nic-sysfs.txt
+pci/0000:00:1f.0	root	pci0000:00	pci-nic-sysfs.txt
+pci/0000:00:1f.0	subsystem_device	0xefa0	pci-nic-sysfs.txt
+pci/0000:00:1f.0	subsystem_vendor	0x1d0f	pci-nic-sysfs.txt
+pci/0000:00:1f.0	upstream		pci-nic-sysfs.txt
+pci/0000:00:1f.0	vendor	0x1d0f	pci-nic-sysfs.txt
+pci/0000:00:1f.0	virtfn_count	0	pci-nic-sysfs.txt
+port/0000:00:1f.0/dev/1	cap_mask	0x00000000	rdma-sysfs.txt
+port/0000:00:1f.0/dev/1	gid_ndevs	0	rdma-sysfs.txt
+port/0000:00:1f.0/dev/1	gid_types	IB/RoCE v1	rdma-sysfs.txt
+port/0000:00:1f.0/dev/1	gids	fe80:0000:0000:0000:0000:0000:0000:0001	rdma-sysfs.txt
+port/0000:00:1f.0/dev/1	lid	0x0	rdma-sysfs.txt
+port/0000:00:1f.0/dev/1	lid_mask_count	1	rdma-sysfs.txt
+port/0000:00:1f.0/dev/1	link_layer	Unknown	rdma-sysfs.txt
+port/0000:00:1f.0/dev/1	phys_state	5: LinkUp	rdma-sysfs.txt
+port/0000:00:1f.0/dev/1	pkeys	0xffff	rdma-sysfs.txt
+port/0000:00:1f.0/dev/1	rate	50 Gb/sec (1X HDR)	rdma-sysfs.txt
+port/0000:00:1f.0/dev/1	sm_lid	0x0	rdma-sysfs.txt
+port/0000:00:1f.0/dev/1	sm_sl	0	rdma-sysfs.txt
+port/0000:00:1f.0/dev/1	state	4: ACTIVE	rdma-sysfs.txt
+rdma/0000:00:1f.0/dev	board_id		rdma-sysfs.txt
+rdma/0000:00:1f.0/dev	fw_ver		rdma-sysfs.txt
+rdma/0000:00:1f.0/dev	hca_type		rdma-sysfs.txt
+rdma/0000:00:1f.0/dev	hw_rev		rdma-sysfs.txt
+rdma/0000:00:1f.0/dev	name	rdmap0s31	rdma-sysfs.txt
+rdma/0000:00:1f.0/dev	node_desc		rdma-sysfs.txt
+rdma/0000:00:1f.0/dev	node_guid	0000:0000:0000:0000	rdma-sysfs.txt
+rdma/0000:00:1f.0/dev	node_type	7: unspecified	rdma-sysfs.txt
+rdma/0000:00:1f.0/dev	pci_function	yes	rdma-sysfs.txt
+rdma/0000:00:1f.0/dev	ports	1	rdma-sysfs.txt
+rdma/0000:00:1f.0/dev	sys_image_guid	0000:0000:0000:0000	rdma-sysfs.txt
+uverbs/0000:00:1f.0/dev	abi_version	1	rdma-char-devices.txt
+uverbs/0000:00:1f.0/dev	dev	231:192	rdma-char-devices.txt
+uverbs/0000:00:1f.0/dev	devnode	231:192 666	rdma-char-devices.txt
+uverbs/0000:00:1f.0/dev	name	uverbs0	rdma-char-devices.txt

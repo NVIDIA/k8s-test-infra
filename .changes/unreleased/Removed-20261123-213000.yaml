@@ -1,0 +1,6 @@
+kind: Removed
+body: |-
+  helm: **Breaking:** `SGPURackProfile` drops `spec.node.topology.network`, which nothing read; remove it from rack profiles, and declare NICs as NIC slots in `topology.nics` instead.
+time: 2026-11-24T04:30:00Z
+custom:
+  Issue: "1266"

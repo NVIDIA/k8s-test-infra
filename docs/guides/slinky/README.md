@@ -71,6 +71,7 @@ plugin when it starts in Step 2, so the cluster needs nothing more; see
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --namespace mokka --create-namespace \
   --wait --timeout 300s
+kubectl -n mokka rollout status ds/nvml-mock --timeout=300s
 ```
 
 The NRI plugin is on by default. The default `gb300` profile has four GPUs per

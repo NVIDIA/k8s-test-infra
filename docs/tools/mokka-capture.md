@@ -497,7 +497,9 @@ mokka-capture diff nic [-causes file] [-failed] [-json | -report] <real node dir
 
 Reads both capture node directories through [`nic-surfaces`](#nic-surfaces)
 and reports one check per object and attribute, so the result reads like a
-test run:
+test run. Either side can also be a listing `nic-surfaces` wrote, such as one
+saved from an earlier capture or one Mokka's NIC conformance tests generate
+from a declared node:
 
 ```text
 PASS  port.state  port/0000:03:00.0/dev/1  = 4: ACTIVE
