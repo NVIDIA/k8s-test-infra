@@ -24,6 +24,11 @@ metadata:
     {{- include "nvml-mock.controlPlaneLabels" . | nindent 4 }}
     app.kubernetes.io/component: control-plane
 rules:
+  {{- if (.Values.kwok | default dict).enabled }}
+  - apiGroups: ["mokka.nvidia.com"]
+    resources: ["sgpurackallocations"]
+    verbs: ["get"]
+  {{- end }}
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list", "watch", "patch"]

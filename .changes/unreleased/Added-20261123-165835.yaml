@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  nvml-mock: With KWOK enabled, a rack keeps its slot until the data plane removes the released Node’s Pod allocations and GPU resources. Cleanup resumes when the data plane restarts.
+time: 2026-11-23T14:58:35Z
+custom:
+  Issue: "1244"

@@ -31,13 +31,14 @@ import (
 )
 
 type informerCache struct {
-	inventories mokkalisters.SGPUInventoryLister
-	profiles    mokkalisters.SGPURackProfileLister
-	racks       cache.Indexer
-	nodes       *nodecatalog.Catalog
-	liveRacks   mokkaclient.SGPURackInterface
-	liveNodes   corev1client.NodeInterface
-	liveTimeout time.Duration
+	inventories     mokkalisters.SGPUInventoryLister
+	profiles        mokkalisters.SGPURackProfileLister
+	racks           cache.Indexer
+	nodes           *nodecatalog.Catalog
+	liveAllocations mokkaclient.SGPURackAllocationInterface
+	liveRacks       mokkaclient.SGPURackInterface
+	liveNodes       corev1client.NodeInterface
+	liveTimeout     time.Duration
 }
 
 var _ sgpuinventory.Cache = (*informerCache)(nil)
@@ -103,17 +104,37 @@ func (c *informerCache) PublishRelease(ctx context.Context, needed release.Clean
 	if err != nil {
 		return err
 	}
-	d := rack.Status.Delivery
-	if !needed.MatchesRack(rack) || d == nil {
+	if !needed.MatchesRack(rack) || rack.Status.Delivery == nil {
 		return nil
 	}
-	uid := needed.Binding.Node.UID
-	if d.ReleaseRevisions[uid] >= revision {
+	wait := c.liveAllocations != nil && rack.Spec.NodeType == mokkav1alpha1.NodeTypeKWOK
+	if revision == 0 && !wait {
 		return nil
+	}
+	revision, err = c.pinReleaseRevision(ctx, rack, needed, revision)
+	if err != nil || !wait {
+		return err
+	}
+	return c.waitForRelease(ctx, rack, needed, revision)
+}
+
+func (c *informerCache) pinReleaseRevision(ctx context.Context, rack *mokkav1alpha1.SGPURack, needed release.Cleanup, revision int64) (int64, error) {
+	uid := needed.Binding.Node.UID
+	d := rack.Status.Delivery
+	if revision == 0 {
+		// A deleted Node cannot carry a tombstone. Pin its revision on the rack.
+		next, err := assignment.NextRevision(needed.AssignmentRevision)
+		if err != nil {
+			return 0, err
+		}
+		revision = next
+	}
+	if existing := d.ReleaseRevision(uid); existing >= revision {
+		return existing, nil
 	}
 	next, err := assignment.NextRevision(d.Generation)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if d.ReleaseRevisions == nil {
 		d.ReleaseRevisions = make(map[types.UID]int64)
@@ -122,10 +143,24 @@ func (c *informerCache) PublishRelease(ctx context.Context, needed release.Clean
 	d.Generation = next
 	saved, err := c.liveRacks.UpdateStatus(ctx, rack, metav1.UpdateOptions{})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if saved.Status.Delivery.ReleaseRevision(uid) != revision {
-		return fmt.Errorf("rack %q did not retain release revision %d", rack.Name, revision)
+		return 0, fmt.Errorf("rack %q did not retain release revision %d", rack.Name, revision)
+	}
+	return revision, nil
+}
+
+func (c *informerCache) waitForRelease(ctx context.Context, rack *mokkav1alpha1.SGPURack, needed release.Cleanup, revision int64) error {
+	record, err := c.liveAllocations.Get(ctx, rack.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return release.ErrCleanupPending
+	}
+	if err != nil {
+		return err
+	}
+	if !record.OwnedByRack(rack) || !record.SlotReleased(needed.Binding.Coordinate.NodeIndex, needed.Binding.Node.UID, revision) {
+		return release.ErrCleanupPending
 	}
 	return nil
 }

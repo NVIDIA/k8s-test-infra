@@ -242,3 +242,29 @@ func TestBatchReleaseConfirmsMissingPodUIDsOncePerNode(t *testing.T) {
 	require.Empty(t, list.GetNamespace())
 	require.Equal(t, []api.NodeAllocation{{Name: "worker", Pods: existing[:1]}}, f.record(t))
 }
+
+func TestReleaseCleansOnlyOldBindingWithoutRackResponse(t *testing.T) {
+	t.Parallel()
+	saved := []api.NodeAllocation{{Name: "worker"}, {Name: "other"}}
+	f := newAllocationFixture(t, saved, nil)
+	rack := f.rack.DeepCopy()
+	ref := &api.SGPUNodeReference{Name: "worker", UID: "old", AssignmentRevision: 1}
+	rack.Spec.Nodes = []api.SGPURackNode{{NodeRef: ref}}
+	rack.Status.Delivery = &api.RackDelivery{Generation: 2, ReleaseRevisions: map[types.UID]int64{"old": 2}}
+	_, err := f.allocator.rackAPI.Update(t.Context(), rack, metav1.UpdateOptions{})
+	require.NoError(t, err)
+	require.NoError(t, f.allocator.racks.Update(rack))
+	replacement := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker", UID: "new", Labels: map[string]string{metadata.GPUCountLabel: "4"}}}
+	_, err = f.kube.CoreV1().Nodes().Create(t.Context(), replacement, metav1.CreateOptions{})
+	require.NoError(t, err)
+	for range 2 {
+		require.NoError(t, f.allocator.reconcile(t.Context(), rack.Name))
+	}
+	rec, err := f.allocator.records.Get(t.Context(), rack.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Equal(t, saved[1:], rec.Nodes)
+	require.True(t, rec.SlotReleased(0, ref.UID, 2))
+	got, err := f.kube.CoreV1().Nodes().Get(t.Context(), "worker", metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Equal(t, replacement, got)
+}

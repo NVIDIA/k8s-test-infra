@@ -26,6 +26,7 @@ import (
 	mokkav1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/projection"
 )
@@ -178,6 +179,11 @@ func (p *labelPublisher) reconcile(ctx context.Context, name string) error {
 	}
 	raw := node.Annotations[metadata.AssignmentAnnotation]
 	if !isKWOK(node.ObjectMeta) || raw == "" || node.Labels[metadata.AssignedLabel] != "true" {
+		// The rack worker removes allocations before it withdraws Node fields.
+		racks, err := p.racks.GetIndexer().ByIndex(inventory.RackByNodeUIDIndex, string(node.UID))
+		if err != nil || len(racks) != 0 {
+			return err
+		}
 		return p.publishResources(ctx, node, nil)
 	}
 	desired, err := p.desiredLabels(node)

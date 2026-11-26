@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mokkav1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 )
 
@@ -76,10 +77,13 @@ var _ = Describe("KWOK rack binding", Label("kwok"), func() {
 			Expect(err).NotTo(HaveOccurred(), out)
 		}
 		DeferCleanup(restore)
-		out, err := h.Kube.KubectlCombined(ctx, "scale", dataPlane, "-n", nvmlMockNamespace, "--replicas=0")
-		Expect(err).NotTo(HaveOccurred(), out)
-		out, err = h.Kube.KubectlCombined(ctx, "wait", "--for=delete", "pod/mokka-kwok-data-plane-0", "-n", nvmlMockNamespace, "--timeout=2m")
-		Expect(err).NotTo(HaveOccurred(), out)
+		stop := func(ctx SpecContext) {
+			out, err := h.Kube.KubectlCombined(ctx, "scale", dataPlane, "-n", nvmlMockNamespace, "--replicas=0")
+			Expect(err).NotTo(HaveOccurred(), out)
+			out, err = h.Kube.KubectlCombined(ctx, "wait", "--for=delete", "pod/mokka-kwok-data-plane-0", "-n", nvmlMockNamespace, "--timeout=2m")
+			Expect(err).NotTo(HaveOccurred(), out)
+		}
+		stop(ctx)
 
 		By("scheduling a one-GPU Pod while the data plane is stopped")
 		probe := []byte(`apiVersion: v1
@@ -200,5 +204,48 @@ spec:
 			}
 			g.Expect(nodes).To(ConsistOf(realName))
 		}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
+		By("deleting the inventory while a live Pod still holds a GPU and the data plane is down")
+		Expect(h.Kube.Apply(ctx, probe)).To(Succeed())
+		Eventually(func(g Gomega) {
+			var record mokkav1.SGPURackAllocation
+			g.Expect(h.Kube.GetJSON(ctx, &record, "sgpurackallocation", virtualRack.Name)).To(Succeed())
+			g.Expect(record.Nodes).To(HaveLen(1))
+			g.Expect(record.Nodes[0].Pods).To(HaveLen(1))
+		}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
+
+		stop(ctx)
+		out, err := h.Kube.KubectlCombined(ctx, "delete", "sgpuinventory/binding-e2e", "--wait=false")
+		Expect(err).NotTo(HaveOccurred(), out)
+		checkHeld := func(g Gomega) {
+			var rack mokkav1.SGPURack
+			var node corev1.Node
+			var record mokkav1.SGPURackAllocation
+			g.Expect(h.Kube.GetJSON(ctx, &rack, "sgpurack", virtualRack.Name)).To(Succeed())
+			g.Expect(rack.Status.Delivery.ReleaseRevision(kwokNode.UID)).To(BeNumerically(">", 0))
+			g.Expect(rack.Spec.Nodes[0].BoundTo(virtualName, kwokNode.UID)).To(BeTrue())
+			g.Expect(h.Kube.GetJSON(ctx, &record, "sgpurackallocation", virtualRack.Name)).To(Succeed())
+			g.Expect(record.Nodes).To(HaveLen(1))
+			g.Expect(h.Kube.GetJSON(ctx, &node, "node", virtualName)).To(Succeed())
+			g.Expect(node.Labels).NotTo(HaveKey("mokka.nvidia.com/sgpu-assigned"))
+			g.Expect(node.Status.Allocatable).To(HaveKey(corev1.ResourceName("nvidia.com/gpu")))
+		}
+		Eventually(checkHeld).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
+		Consistently(checkHeld).WithContext(ctx).WithTimeout(3 * time.Second).WithPolling(250 * time.Millisecond).Should(Succeed())
+
+		By("resuming cleanup and keeping the source Node after the inventory disappears")
+		restore(ctx)
+		for _, object := range []string{"sgpuinventory/binding-e2e", "sgpurack/" + virtualRack.Name, "sgpurackallocation/" + virtualRack.Name} {
+			out, err = h.Kube.KubectlCombined(ctx, "wait", "--for=delete", object, "--timeout=2m")
+			Expect(err).NotTo(HaveOccurred(), out)
+		}
+		var released corev1.Node
+		Expect(h.Kube.GetJSON(ctx, &released, "node", virtualName)).To(Succeed())
+		Expect(released.UID).To(Equal(kwokNode.UID))
+		Expect(released.Status.Capacity).NotTo(HaveKey(corev1.ResourceName("nvidia.com/gpu")))
+		Expect(released.Status.Allocatable).NotTo(HaveKey(corev1.ResourceName("nvidia.com/gpu")))
+		for _, key := range metadata.DiscoveryLabelKeys() {
+			Expect(released.Labels).NotTo(HaveKey(key))
+		}
+
 	})
 })

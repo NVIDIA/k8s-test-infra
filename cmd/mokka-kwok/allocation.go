@@ -6,6 +6,7 @@ package main
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -62,21 +63,33 @@ func (a *rackAllocator) reconcile(ctx context.Context, name string) error {
 		return err
 	}
 	rack := obj.(*api.SGPURack)
+	var releaseErr error
+	if d := rack.Status.Delivery; d != nil && len(d.ReleaseRevisions) > 0 {
+		releaseErr = a.releaseSlots(ctx, rack)
+	}
 	slots, ready := a.views.allocationSlots(rack)
 	if !ready {
-		return nil
+		return releaseErr
 	}
-	record, err := a.records.Get(ctx, name, metav1.GetOptions{})
-	create := apierrors.IsNotFound(err)
-	if create {
-		record = api.NewSGPURackAllocation(rack)
-	} else if err != nil {
-		return err
+	record, create, err := a.allocationRecord(ctx, rack)
+	if err != nil {
+		return errors.Join(releaseErr, err)
+	}
+	return errors.Join(releaseErr, a.reconcileAdmissions(ctx, rack, slots, record, create))
+}
+
+func (a *rackAllocator) allocationRecord(ctx context.Context, rack *api.SGPURack) (*api.SGPURackAllocation, bool, error) {
+	record, err := a.records.Get(ctx, rack.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return api.NewSGPURackAllocation(rack), true, nil
+	}
+	if err != nil {
+		return nil, false, err
 	}
 	if !record.OwnedByRack(rack) {
-		return fmt.Errorf("allocation is not owned by rack %s (%s)", name, rack.UID)
+		return nil, false, fmt.Errorf("allocation is not owned by rack %s (%s)", rack.Name, rack.UID)
 	}
-	return a.reconcileAdmissions(ctx, rack, slots, record, create)
+	return record, false, nil
 }
 
 func (a *rackAllocator) reconcileAdmissions(ctx context.Context, rack *api.SGPURack, slots []nodeAllocationPlan, record *api.SGPURackAllocation, create bool) error {
@@ -159,7 +172,7 @@ func (a *rackAllocator) currentRack(ctx context.Context, rack *api.SGPURack) (bo
 	if err != nil {
 		return false, err
 	}
-	return current.UID == rack.UID && current.Labels[inventory.KWOKShardLabel] == rack.Labels[inventory.KWOKShardLabel] &&
+	return current.UID == rack.UID && current.Generation == rack.Generation && current.Labels[inventory.KWOKShardLabel] == rack.Labels[inventory.KWOKShardLabel] &&
 		current.Status.Delivery != nil && current.Status.Delivery.Generation == rack.Status.Delivery.Generation, nil
 }
 

@@ -42,6 +42,7 @@ type model struct {
 
 func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) model {
 	racks := mokkainformers.NewFilteredSGPURackInformer(mokka, 0, cache.Indexers{
+		inventory.RackByNodeUIDIndex: inventory.Indexers()[inventory.RackByNodeUIDIndex],
 		rackUIDIndex: func(obj any) ([]string, error) {
 			rack, err := meta.Accessor(obj)
 			if err != nil {

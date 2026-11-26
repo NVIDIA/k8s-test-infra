@@ -310,15 +310,21 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 	if !exactBindingPresent {
 		rack = nil
 	}
+	finishAbsent := func() (Outcome, error) {
+		if rack != nil && rack.Spec.NodeType == mokkav1alpha1.NodeTypeKWOK {
+			return c.finishRelease(ctx, needed, outcome, true, 0, ReasonExactNodeAbsent)
+		}
+		return c.completeCleanup(needed, outcome, ReasonExactNodeAbsent, exactBindingPresent), nil
+	}
 	node, err := c.cache.Node(ctx, needed.Binding.Node.Name)
 	if apierrors.IsNotFound(err) {
-		return c.completeCleanup(needed, outcome, ReasonExactNodeAbsent, exactBindingPresent), nil
+		return finishAbsent()
 	}
 	if err != nil {
 		return c.failCleanup(outcome, fmt.Errorf("get Node %q: %w", needed.Binding.Node.Name, err), exactBindingPresent)
 	}
 	if node.UID != needed.Binding.Node.UID {
-		return c.completeCleanup(needed, outcome, ReasonExactNodeAbsent, exactBindingPresent), nil
+		return finishAbsent()
 	}
 	if fields, blocked := c.blockedCleanup(needed, node); blocked {
 		outcome, conflict := conflictOutcome(outcome, node.Name, fields)
@@ -333,7 +339,7 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 	_, assignedLabel := node.Labels[sgpumetadata.AssignedLabel]
 	_, cliqueLabel := node.Labels[sgpumetadata.CliqueLabel]
 	if tombstone && assignment.AssignmentRevision > needed.AssignmentRevision && !assignedLabel && !cliqueLabel {
-		return c.finishPublishedRelease(ctx, needed, outcome, exactBindingPresent, assignment.AssignmentRevision)
+		return c.finishRelease(ctx, needed, outcome, exactBindingPresent, assignment.AssignmentRevision, ReasonCleaned)
 	}
 	matches := decodeErr == nil && cleanupAssignmentMatches(assignment, needed)
 	if !exactBindingPresent && (!matches || assignment.AssignmentRevision > needed.AssignmentRevision) {
@@ -438,7 +444,7 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 		), exactBindingPresent)
 	}
 	if response.UID != node.UID {
-		return c.completeCleanup(needed, outcome, ReasonExactNodeAbsent, exactBindingPresent), nil
+		return finishAbsent()
 	}
 
 	priorAssignment := encoded
@@ -463,16 +469,19 @@ func (c *Controller) Cleanup(ctx context.Context, needed sgpurelease.Cleanup) (O
 	}
 	zap.L().Info("Removed sGPU assignment projection from Node",
 		append(outcomeFields(outcome), zap.String("reason", string(needed.Reason)))...)
-	return c.finishPublishedRelease(ctx, needed, outcome, exactBindingPresent, revision)
+	return c.finishRelease(ctx, needed, outcome, exactBindingPresent, revision, ReasonCleaned)
 }
 
-func (c *Controller) finishPublishedRelease(ctx context.Context, needed sgpurelease.Cleanup, outcome Outcome, bound bool, revision int64) (Outcome, error) {
+func (c *Controller) finishRelease(ctx context.Context, needed sgpurelease.Cleanup, outcome Outcome, bound bool, revision int64, reason string) (Outcome, error) {
 	if bound {
 		if err := c.cache.PublishRelease(ctx, needed, revision); err != nil {
+			if errors.Is(err, sgpurelease.ErrCleanupPending) {
+				return outcome, err
+			}
 			return c.failCleanup(outcome, fmt.Errorf("publish release of Node %q: %w", needed.Binding.Node.Name, err), true)
 		}
 	}
-	return c.completeCleanup(needed, outcome, ReasonCleaned, bound), nil
+	return c.completeCleanup(needed, outcome, reason, bound), nil
 }
 
 // Ready reports whether an exact cleanup acknowledgement is pending.

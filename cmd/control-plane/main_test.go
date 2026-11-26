@@ -44,6 +44,7 @@ func TestConfigFromFlags(t *testing.T) {
 				"--leader-election-retry-period", "17s",
 				"--workers", "19",
 				"--kwok-shard-name", "kwok-test-0",
+				"--kwok-wait-for-cleanup",
 				"--status-debounce", "23ms",
 				"--status-progress-interval", "31s",
 				"--live-node-get-timeout", "41ms",
@@ -68,6 +69,7 @@ func TestConfigFromFlags(t *testing.T) {
 				Controller: controller.Options{
 					Workers:                19,
 					KWOKShardName:          "kwok-test-0",
+					KWOKWaitForCleanup:     true,
 					StatusDebounce:         23 * time.Millisecond,
 					StatusProgressInterval: 31 * time.Second,
 					LiveNodeGetTimeout:     41 * time.Millisecond,
