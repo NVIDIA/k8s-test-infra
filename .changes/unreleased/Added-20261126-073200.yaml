@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  kwok: Report simulated IMEX daemons in the rack's ComputeDomainClique so NVIDIA's controller can mark a multi-Node ComputeDomain Ready.
+time: 2026-11-26T07:32:00Z
+custom:
+  Issue: "1319"

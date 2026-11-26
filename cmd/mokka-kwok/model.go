@@ -22,7 +22,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
-	"k8s.io/client-go/metadata"
+
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 
@@ -47,7 +47,7 @@ type model struct {
 	allocator  *rackAllocator
 }
 
-func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config, domainMeta metadata.Interface) model {
+func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config, domains *domainChannels) model {
 	racks := mokkainformers.NewFilteredSGPURackInformer(mokka, 0, cache.Indexers{
 		inventory.RackByNodeUIDIndex: inventory.Indexers()[inventory.RackByNodeUIDIndex],
 		rackUIDIndex: func(obj any) ([]string, error) {
@@ -86,8 +86,9 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config, 
 			discovery.slices.driver = c.gpuDriver
 		}
 		if c.computeDomains {
-			discovery.slices.domains = newDomainChannels(domainMeta, pods.claims)
-			discovery.slices.domains.retry = discovery.queue.AddAfter
+			discovery.slices.domains = domains
+			domains.claims = pods.claims
+			domains.retry = discovery.queue.AddAfter
 			pods.notifyNode = discovery.queue.Add
 		}
 	}
@@ -135,7 +136,7 @@ func (m model) run(ctx context.Context, c config) error {
 		if reason := prerequisites.Load().(string); reason != "" {
 			return health.Unhealthy("%s", reason)
 		}
-		if c.computeDomains && !m.discovery.slices.domains.watch.HasSynced() {
+		if c.computeDomains && (!m.discovery.slices.domains.watch.HasSynced() || !m.discovery.slices.domains.reports.watch.HasSynced()) {
 			return health.Unhealthy("waiting for ComputeDomain cache")
 		}
 		if !m.claimsSynced() {
@@ -170,6 +171,7 @@ func (m model) runWorkers(ctx context.Context, c config, rackEvents cache.Resour
 	if c.computeDomains {
 		group.Go(func() error { return m.discovery.watchSlices(ctx, m.kube, domainSliceKey) })
 		group.Go(func() error { return m.discovery.watchDomains(ctx) })
+		group.Go(func() error { return m.discovery.slices.domains.reports.run(ctx, m.discovery.queue.Add) })
 	}
 	if m.claimWatch != nil {
 		group.Go(func() error {
