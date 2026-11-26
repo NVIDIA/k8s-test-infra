@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  node-agent: a NIC declaration that doesn't resolve leaves the GPUs serving: the agent keeps the NICs it last accepted while they fit the node's PCI tree, records a Warning Event on its pod, and names the error under `nics` in `/readyz`. See the chart guide's NIC slots section.
+time: 2026-11-26T04:11:16Z
+custom:
+  Issue: "1266"

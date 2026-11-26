@@ -82,7 +82,8 @@ func loadGPUProfileNICs(t *testing.T, name string) gpuProfileNICs {
 // plane's rack profile.
 func TestGPUProfileSlotsEqualRackFixtures(t *testing.T) {
 	t.Parallel()
-	for gpuProfile, rack := range map[string]string{"gb300": "gb300-nvl72", "vrnvl72": "vr-nvl72"} {
+	for _, gpuProfile := range []string{"gb300", "vrnvl72"} {
+		rack := gpuProfile // the rack fixture has the GPU profile's name
 		t.Run(gpuProfile, func(t *testing.T) {
 			t.Parallel()
 			got := loadGPUProfileNICs(t, gpuProfile)

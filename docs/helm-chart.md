@@ -250,32 +250,42 @@ declaration changes nothing a workload sees. Each NIC model is an
 `SNICProfile` in the chart's `nics/` directory: its PCI identity, firmware, and every firmware configuration it can
 run, each declared as the ports, PCI functions and RDMA devices it produces.
 The GPU profile's `nics.slots` places NIC instances on the node, each naming a
-profile, a PCI placement and, optionally, a configuration. GPUs, NIC devices
+profile and placing its PCI devices. A slot runs its profile's default
+configuration unless `nics.configurations` selects another, and always
+reports the profile's firmware version. GPUs, NIC devices
 and NIC switch ports share one PCIe tree: `nics.rootPorts` lists the root
 ports, and `nics.gpuParents` names the root port or NIC switch port each GPU
 sits below. The [CRD reference](crd-reference.md#snicprofile) lists the
 fields.
 
-The chart appends the NIC profiles the slots name to the node agent's
-configuration. Values change the selection without a new profile, and
-`nics.rdma` changes the profile's RDMA software, field by field:
+The chart appends the NIC profiles the slots name, and the configuration
+choices, to the node agent's configuration. `nics.configurations` takes the
+shape of an `SGPUInventory` rack group's `nicConfigurations`: each entry names
+`slots` and one `configuration` of their profile, and a slot appears in one
+entry at most. `nics.rdma` changes the profile's RDMA software, field by
+field:
 
 ```bash
 # GB300's four ConnectX-8 NICs in their Ethernet multi-plane configuration
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --namespace mokka --create-namespace \
   --set gpu.profile=gb300 \
-  --set 'nics.overrides[0].slots={nic0,nic1,nic2,nic3}' \
-  --set 'nics.overrides[0].configuration=eth-multiplane'
+  --set 'nics.configurations[0].slots={nic0,nic1,nic2,nic3}' \
+  --set 'nics.configurations[0].configuration=eth-multiplane'
 ```
 
 `nics.customProfiles` adds NIC models the chart doesn't ship, under names of
-their own. `nics.slots` replaces the profile's slots, root ports and GPU
-parents, which name each other's addresses; set `nics.rootPorts` and
-`nics.gpuParents` with it. The render fails, listing the valid choices, on a
-slot naming an unknown NIC profile or configuration, an override naming a slot
-the node doesn't have, a custom profile whose default configuration it doesn't
-define, and a GPU profile document that repeats a top-level NIC key. Any
+their own, for slots to name. `nics.slots` replaces the profile's slots, root
+ports and GPU parents, which name each other's addresses; set `nics.rootPorts`
+and `nics.gpuParents` with it. The render fails, listing the valid choices, on
+a slot naming an unknown NIC profile; a field the NIC CRDs don't define, in
+`nics.slots`, `nics.rootPorts` or a custom profile; a configuration choice
+without `slots`,
+naming a slot the node doesn't have or a configuration its profile doesn't
+have, or naming a slot another choice names; a custom profile whose default
+configuration it doesn't define; a GPU profile document that repeats a
+top-level NIC key; and one that sets `nic_profiles` or `nic_configurations`,
+which the chart writes from values. Any
 change to the document rolls the node agents.
 
 A declaration the node agent still can't resolve, such as a PCI device placed

@@ -52,14 +52,17 @@ Mokka is a test double for CI and test clusters, not production.
 When enabled, the `control-plane` pod mounts a dedicated ServiceAccount token
 for Kubernetes API access. Its ClusterRole grants Node reads and patches and
 the Mokka resource permissions needed for reconciliation; its namespaced Role
-grants leader-election Lease access in the release namespace. The node
-DaemonSet, including its optional NRI sidecar, does not mount a ServiceAccount
-token. See the
+grants leader-election Lease access in the release namespace. See the
 [Mokka Control Plane](docs/control-plane.md) for its reconciliation and
-single-writer lifecycle. The node agent runs privileged to use bidirectional
-mount propagation; the other chart containers are not privileged. The node pod
-shares the host's PID namespace to restart containerd; no component uses
-another host namespace.
+single-writer lifecycle. In the node DaemonSet, only the node-agent container
+mounts a ServiceAccount token, through a projected volume, since the pod
+doesn't automount one. Its Role allows creating and patching Events in the
+release namespace and nothing else, so the agent can record on its own pod
+what it degrades without failing, such as an ignored NIC declaration. The
+other containers, the optional NRI sidecar included, mount no token. The node
+agent runs privileged to use bidirectional mount propagation; the other chart
+containers are not privileged. The node pod shares the host's PID namespace to
+restart containerd; no component uses another host namespace.
 
 Privilege is scoped per container:
 

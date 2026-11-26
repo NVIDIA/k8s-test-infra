@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  helm: `nics.configurations` selects the configuration NIC slots run, and the chart adds a Role that lets the node agent record Events, with a ServiceAccount token mounted in its container only.
+time: 2026-11-26T04:11:17Z
+custom:
+  Issue: "1266"

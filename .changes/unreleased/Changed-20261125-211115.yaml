@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  profiles: `gb300` and `vrnvl72` also declare their NICs as NIC slots (MEP-0016), which the node agent resolves and reports; their `infiniband` block still decides what a node shows. `gb300` GPUs move to their captured PCI addresses, and its NVSwitches off the NIC addresses.
+time: 2026-11-26T04:11:15Z
+custom:
+  Issue: "1266"

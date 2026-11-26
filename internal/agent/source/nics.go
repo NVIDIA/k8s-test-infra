@@ -21,7 +21,8 @@ import (
 // the profile's infiniband block, and the node's NIC state, from its NIC
 // declaration (MEP-0016). The NIC state is reported but not rendered until
 // the ib simulator renders it (#1355); until then the infiniband block decides
-// what the node shows, and NIC overrides change nothing a workload sees.
+// what the node shows, and NIC configuration choices change nothing a workload
+// sees.
 //
 // retained is the NIC state last accepted on this node, or nil; see failOpen.
 func compileNetworking(data []byte, cfg *engine.YAMLConfig, state *agent.State, numDevices int, retained *nicstate.NICs) error {
@@ -50,11 +51,11 @@ func compileNICs(data []byte, cfg *engine.YAMLConfig, node string, state *agent.
 	}
 	if err == nil {
 		nics, err = nicstate.Resolve(nicstate.Input{
-			Node:      nicstate.FileNode(node),
-			Topology:  &v1alpha1.SGPUTopology{RootPorts: doc.RootPorts, GPUSlots: gpus, NICs: doc.Slots},
-			Overrides: doc.Overrides,
-			RDMA:      doc.RDMA,
-			Profiles:  doc.Profiles,
+			Node:           nicstate.FileNode(node),
+			Topology:       &v1alpha1.SGPUTopology{RootPorts: doc.RootPorts, GPUSlots: gpus, NICs: doc.Slots},
+			Configurations: doc.Configurations,
+			RDMA:           doc.RDMA,
+			Profiles:       doc.Profiles,
 		})
 	}
 	if err == nil {

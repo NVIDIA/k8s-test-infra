@@ -26,15 +26,15 @@ func TestDecodeDocument(t *testing.T) {
 	doc, err = DecodeDocument([]byte(`software: {rdma: {umad: true}}
 nics:
   slots:
-    - {slot: nic0, profile: cx9-vr, devices: {network: {rootComplex: pci0001:00, address: "0001:01:00", numaNode: 0}}}
-nic_overrides: [{slots: [nic0], firmwareVersion: "1"}]
+    - {slot: nic0, profile: cx9-vr, devices: [{name: network, rootComplex: pci0001:00, address: "0001:01:00", numaNode: 0}]}
+nic_configurations: [{slots: [nic0], configuration: eth}]
 nic_profiles:
   - ` + string(profile) + "\n"))
 	require.NoError(t, err)
 	require.True(t, doc.Declares())
 	require.True(t, doc.RDMA.UMAD)
 	require.Len(t, doc.Slots, 1)
-	require.Equal(t, "1", doc.Overrides[0].FirmwareVersion)
+	require.Equal(t, "eth", doc.Configurations[0].Configuration)
 	require.Contains(t, doc.Profiles, "cx9-vr")
 
 	for _, tc := range []struct{ doc, want string }{
@@ -54,7 +54,7 @@ nic_profiles:
 // to the engine.
 func TestDocumentRepeatedNICKeys(t *testing.T) {
 	t.Parallel()
-	const slot = "  - slot: nic0\n    profile: cx9-vr\n    devices: {network: {rootComplex: pci0001:00, address: \"0001:00:01\", numaNode: 0}}\n"
+	const slot = "  - slot: nic0\n    profile: cx9-vr\n    devices: [{name: network, rootComplex: pci0001:00, address: \"0001:00:01\", numaNode: 0}]\n"
 	for doc, want := range map[string]string{
 		"nics:\n  slots:\n" + slot + "nics:\n  slots: []\n":             `line 6: key "nics" is repeated`,
 		"nics:\n  slots:\n" + slot + "    profile: cx8-c8280z\n":        `nics.slots[0]: line 6: key "profile" is repeated`,
@@ -77,9 +77,11 @@ func TestDocumentRepeatedNICKeys(t *testing.T) {
 func TestDocumentRawRules(t *testing.T) {
 	t.Parallel()
 	for doc, want := range map[string]string{
-		"nics:\n  slots:\n  - slot: nic0\n    profile: cx9-vr\n    devices: {network: {rootComplex: pci0001:00, address: \"0001:00:01\"}}\n": `nics.slots[0].devices.network: missing required field "numaNode"`,
-		"nic_overrides:\n- slots: [nic0, nic0]\n  configuration: eth\n":                                                                      "nic_overrides[0].slots[1]: repeats nic_overrides[0].slots[0]",
-		"nics:\n  rootPorts:\n  - {address: \"0001:00:00.0\"}\n":                                                                             `nics.rootPorts[0]: missing required field "rootComplex"`,
+		"nics:\n  slots:\n  - slot: nic0\n    profile: cx9-vr\n    devices: [{name: network, rootComplex: pci0001:00, address: \"0001:00:01\"}]\n": `nics.slots[0].devices[0]: missing required field "numaNode"`,
+		"nic_configurations:\n- slots: [nic0, nic0]\n  configuration: eth\n":                                                                       "nic_configurations[0].slots[1]: repeats nic_configurations[0].slots[0]",
+		"nic_configurations:\n- slots: [nic0]\n":                                                                                                   `nic_configurations[0]: missing required field "configuration"`,
+		"nics:\n  slots:\n  - slot: nic0\n    profile: cx9-vr\n    devices:\n    - {name: network, rootComplex: pci0001:00, address: \"0001:00:01\", numaNode: 0}\n    - {name: network, rootComplex: pci0001:00, address: \"0001:00:02\", numaNode: 0}\n": "nics.slots[0].devices[1]: repeats nics.slots[0].devices[0]",
+		"nics:\n  rootPorts:\n  - {address: \"0001:00:00.0\"}\n": `nics.rootPorts[0]: missing required field "rootComplex"`,
 	} {
 		_, err := DecodeDocument([]byte(doc))
 		require.ErrorContains(t, err, want, doc)

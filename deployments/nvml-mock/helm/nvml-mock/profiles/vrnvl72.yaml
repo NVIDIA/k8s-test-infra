@@ -639,7 +639,7 @@ pcie_topology:
 # Each slot names a NIC profile in the chart's nics/ directory and places its
 # PCI devices. GPUs, NIC devices and NIC switch ports share one PCIe tree
 # below the root ports. The same slots, root ports and GPU parents are in
-# internal/nic/testdata/rackprofiles/vr-nvl72.yaml, and a test keeps them
+# internal/nic/testdata/rackprofiles/vrnvl72.yaml, and a test keeps them
 # equal.
 #
 # The node agent resolves these slots into its NIC state, which it reports but
@@ -679,7 +679,7 @@ nics:
       profile: cx9-vr
       gpus: [0, 1]
       devices:
-        network:
+        - name: network
           rootComplex: pci0001:00
           # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
           bridges:
@@ -695,7 +695,7 @@ nics:
       profile: cx9-vr
       gpus: [0, 1]
       devices:
-        network:
+        - name: network
           rootComplex: pci0003:00
           address: "0003:01:00"
           parent: "0003:00:00.0"
@@ -704,7 +704,7 @@ nics:
       profile: cx9-vr
       gpus: [0, 1]
       devices:
-        network:
+        - name: network
           rootComplex: pci0004:00
           # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
           bridges:
@@ -720,7 +720,7 @@ nics:
       profile: cx9-vr
       gpus: [0, 1]
       devices:
-        network:
+        - name: network
           rootComplex: pci0006:00
           address: "0006:01:00"
           parent: "0006:00:00.0"
@@ -729,7 +729,7 @@ nics:
       profile: cx9-vr
       gpus: [2, 3]
       devices:
-        network:
+        - name: network
           rootComplex: pci0009:00
           # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
           bridges:
@@ -745,7 +745,7 @@ nics:
       profile: cx9-vr
       gpus: [2, 3]
       devices:
-        network:
+        - name: network
           rootComplex: pci000b:00
           address: "000b:01:00"
           parent: "000b:00:00.0"
@@ -754,7 +754,7 @@ nics:
       profile: cx9-vr
       gpus: [2, 3]
       devices:
-        network:
+        - name: network
           rootComplex: pci000c:00
           # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
           bridges:
@@ -770,7 +770,7 @@ nics:
       profile: cx9-vr
       gpus: [2, 3]
       devices:
-        network:
+        - name: network
           rootComplex: pci000e:00
           address: "000e:01:00"
           parent: "000e:00:00.0"
@@ -780,12 +780,12 @@ nics:
       # One ASIC; its system image GUID is the node GUID of host link B's p0 PF.
       systemImageGUID: rdma-b0
       devices:
-        hostA:
+        - name: hostA
           rootComplex: pci0005:40
           address: "0005:41:00"
           parent: "0005:40:00.0"
           numaNode: 0
-        hostB:
+        - name: hostB
           rootComplex: pci000d:40
           address: "000d:41:00"
           parent: "000d:40:00.0"

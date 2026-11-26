@@ -1682,7 +1682,7 @@ should match snapshot with default gb300 profile:
         # in the chart's nics/ directory and places its PCI devices. GPUs, NIC devices
         # and NIC switch ports share one PCIe tree below the root ports. The same
         # slots, root ports and GPU parents are in
-        # internal/nic/testdata/rackprofiles/gb300-nvl72.yaml, and a test keeps them
+        # internal/nic/testdata/rackprofiles/gb300.yaml, and a test keeps them
         # equal.
         #
         # The node agent resolves these slots into its NIC state, which it reports but
@@ -1718,7 +1718,7 @@ should match snapshot with default gb300 profile:
               board: 0
               gpus: [1]
               devices:
-                network:
+                - name: network
                   rootComplex: pci0000:00
                   bridges:
                     - {address: "0000:01:00.0", parent: "0000:00:00.0"}
@@ -1731,7 +1731,7 @@ should match snapshot with default gb300 profile:
                   parent: "0000:02:00.0"
                   numaNode: 0
                   vpdPosition: "-Prime"
-                dataDirect:
+                - name: dataDirect
                   rootComplex: pci0009:00
                   bridges:
                     - {address: "0009:01:00.0", parent: "0009:00:00.0"}
@@ -1749,7 +1749,7 @@ should match snapshot with default gb300 profile:
               systemImageGUID: distinct
               gpus: [0]
               devices:
-                network:
+                - name: network
                   rootComplex: pci0002:00
                   bridges:
                     - {address: "0002:01:00.0", parent: "0002:00:00.0"}
@@ -1762,7 +1762,7 @@ should match snapshot with default gb300 profile:
                   parent: "0002:02:00.0"
                   numaNode: 0
                   vpdPosition: "-Aux[1]"
-                dataDirect:
+                - name: dataDirect
                   rootComplex: pci0008:00
                   bridges:
                     - {address: "0008:01:00.0", parent: "0008:00:00.0"}
@@ -1779,7 +1779,7 @@ should match snapshot with default gb300 profile:
               board: 1
               gpus: [3]
               devices:
-                network:
+                - name: network
                   rootComplex: pci0010:00
                   bridges:
                     - {address: "0010:01:00.0", parent: "0010:00:00.0"}
@@ -1792,7 +1792,7 @@ should match snapshot with default gb300 profile:
                   parent: "0010:02:00.0"
                   numaNode: 1
                   vpdPosition: "-Prime"
-                dataDirect:
+                - name: dataDirect
                   rootComplex: pci0019:00
                   bridges:
                     - {address: "0019:01:00.0", parent: "0019:00:00.0"}
@@ -1810,7 +1810,7 @@ should match snapshot with default gb300 profile:
               systemImageGUID: distinct
               gpus: [2]
               devices:
-                network:
+                - name: network
                   rootComplex: pci0012:00
                   bridges:
                     - {address: "0012:01:00.0", parent: "0012:00:00.0"}
@@ -1823,7 +1823,7 @@ should match snapshot with default gb300 profile:
                   parent: "0012:02:00.0"
                   numaNode: 1
                   vpdPosition: "-Aux[1]"
-                dataDirect:
+                - name: dataDirect
                   rootComplex: pci0018:00
                   bridges:
                     - {address: "0018:01:00.0", parent: "0018:00:00.0"}
@@ -1838,12 +1838,12 @@ should match snapshot with default gb300 profile:
             - slot: frontend0
               profile: bf3-b3240
               devices:
-                host:
+                - name: host
                   rootComplex: pci0016:00
                   address: "0016:01:00"
                   parent: "0016:00:00.0"
                   numaNode: 1
-        nic_overrides: []
+        nic_configurations: []
         nic_profiles:
         - apiVersion: mokka.nvidia.com/v1alpha1
           kind: SNICProfile
@@ -1894,34 +1894,34 @@ should match snapshot with default gb300 profile:
                 - p1
             defaultConfiguration: eth-2x400
             functionTypes:
-              network:
-                deviceID: a2dc
-                driver: mlx5_core
-                pcieLink:
-                  speed: 32.0 GT/s PCIe
-                  width: 16
-                rdmaNamePrefix: mlx5_
-                revision: "0x01"
-                subsystemDeviceID: "0041"
-                subsystemVendorID: 15b3
-                totalVFs: 16
-                vendorID: 15b3
-                vpd: true
-                vpdSuffixes:
-                  VU: MLNXS0D0F{function}
-              socManagement:
-                deviceID: c2d5
-                driver: vfio-pci
-                pcieLink:
-                  speed: 32.0 GT/s PCIe
-                  width: 16
-                revision: "0x01"
-                subsystemDeviceID: "0041"
-                subsystemVendorID: 15b3
-                vendorID: 15b3
-                vpd: true
-                vpdOmit:
-                - VU
+            - deviceID: a2dc
+              driver: mlx5_core
+              name: network
+              pcieLink:
+                speed: 32.0 GT/s PCIe
+                width: 16
+              rdmaNamePrefix: mlx5_
+              revision: "0x01"
+              subsystemDeviceID: "0041"
+              subsystemVendorID: 15b3
+              totalVFs: 16
+              vendorID: 15b3
+              vpd: true
+              vpdSuffixes:
+                VU: MLNXS0D0F{function}
+            - deviceID: c2d5
+              driver: vfio-pci
+              name: socManagement
+              pcieLink:
+                speed: 32.0 GT/s PCIe
+                width: 16
+              revision: "0x01"
+              subsystemDeviceID: "0041"
+              subsystemVendorID: 15b3
+              vendorID: 15b3
+              vpd: true
+              vpdOmit:
+              - VU
             identity:
               boardID: MT_0000001188
               firmwareVersion: 32.47.3576
@@ -2052,43 +2052,43 @@ should match snapshot with default gb300 profile:
                 - p3
             defaultConfiguration: ib-xdr-4plane
             functionTypes:
-              dataDirect:
-                deviceID: "2100"
-                driver: mlx5_ib
-                pcieLink:
-                  speed: 64.0 GT/s PCIe
-                  width: 16
-                revision: "0x00"
-                subsystemDeviceID: "0208"
-                subsystemVendorID: 15b3
-                vendorID: 15b3
-                vpd: true
-                vpdSuffixes:
-                  VU: MLNXDDIS0D0F0
-              network:
-                deviceID: "1023"
-                driver: mlx5_core
-                pcieLink:
-                  speed: 64.0 GT/s PCIe
-                  width: 16
-                rdmaNamePrefix: mlx5_
-                revision: "0x00"
-                subsystemDeviceID: "0208"
-                subsystemVendorID: 15b3
-                totalVFs: 16
-                vendorID: 15b3
-                vfType: vf
-                vpd: true
-                vpdSuffixes:
-                  VU: MLNXS0D0F{function}
-              vf:
-                deviceID: 101e
-                driver: mlx5_core
-                rdmaNamePrefix: mlx5_
-                revision: "0x00"
-                subsystemDeviceID: "0208"
-                subsystemVendorID: 15b3
-                vendorID: 15b3
+            - deviceID: "1023"
+              driver: mlx5_core
+              name: network
+              pcieLink:
+                speed: 64.0 GT/s PCIe
+                width: 16
+              rdmaNamePrefix: mlx5_
+              revision: "0x00"
+              subsystemDeviceID: "0208"
+              subsystemVendorID: 15b3
+              totalVFs: 16
+              vendorID: 15b3
+              vfType: vf
+              vpd: true
+              vpdSuffixes:
+                VU: MLNXS0D0F{function}
+            - deviceID: "2100"
+              driver: mlx5_ib
+              name: dataDirect
+              pcieLink:
+                speed: 64.0 GT/s PCIe
+                width: 16
+              revision: "0x00"
+              subsystemDeviceID: "0208"
+              subsystemVendorID: 15b3
+              vendorID: 15b3
+              vpd: true
+              vpdSuffixes:
+                VU: MLNXDDIS0D0F0
+            - deviceID: 101e
+              driver: mlx5_core
+              name: vf
+              rdmaNamePrefix: mlx5_
+              revision: "0x00"
+              subsystemDeviceID: "0208"
+              subsystemVendorID: 15b3
+              vendorID: 15b3
             identity:
               boardID: MT_0000001513
               firmwareVersion: 40.47.3576
@@ -4805,7 +4805,7 @@ should match snapshot with vrnvl72 profile:
         # Each slot names a NIC profile in the chart's nics/ directory and places its
         # PCI devices. GPUs, NIC devices and NIC switch ports share one PCIe tree
         # below the root ports. The same slots, root ports and GPU parents are in
-        # internal/nic/testdata/rackprofiles/vr-nvl72.yaml, and a test keeps them
+        # internal/nic/testdata/rackprofiles/vrnvl72.yaml, and a test keeps them
         # equal.
         #
         # The node agent resolves these slots into its NIC state, which it reports but
@@ -4845,7 +4845,7 @@ should match snapshot with vrnvl72 profile:
               profile: cx9-vr
               gpus: [0, 1]
               devices:
-                network:
+                - name: network
                   rootComplex: pci0001:00
                   # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
                   bridges:
@@ -4861,7 +4861,7 @@ should match snapshot with vrnvl72 profile:
               profile: cx9-vr
               gpus: [0, 1]
               devices:
-                network:
+                - name: network
                   rootComplex: pci0003:00
                   address: "0003:01:00"
                   parent: "0003:00:00.0"
@@ -4870,7 +4870,7 @@ should match snapshot with vrnvl72 profile:
               profile: cx9-vr
               gpus: [0, 1]
               devices:
-                network:
+                - name: network
                   rootComplex: pci0004:00
                   # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
                   bridges:
@@ -4886,7 +4886,7 @@ should match snapshot with vrnvl72 profile:
               profile: cx9-vr
               gpus: [0, 1]
               devices:
-                network:
+                - name: network
                   rootComplex: pci0006:00
                   address: "0006:01:00"
                   parent: "0006:00:00.0"
@@ -4895,7 +4895,7 @@ should match snapshot with vrnvl72 profile:
               profile: cx9-vr
               gpus: [2, 3]
               devices:
-                network:
+                - name: network
                   rootComplex: pci0009:00
                   # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
                   bridges:
@@ -4911,7 +4911,7 @@ should match snapshot with vrnvl72 profile:
               profile: cx9-vr
               gpus: [2, 3]
               devices:
-                network:
+                - name: network
                   rootComplex: pci000b:00
                   address: "000b:01:00"
                   parent: "000b:00:00.0"
@@ -4920,7 +4920,7 @@ should match snapshot with vrnvl72 profile:
               profile: cx9-vr
               gpus: [2, 3]
               devices:
-                network:
+                - name: network
                   rootComplex: pci000c:00
                   # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
                   bridges:
@@ -4936,7 +4936,7 @@ should match snapshot with vrnvl72 profile:
               profile: cx9-vr
               gpus: [2, 3]
               devices:
-                network:
+                - name: network
                   rootComplex: pci000e:00
                   address: "000e:01:00"
                   parent: "000e:00:00.0"
@@ -4946,17 +4946,17 @@ should match snapshot with vrnvl72 profile:
               # One ASIC; its system image GUID is the node GUID of host link B's p0 PF.
               systemImageGUID: rdma-b0
               devices:
-                hostA:
+                - name: hostA
                   rootComplex: pci0005:40
                   address: "0005:41:00"
                   parent: "0005:40:00.0"
                   numaNode: 0
-                hostB:
+                - name: hostB
                   rootComplex: pci000d:40
                   address: "000d:41:00"
                   parent: "000d:40:00.0"
                   numaNode: 1
-        nic_overrides: []
+        nic_configurations: []
         nic_profiles:
         - apiVersion: mokka.nvidia.com/v1alpha1
           kind: SNICProfile
@@ -5024,15 +5024,15 @@ should match snapshot with vrnvl72 profile:
                 - p1
             defaultConfiguration: eth-2x400-2host
             functionTypes:
-              network:
-                deviceID: a2df
-                driver: mlx5_core
-                rdmaNamePrefix: mlx5_
-                subsystemDeviceID: "2000"
-                subsystemVendorID: 15b3
-                totalVFs: 46
-                vendorID: 15b3
-                vpd: true
+            - deviceID: a2df
+              driver: mlx5_core
+              name: network
+              rdmaNamePrefix: mlx5_
+              subsystemDeviceID: "2000"
+              subsystemVendorID: 15b3
+              totalVFs: 46
+              vendorID: 15b3
+              vpd: true
             identity:
               boardID: MT_0000001875
               firmwareVersion: 82.48.4238
@@ -5070,15 +5070,15 @@ should match snapshot with vrnvl72 profile:
                 - p0
             defaultConfiguration: eth-1x200
             functionTypes:
-              network:
-                deviceID: "1025"
-                driver: mlx5_core
-                rdmaNamePrefix: mlx5_
-                subsystemDeviceID: "0671"
-                subsystemVendorID: 15b3
-                totalVFs: 1
-                vendorID: 15b3
-                vpd: true
+            - deviceID: "1025"
+              driver: mlx5_core
+              name: network
+              rdmaNamePrefix: mlx5_
+              subsystemDeviceID: "0671"
+              subsystemVendorID: 15b3
+              totalVFs: 1
+              vendorID: 15b3
+              vpd: true
             identity:
               boardID: MT_0000001658
               firmwareVersion: 82.48.4222

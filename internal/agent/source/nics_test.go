@@ -19,6 +19,7 @@ import (
 	"go.uber.org/zap"
 	"sigs.k8s.io/yaml"
 
+	"github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/nic/declaration"
 	nicstate "github.com/NVIDIA/k8s-test-infra/internal/nic/state"
@@ -30,9 +31,9 @@ const (
 )
 
 // assembledDocument is a chart GPU profile as the chart renders it into the
-// node agent's ConfigMap: the profile, the overrides, and the NIC profiles its
-// slots name. overrides is a YAML flow sequence.
-func assembledDocument(t *testing.T, profile, overrides string) []byte {
+// node agent's ConfigMap: the profile, the configuration choices, and the NIC
+// profiles its slots name. configurations is a YAML flow sequence.
+func assembledDocument(t *testing.T, profile, configurations string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(chartDir, "profiles", profile+".yaml"))
 	require.NoError(t, err)
@@ -46,7 +47,7 @@ func assembledDocument(t *testing.T, profile, overrides string) []byte {
 
 	var b bytes.Buffer
 	b.Write(data)
-	fmt.Fprintf(&b, "\nnic_overrides: %s\nnic_profiles:\n", overrides)
+	fmt.Fprintf(&b, "\nnic_configurations: %s\nnic_profiles:\n", configurations)
 	for _, name := range slices.Compact(names) {
 		p, err := os.ReadFile(filepath.Join(chartDir, "nics", name+".yaml"))
 		require.NoError(t, err)
@@ -78,7 +79,7 @@ func helmDocument(t *testing.T, args ...string) []byte {
 
 // resolvedFixture is what the resolver gives the rack fixture's Node, with
 // the chart's NIC profiles, for a file-mode node named name.
-func resolvedFixture(t *testing.T, rack, name string, overrides string) *nicstate.NICs {
+func resolvedFixture(t *testing.T, rack, name string, configurations string) *nicstate.NICs {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(rackFixtures, rack+".yaml"))
 	require.NoError(t, err)
@@ -94,10 +95,10 @@ func resolvedFixture(t *testing.T, rack, name string, overrides string) *nicstat
 		require.NoError(t, err)
 		profiles[p.Name] = p
 	}
-	doc, err := declaration.DecodeDocument([]byte("nic_overrides: " + overrides))
+	doc, err := declaration.DecodeDocument([]byte("nic_configurations: " + configurations))
 	require.NoError(t, err)
 	nics, err := nicstate.Resolve(nicstate.Input{
-		Node: nicstate.FileNode(name), Topology: r.Spec.Node.Topology, Overrides: doc.Overrides,
+		Node: nicstate.FileNode(name), Topology: r.Spec.Node.Topology, Configurations: doc.Configurations,
 		RDMA: r.Spec.Software.RDMA, Profiles: profiles,
 	})
 	require.NoError(t, err)
@@ -105,9 +106,9 @@ func resolvedFixture(t *testing.T, rack, name string, overrides string) *nicstat
 }
 
 // documents are both ways a test gets a GPU profile's config document.
-func documents(t *testing.T, profile, overrides string, helmArgs ...string) map[string]func() []byte {
+func documents(t *testing.T, profile, configurations string, helmArgs ...string) map[string]func() []byte {
 	return map[string]func() []byte{
-		"assembled": func() []byte { return assembledDocument(t, profile, overrides) },
+		"assembled": func() []byte { return assembledDocument(t, profile, configurations) },
 		"helm": func() []byte {
 			return helmDocument(t, append([]string{"--set", "gpu.profile=" + profile}, helmArgs...)...)
 		},
@@ -124,8 +125,8 @@ func TestFileModeNICsMatchTheResolver(t *testing.T) {
 		profile, rack string
 		shown         agent.NetworkShape
 	}{
-		{"gb300", "gb300-nvl72", agent.NetworkShape{HCACount: 4, HCAType: "MT4129", LinkLayer: "InfiniBand", RateGbps: 400}},
-		{"vrnvl72", "vr-nvl72", agent.NetworkShape{HCACount: 12, HCAType: "MT4133", LinkLayer: "Ethernet", RateGbps: 200}},
+		{"gb300", "gb300", agent.NetworkShape{HCACount: 4, HCAType: "MT4129", LinkLayer: "InfiniBand", RateGbps: 400}},
+		{"vrnvl72", "vrnvl72", agent.NetworkShape{HCACount: 12, HCAType: "MT4133", LinkLayer: "Ethernet", RateGbps: 200}},
 	} {
 		want := resolvedFixture(t, c.rack, "node-a", "[]")
 		for source, doc := range documents(t, c.profile, "[]") {
@@ -147,18 +148,19 @@ func TestFileModeNICsMatchTheResolver(t *testing.T) {
 }
 
 // TestFileModeConfigurationSwitch checks that selecting another configuration
-// through the overrides gives the NIC new functions at the same placement.
+// through nics.configurations gives the NIC new functions at the same
+// placement.
 func TestFileModeConfigurationSwitch(t *testing.T) {
 	t.Setenv("NODE_NAME", "node-a")
-	before := resolvedFixture(t, "gb300-nvl72", "node-a", "[]")
-	const overrides = "[{slots: [nic0], configuration: eth-multiplane}]"
-	for source, doc := range documents(t, "gb300", overrides,
-		"--set", "nics.overrides[0].slots[0]=nic0", "--set", "nics.overrides[0].configuration=eth-multiplane") {
+	before := resolvedFixture(t, "gb300", "node-a", "[]")
+	const configurations = "[{slots: [nic0], configuration: eth-multiplane}]"
+	for source, doc := range documents(t, "gb300", configurations,
+		"--set", "nics.configurations[0].slots[0]=nic0", "--set", "nics.configurations[0].configuration=eth-multiplane") {
 		t.Run(source, func(t *testing.T) {
 			state, err := compileState(doc(), filepath.Join(chartDir, "profiles", "gb300.yaml"))
 			require.NoError(t, err)
 			require.Empty(t, state.NICError)
-			require.Equal(t, *resolvedFixture(t, "gb300-nvl72", "node-a", overrides), state.NICs)
+			require.Equal(t, *resolvedFixture(t, "gb300", "node-a", configurations), state.NICs)
 
 			pf0 := function(t, before, "0000:03:00.0")
 			for fn := range 4 {
@@ -201,7 +203,7 @@ func TestInvalidNICDeclarationFailsOpen(t *testing.T) {
 		return u.State
 	}
 	bad := assembledDocument(t, "gb300", "[{slots: [nic0], configuration: eth}]")
-	const badReason = `slot nic0 (with NIC overrides): profile cx8-c8280z has no configuration "eth"`
+	const badReason = `NIC configuration choice 0: profile cx8-c8280z of slot nic0 has no configuration "eth"`
 
 	// A node that never accepted NICs runs without them; a GPU whose parent
 	// was a NIC switch port sits below its root port.
@@ -228,7 +230,7 @@ func TestInvalidNICDeclarationFailsOpen(t *testing.T) {
 	s = load(assembledDocument(t, "gb300", "[]"))
 	require.Empty(t, s.NICError)
 	require.False(t, s.NICsKept)
-	require.Equal(t, *resolvedFixture(t, "gb300-nvl72", "node-a", "[]"), s.NICs)
+	require.Equal(t, *resolvedFixture(t, "gb300", "node-a", "[]"), s.NICs)
 }
 
 // TestKeptNICsMustFitTheNewTree starts from a valid GB300 node and then puts
@@ -321,19 +323,35 @@ func TestFileModeCustomNICProfile(t *testing.T) {
 	customJSON, err := json.Marshal(custom)
 	require.NoError(t, err)
 
-	const overrides = "[{slots: [frontend0], profile: bf3-oem}]"
+	// The custom profile replaces frontend0's shipped one: through the GPU
+	// profile's slots when assembled, and through nics.slots, with the
+	// profile's root ports and GPU parents, from values.
+	gb300, err := os.ReadFile(filepath.Join(chartDir, "profiles", "gb300.yaml"))
+	require.NoError(t, err)
+	tree, err := declaration.DecodeDocument(gb300)
+	require.NoError(t, err)
+	slots := make([]v1alpha1.NICSlot, len(tree.Slots))
+	for i := range tree.Slots {
+		tree.Slots[i].DeepCopyInto(&slots[i])
+		if slots[i].Slot == "frontend0" {
+			slots[i].Profile = "bf3-oem"
+		}
+	}
 	values, err := yaml.Marshal(map[string]any{"nics": map[string]any{
 		"customProfiles": []any{custom},
-		"overrides":      []any{map[string]any{"slots": []string{"frontend0"}, "profile": "bf3-oem"}},
+		"slots":          slots,
+		"rootPorts":      tree.RootPorts,
+		"gpuParents":     tree.GPUParents,
 	}})
 	require.NoError(t, err)
 	valuesPath := filepath.Join(t.TempDir(), "values.yaml")
 	require.NoError(t, os.WriteFile(valuesPath, values, 0o600))
 
-	builtIn := resolvedFixture(t, "gb300-nvl72", "node-a", "[]")
+	builtIn := resolvedFixture(t, "gb300", "node-a", "[]")
 	for source, doc := range map[string]func() []byte{
 		"assembled": func() []byte {
-			return append(assembledDocument(t, "gb300", overrides), fmt.Sprintf("- %s\n", customJSON)...)
+			doc := strings.Replace(string(assembledDocument(t, "gb300", "[]")), "profile: bf3-b3240", "profile: bf3-oem", 1)
+			return append([]byte(doc), fmt.Sprintf("- %s\n", customJSON)...)
 		},
 		"helm": func() []byte { return helmDocument(t, "--set", "gpu.profile=gb300", "--values", valuesPath) },
 	} {

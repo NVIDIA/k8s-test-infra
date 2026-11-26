@@ -18,7 +18,7 @@ import (
 
 // Document is the NIC part of a file-mode Node's config document: the GPU
 // profile's software.rdma and nics block, and the nic_profiles and
-// nic_overrides the chart appends. The rest of the document is the NVML
+// nic_configurations the chart appends. The rest of the document is the NVML
 // engine's, including where the GPUs sit.
 type Document struct {
 	RDMA *v1alpha1.RDMASoftware
@@ -27,8 +27,10 @@ type Document struct {
 	// GPUParents are the parents of the GPUs in the PCIe tree, by GPU index.
 	GPUParents map[int32]string
 	Slots      []v1alpha1.NICSlot
-	Overrides  []v1alpha1.NICOverride
-	Profiles   Profiles
+	// Configurations select the configuration of slots, as an SGPUInventory
+	// rack group's nicConfigurations do.
+	Configurations []v1alpha1.NICConfigurationChoice
+	Profiles       Profiles
 }
 
 // GPUSlots sets the parent of each GPU slot from nics.gpuParents. A parent for
@@ -49,7 +51,7 @@ func (d *Document) GPUSlots(slots []v1alpha1.GPUSlot) ([]v1alpha1.GPUSlot, error
 
 // Declares reports whether the document declares any NICs.
 func (d *Document) Declares() bool {
-	return len(d.Slots) > 0 || len(d.Overrides) > 0 || len(d.Profiles) > 0
+	return len(d.Slots) > 0 || len(d.Configurations) > 0 || len(d.Profiles) > 0
 }
 
 // DecodeDocument reads the NIC part of a config document. It decodes that
@@ -83,7 +85,7 @@ func DecodeDocument(data []byte) (*Document, error) {
 	errs := []error{
 		decodeKey(top, "software", "software", &software),
 		decodeKey(top, "nics", "nics", &nics),
-		decodeKey(top, "nic_overrides", "nic_overrides", &out.Overrides),
+		decodeKey(top, "nic_configurations", "nic_configurations", &out.Configurations),
 		decodeKey(top, "nic_profiles", "nic_profiles", &profiles),
 	}
 	// software may come to describe more of the image than RDMA, so only its
@@ -119,7 +121,7 @@ func decodeKey(top map[string]json.RawMessage, key, field string, into any) erro
 
 // nicKeys are the config document's top-level keys that hold NICs; the rest
 // is the NVML engine's, which reads it its own way.
-var nicKeys = []string{"nics", "software", "nic_overrides", "nic_profiles"}
+var nicKeys = []string{"nics", "software", "nic_configurations", "nic_profiles"}
 
 // repeatedNICKeys rejects a key that appears twice in one mapping of the NIC
 // part of a config document, or a NIC key that appears twice at the top.
@@ -177,8 +179,8 @@ func repeatedKeys(n *yaml3.Node, path string) []error {
 
 // checkRawDocument checks the NIC parts of a config document, as JSON, against
 // the CRD schemas they share: slots and root ports with a rack profile's
-// topology, the RDMA software with its software, and the overrides with an
-// inventory's nicOverrides. NIC profiles are checked as they are decoded.
+// topology, the RDMA software with its software, and the configuration
+// choices with an inventory's nicConfigurations. NIC profiles are checked as they are decoded.
 func checkRawDocument(j []byte) error {
 	var raw any
 	if err := json.Unmarshal(j, &raw); err != nil {
@@ -189,7 +191,7 @@ func checkRawDocument(j []byte) error {
 		{"nics.slots", kindRackProfile, "spec.node.topology.nics"},
 		{"nics.rootPorts", kindRackProfile, "spec.node.topology.rootPorts"},
 		{"software.rdma", kindRackProfile, "spec.software.rdma"},
-		{"nic_overrides", "SGPUInventory", "spec.rackGroups.[].nicOverrides"},
+		{"nic_configurations", "SGPUInventory", "spec.rackGroups.[].nicConfigurations"},
 	} {
 		checkRaw(&pr, lookup(raw, part.path), schemas[part.kind].at(part.schemaPath), part.path)
 	}

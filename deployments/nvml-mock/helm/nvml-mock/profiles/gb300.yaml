@@ -610,7 +610,7 @@ pcie_topology:
 # in the chart's nics/ directory and places its PCI devices. GPUs, NIC devices
 # and NIC switch ports share one PCIe tree below the root ports. The same
 # slots, root ports and GPU parents are in
-# internal/nic/testdata/rackprofiles/gb300-nvl72.yaml, and a test keeps them
+# internal/nic/testdata/rackprofiles/gb300.yaml, and a test keeps them
 # equal.
 #
 # The node agent resolves these slots into its NIC state, which it reports but
@@ -646,7 +646,7 @@ nics:
       board: 0
       gpus: [1]
       devices:
-        network:
+        - name: network
           rootComplex: pci0000:00
           bridges:
             - {address: "0000:01:00.0", parent: "0000:00:00.0"}
@@ -659,7 +659,7 @@ nics:
           parent: "0000:02:00.0"
           numaNode: 0
           vpdPosition: "-Prime"
-        dataDirect:
+        - name: dataDirect
           rootComplex: pci0009:00
           bridges:
             - {address: "0009:01:00.0", parent: "0009:00:00.0"}
@@ -677,7 +677,7 @@ nics:
       systemImageGUID: distinct
       gpus: [0]
       devices:
-        network:
+        - name: network
           rootComplex: pci0002:00
           bridges:
             - {address: "0002:01:00.0", parent: "0002:00:00.0"}
@@ -690,7 +690,7 @@ nics:
           parent: "0002:02:00.0"
           numaNode: 0
           vpdPosition: "-Aux[1]"
-        dataDirect:
+        - name: dataDirect
           rootComplex: pci0008:00
           bridges:
             - {address: "0008:01:00.0", parent: "0008:00:00.0"}
@@ -707,7 +707,7 @@ nics:
       board: 1
       gpus: [3]
       devices:
-        network:
+        - name: network
           rootComplex: pci0010:00
           bridges:
             - {address: "0010:01:00.0", parent: "0010:00:00.0"}
@@ -720,7 +720,7 @@ nics:
           parent: "0010:02:00.0"
           numaNode: 1
           vpdPosition: "-Prime"
-        dataDirect:
+        - name: dataDirect
           rootComplex: pci0019:00
           bridges:
             - {address: "0019:01:00.0", parent: "0019:00:00.0"}
@@ -738,7 +738,7 @@ nics:
       systemImageGUID: distinct
       gpus: [2]
       devices:
-        network:
+        - name: network
           rootComplex: pci0012:00
           bridges:
             - {address: "0012:01:00.0", parent: "0012:00:00.0"}
@@ -751,7 +751,7 @@ nics:
           parent: "0012:02:00.0"
           numaNode: 1
           vpdPosition: "-Aux[1]"
-        dataDirect:
+        - name: dataDirect
           rootComplex: pci0018:00
           bridges:
             - {address: "0018:01:00.0", parent: "0018:00:00.0"}
@@ -766,7 +766,7 @@ nics:
     - slot: frontend0
       profile: bf3-b3240
       devices:
-        host:
+        - name: host
           rootComplex: pci0016:00
           address: "0016:01:00"
           parent: "0016:00:00.0"

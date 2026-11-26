@@ -532,11 +532,10 @@ when set, otherwise the GPU profile's.
 {{- end }}
 
 {{/*
-Each NIC slot's profile and configuration once nics.overrides apply, as YAML
-under "slots". The node agent applies the overrides the same way: in order, a
-later one winning, and a new profile dropping the slot's configuration, whose
-name belongs to the old profile. An override naming a slot the node doesn't
-have fails the render with the slots it does.
+Each NIC slot's profile and the configuration nics.configurations selects for
+it, as YAML under "slots"; an empty configuration means the profile's default.
+The node agent selects the same way. A choice naming a slot the node doesn't
+have, or a slot another choice already names, fails the render.
 */}}
 {{- define "nvml-mock.nicSelection" -}}
 {{- $nics := .Values.nics | default dict -}}
@@ -545,26 +544,24 @@ have fails the render with the slots it does.
 {{- range $s := $slots -}}
 {{- $names = append $names $s.slot -}}
 {{- end -}}
-{{- range $i, $o := $nics.overrides -}}
-{{- range $name := $o.slots | default list -}}
+{{- $chosen := dict -}}
+{{- range $i, $c := $nics.configurations -}}
+{{- range $name := $c.slots | default list -}}
 {{- if and $names (not (has $name $names)) -}}
-{{- fail (printf "nics.overrides[%d] names NIC slot %q, which the node doesn't have. NIC slots: %s" $i $name (join ", " $names)) -}}
+{{- fail (printf "nics.configurations[%d] names NIC slot %q, which the node doesn't have. NIC slots: %s" $i $name (join ", " $names)) -}}
 {{- end -}}
+{{- if hasKey $chosen $name -}}
+{{- fail (printf "nics.configurations[%d] names NIC slot %s, which nics.configurations[%d] already names" $i $name (get (get $chosen $name) "choice")) -}}
+{{- end -}}
+{{- $_ := set $chosen $name (dict "choice" $i "configuration" $c.configuration) -}}
 {{- end -}}
 {{- end -}}
 {{- $selected := list -}}
 {{- range $s := $slots -}}
-{{- $sel := dict "slot" $s.slot "profile" $s.profile "configuration" ($s.configuration | default "") -}}
-{{- range $o := $nics.overrides -}}
-{{- if has $s.slot ($o.slots | default list) -}}
-{{- if and $o.profile (ne $o.profile (get $sel "profile")) -}}
-{{- $_ := set $sel "profile" $o.profile -}}
-{{- $_ := set $sel "configuration" "" -}}
-{{- end -}}
-{{- if $o.configuration -}}
-{{- $_ := set $sel "configuration" $o.configuration -}}
-{{- end -}}
-{{- end -}}
+{{- $sel := dict "slot" $s.slot "profile" $s.profile "configuration" "" -}}
+{{- with get $chosen $s.slot -}}
+{{- $_ := set $sel "configuration" .configuration -}}
+{{- $_ := set $sel "choice" .choice -}}
 {{- end -}}
 {{- $selected = append $selected $sel -}}
 {{- end -}}
@@ -602,10 +599,10 @@ an SNICProfile object couldn't in control-plane mode.
 
 {{/*
 The NIC part of the node agent's config document, as YAML: nic_profiles, the
-NIC profiles the slots name once the overrides apply, and nic_overrides. Empty
-for a node without NIC slots. A slot naming a profile the chart doesn't have,
-or a configuration its profile doesn't have, fails the render with the ones
-it does.
+NIC profiles the slots name, and nic_configurations, the configuration
+choices. Empty for a node without NIC slots. A slot naming a profile the
+chart doesn't have, or a choice of a configuration its profile doesn't have,
+fails the render with the ones it does.
 */}}
 {{- define "nvml-mock.nicConfig" -}}
 {{- $nics := .Values.nics | default dict -}}
@@ -623,7 +620,7 @@ it does.
 {{- $configurations = append $configurations $c.name -}}
 {{- end -}}
 {{- if not (has $s.configuration $configurations) -}}
-{{- fail (printf "NIC slot %s: NIC profile %s has no configuration %q. Configurations: %s" $s.slot $s.profile $s.configuration (join ", " $configurations)) -}}
+{{- fail (printf "nics.configurations[%d]: NIC slot %s's profile %s has no configuration %q. Configurations: %s" (int $s.choice) $s.slot $s.profile $s.configuration (join ", " $configurations)) -}}
 {{- end -}}
 {{- end -}}
 {{- $names = append $names $s.profile -}}
@@ -632,9 +629,9 @@ it does.
 {{- range $name := $names | uniq | sortAlpha -}}
 {{- $profiles = append $profiles (get $available $name) -}}
 {{- end -}}
-{{- toYaml (dict "nic_profiles" $profiles "nic_overrides" ($nics.overrides | default list)) -}}
-{{- else if $nics.overrides -}}
-{{- fail "nics.overrides is set, but the node has no NIC slots: the GPU profile declares none and nics.slots is empty" -}}
+{{- toYaml (dict "nic_profiles" $profiles "nic_configurations" ($nics.configurations | default list)) -}}
+{{- else if $nics.configurations -}}
+{{- fail "nics.configurations is set, but the node has no NIC slots: the GPU profile declares none and nics.slots is empty" -}}
 {{- end -}}
 {{- end }}
 
@@ -651,9 +648,16 @@ merged over the profile's software.rdma, field by field.
 {{- fail "nics.rootPorts and nics.gpuParents place the root ports and GPUs for nics.slots; set nics.slots too, or leave them empty to keep the GPU profile's" -}}
 {{- end -}}
 {{- /* Converting the document to a map keeps the last of a repeated key, so a repeated top-level NIC key would be dropped silently. GPU overlays convert it, so the raw profile is checked. */ -}}
-{{- range $key := list "nics" "software" "nic_overrides" "nic_profiles" -}}
-{{- if gt (len (regexFindAll (printf "(?m)^%s:" $key) (include "nvml-mock.gpuConfigBase" $) -1)) 1 -}}
+{{- $base := include "nvml-mock.gpuConfigBase" . -}}
+{{- range $key := list "nics" "software" -}}
+{{- if gt (len (regexFindAll (printf "(?m)^%s:" $key) $base -1)) 1 -}}
 {{- fail (printf "the GPU profile document repeats the top-level key %q; merge the two" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- /* The chart writes these two keys from values; one in the document too would appear twice, as in a rendered config passed back as gpu.customConfig. */ -}}
+{{- range $key := list "nic_profiles" "nic_configurations" -}}
+{{- if regexMatch (printf "(?m)^%s:" $key) $base -}}
+{{- fail (printf "the GPU profile document sets the top-level key %q, which the chart writes from values; set NIC profiles in nics.customProfiles and configuration choices in nics.configurations instead" $key) -}}
 {{- end -}}
 {{- end -}}
 {{- $nic := include "nvml-mock.nicConfig" . -}}
