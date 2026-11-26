@@ -305,6 +305,10 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				assertions.KernelModules(ctx, h.Kube, pod, p.IBEnabled())
 			})
 
+			It("resolves the profile's NIC declaration on every node", Label("nic"), func(ctx SpecContext) {
+				waitNoNICError(ctx, h)
+			})
+
 			It("performs cross-node ibping + iblinkinfo", Label("ibping"), func(ctx SpecContext) {
 				if !p.IBEnabled() {
 					Skip("InfiniBand disabled for profile " + name)
