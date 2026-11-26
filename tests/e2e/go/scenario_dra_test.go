@@ -28,7 +28,15 @@ const (
 	draTestNamespace = "default"
 	draTestPodName   = "gpu-test-pod"
 	draSecondPodName = "gpu-test-pod-2"
+
+	draGPUDriver           = "gpu.nvidia.com"
+	draComputeDomainDriver = "compute-domain.nvidia.com"
 )
+
+// draComputeDomainDevices is what the compute-domain kubelet plugin publishes
+// on every node it starts on, NVLink fabric or not, as a real HGX H100 does:
+// one IMEX channel and one ComputeDomain daemon.
+var draComputeDomainDevices = []string{"channel-0", "daemon-0"}
 
 var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 	var h *harness.Harness
@@ -79,7 +87,26 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 			})
 
 			It("publishes DRA ResourceSlices for the profile GPUs", Label("dra-resourceslices"), func(ctx SpecContext) {
-				assertions.WaitResourceSlicePerNode(ctx, h.Kube, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
+				assertions.WaitResourceSlicePerNode(ctx, h.Kube, draGPUDriver, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
+			})
+
+			// #1399. The compute-domain kubelet plugin runs on every GPU node,
+			// as stacks such as AICR deploy it, and on a real node it starts
+			// without an NVLink fabric: the loaded kernel module registers the
+			// IMEX device numbers it reads. A profile whose node stages no
+			// /proc/devices entry leaves the plugin crash-looping here.
+			//
+			// The plugin publishes its slice only once it has started, so every
+			// simulated-GPU node, and no other, must carry exactly these devices.
+			It("starts the ComputeDomain kubelet plugin on every profile", Label("dra-compute-domain-plugin"), func(ctx SpecContext) {
+				want := map[string][]string{}
+				for _, n := range sgpuNodes(ctx, h) {
+					want[n.Name] = draComputeDomainDevices
+				}
+				Eventually(func() (map[string][]string, error) {
+					return h.Kube.ResourceSliceDevicesByNode(ctx, draComputeDomainDriver)
+				}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+					Should(Equal(want), "%s devices published per simulated-GPU node", draComputeDomainDriver)
 			})
 
 			It("schedules a pod with a DRA ResourceClaim", Label("dra-scheduling"), func(ctx SpecContext) {

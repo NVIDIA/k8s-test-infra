@@ -244,13 +244,7 @@ if with_gpu_operator:
     )
 
 if with_dra:
-    # --compute-domain layers ComputeDomains and the node agent's /proc/devices
-    # substitute on top; the driver keeps its upstream images.
-    dra_extra_values = []
-    if with_compute_domain:
-        dra_extra_values.append('local/compute-domain/dra-driver.values.yaml')
-
-    dra_install(nvml_mock_releases, extra_values=dra_extra_values)
+    dra_install(nvml_mock_releases)
 
 if with_fgo:
     fgo_install(nvml_mock_releases)
