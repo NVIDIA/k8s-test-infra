@@ -6,6 +6,7 @@ package source
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"go.uber.org/zap"
@@ -24,8 +25,9 @@ import (
 // what the node shows, and NIC configuration choices change nothing a workload
 // sees.
 //
-// retained is the NIC state last accepted on this node, or nil; see failOpen.
-func compileNetworking(data []byte, cfg *engine.YAMLConfig, state *agent.State, numDevices int, retained *nicstate.NICs) error {
+// retained is the NIC declaration last accepted on this node, or nil; see
+// failOpen.
+func compileNetworking(data []byte, cfg *engine.YAMLConfig, state *agent.State, numDevices int, retained *declaration.Document) error {
 	network, err := compileNetwork(data, numDevices)
 	if err != nil {
 		return err
@@ -39,27 +41,20 @@ func compileNetworking(data []byte, cfg *engine.YAMLConfig, state *agent.State, 
 // into state.NICs. The node's whole PCI tree is checked together: its GPUs,
 // its NVSwitches and its NIC tree. A declaration that doesn't resolve fails
 // open: state.NICError says why, and failOpen decides the NICs.
-func compileNICs(data []byte, cfg *engine.YAMLConfig, node string, state *agent.State, retained *nicstate.NICs) {
+func compileNICs(data []byte, cfg *engine.YAMLConfig, node string, state *agent.State, retained *declaration.Document) {
 	gpus := nicGPUSlots(cfg)
 	doc, err := declaration.DecodeDocument(data)
 	if err == nil && !doc.Declares() {
 		return
 	}
+	parented := false
 	var nics *nicstate.NICs
 	if err == nil {
 		gpus, err = doc.GPUSlots(gpus)
+		parented = err == nil
 	}
 	if err == nil {
-		nics, err = nicstate.Resolve(nicstate.Input{
-			Node:           nicstate.FileNode(node),
-			Topology:       &v1alpha1.SGPUTopology{RootPorts: doc.RootPorts, GPUSlots: gpus, NICs: doc.Slots},
-			Configurations: doc.Configurations,
-			RDMA:           doc.RDMA,
-			Profiles:       doc.Profiles,
-		})
-	}
-	if err == nil {
-		err = checkUniqueAddresses(cfg, nics)
+		nics, err = resolveDocument(cfg, node, doc, gpus)
 	}
 	if err == nil {
 		state.NICs = *nics
@@ -70,83 +65,91 @@ func compileNICs(data []byte, cfg *engine.YAMLConfig, node string, state *agent.
 	if doc != nil {
 		rootPorts = doc.RootPorts
 	}
-	state.NICs, state.NICsKept = failOpen(cfg, gpus, rootPorts, retained)
+	state.NICs, state.NICsKept = failOpen(cfg, node, gpus, parented, rootPorts, retained)
+}
+
+// resolveDocument resolves a NIC document for the node with its GPU slots
+// and checks that no PCI address is claimed twice across GPUs, NVSwitches and
+// the NIC tree.
+func resolveDocument(cfg *engine.YAMLConfig, node string, doc *declaration.Document, gpus []v1alpha1.GPUSlot) (*nicstate.NICs, error) {
+	nics, err := nicstate.Resolve(nicstate.Input{
+		Node:           nicstate.FileNode(node),
+		Topology:       &v1alpha1.SGPUTopology{RootPorts: doc.RootPorts, GPUSlots: gpus, NICs: doc.Slots},
+		Configurations: doc.Configurations,
+		RDMA:           doc.RDMA,
+		Profiles:       doc.Profiles,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := checkUniqueAddresses(cfg, nics); err != nil {
+		return nil, err
+	}
+	return nics, nil
 }
 
 // failOpen decides the NICs of a node whose NIC declaration doesn't resolve.
-// The node keeps the NICs it last accepted, if they still form a valid PCI
-// tree with its current GPUs and NVSwitches: every address unique, and every
-// GPU's parent a root port or switch port of the tree. Otherwise, and on a
-// node that never accepted one, it runs without NICs, and a GPU whose parent
-// was a NIC switch port is placed directly below its root port. gpus are the
-// node's GPU slots, with the parents the document gives when it decodes.
-func failOpen(cfg *engine.YAMLConfig, gpus []v1alpha1.GPUSlot, rootPorts []v1alpha1.RootPort,
-	retained *nicstate.NICs) (nicstate.NICs, bool) {
-	if retained != nil {
-		candidate := *retained
-		candidate.GPUs = stateGPUs(gpus, retained)
-		if checkUniqueAddresses(cfg, &candidate) == nil && parentsInTree(&candidate) {
-			return candidate, true
-		}
+// The node keeps the NICs it last accepted if that declaration still resolves
+// with the node's current GPUs and NVSwitches, so the whole tree is checked
+// again: unique addresses, parents, root complexes and buses. Otherwise, and
+// on a node that never accepted one, it runs without NICs; see noNICs. gpus
+// are the node's GPU slots; when parented, the new document placed them, and
+// those parents count, since a GPU's place in the tree is the current state,
+// else they keep the ones the accepted declaration gave them.
+func failOpen(cfg *engine.YAMLConfig, node string, gpus []v1alpha1.GPUSlot, parented bool,
+	rootPorts []v1alpha1.RootPort, retained *declaration.Document) (nicstate.NICs, bool) {
+	if retained == nil {
+		return noNICs(cfg, node, gpus, rootPorts), false
 	}
-	ports := make([]nicstate.RootPort, 0, len(rootPorts))
-	for _, rp := range rootPorts {
-		port := nicstate.RootPort{Address: rp.Address, RootComplex: rp.RootComplex}
-		if rp.ID != nil {
-			port.ID = &nicstate.PCIID{VendorID: rp.ID.VendorID, DeviceID: rp.ID.DeviceID}
-		}
-		ports = append(ports, port)
+	gpus = placedGPUs(gpus, parented, retained)
+	if nics, err := resolveDocument(cfg, node, retained, gpus); err == nil {
+		return *nics, true
 	}
-	if len(ports) == 0 && retained != nil {
-		ports = retained.RootPorts
-	}
-	out := nicstate.NICs{RootPorts: ports, GPUs: stateGPUs(gpus, retained)}
-	for i, g := range out.GPUs {
-		out.GPUs[i].Parent = rootPortOf(g, ports)
-	}
-	return out, false
+	return noNICs(cfg, node, gpus, rootPorts, retained.RootPorts), false
 }
 
-// stateGPUs are GPU slots as the NIC state holds them. A GPU the document
-// gave no parent, as when it doesn't decode, keeps the parent the retained
-// state gave it at the same address.
-func stateGPUs(slots []v1alpha1.GPUSlot, retained *nicstate.NICs) []nicstate.GPU {
-	out := make([]nicstate.GPU, 0, len(slots))
-	for _, s := range slots {
-		g := nicstate.GPU{Index: s.Index, Address: s.PCIAddress, RootComplex: s.RootComplex, NUMANode: s.NumaNode, Parent: s.Parent}
-		if g.Parent == "" && retained != nil {
-			for _, r := range retained.GPUs {
-				if r.Index == g.Index && r.Address == g.Address {
-					g.Parent = r.Parent
-				}
-			}
+// noNICs is the PCI tree of a node without NICs: its root ports and each GPU
+// directly below its root port. The root ports come from the first of the
+// candidates that holds up as a tree with the GPUs and NVSwitches, the
+// rejected document's and then the last accepted ones, so a root port the
+// node just rejected never becomes a GPU's parent. When none does, the GPUs
+// have no parent.
+func noNICs(cfg *engine.YAMLConfig, node string, gpus []v1alpha1.GPUSlot, candidates ...[]v1alpha1.RootPort) nicstate.NICs {
+	for _, ports := range candidates {
+		if len(ports) == 0 {
+			continue
 		}
-		out = append(out, g)
+		below := slices.Clone(gpus)
+		for i := range below {
+			below[i].Parent = rootPortOf(below[i], ports)
+		}
+		if nics, err := resolveDocument(cfg, node, &declaration.Document{RootPorts: ports}, below); err == nil {
+			return nicstate.NICs{RootPorts: nics.RootPorts, GPUs: nics.GPUs}
+		}
+	}
+	out := nicstate.NICs{}
+	for _, s := range gpus {
+		out.GPUs = append(out.GPUs, nicstate.GPU{Index: s.Index, Address: s.PCIAddress, RootComplex: s.RootComplex, NUMANode: s.NumaNode})
 	}
 	return out
 }
 
-// parentsInTree reports whether every GPU's parent is a root port or a switch
-// port of the NIC state, in the GPU's root complex.
-func parentsInTree(n *nicstate.NICs) bool {
-	rootComplex := map[string]string{}
-	for _, rp := range n.RootPorts {
-		rootComplex[rp.Address] = rp.RootComplex
+// placedGPUs are the GPU slots with the parents the new document gave them,
+// or, when it gave none, the ones the accepted declaration did.
+func placedGPUs(gpus []v1alpha1.GPUSlot, parented bool, accepted *declaration.Document) []v1alpha1.GPUSlot {
+	if parented {
+		return gpus
 	}
-	for _, b := range n.Bridges {
-		rootComplex[b.Address] = b.RootComplex
+	placed, err := accepted.GPUSlots(gpus)
+	if err != nil {
+		return gpus
 	}
-	for _, g := range n.GPUs {
-		if rc, ok := rootComplex[g.Parent]; g.Parent != "" && (!ok || rc != g.RootComplex) {
-			return false
-		}
-	}
-	return true
+	return placed
 }
 
 // rootPortOf is the parent a GPU keeps without NICs: its own when that is a
 // root port, else the root port of its root complex, or none.
-func rootPortOf(g nicstate.GPU, ports []nicstate.RootPort) string {
+func rootPortOf(g v1alpha1.GPUSlot, ports []v1alpha1.RootPort) string {
 	for _, rp := range ports {
 		if rp.Address == g.Parent {
 			return g.Parent

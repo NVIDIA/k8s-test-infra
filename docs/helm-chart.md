@@ -293,8 +293,9 @@ outside its root complex, a NIC on an address a GPU or NVSwitch already has,
 or a ConfigMap edited by hand, doesn't stop the node. The agent checks the
 node's whole PCI tree, GPUs and NICs together: it keeps the NICs it last
 accepted if they still form a valid tree with the current GPUs and
-NVSwitches, and otherwise runs without NICs, a GPU below a NIC switch port
-then placed directly below its root port. Its GPUs are simulated as usual
+NVSwitches, and otherwise runs without NICs, each GPU placed directly below
+its root port: the new document's root ports if they hold up, else the last
+accepted ones, else none. Its GPUs are simulated as usual
 either way. The agent logs the error, records it as a Warning Event on its
 pod (`NICDeclarationIgnored`), and `/readyz` names it under `nics` while the
 probe stays OK. A fixed declaration applies on the same pod, without a

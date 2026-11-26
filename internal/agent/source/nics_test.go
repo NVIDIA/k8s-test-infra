@@ -266,6 +266,88 @@ func TestKeptNICsMustFitTheNewTree(t *testing.T) {
 	require.True(t, strings.HasPrefix(s.NICStatus(), "NIC declaration ignored, the node has no NICs until it resolves: "))
 }
 
+// TestKeptNICsAreCheckedAsAWholeTree starts from a valid GB300 node and then
+// places GPU 0 below a NIC switch port whose children sit on another bus.
+// Every parent still exists, but the bus rule fails, so the kept NICs can't
+// take that GPU: the node runs without NICs, its GPUs below their root ports.
+func TestKeptNICsAreCheckedAsAWholeTree(t *testing.T) {
+	t.Setenv("NODE_NAME", "node-a")
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	f := NewFileSource(configPath, "", 0, zap.NewNop())
+	var hash [32]byte
+	good := assembledDocument(t, "gb300", "[]")
+	require.NoError(t, os.WriteFile(configPath, good, 0o600))
+	require.Empty(t, reloadOnce(t, f, &hash).State.NICError)
+
+	misplaced := bytes.Replace(good, []byte(`0: "0008:05:00.0"`), []byte(`0: "0008:04:00.0"`), 1)
+	require.NotEqual(t, good, misplaced)
+	require.NoError(t, os.WriteFile(configPath, misplaced, 0o600))
+	u := reloadOnce(t, f, &hash)
+	require.NoError(t, u.Err)
+	s := u.State
+	require.Contains(t, s.NICError, "0008:04:00.0")
+	require.False(t, s.NICsKept, "the kept NICs can't take GPU 0 where the new document puts it")
+	require.True(t, s.NICs.Empty())
+	i := slices.IndexFunc(s.NICs.GPUs, func(g nicstate.GPU) bool { return g.Index == 0 })
+	require.GreaterOrEqual(t, i, 0)
+	require.Equal(t, "0008:00:00.0", s.NICs.GPUs[i].Parent)
+
+	// Restoring the document brings the NICs back.
+	require.NoError(t, os.WriteFile(configPath, good, 0o600))
+	s = reloadOnce(t, f, &hash).State
+	require.Empty(t, s.NICError)
+	require.Equal(t, "0008:05:00.0", s.NICs.GPUs[i].Parent)
+}
+
+// TestRejectedRootPortsAreNotKept checks the PCI tree of a node that runs
+// without NICs: a root port the node just rejected never becomes a GPU's
+// parent. A fresh node with no accepted root ports leaves its GPUs without a
+// parent; a node that accepted a declaration falls back to its root ports.
+func TestRejectedRootPortsAreNotKept(t *testing.T) {
+	t.Setenv("NODE_NAME", "node-a")
+	good := assembledDocument(t, "gb300", "[]")
+	rootPort := []byte(`{address: "0009:00:00.0", rootComplex`)
+	parentOf := func(s *agent.State, index int32) string {
+		i := slices.IndexFunc(s.NICs.GPUs, func(g nicstate.GPU) bool { return g.Index == index })
+		require.GreaterOrEqual(t, i, 0)
+		return s.NICs.GPUs[i].Parent
+	}
+	for _, tc := range []struct{ to, why string }{
+		{"0009:06:00.0", "GPU 1's own address"},
+		{"0009:01:00.0", "nic0's switch port"},
+	} {
+		t.Run(tc.why, func(t *testing.T) {
+			doc := bytes.Replace(good, rootPort, []byte(`{address: "`+tc.to+`", rootComplex`), 1)
+			require.NotEqual(t, good, doc)
+			s, err := compileState(doc, filepath.Join(chartDir, "profiles", "gb300.yaml"))
+			require.NoError(t, err)
+			require.Contains(t, s.NICError, "not on pci0009:00's root bus")
+			require.True(t, s.NICs.Empty())
+			require.Empty(t, s.NICs.RootPorts, "no root port set holds up")
+			for _, g := range s.NICs.GPUs {
+				require.Empty(t, g.Parent, "GPU %d", g.Index)
+			}
+		})
+	}
+
+	// A node that accepted the declaration, then gets a bad root port and a
+	// GPU parent its kept NICs can't take, falls back to its accepted root
+	// ports.
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	f := NewFileSource(configPath, "", 0, zap.NewNop())
+	var hash [32]byte
+	require.NoError(t, os.WriteFile(configPath, good, 0o600))
+	require.Empty(t, reloadOnce(t, f, &hash).State.NICError)
+	bad := bytes.Replace(good, rootPort, []byte(`{address: "0009:06:00.0", rootComplex`), 1)
+	bad = bytes.Replace(bad, []byte(`1: "0009:05:00.0"`), []byte(`1: "0009:04:00.0"`), 1)
+	require.NoError(t, os.WriteFile(configPath, bad, 0o600))
+	s := reloadOnce(t, f, &hash).State
+	require.NotEmpty(t, s.NICError)
+	require.False(t, s.NICsKept)
+	require.Equal(t, "0009:00:00.0", parentOf(s, 1))
+	require.Equal(t, "0008:00:00.0", parentOf(s, 0))
+}
+
 // TestNICDocumentIsStrict checks that a misspelled NIC field is reported, not
 // silently dropped.
 func TestNICDocumentIsStrict(t *testing.T) {
