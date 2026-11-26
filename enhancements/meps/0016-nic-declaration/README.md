@@ -37,7 +37,7 @@ Author: [Oleg Leizerov](https://github.com/olegleyz)
 
 Mokka has to show a node's NICs the way Linux shows real ones: PCI functions, RDMA devices, ports, netdevs and `/dev/infiniband`. This MEP proposes to **declare** NIC hardware as data, **generate** every OS surface from that declaration with rules that know nothing about a specific vendor or model, and **check** the result against captures of real nodes.
 
-A new `SNICProfile` resource describes one NIC model and the firmware configurations it can run, each declared as its result. NIC slots in `SGPURackProfile` place NIC instances on a node and select a configuration. The node agent compiles the declaration into its desired state, as it already does for GPUs, and its simulators render the surfaces. The same profile files serve file mode and control-plane mode. A prototype of the schema and the generator is compared with five real captures, and every difference has a cause ([Appendix A](#appendix-a-design-validation)).
+A new `SNICProfile` resource describes one NIC model and the firmware configurations it can run, each declared by the device layout it produces (ports, PCI functions, RDMA devices). NIC slots in `SGPURackProfile` place NIC instances on a node, and `SGPUInventory` selects the configuration the NICs run in a specific simulated cluster. The node agent compiles the declaration into its desired state, as it already does for GPUs, and its simulators render the surfaces. The same profile files serve file mode and control-plane mode. A prototype of the schema and the generator is compared with five real captures, and every difference has a cause ([Appendix A](#appendix-a-design-validation)).
 
 ## Motivation
 
@@ -83,10 +83,19 @@ Real nodes vary in ways software depends on:
 
 ## Proposal
 
+![From declarations to simulated surfaces](img/declaration-to-surfaces.svg)
+
+The profiles describe the hardware, and the inventory describes one simulated cluster and the configuration each slot runs. Resolve decides every value for one node, and the node agent's simulators render those values as the surfaces Linux software reads. A runtime policy changes values the devices report, never which devices exist.
+
 ### The NIC model and the NIC instance
 
 - **`SNICProfile`** is one NIC model as packaged on a card, for example `cx8-c8280z`. It holds what the NIC reports about itself: PCI IDs, firmware, HCA type, VPD. It also **defines** every firmware configuration the card can run. It holds nothing about a particular node: no addresses, no GUIDs, no NIC counts.
-- **A NIC slot** in `SGPURackProfile` is one NIC instance on a node. It names the profile, can **select** one of its configurations by name (otherwise the default applies), says where each PCI device sits, and which GPUs the NIC serves.
+- **A NIC slot** in `SGPURackProfile` is one NIC instance on a node. It names the profile, says where each PCI device sits, and which GPUs the NIC serves. A rack with another NIC model is another rack design, with its own rack profile.
+- **A rack group** in `SGPUInventory` can **select** one of the NIC profile's configurations by name for its slots; otherwise the NIC profile's default applies. The configuration is how a cluster's NICs are set up, so the cluster chooses it.
+
+![One GB300 tray as the gb300 rack profile declares it](img/gb300-tray.svg)
+
+One GB300 tray, as the `gb300` rack profile declares it, laid out after the compute tray diagram in NVIDIA's [NVL72 AI factory reference architecture](https://docs.nvidia.com/enterprise-reference-architectures/nvl72-ai-factory/latest/index.html). Each slot names a NIC profile, its board and the GPUs it serves, and its devices' `numaNode` puts it with a Grace CPU: `nic0` serves GPU 1 and `nic1` GPU 0, as on the captured tray. Each ConnectX-8 has its network device in a PCIe domain of its CPU and its Data Direct device in its GPU's domain ([Slots place PCI devices](#slots-place-pci-devices)). The ports come from the configuration; in the default `ib-xdr-4plane`, each ConnectX-8 has one 800 Gb/s port split into four planes. The OSFP and QSFP modules are drawn for orientation only, since connectors aren't declared ([Non-Goals](#non-goals)).
 
 ```yaml
 # SNICProfile cx8-c8280z, trimmed
@@ -113,16 +122,24 @@ spec:
 ```
 
 ```yaml
-# SGPURackProfile gb300-ethernet: the slot names the profile and selects a configuration
+# SGPURackProfile gb300: the slot names the profile
 nics:
   - slot: nic0
     profile: cx8-c8280z
-    configuration: eth-multiplane
     board: 0
     # … device placement
 ```
 
-The profile is the menu and the slot is the order: configuration data never lives in the slot, only the choice. A GB300 tray has four slots pointing at the same profile. Changing the NIC model or its mode only requires updating the slot's profile or configuration reference. The full `cx8-c8280z` profile is in [Appendix B](#sample-cx8-c8280z).
+```yaml
+# SGPUInventory: a rack group selects a configuration
+rackGroups:
+  - id: training
+    profileRef: {name: gb300}
+    nicConfigurations:
+      - {slots: [nic0, nic1, nic2, nic3], configuration: eth-multiplane}
+```
+
+The profile is the menu and the inventory places the order: configuration data never lives in the rack profile or the inventory, only the choice. A GB300 tray has four slots pointing at the same profile. Running them in another mode only requires selecting another configuration; a tray with another NIC model is another rack profile, which reuses the NIC profiles. The full `cx8-c8280z` profile is in [Appendix B](#sample-cx8-c8280z).
 
 ### Configurations declare their result
 
@@ -155,7 +172,7 @@ configurations:
 
 The same physical NIC can support multiple configurations with different link types, numbers of network ports, port speeds, planes and PCI physical functions, as illustrated by the [ConnectX-8 port configurations](https://networking-docs.nvidia.com/connectx8hw/port-configurations). Each supported configuration is therefore declared separately, without requiring Mokka to interpret vendor-specific firmware settings.
 
-If a new firmware version changes the OS-visible device representation, we can declare a new `SNICProfile`. If the representation stays the same, users can simply override `firmwareVersion` without creating a new profile or configuration (see the [`gb300-ethernet`](#sample-gb300-ethernet) sample).
+If a new firmware version changes the OS-visible device representation, we can declare a new `SNICProfile`. If it doesn't, the profile's `firmwareVersion` is the default. The firmware version changes during a cluster's life, as the GPU driver version does, so a cluster that runs another version sets it through runtime policies (`SGPURuntimePolicy`), in a follow-up (see the [`gb300-cx7`](#sample-gb300-cx7) sample).
 
 Full sample: [`cx8-c8280z`](#sample-cx8-c8280z).
 
@@ -164,7 +181,7 @@ Full sample: [`cx8-c8280z`](#sample-cx8-c8280z).
 A NIC model has one or more PCI devices. Each function in a configuration says which device it's on (`pciDevice`) and its function number. The slot says where each device sits: its PCIe domain, its parent, the NIC's switch ports above it, its bus address and its NUMA node.
 
 ```yaml
-# SGPURackProfile gb300-nvl72, slot nic0
+# SGPURackProfile gb300, slot nic0
 - slot: nic0
   profile: cx8-c8280z
   board: 0
@@ -188,11 +205,15 @@ A NIC model has one or more PCI devices. Each function in a configuration says w
       vpdPosition: "-Aux[1]"
 ```
 
+![Where slot nic0 of the gb300 rack profile sits on PCIe](img/gb300-pcie.svg)
+
+The same slot on PCIe. Its two devices sit in two PCIe domains, each below a root port and the NIC's own switch ports (`bridges`), and GPU 1 sits below the switch in the Data Direct device's domain. Both functions report the same VPD `V3`, which is how software pairs them.
+
 The configuration decides how many functions exist, so switching configuration changes the functions and never the placement: `ib-xdr-4plane` has one PF on the `network` device and `eth-multiplane` has four (`.0`–`.3`) on the same device.
 
 Placing devices separately covers every way the captures show a NIC spanning PCIe domains:
-- **GB300 ConnectX-8:** the network device in one domain, the Data Direct device next to its GPU in another ([`gb300-nvl72`](#sample-gb300-nvl72)).
-- **A ConnectX-7 front-end card:** two x8 links in two domains, one port on each ([`cx7-hhhl`](#sample-cx7-hhhl), [`gb300-ethernet`](#sample-gb300-ethernet)).
+- **GB300 ConnectX-8:** the network device in one domain, the Data Direct device next to its GPU in another ([`gb300`](#sample-gb300)).
+- **A ConnectX-7 front-end card:** two x8 links in two domains, one port on each ([`cx7-hhhl`](#sample-cx7-hhhl), [`gb300-cx7`](#sample-gb300-cx7)).
 - **BlueField-4:** two host links, each showing a PF for every port. A port belongs to one function per PCI device ([`bf4-vr`](#sample-bf4-vr)):
 
 ```yaml
@@ -203,10 +224,10 @@ functions:
   - {id: b1, type: network, pciDevice: hostB, function: 1, class: "0x020000", ports: [p1]}
 ```
 
-**GPUs and NICs share one PCIe tree.** Root ports are declared once per node, and each GPU slot, NIC device and NIC switch port can name its parent: a root port, or a switch port from any slot. The tree follows the real node, so `rdma_topo`, `nvidia-smi topo -m` and DRA drivers that match GPUs to NICs by PCIe position see the same relations as on real hardware. On VR NVL72, GPUs and NICs sit on separate root ports and share only a NUMA node ([`vr-nvl72`](#sample-vr-nvl72)). On GB300, each GPU sits below a switch port of the NIC that serves it, the same switch that leads to the NIC's Data Direct function:
+**GPUs and NICs share one PCIe tree.** Root ports are declared once per node, and each GPU slot, NIC device and NIC switch port can name its parent: a root port, or a switch port from any slot. The tree follows the real node, so `rdma_topo`, `nvidia-smi topo -m` and DRA drivers that match GPUs to NICs by PCIe position see the same relations as on real hardware. On VR NVL72, GPUs and NICs sit on separate root ports and share only a NUMA node ([`vrnvl72`](#sample-vrnvl72)). On GB300, each GPU sits below a switch port of the NIC that serves it, the same switch that leads to the NIC's Data Direct function:
 
 ```yaml
-# SGPURackProfile gb300-nvl72
+# SGPURackProfile gb300
 topology:
   rootPorts:
     - {address: "0009:00:00.0", rootComplex: pci0009:00, id: {vendorID: "10de", deviceID: "22b1"}}
@@ -251,7 +272,7 @@ This MEP emulates none of these operations; each needs its own proposal.
 A few choices belong to the node image, not the NIC: whether the `umad` and IPoIB modules load, and the mode of `umad` files (600 on one image, 666 on another). They go in the rack profile:
 
 ```yaml
-# SGPURackProfile gb300-ethernet
+# SGPURackProfile gb300-cx7
 software:
   rdma: {umad: true, ipoib: true, umadMode: "666", driverVersion: 26.01-1.0.0}
 ```
@@ -276,9 +297,9 @@ efa:
 
 ```yaml
 # Slots: the system image GUID, where no rule fits every model
-- slot: nic1                  # gb300-nvl72: the board's second ASIC
+- slot: nic1                  # gb300: the board's second ASIC
   systemImageGUID: distinct
-- slot: frontend0             # vr-nvl72: BlueField-4
+- slot: frontend0             # vrnvl72: BlueField-4
   systemImageGUID: rdma-b0    # the node GUID of RDMA device rdma-b0, on host link B's first PF
 ```
 
@@ -298,10 +319,11 @@ vpd:
 
 Each NIC model is one file in the nvml-mock chart, holding a full `SNICProfile`. Both modes read that file, and there is no other copy.
 
-- **Built-in or custom.** A profile shipped in the chart is built-in; one an administrator adds is custom. They share the schema and validation. The only difference is ownership: Helm owns built-in profiles, so `helm upgrade` resets edits to them, and a lasting change uses a custom profile under its own name. For example, a cluster whose front-end ConnectX-7 is an OEM variant, with the OEM's part number and board ID, adds its own profile.
-- **File mode.** A GPU profile, such as `gb300`, carries the node's NIC slots, its root ports and each GPU's parent (`nics.slots`, `nics.rootPorts`, `nics.gpuParents`) and its RDMA software (`software.rdma`, which Helm values can override through `nics.rdma`). The GPU addresses stay where the GPU profile already declares them. Until `ib` and `pcibus` render from the resolved state ([#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355), [#1354](https://github.com/NVIDIA/k8s-test-infra/issues/1354)), the profile also keeps its `infiniband` block, which still drives what the node shows. Helm values override a slot's profile or configuration and add custom profiles.
-- **Control-plane mode.** The chart renders the files as `SNICProfile` objects. A rack profile's slots name them, and a rack group in `SGPUInventory` may override a slot (`nicOverrides`), so clusters with the same GPU nodes can use different NICs or modes without a new rack profile.
-- **Selection order.** The rack group's override, then the slot's configuration, then the profile's default. The fabric doesn't choose a configuration, because one technology can have several; it only validates the choice.
+- **Built-in or custom.** A profile shipped in the chart is built-in; one an administrator adds is custom. They share the schema and validation. The only difference is ownership: Helm owns built-in profiles, so `helm upgrade` resets edits to them, and a lasting change uses a custom profile under its own name. For example, a cluster whose front-end ConnectX-7 is an OEM variant, with the OEM's part number and board ID, adds its own profile and a rack profile whose slot names it.
+- **File mode.** A GPU profile, such as `gb300`, carries the node's NIC slots, its root ports and each GPU's parent (`nics.slots`, `nics.rootPorts`, `nics.gpuParents`) and its RDMA software (`software.rdma`, which Helm values can override through `nics.rdma`). The GPU addresses stay where the GPU profile already declares them. Until `ib` and `pcibus` render from the resolved state ([#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355), [#1354](https://github.com/NVIDIA/k8s-test-infra/issues/1354)), the profile also keeps its `infiniband` block, which still drives what the node shows. Helm values select each slot's configuration, add custom profiles, and can replace the slots for a platform the GPU profile doesn't describe.
+- **Control-plane mode.** The chart renders the files as `SNICProfile` objects. A rack profile's slots name them, and a rack group in `SGPUInventory` selects the configuration of its slots (`nicConfigurations`), so clusters with the same racks can run their NICs in different modes without a new rack profile. A rack with another NIC model, or an extra card, is another rack design: it gets its own rack profile, which reuses the NIC profiles.
+- **Selection order.** The rack group's choice, then the profile's default, the configuration the card ships with. The fabric doesn't choose a configuration, because one technology can have several; it only validates the choice.
+- **Defaults and runtime values.** Profiles hold the facts of a NIC model and a rack design, and defaults for the values that change during a cluster's life, such as the firmware version. The inventory selects only the configuration. Changing a runtime value on running racks belongs with runtime policies, in a follow-up.
 - **Changes.** Profiles are mutable. An edit reaches every rack that uses the profile, as an `SGPURackProfile` edit does. Selecting another configuration is a simulated firmware reset. For now it re-probes all the node's NICs, like a reboot: every NIC disappears and returns, and RDMA device names are reassigned in PCI order. Keeping the names and device files of unaffected NICs through one slot's reset, as Linux does, comes later. Placement doesn't change, so the GPU association and Data Direct pairing stay. As on real hardware, the reset clears what cluster software created, and the operators create it again.
 
 ### Checking declarations against hardware
@@ -340,7 +362,7 @@ A difference without a cause fails the check. [Test plan](#test-plan) lists the 
 
 #### Story 1: one rack, two fabrics
 
-A platform team simulates two GB300 clusters, one on InfiniBand and one on Ethernet. Both inventories use the `gb300-nvl72` rack profile; the Ethernet inventory's rack group selects `eth-multiplane` for slots `nic0`–`nic3`. Each node shows the PFs, RDMA devices and netdevs its real counterpart does.
+A platform team simulates two GB300 clusters, one on InfiniBand and one on Ethernet. Both inventories use the `gb300` rack profile; the Ethernet inventory's rack group selects `eth-multiplane` for slots `nic0`–`nic3`. Each node shows the PFs, RDMA devices and netdevs its real counterpart does.
 
 #### Story 2: adding a NIC model
 
@@ -348,11 +370,15 @@ A developer brings up a node with a NIC Mokka doesn't ship. They run `mokka-capt
 
 #### Story 3: an OEM variant
 
-An administrator's cluster uses an OEM ConnectX-7 card with its own part number and board ID. They add a custom profile under a new name and point the slot at it, in values or as an object. `helm upgrade` leaves it alone.
+An administrator's cluster uses an OEM ConnectX-7 card with its own part number and board ID. They add a custom NIC profile under a new name and a rack profile whose slot names it, as objects, or in file mode as values that add the profile and replace the slots. `helm upgrade` leaves them alone.
 
 #### Story 4: testing a network operator
 
 An SR-IOV operator runs against a simulated node and finds the PFs in their boot state, with the VF limit the profile declares. Creating the VFs when it writes `sriov_numvfs` is outside this MEP, as are operators that switch the eswitch to switchdev or create SMI devices.
+
+#### Story 5: pairing GPUs with their nearest NIC
+
+A topology tool, such as Topograph, reads PCI sysfs on a simulated GB300 node. It finds each ConnectX-8's Data Direct function next to a GPU, pairs it with the NIC's network function by VPD `V3`, and reports which NIC is nearest each GPU, so a DRA driver can allocate the two together. It gets the same pairs as on the real tray.
 
 ### Notes/Constraints/Caveats
 
@@ -361,7 +387,7 @@ An SR-IOV operator runs against a simulated node and finds the PFs in their boot
 - **Capture coverage.** `collect network` records PCI, VPD and interface records only for ConnectX functions (PCI vendor `0x15b3`), so EFA functions are missing; RDMA devices are captured whatever their vendor. A missing sysfs file is recorded as absent and an empty one as empty. [#1268](https://github.com/NVIDIA/k8s-test-infra/issues/1268) tracks the remaining gaps. Captures of GB200 and of an InfiniBand cluster without SMI devices don't exist yet.
 - **GPU parents in captures.** `collect network` doesn't record a GPU's parent yet (GPU records hold the device, NUMA node and root complex; #1268), so the samples take it from bus numbers and the captured PCI hierarchy. From [implementation step 2](#implementation-order), the GPU profiles place GPUs at their captured addresses (on `gb300`, domains `0008`, `0009`, `0018` and `0019`), so file mode builds the same tree.
 - **GPU slots and `GPU_COUNT`.** In file mode a slot's `gpus` may name any GPU the profile declares, so lowering `GPU_COUNT` never invalidates a slot. A NIC can then be associated with a GPU the node doesn't show.
-- **Rendering during the transition.** Until `ib` renders from `State.NICs` ([#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355)) and `pcibus` renders NIC functions ([#1354](https://github.com/NVIDIA/k8s-test-infra/issues/1354)), every GPU profile keeps rendering NICs through today's `infiniband` block. `gb300` and `vrnvl72` also declare slots, so their resolved NIC state exists for those changes to build on, but slots and overrides don't change what a node shows until then. A temporary shape derived from the resolved state was considered and rejected: it can show one model and link layer per node, so a mixed tray or a single-slot override would show devices other than the declared ones. A GPU profile without captured NICs moves to slots once a capture backs its NIC profile.
+- **Rendering during the transition.** Until `ib` renders from `State.NICs` ([#1355](https://github.com/NVIDIA/k8s-test-infra/issues/1355)) and `pcibus` renders NIC functions ([#1354](https://github.com/NVIDIA/k8s-test-infra/issues/1354)), every GPU profile keeps rendering NICs through today's `infiniband` block. `gb300` and `vrnvl72` also declare slots, so their resolved NIC state exists for those changes to build on, but slots and configuration choices don't change what a node shows until then. A temporary shape derived from the resolved state was considered and rejected: it can show one model and link layer per node, so a mixed tray or one slot in another configuration would show devices other than the declared ones. A GPU profile without captured NICs moves to slots once a capture backs its NIC profile.
 
 ### Risks and Mitigations
 
@@ -393,7 +419,7 @@ spec:
     model: string                   # model name, such as ConnectX-8
     hcaType: string?                # RDMA hca_type, such as MT4131
     boardID: string?                # RDMA board_id, such as MT_0000001513
-    firmwareVersion: string?        # RDMA fw_ver; a slot may override it
+    firmwareVersion: string?        # RDMA fw_ver; the default, which runtime policies will be able to change
     partNumber: string?             # board part number; the default for VPD PN
     hwRev: string?                  # RDMA hw_rev and ibv_devinfo hw_ver; empty means 0x0
     vendorOUI: string?              # IEEE OUI that verbs report as vendor_id, such as "0x02c9"
@@ -423,7 +449,7 @@ spec:
       vpd: bool?                    # whether the function exposes the profile's VPD
       vpdSuffixes: {string: string}? # appended to an identity keyword's value on this function; {function} is the PCI function number
       vpdOmit: [string]?            # identity keywords this function doesn't report
-  defaultConfiguration: string      # used when neither the cluster nor the slot selects one
+  defaultConfiguration: string      # the configuration the card ships with; used when the cluster selects none
   configurations:                   # firmware configurations, each declared as its result
     - name: string
       ports:                        # optional: logical network ports, in physical order: a port's position is its number (p0 first), which names it and keys its identifiers
@@ -473,13 +499,11 @@ spec:
       nics:                         # new: one entry per NIC instance on the node
         - slot: string              # unique per node, such as nic0 or frontend0
           profile: string           # an SNICProfile name
-          configuration: string?    # one of the profile's configurations; empty means its default
           board: int?               # slots whose ASICs share one physical board; node-wide
           systemImageGUID: string?  # empty: node GUID of the lowest-addressed RDMA device
                                     # <rdma device id>: node GUID of that RDMA device
                                     # distinct: a GUID that is no device's node GUID
           gpus: [int]?              # GPU indexes the NIC serves; locality, not a routing rule. Any GPU the profile declares
-          firmwareVersion: string?  # overrides identity.firmwareVersion
           vpd: {string: string}?    # overrides model VPD keywords, such as EC
           devices:                  # placement of each PCI device the configurations name
             - name: string          # unique; a pciDevice of the configurations, such as network or hostA
@@ -497,7 +521,7 @@ spec:
 
 #### `SGPUInventory` (existing; new field)
 
-File mode takes the same shape from Helm values (`nics.overrides`).
+File mode takes the same shape from Helm values (`nics.configurations`).
 
 ```yaml
 apiVersion: mokka.nvidia.com/v1alpha1
@@ -506,13 +530,9 @@ spec:
   rackGroups:
     - id: string
       profileRef: {name: string}    # existing
-      nicOverrides:                 # new: applied in order; a later override wins per field
-        - slots: [string]           # slot names the override applies to; at least one, each an existing slot
-          profile: string?          # replaces the slot's profile, and drops the slot's configuration, firmwareVersion, vpd and a named systemImageGUID
-          configuration: string?    # replaces the slot's configuration
-          firmwareVersion: string?
-          vpd: {string: string}?    # merged into the slot's VPD keywords
-          systemImageGUID: string?  # replaces the slot's systemImageGUID
+      nicConfigurations:            # new: the configuration each slot runs; a slot not listed runs its profile's default
+        - slots: [string]           # at least one, each an existing slot, and each slot in one entry only
+          configuration: string     # one of the slots' profile's configurations
 ```
 
 ```yaml
@@ -520,9 +540,9 @@ spec:
 rackGroups:
   - id: training
     count: 4
-    profileRef: {name: gb300-nvl72}
-    nicOverrides:
-      - {slots: [nic0, nic1, nic2, nic3], configuration: eth-multiplane, firmwareVersion: "40.48.1102"}
+    profileRef: {name: gb300}
+    nicConfigurations:
+      - {slots: [nic0, nic1, nic2, nic3], configuration: eth-multiplane}
 ```
 
 #### Validation
@@ -532,8 +552,8 @@ The CRD checks field shapes. These rules need more than one field, so the loader
 - **Decoding:** strict, on the raw document: an unknown field, a missing required field or a repeated item in a set or map list is an error in file mode too, as the API server would reject it; zero values aren't filled in.
 - **Profile:** VPD scopes are `board`, `asic`, `boardPosition`, or another identity keyword whose own scope is one of those three, so reuse is one level deep: `{SN: asic, VU: SN}` is valid and `{SN: VU, VU: SN}` isn't. A keyword is either a model value or an identity. Every function type has a driver. `driver` and `rdmaNamePrefix` are kernel names, lowercase letters, digits and `_` (and `-` in a driver), so neither can form a path outside the staged tree. `rdmaOmit` and `rdmaEmpty` name only `fw_ver`, `hca_type`, `board_id` or `hw_rev`, and no attribute is in both. A `vfType` names another function type, on a function type with `totalVFs`. Configuration names are unique, and the default is one of them.
 - **Configuration:** port and function IDs are unique. Technology and lane speed come from the lists above; width is positive and planes aren't negative. A function's type exists, its PCI device is named, and each device and function number is used once. The class is `0x` plus six hex digits. Every port has an owner, and at most one per PCI device. An RDMA device names a function and at least one port, and its ports are ports that function owns, each listed once. A function has at most one RDMA device, since its identifiers come from the function's position.
-- **Rack profile:** slot names, GPU slots and PCI addresses are unique. One board holds one NIC model. A slot's GPUs and profile exist. A per-board VPD identity needs a `board`, and a per-board-position one needs a `vpdPosition`. `systemImageGUID` is `distinct` or an RDMA device of the selected configuration. Root ports are unique and inside their root complex. Addresses are well-formed and inside their root complex. Every parent, of a GPU slot, a NIC device or a switch port, names a root port or a switch port of the node in the same root complex, and switch ports form no cycle. Every address is in its root complex's PCI domain. A root port, and a NIC device without a parent, sit on the root complex's bus, and a switch port's children sit on its downstream bus. Root ports are exempt from that last check while platform bridges aren't modeled: a cloud VM's capture doesn't record them, so `aws-gb300` names root ports as parents. A NIC device without a parent sits on its root complex's root bus, so its address is on that bus and it has no switch ports, as the EFA device in `aws-c5n` shows. Bridges need the profile's `switchPort`. Every PCI device a configuration uses is placed.
-- **Overrides:** overrides apply in order, and a later one wins per field; VPD keywords merge. An override that sets a new profile drops the slot's configuration, firmware version, VPD overrides and a `systemImageGUID` that names an RDMA device, which all belonged to the old model, unless the same override sets them; `distinct` carries over. An override that names an unknown slot is an error. The rack-profile rules then run on the effective selection, so an override that selects a profile or configuration whose PCI devices the slot doesn't place is rejected.
+- **Rack profile:** slot names, GPU slots and PCI addresses are unique. One board holds one NIC model. A slot's GPUs and profile exist. A VPD identity shared per board or per board position needs the slot's `board`, and one per board position also needs a `vpdPosition` on every device the slot places. `systemImageGUID` is `distinct` or an RDMA device of the selected configuration. Root ports are unique and inside their root complex. Addresses are well-formed and inside their root complex. Every parent, of a GPU slot, a NIC device or a switch port, names a root port or a switch port of the node in the same root complex, and switch ports form no cycle. Every address is in its root complex's PCI domain. A root port, and a NIC device without a parent, sit on the root complex's bus. A switch port's children share one bus, which is neither the port's own bus nor the bus of any other switch port's children. Root ports are exempt from that last check while platform bridges aren't modeled: a cloud VM's capture doesn't record them, so `aws-gb300` names root ports as parents. A NIC device without a parent sits on its root complex's root bus, so its address is on that bus and it has no switch ports, as the EFA device in `aws-c5n` shows. Bridges need the profile's `switchPort`. Every PCI device a configuration uses is placed.
+- **Configuration choices:** each entry names existing slots, each slot appears in one entry at most, and the configuration is one of every listed slot's profile. The rack-profile rules then run on the selection, so a configuration whose PCI devices a slot doesn't place, or that lacks the RDMA device a `systemImageGUID` names, is rejected.
 
 #### Samples by feature
 
@@ -541,11 +561,11 @@ The CRD checks field shapes. These rules need more than one field, so the loader
 
 | Sample | Shows |
 |---|---|
-| [`cx8-c8280z`](#sample-cx8-c8280z), [`gb300-nvl72`](#sample-gb300-nvl72) | Two configurations of one ASIC; Data Direct in a GPU's domain; VPD by board, ASIC and board position; `systemImageGUID: distinct` |
-| [`gb300-ethernet`](#sample-gb300-ethernet) | Selecting `eth-multiplane`; per-slot firmware and VPD overrides; `umadMode` |
+| [`cx8-c8280z`](#sample-cx8-c8280z), [`gb300`](#sample-gb300) | Two configurations of one ASIC; Data Direct in a GPU's domain; VPD by board, ASIC and board position; `systemImageGUID: distinct` |
+| [`gb300-cx7`](#sample-gb300-cx7) | A second GB300 rack design, with a ConnectX-7 front-end card; per-slot VPD; `umadMode`; an inventory selecting `eth-multiplane` |
 | [`cx7-hhhl`](#sample-cx7-hhhl) | One card with two links in two domains |
 | [`bf3-b3240`](#sample-bf3-b3240) | A SoC management function without an RDMA device, next to PFs with one; a function type without a VPD identity |
-| [`bf4-vr`](#sample-bf4-vr), [`vr-nvl72`](#sample-vr-nvl72) | Two host links sharing ports; the system image GUID taken from a named RDMA device |
+| [`bf4-vr`](#sample-bf4-vr), [`vrnvl72`](#sample-vrnvl72) | Two host links sharing ports; the system image GUID taken from a named RDMA device |
 | [`cx9-vr`](#sample-cx9-vr) | The VR NVL72 scale-out NIC |
 | [`cx8-aws-vf`](#sample-cx8-aws-vf), [`aws-gb300`](#sample-aws-gb300) | A cloud VM's VFs and Data Direct functions, with no PF |
 | [`efa-c5n`](#sample-efa-c5n), [`aws-c5n`](#sample-aws-c5n) | EFA: declared node type, absent and empty attributes; a device on the root bus |
@@ -559,9 +579,9 @@ Generation has two halves. **Resolve** turns the declaration into a typed NIC st
 | Rule | When | Surfaces | Reads |
 |---|---|---|---|
 | G1 PCI | Every function of the selected configuration. SR-IOV attributes only when `totalVFs` is set, link attributes only when `pcieLink` is, upstream IDs only where they're declared | IDs, class, revision, link, driver, modalias, upstream IDs, SR-IOV totals | Function type, configuration class, placement |
-| G2 VPD | Functions whose type has `vpd: true`; each identity keyword unless the type lists it in `vpdOmit` | VPD keywords | Profile keywords and identity scopes, suffixes, slot overrides, `vpdPosition` |
+| G2 VPD | Functions whose type has `vpd: true`; each identity keyword unless the type lists it in `vpdOmit` | VPD keywords | Profile keywords and identity scopes, suffixes, slot VPD values, `vpdPosition` |
 | G3 Bridges | Each bridge a device placement lists | The NIC's switch ports | Slot bridges, profile `switchPort` |
-| G4 RDMA device | Each RDMA device of the selected configuration. Attributes in `rdmaOmit` are left out; those in `rdmaEmpty` are empty | Node type, node and system image GUIDs, firmware, board ID, HCA type, hardware revision | Function type, identity, slot `systemImageGUID` and overrides |
+| G4 RDMA device | Each RDMA device of the selected configuration. Attributes in `rdmaOmit` are left out; those in `rdmaEmpty` are empty | Node type, node and system image GUIDs, firmware, board ID, HCA type, hardware revision | Function type, identity, slot `systemImageGUID` |
 | G5 Names | All RDMA devices on the node, in PCI address order, numbered per prefix as the kernel numbers them per driver | RDMA device names, such as `mlx5_0` and `efa_0` | `rdmaNamePrefix` |
 | G6 Rate | Each port of each RDMA device | Rate text, link layer | Width, lane speed, technology |
 | G7 Ports | Each port of each RDMA device, by technology: `ib` gets its capability mask and a port GUID (the node GUID on port 1, its own on each later port), with GID 0 from the port GUID; `roce` gets GIDs 0 and 1, the same link-local address from its netdev's MAC, typed RoCE v1 and RoCE v2 and both tied to that netdev; `efa` gets LID 0 and one link-local GID with no netdev | LIDs, capability mask, P_Keys, GIDs | Port |
@@ -585,7 +605,7 @@ ConfigMap ──FileSource.reload──▶ compileState ──▶ agent.State �
                                    └─ compileNICs ─▶ State.NICs ─▶ pcibus, ib, new simulators
 ```
 
-**Input.** The profile document the agent already reads. In file mode the chart appends the NIC profiles the slots name and the overrides from values, so `FileSource` watches one file as today:
+**Input.** The profile document the agent already reads. In file mode the chart appends the NIC profiles the slots name and the configuration choices from values, so `FileSource` watches one file as today:
 
 ```yaml
 # The profile document in the node agent's ConfigMap, file mode
@@ -606,7 +626,7 @@ nic_profiles:              # appended by the chart: the profiles the slots name
     metadata: {name: cx8-c8280z}
     spec:
       # …
-nic_overrides:             # appended by the chart from values
+nic_configurations:        # appended by the chart from values
   - {slots: [nic0, nic1, nic2, nic3], configuration: eth-multiplane}
 ```
 
@@ -646,15 +666,15 @@ A new state from a profile edit or a configuration change runs `Stage` again. Fo
 
 | Area | Change |
 |---|---|
-| Watches | A new `SNICProfile` informer and RBAC (`get`, `list`, `watch`). NIC profile events re-route inventories as `SGPURackProfile` events do. Slots are part of the rack profile's spec, so they already change its revision; `nicOverrides` counts as a rendering input |
-| Rack rendering | A rack's NIC inputs, each `SNICProfile` revision its slots name and the inventory revision that supplies `nicOverrides`, join the accepted inputs MEP-0001's delivery generation records, and an accepted change advances it. The rack validates the NIC references and the cross-field rules; a rejected change becomes a condition. The revision ignores the order of unordered lists (root ports, NIC slots, a slot's GPUs). No NIC state is stored in `SGPURack`: it is deterministic |
+| Watches | A new `SNICProfile` informer and RBAC (`get`, `list`, `watch`). NIC profile events re-route inventories as `SGPURackProfile` events do. Slots are part of the rack profile's spec, so they already change its revision; `nicConfigurations` counts as a rendering input |
+| Rack rendering | A rack's NIC inputs, each `SNICProfile` revision its slots name and the inventory revision that supplies `nicConfigurations`, join the accepted inputs MEP-0001's delivery generation records, and an accepted change advances it. The rack validates the NIC references and the cross-field rules; a rejected change becomes a condition. The revision ignores the order of unordered lists (root ports, NIC slots, a slot's GPUs). No NIC state is stored in `SGPURack`: it is deterministic |
 | Per-node view | When a node agent asks for its state, the control plane resolves the node's NICs with the same code file mode uses, from the exact accepted revisions only. A replica that can't read one, because it hasn't synced yet or the profile was deleted or edited since, answers with retry, as MEP-0001 specifies for its other inputs |
 | Status | A missing or invalid `SNICProfile` becomes a condition on the inventory and rack. As with any profile under MEP-0001, delivery to the nodes of the racks that name it pauses until the profile is restored or fixed, GPU policy changes included: a node keeps its last applied state, and a node with none waits |
 | Unchanged | Allocation, capacity, Node projection and runtime policies |
 
 ```yaml
 # SGPURack: the accepted NIC inputs, recorded with MEP-0001's delivery generation
-profileRef: {name: gb300-nvl72, uid: …, generation: 3, revision: …}   # existing
+profileRef: {name: gb300, uid: …, generation: 3, revision: …}   # existing
 nicProfileRefs:                                                         # new
   - {name: cx8-c8280z, uid: …, generation: 1, revision: …}
   - {name: bf3-b3240, uid: …, generation: 1, revision: …}
@@ -700,7 +720,7 @@ File-mode values:
 ```yaml
 nics:
   rdma: {}                         # overrides the GPU profile's software.rdma, such as {umadMode: "666", driverVersion: 26.01-1.0.0}
-  overrides:                       # the file-mode nicOverrides
+  configurations:                  # the file-mode nicConfigurations
     - slots: [nic0, nic1, nic2, nic3]
       configuration: eth-multiplane
   customProfiles:                  # SNICProfiles in the same schema as the shipped files
@@ -714,7 +734,7 @@ nics:
   gpuParents: {}                   # each GPU's parent by index, such as {0: "0008:05:00.0"}
 ```
 
-The chart fails the render on mistakes it can see: an override without `slots`, or naming an unknown slot or configuration; a custom profile without `apiVersion`, reusing a shipped profile's name, or with a default configuration it doesn't define; a profile document with a repeated NIC key.
+The chart fails the render on mistakes it can see: a configuration choice without `slots`, naming an unknown slot or configuration, or naming a slot twice; a custom profile without `apiVersion`, reusing a shipped profile's name, or with a default configuration it doesn't define; a profile document with a repeated NIC key.
 
 ### Test plan
 
@@ -751,7 +771,7 @@ NIC surfaces come from three inputs, each with its own owner:
 
 | Input | Owner | Examples |
 |---|---|---|
-| Boot state | The declaration: profiles, slots, overrides | PFs, RDMA devices, ports |
+| Boot state | The declaration: profiles, slots, configuration choices | PFs, RDMA devices, ports |
 | Driver runtime state | Driver reactions to operator actions | VFs, representors, SMI devices |
 | Network state | The fabric (MEP-0015) | Port state, LIDs, partitions |
 
@@ -781,12 +801,15 @@ Otherwise the declaration and rendered checks can pass while applications still 
 - **A new CRD** to install, document and version.
 - **Slots in two places** until built-in rack profiles exist.
 - **Every new NIC model needs a capture** before it ships as built-in.
+- **A rack profile per NIC combination.** A rack design with another NIC model or an extra card needs its own rack profile. NIC models are shared, so that profile only places slots; if such profiles multiply, [a resource that connects cards to a rack](#alternatives) can take over.
 
 ## Alternatives
 
 | Alternative | Why not |
 |---|---|
-| NIC models inline in each rack profile | A NIC model and its configurations are defined once and referenced wherever they're used; inline, every rack profile would copy its PCI IDs, VPD and every configuration. With a separate profile, clusters with the same GPU type can pick different NIC models, or an OEM variant under its own name (Story 3), without a new rack profile |
+| NIC models inline in each rack profile | A NIC model and its configurations are defined once and referenced wherever they're used; inline, every rack profile would copy its PCI IDs, VPD and every configuration. With a separate profile, rack profiles for the same GPU type with different NIC models, or with an OEM variant under its own name (Story 3), reuse one definition of each model |
+| The inventory overrides a slot's NIC model, firmware, VPD or system image GUID | Another NIC model makes another rack design, and swapping a NIC built into a tray, such as GB300's ConnectX-8, gives a node with no real counterpart. VPD values and the system image GUID are facts of the card and the board. The firmware version changes during a cluster's life, so changing it belongs with runtime policies. The inventory keeps only the configuration choice |
+| A resource that connects cards to a rack | The rack profile would declare sockets, each NIC profile its card's own layout, and the inventory or a connector resource would choose the card per socket, so one rack profile would serve every NIC combination. A prototype reproduces all five captures this way ([Appendix A](#appendix-a-design-validation)). Every user would have to learn to wire sockets, and no case needs it yet. If rack profiles per GPU type grow to dozens, this is the way to go |
 | Keep the `infiniband` block, extended | It counts NICs per GPU and has one shape per node; it can't express several NIC models, NICs across PCIe domains, or a mode change |
 | A NIC catalog where the link type drives the layout | The generator would derive PFs and classes from link type and planes, which is ConnectX knowledge in Mokka |
 | Firmware parameters (`mlxconfig`) as input | The same parameters mean different layouts per technology; interpreting them makes the generator device-specific |
@@ -816,14 +839,17 @@ Not covered yet:
 - GB200's ConnectX-7 on InfiniBand, and an InfiniBand cluster without SMI devices: no captures.
 - `collect network` captures of the AWS instances.
 - Node coordinates in identifiers: the prototype hashes declaration coordinates only, so it models one node.
-- `nicOverrides`, the rendered level and control-plane mode, which need the implementation.
+- `nicConfigurations`, the rendered level and control-plane mode, which need the implementation.
+- Firmware set by runtime policies. The GB300 Ethernet counts above were taken with the capture's firmware version on the ConnectX-8 slots. Without it, the sample's RDMA devices and netdevs report the profile's default instead, a difference whose cause is the missing runtime policy.
+
+**Connecting cards to a rack.** A second prototype declares the same five captures the [alternative](#alternatives) way: sockets in the rack profile, each card's own switch layout in its NIC profile, the card chosen per socket. Lowered to the slots above, it gives the same PCI tree, the same resolved NIC state and the same conformance results for every capture, and one rack profile serves both GB300 clusters. It takes about 281 YAML lines where the slots take about 595. It needed three additions: a socket that hides the card's switch (a VR NVL72 ConnectX-9 shows it only where an NVMe drive sits below it), pinned addresses where a cloud guest hides bridges, and the system image GUID declared by the board or the card. Unsettled: PCIe switches of servers with add-in cards, for which no capture exists.
 
 ## Appendix B: Samples
 
 The prototype's samples. Rack profiles hold only the fields this MEP adds or reads; `rack`, the GPU model and the other existing fields are left out. Captures under `tests/hardware-captures/` come with [#1353](https://github.com/NVIDIA/k8s-test-infra/pull/1353).
 
 - NIC profiles: [`cx8-c8280z`](#sample-cx8-c8280z), [`cx9-vr`](#sample-cx9-vr), [`bf3-b3240`](#sample-bf3-b3240), [`bf4-vr`](#sample-bf4-vr), [`cx7-hhhl`](#sample-cx7-hhhl), [`cx8-aws-vf`](#sample-cx8-aws-vf), [`efa-c5n`](#sample-efa-c5n)
-- Rack profiles: [`gb300-nvl72`](#sample-gb300-nvl72), [`vr-nvl72`](#sample-vr-nvl72), [`gb300-ethernet`](#sample-gb300-ethernet), [`aws-gb300`](#sample-aws-gb300), [`aws-c5n`](#sample-aws-c5n)
+- Rack profiles: [`gb300`](#sample-gb300), [`vrnvl72`](#sample-vrnvl72), [`gb300-cx7`](#sample-gb300-cx7), [`aws-gb300`](#sample-aws-gb300), [`aws-c5n`](#sample-aws-c5n)
 
 ### NIC profiles
 
@@ -1234,17 +1260,17 @@ spec:
 
 ### Rack profiles
 
-<a id="sample-gb300-nvl72"></a>
-#### `gb300-nvl72`
+<a id="sample-gb300"></a>
+#### `gb300`
 
-NIC slots of one GB300 NVL72 tray (tests/hardware-captures/gb300-ib/node-a): four ConnectX-8 ASICs on two dual-ASIC boards, each with a Data Direct function in a GPU's PCIe domain. Only the NIC-related fields of the rack profile, plus the BlueField-3 front-end NIC.
+NIC slots of one GB300 tray (tests/hardware-captures/gb300-ib/node-a): four ConnectX-8 ASICs on two dual-ASIC boards, each with a Data Direct function in a GPU's PCIe domain. Only the NIC-related fields of the rack profile, plus the BlueField-3 front-end NIC.
 
 The capture records each bridge's IDs and the IDs above each function, not the bridges' parents: the parents below are inferred from the layout the VR NVL72 capture shows in full.
 
 ```yaml
 kind: SGPURackProfile
 metadata:
-  name: gb300-nvl72
+  name: gb300
 spec:
   software:
     rdma: {umad: true, ipoib: true, driverVersion: 25.10-2.4.1}
@@ -1400,15 +1426,15 @@ spec:
               numaNode: 1
 ```
 
-<a id="sample-vr-nvl72"></a>
-#### `vr-nvl72`
+<a id="sample-vrnvl72"></a>
+#### `vrnvl72`
 
 NIC slots of one VR NVL72 compute tray (tests/hardware-captures/vr-nvl72/node-a). Only the NIC-related fields of the rack profile, including the BlueField-4.
 
 ```yaml
 kind: SGPURackProfile
 metadata:
-  name: vr-nvl72
+  name: vrnvl72
 spec:
   software:
     rdma: {umad: false, ipoib: false}
@@ -1554,17 +1580,17 @@ spec:
               numaNode: 1
 ```
 
-<a id="sample-gb300-ethernet"></a>
-#### `gb300-ethernet`
+<a id="sample-gb300-cx7"></a>
+#### `gb300-cx7`
 
 Back to: [Configurations declare their result](#configurations-declare-their-result)
 
-NIC slots of one GB300 NVL72 tray at a cloud provider (tests/hardware-captures/gb300-roce/node-a): the same ConnectX-8 boards as gb300-nvl72 in their Ethernet multi-plane configuration, on newer firmware, and a ConnectX-7 front-end card.
+NIC slots of one GB300 tray at a cloud provider (tests/hardware-captures/gb300-roce/node-a): the same ConnectX-8 boards as gb300, and a ConnectX-7 front-end card on other root ports, so it is a rack profile of its own. The cluster's inventory selects the boards' Ethernet multi-plane configuration. The boards run newer firmware (`40.48.1102`) than the profile's default; until runtime policies can set it, the sample shows the default.
 
 ```yaml
 kind: SGPURackProfile
 metadata:
-  name: gb300-ethernet
+  name: gb300-cx7
 spec:
   software:
     rdma: {umad: true, ipoib: true, umadMode: "666", driverVersion: 26.01-1.0.0}
@@ -1591,8 +1617,6 @@ spec:
       nics:
         - slot: nic0
           profile: cx8-c8280z
-          configuration: eth-multiplane
-          firmwareVersion: "40.48.1102"
           board: 0
           gpus: [1]
           devices:
@@ -1623,8 +1647,6 @@ spec:
               vpdPosition: "-Aux[1]"
         - slot: nic1
           profile: cx8-c8280z
-          configuration: eth-multiplane
-          firmwareVersion: "40.48.1102"
           board: 0
           systemImageGUID: distinct
           gpus: [0]
@@ -1656,8 +1678,6 @@ spec:
               vpdPosition: "-Prime"
         - slot: nic2
           profile: cx8-c8280z
-          configuration: eth-multiplane
-          firmwareVersion: "40.48.1102"
           vpd: {EC: A5}
           board: 1
           gpus: [3]
@@ -1689,8 +1709,6 @@ spec:
               vpdPosition: "-Aux[1]"
         - slot: nic3
           profile: cx8-c8280z
-          configuration: eth-multiplane
-          firmwareVersion: "40.48.1102"
           vpd: {EC: A5}
           board: 1
           systemImageGUID: distinct
@@ -1737,6 +1755,16 @@ spec:
               parent: "0017:00:00.0"
               numaNode: 1
               vpdPosition: "-Aux[1]"
+```
+
+```yaml
+kind: SGPUInventory
+spec:
+  rackGroups:
+    - id: gb300-roce
+      profileRef: {name: gb300-cx7}
+      nicConfigurations:
+        - {slots: [nic0, nic1, nic2, nic3], configuration: eth-multiplane}
 ```
 
 <a id="sample-aws-gb300"></a>

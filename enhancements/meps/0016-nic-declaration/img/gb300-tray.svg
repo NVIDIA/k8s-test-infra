@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 478" width="760" height="478" role="img" aria-labelledby="gb300-tray-title gb300-tray-desc" class="nicfig nf-tray">
+  <title id="gb300-tray-title">One GB300 tray as the gb300 rack profile declares it</title>
+  <desc id="gb300-tray-desc">Two NUMA nodes, one per Grace CPU, each with two GPUs attached over C2C and one ConnectX-8 board with two NIC slots. NUMA node 0: slot nic1 serves GPU 0 and slot nic0 serves GPU 1, on board 0. NUMA node 1: slot nic3 serves GPU 2 and slot nic2 serves GPU 3, on board 1, and the BlueField-3 slot frontend0 hangs off Grace CPU 1. Each ConnectX-8 has its network device in a PCIe domain of its CPU and its Data Direct device in its GPU's PCIe domain. In the default ib-xdr-4plane configuration each ConnectX-8 has one 800 Gb/s port, p0, on one OSFP module, split into four planes of 200 Gb/s; the BlueField-3 has two 400 Gb/s ports on QSFP modules. Connectors are not declared.</desc>
+  <style>
+    .nf-tray { --fg: #1f2328; --muted: #59636e; --rule: #d1d9e0; --band: #f6f8fa; --box: #ffffff; --gpu: #1a7f37; --nic: #0969da; --fe: #bc4c00; --c2c: #8250df; --port: #9a6700; }
+    @media (prefers-color-scheme: dark) {
+      .nf-tray { --fg: #f0f6fc; --muted: #9198a1; --rule: #3d444d; --band: #151b23; --box: #0d1117; --gpu: #3fb950; --nic: #4493f8; --fe: #f0883e; --c2c: #ab7df8; --port: #d29922; }
+    }
+    :root[data-theme="light"] .nf-tray { --fg: #1f2328; --muted: #59636e; --rule: #d1d9e0; --band: #f6f8fa; --box: #ffffff; --gpu: #1a7f37; --nic: #0969da; --fe: #bc4c00; --c2c: #8250df; --port: #9a6700; }
+    :root[data-theme="dark"] .nf-tray { --fg: #f0f6fc; --muted: #9198a1; --rule: #3d444d; --band: #151b23; --box: #0d1117; --gpu: #3fb950; --nic: #4493f8; --fe: #f0883e; --c2c: #ab7df8; --port: #d29922; }
+    .nf-tray text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; font-size: 11.5px; fill: var(--fg); }
+    .nf-tray .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; fill: var(--muted); }
+    .nf-tray .b { font-weight: 600; }
+    .nf-tray .muted { fill: var(--muted); }
+    .nf-tray .tiny { font-size: 9.5px; fill: var(--muted); }
+    .nf-tray .band { fill: var(--band); stroke: var(--rule); }
+    .nf-tray .cpu { fill: var(--box); stroke: var(--muted); stroke-width: 1.5; }
+    .nf-tray .gpu { fill: var(--box); stroke: var(--gpu); stroke-width: 1.5; }
+    .nf-tray .nic { fill: var(--box); stroke: var(--nic); stroke-width: 1.5; }
+    .nf-tray .fe { fill: var(--box); stroke: var(--fe); stroke-width: 1.5; }
+    .nf-tray .board { fill: none; stroke: var(--muted); stroke-width: 1.25; stroke-dasharray: 5 4; }
+    .nf-tray .cage { fill: var(--box); stroke: var(--muted); stroke-width: 1.25; stroke-dasharray: 3 3; }
+    .nf-tray .c2c { fill: none; stroke: var(--c2c); stroke-width: 2; }
+    .nf-tray .tip-c2c { fill: var(--c2c); }
+    .nf-tray .netdev { fill: none; stroke: var(--nic); stroke-width: 2; }
+    .nf-tray .dd { fill: none; stroke: var(--gpu); stroke-width: 2; }
+    .nf-tray .fedev { fill: none; stroke: var(--fe); stroke-width: 2; }
+    .nf-tray .port { fill: none; stroke: var(--port); stroke-width: 2.5; }
+    .nf-tray .plane { fill: none; stroke: var(--port); stroke-width: 1.25; }
+    .nf-tray .t-port { fill: var(--port); }
+    .nf-tray .t-c2c { fill: var(--c2c); }
+  </style>
+  <defs>
+    <path id="gb300-tray-c2c" class="c2c" d="M6,0 H18"/>
+  </defs>
+
+  <!-- NUMA node 0 -->
+  <rect class="band" x="8" y="8" width="330" height="398" rx="8"/>
+  <text class="b" x="20" y="27">NUMA node 0</text>
+  <text class="mono" x="104" y="27">numaNode: 0</text>
+
+  <rect class="gpu" x="20" y="44" width="80" height="48" rx="6"/>
+  <text class="b" x="60" y="72" text-anchor="middle">GPU 0</text>
+  <rect class="cpu" x="124" y="44" width="96" height="48" rx="6"/>
+  <text class="b" x="172" y="72" text-anchor="middle">Grace CPU 0</text>
+  <rect class="gpu" x="244" y="44" width="80" height="48" rx="6"/>
+  <text class="b" x="284" y="72" text-anchor="middle">GPU 1</text>
+  <path class="c2c" d="M106,62 H118 M226,62 H238"/>
+  <path class="tip-c2c" d="M100,62 L107,58 L107,66 Z M124,62 L117,58 L117,66 Z M220,62 L227,58 L227,66 Z M244,62 L237,58 L237,66 Z"/>
+  <text class="tiny t-c2c" x="112" y="80" text-anchor="middle">C2C</text>
+  <text class="tiny t-c2c" x="232" y="80" text-anchor="middle">C2C</text>
+
+  <path class="netdev" d="M150,92 V132 H126 V188 M194,92 V132 H220 V188"/>
+  <path class="dd" d="M60,92 V188 M284,92 V188"/>
+
+  <rect class="board" x="28" y="176" width="290" height="124" rx="8"/>
+  <rect class="nic" x="40" y="188" width="124" height="76" rx="6"/>
+  <text class="b" x="52" y="207">nic1</text>
+  <text class="mono" x="52" y="223">cx8-c8280z</text>
+  <text class="mono" x="52" y="239">mlx5_1</text>
+  <text class="mono" x="52" y="254">gpus: [0]</text>
+  <rect class="nic" x="182" y="188" width="124" height="76" rx="6"/>
+  <text class="b" x="194" y="207">nic0</text>
+  <text class="mono" x="194" y="223">cx8-c8280z</text>
+  <text class="mono" x="194" y="239">mlx5_0</text>
+  <text class="mono" x="194" y="254">gpus: [1]</text>
+  <text class="muted" x="173" y="280" text-anchor="middle">ConnectX-8 board 0</text>
+  <text class="mono" x="173" y="294" text-anchor="middle">board: 0</text>
+
+  <path class="port" d="M102,264 V316 M244,264 V316"/>
+  <text class="mono t-port" x="108" y="311">p0 · 800 Gb/s</text>
+  <text class="mono t-port" x="250" y="311">p0 · 800 Gb/s</text>
+  <rect class="cage" x="80" y="316" width="44" height="20" rx="4"/>
+  <text class="tiny" x="102" y="330" text-anchor="middle">OSFP</text>
+  <rect class="cage" x="222" y="316" width="44" height="20" rx="4"/>
+  <text class="tiny" x="244" y="330" text-anchor="middle">OSFP</text>
+  <path class="plane" d="M96,336 L84,366 M100,336 L96,366 M104,336 L108,366 M108,336 L120,366 M238,336 L226,366 M242,336 L238,366 M246,336 L250,366 M250,336 L262,366"/>
+  <text class="mono t-port" x="102" y="382" text-anchor="middle">4 planes × 200 Gb/s</text>
+  <text class="mono t-port" x="244" y="382" text-anchor="middle">4 planes × 200 Gb/s</text>
+
+  <!-- NUMA node 1 -->
+  <rect class="band" x="346" y="8" width="406" height="398" rx="8"/>
+  <text class="b" x="358" y="27">NUMA node 1</text>
+  <text class="mono" x="442" y="27">numaNode: 1</text>
+
+  <rect class="gpu" x="358" y="44" width="80" height="48" rx="6"/>
+  <text class="b" x="398" y="72" text-anchor="middle">GPU 2</text>
+  <rect class="cpu" x="462" y="44" width="96" height="48" rx="6"/>
+  <text class="b" x="510" y="72" text-anchor="middle">Grace CPU 1</text>
+  <rect class="gpu" x="582" y="44" width="80" height="48" rx="6"/>
+  <text class="b" x="622" y="72" text-anchor="middle">GPU 3</text>
+  <path class="c2c" d="M444,62 H456 M564,62 H576"/>
+  <path class="tip-c2c" d="M438,62 L445,58 L445,66 Z M462,62 L455,58 L455,66 Z M558,62 L565,58 L565,66 Z M582,62 L575,58 L575,66 Z"/>
+  <text class="tiny t-c2c" x="450" y="80" text-anchor="middle">C2C</text>
+  <text class="tiny t-c2c" x="570" y="80" text-anchor="middle">C2C</text>
+
+  <path class="netdev" d="M488,92 V132 H464 V188 M532,92 V132 H558 V188"/>
+  <path class="dd" d="M398,92 V188 M622,92 V188"/>
+  <path class="fedev" d="M548,44 V34 H707 V188"/>
+
+  <rect class="board" x="366" y="176" width="290" height="124" rx="8"/>
+  <rect class="nic" x="378" y="188" width="124" height="76" rx="6"/>
+  <text class="b" x="390" y="207">nic3</text>
+  <text class="mono" x="390" y="223">cx8-c8280z</text>
+  <text class="mono" x="390" y="239">mlx5_3</text>
+  <text class="mono" x="390" y="254">gpus: [2]</text>
+  <rect class="nic" x="520" y="188" width="124" height="76" rx="6"/>
+  <text class="b" x="532" y="207">nic2</text>
+  <text class="mono" x="532" y="223">cx8-c8280z</text>
+  <text class="mono" x="532" y="239">mlx5_2</text>
+  <text class="mono" x="532" y="254">gpus: [3]</text>
+  <text class="muted" x="511" y="280" text-anchor="middle">ConnectX-8 board 1</text>
+  <text class="mono" x="511" y="294" text-anchor="middle">board: 1</text>
+
+  <path class="port" d="M440,264 V316 M582,264 V316"/>
+  <text class="mono t-port" x="446" y="311">p0 · 800 Gb/s</text>
+  <text class="mono t-port" x="588" y="311">p0 · 800 Gb/s</text>
+  <rect class="cage" x="418" y="316" width="44" height="20" rx="4"/>
+  <text class="tiny" x="440" y="330" text-anchor="middle">OSFP</text>
+  <rect class="cage" x="560" y="316" width="44" height="20" rx="4"/>
+  <text class="tiny" x="582" y="330" text-anchor="middle">OSFP</text>
+  <path class="plane" d="M434,336 L422,366 M438,336 L434,366 M442,336 L446,366 M446,336 L458,366 M576,336 L564,366 M580,336 L576,366 M584,336 L588,366 M588,336 L600,366"/>
+  <text class="mono t-port" x="440" y="382" text-anchor="middle">4 planes × 200 Gb/s</text>
+  <text class="mono t-port" x="582" y="382" text-anchor="middle">4 planes × 200 Gb/s</text>
+
+  <rect class="fe" x="670" y="188" width="74" height="76" rx="6"/>
+  <text class="b" x="680" y="207">frontend0</text>
+  <text class="mono" x="680" y="223">bf3-b3240</text>
+  <text class="mono" x="680" y="239">mlx5_4</text>
+  <text class="mono" x="680" y="254">mlx5_5</text>
+  <path class="port" d="M697,264 V316 M717,264 V316"/>
+  <rect class="cage" x="684" y="316" width="26" height="20" rx="4"/>
+  <rect class="cage" x="704" y="316" width="26" height="20" rx="4"/>
+  <text class="tiny" x="707" y="350" text-anchor="middle">QSFP ×2</text>
+  <text class="mono t-port" x="707" y="368" text-anchor="middle">p0, p1</text>
+  <text class="mono t-port" x="707" y="382" text-anchor="middle">400 Gb/s</text>
+  <text class="tiny" x="707" y="398" text-anchor="middle">north-south</text>
+
+  <!-- key -->
+  <path class="netdev" d="M8,428 H32"/>
+  <text class="muted" x="38" y="432">network device: a PCIe domain of its CPU</text>
+  <path class="dd" d="M300,428 H324"/>
+  <text class="muted" x="330" y="432">Data Direct device: its GPU's PCIe domain, with the GPU below the NIC's switch</text>
+  <path class="c2c" d="M8,452 H32"/>
+  <text class="muted" x="38" y="456">C2C: GPU to Grace</text>
+  <path class="port" d="M160,452 H184"/>
+  <text class="muted" x="190" y="456">configured ports (default configuration)</text>
+  <rect class="cage" x="430" y="445" width="26" height="14" rx="3"/>
+  <text class="muted" x="462" y="456">connector, not declared</text>
+  <rect class="nic" x="600" y="445" width="14" height="14" rx="3"/>
+  <text class="muted" x="620" y="456">NIC slot</text>
+</svg>
