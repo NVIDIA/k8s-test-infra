@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 
@@ -60,6 +61,12 @@ func TestDaemonReportMatchesDriverSchema(t *testing.T) {
 		require.Equal(t, "domain.fabric.0", applied.GetName())
 		require.Equal(t, pod.UID, applied.GetOwnerReferences()[0].UID)
 		require.Equal(t, []any{map[string]any{"nodeName": "worker", "ipAddress": "10.1.2.3", "index": int64(3), "cliqueID": "fabric.0", "status": want}}, applied.Object["daemons"])
+		// An identical report from another manager must still be applied.
+		require.NoError(t, d.watch.GetStore().Update(applied))
+		client.ClearActions()
+		require.NoError(t, d.publish(t.Context(), pod, "domain.fabric.0", "fabric.0", 3))
+		require.Len(t, client.Actions(), 1)
+		applied.SetManagedFields([]metav1.ManagedFieldsEntry{testCliqueOwnership(reportManager("worker"), "pod-uid")})
 		require.NoError(t, d.watch.GetStore().Update(applied))
 		client.ClearActions()
 		require.NoError(t, d.publish(t.Context(), pod, "domain.fabric.0", "fabric.0", 3))
@@ -82,4 +89,21 @@ func TestDaemonIdentityAndReadinessChanges(t *testing.T) {
 	updated = pod.DeepCopy()
 	updated.OwnerReferences = nil
 	require.Empty(t, daemonDomain(updated, "drivers"))
+}
+
+func testCliqueOwnership(manager, uid string) metav1.ManagedFieldsEntry {
+	return metav1.ManagedFieldsEntry{Manager: manager, Operation: metav1.ManagedFieldsOperationApply, FieldsV1: metav1.NewFieldsV1(fmt.Sprintf(`{"f:daemons":{"k:{\"nodeName\":\"worker\"}":{}},"f:metadata":{"f:ownerReferences":{"k:{\"uid\":\"%s\"}":{}}}}`, uid))}
+}
+
+func TestCliqueDeletionRequiresExclusiveOwnership(t *testing.T) {
+	t.Parallel()
+	manager := reportManager("worker")
+	o := cliqueObject("drivers", "domain.fabric.0")
+	mine := testCliqueOwnership(manager, "old")
+	o.SetManagedFields([]metav1.ManagedFieldsEntry{mine})
+	require.True(t, ownsCliqueEntry(o, "worker", "old", true))
+	require.False(t, ownsCliqueEntry(o, "worker", "replacement", true))
+	o.SetManagedFields([]metav1.ManagedFieldsEntry{mine, testCliqueOwnership("other", "old")})
+	require.False(t, ownsCliqueEntry(o, "worker", "old", true))
+	require.True(t, ownsCliqueEntry(o, "worker", "old", false))
 }

@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -194,7 +195,7 @@ func (d *daemonReports) publish(ctx context.Context, pod *corev1.Pod, name, cliq
 	if err != nil {
 		return err
 	}
-	if exists && reportMatches(prior.(*unstructured.Unstructured), entry, labels, owner) {
+	if exists && ownsCliqueEntry(prior.(*unstructured.Unstructured), node, owner.UID, false) && reportMatches(prior.(*unstructured.Unstructured), entry, labels, owner) {
 		return nil
 	}
 	o := cliqueObject(d.namespace, name)
@@ -203,6 +204,47 @@ func (d *daemonReports) publish(ctx context.Context, pod *corev1.Pod, name, cliq
 	o.Object["daemons"] = []any{entry}
 	_, err = d.client.Apply(ctx, name, o, metav1.ApplyOptions{FieldManager: reportManager(node)})
 	return err
+}
+
+// Matching values alone do not establish apply ownership. In particular, the
+// last owner on a clique may belong to a real daemon or a replacement Pod.
+func ownsCliqueEntry(o *unstructured.Unstructured, node string, uid types.UID, exclusive bool) bool {
+	manager := reportManager(node)
+	owned := false
+	for _, f := range o.GetManagedFields() {
+		mine := f.Manager == manager && f.Operation == metav1.ManagedFieldsOperationApply
+		if !mine && !exclusive {
+			continue
+		}
+		daemon, owner, err := ownedCliqueFields(f, node, uid)
+		if err != nil {
+			return false
+		}
+		if mine {
+			owned = daemon && owner
+		} else if daemon || owner {
+			return false
+		}
+	}
+	return owned
+}
+
+func ownedCliqueFields(f metav1.ManagedFieldsEntry, node string, uid types.UID) (bool, bool, error) {
+	if f.Subresource != "" || f.FieldsV1 == nil {
+		return false, false, nil
+	}
+	var fields struct {
+		Daemons  map[string]json.RawMessage `json:"f:daemons"`
+		Metadata struct {
+			Owners map[string]json.RawMessage `json:"f:ownerReferences"`
+		} `json:"f:metadata"`
+	}
+	if err := json.Unmarshal(f.FieldsV1.GetRawBytes(), &fields); err != nil {
+		return false, false, err
+	}
+	_, daemon := fields.Daemons[fmt.Sprintf(`k:{"nodeName":%q}`, node)]
+	_, owner := fields.Metadata.Owners[fmt.Sprintf(`k:{"uid":%q}`, uid)]
+	return daemon, owner, nil
 }
 
 func reportMatches(o *unstructured.Unstructured, entry map[string]any, labels map[string]string, owner metav1.OwnerReference) bool {
@@ -243,26 +285,26 @@ func (d *daemonReports) withdrawOther(ctx context.Context, node, desired string)
 	if err != nil {
 		return err
 	}
-	manager := reportManager(node)
 	for _, item := range found {
 		o := item.(*unstructured.Unstructured)
 		if o.GetName() == desired {
 			continue
 		}
-		if err := d.withdraw(ctx, o, manager); err != nil && !apierrors.IsNotFound(err) {
+		if err := d.withdraw(ctx, o, node); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
 	return nil
 }
 
-func (d *daemonReports) withdraw(ctx context.Context, o *unstructured.Unstructured, manager string) error {
+func (d *daemonReports) withdraw(ctx context.Context, o *unstructured.Unstructured, node string) error {
 	uid, rv := o.GetUID(), o.GetResourceVersion()
 	nodes, err := cliqueNodes(o)
 	if err != nil {
 		return err
 	}
-	if len(nodes) == 1 && len(o.GetOwnerReferences()) == 1 {
+	owners := o.GetOwnerReferences()
+	if len(nodes) == 1 && len(owners) == 1 && ownsCliqueEntry(o, node, owners[0].UID, true) {
 		return d.client.Delete(ctx, o.GetName(), metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid, ResourceVersion: &rv}})
 	}
 	// Omitting this manager's entry and owner removes only its fields. Guard
@@ -270,6 +312,6 @@ func (d *daemonReports) withdraw(ctx context.Context, o *unstructured.Unstructur
 	empty := cliqueObject(d.namespace, o.GetName())
 	empty.SetUID(uid)
 	empty.SetResourceVersion(rv)
-	_, err = d.client.Apply(ctx, o.GetName(), empty, metav1.ApplyOptions{FieldManager: manager})
+	_, err = d.client.Apply(ctx, o.GetName(), empty, metav1.ApplyOptions{FieldManager: reportManager(node)})
 	return err
 }
