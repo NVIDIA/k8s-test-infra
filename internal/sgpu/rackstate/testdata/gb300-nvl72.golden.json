@@ -10,6 +10,7 @@
     "cudaVersion": "12.8"
   },
   "gpuModel": {
+    "migCapable": true,
     "vendor": "nvidia.com",
     "product": "GB300",
     "productName": "NVIDIA GB300 NVL",

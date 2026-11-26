@@ -37,10 +37,11 @@ type rackViews struct {
 	nodes  map[types.UID]state.NodePayload
 	floors map[types.UID]nodeVersion
 	pods   *shardPods
+	notify func(string)
 }
 
-func newRackViews(pods *shardPods) *rackViews {
-	return &rackViews{owned: make(map[string]*trackedRack), nodes: make(map[types.UID]state.NodePayload), floors: make(map[types.UID]nodeVersion), pods: pods}
+func newRackViews(pods *shardPods, notify func(string)) *rackViews {
+	return &rackViews{owned: make(map[string]*trackedRack), nodes: make(map[types.UID]state.NodePayload), floors: make(map[types.UID]nodeVersion), pods: pods, notify: notify}
 }
 
 func (f *rackFetcher) observe(obj any) {
@@ -93,9 +94,10 @@ func (v *rackViews) drop(item *trackedRack) {
 }
 
 func (v *rackViews) clearNodes(item *trackedRack) {
-	for uid := range item.members {
+	for uid, name := range item.members {
 		if n, ok := v.nodes[uid]; ok && n.Hardware.Rack == item.ref {
 			delete(v.nodes, uid)
+			v.notify(name)
 		}
 	}
 }
@@ -168,6 +170,7 @@ func (v *rackViews) accept(item *trackedRack, requested int64, result state.Rack
 		v.floors[slot.Node.UID] = ver
 		members[slot.Node.UID] = slot.Node.Name
 		names.Insert(slot.Node.Name)
+		v.notify(slot.Node.Name)
 	}
 	item.members = members
 	item.applied = r.RackDeliveryGeneration
@@ -194,4 +197,11 @@ func (v *rackViews) node(uid types.UID) (state.NodePayload, bool) {
 	defer v.mu.RUnlock()
 	n, ok := v.nodes[uid]
 	return n, ok
+}
+
+func (v *rackViews) forgetNode(uid types.UID) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	delete(v.floors, uid)
+	delete(v.nodes, uid)
 }

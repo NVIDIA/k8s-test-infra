@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
@@ -32,10 +33,11 @@ type model struct {
 	pods      *shardPods
 	podClient coreclient.PodInterface
 	podWatch  *cache.Reflector
+	discovery *labelPublisher
 	fetcher   *rackFetcher
 }
 
-func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) model {
+func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, nodes metadata.Interface, c config) model {
 	racks := mokkainformers.NewFilteredSGPURackInformer(mokka, 0, cache.Indexers{
 		rackUIDIndex: func(obj any) ([]string, error) {
 			rack, err := meta.Accessor(obj)
@@ -59,8 +61,10 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) 
 	}
 	pods := newShardPods()
 	podWatch := cache.NewReflectorWithOptions(cache.ToListWatcherWithWatchListSemantics(lw, kube), &corev1.Pod{}, pods, cache.ReflectorOptions{Name: "bound Pods"})
-	views := newRackViews(pods)
-	return model{fetcher: newRackFetcher(c, views), racks: racks, pods: pods, podClient: client, podWatch: podWatch}
+	discovery := newLabelPublisher(kube, nodes, racks)
+	views := newRackViews(pods, discovery.queue.Add)
+	discovery.views = views
+	return model{fetcher: newRackFetcher(c, views), racks: racks, pods: pods, podClient: client, podWatch: podWatch, discovery: discovery}
 }
 
 func (m model) run(ctx context.Context, c config) error {
@@ -75,11 +79,12 @@ func (m model) run(ctx context.Context, c config) error {
 	}
 	server := health.NewServer(c.listen, health.DefaultShutdownTimeout)
 	server.SetReadiness(func() health.Probe {
-		if !rackEvents.HasSynced() || !m.pods.hasSynced() {
-			return health.Unhealthy("waiting for rack and pod caches")
+		if !rackEvents.HasSynced() || !m.pods.hasSynced() || !m.discovery.nodeWatch.HasSynced() {
+			return health.Unhealthy("waiting for rack, pod and node caches")
 		}
 		return health.OK()
 	})
+	group.Go(func() error { return m.discovery.run(ctx) })
 	group.Go(func() error { return m.fetcher.run(ctx) })
 	group.Go(func() error { m.racks.RunWithContext(ctx); return nil })
 	group.Go(func() error {

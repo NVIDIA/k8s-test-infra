@@ -68,7 +68,7 @@ func testFetcher(t *testing.T, opts batchOptions) (*rackFetcher, <-chan batchCal
 	t.Cleanup(server.Close)
 	pods := newShardPods()
 	t.Cleanup(pods.backfills.ShutDown)
-	f := newRackFetcher(config{controlPlane: server.URL, batch: opts}, newRackViews(pods))
+	f := newRackFetcher(config{controlPlane: server.URL, batch: opts}, newRackViews(pods, func(string) {}))
 	f.retries = workqueue.NewTypedItemExponentialFailureRateLimiter[*trackedRack](20*time.Millisecond, 100*time.Millisecond)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
