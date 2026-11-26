@@ -1288,3 +1288,42 @@ func TestBuildDeviceSpec_VGPUGuest(t *testing.T) {
 		require.Nil(t, buildDeviceSpec(0, cfg, nil).VGPUGuest, name)
 	}
 }
+
+func TestFileSource_NodeIdentityIsConsistentAcrossState(t *testing.T) {
+	t.Parallel()
+
+	path := "../../../deployments/nvml-mock/helm/nvml-mock/profiles/gb200.yaml"
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	uuids := map[string]string{}
+	for _, node := range []string{"worker-1", "worker-2"} {
+		f := NewFileSource(path, "", 0, zap.NewNop()).WithNodeIdentity(node)
+		derive, err := f.identityDeriver(nil)
+		require.NoError(t, err)
+		state, err := compileStateFor(data, path, derive)
+		require.NoError(t, err)
+		raw, err := deriveRaw(data, derive)
+		require.NoError(t, err)
+
+		// The CDI names come from state.Devices and workloads read the staged
+		// config built from ConfigRaw: they must name the same GPUs.
+		var staged engine.YAMLConfig
+		require.NoError(t, yaml.Unmarshal(raw, &staged))
+		for _, dev := range state.Devices {
+			require.Equal(t, staged.Devices[dev.Index].UUID, dev.UUID)
+			owner, dup := uuids[dev.UUID]
+			require.False(t, dup, "%s and %s report %s", owner, node, dev.UUID)
+			uuids[dev.UUID] = node
+		}
+	}
+}
+
+func TestFileSource_IdentityUntouchedByDefault(t *testing.T) {
+	t.Parallel()
+
+	f := NewFileSource("p", "", 0, zap.NewNop())
+	derive, err := f.identityDeriver(nil)
+	require.NoError(t, err)
+	require.Nil(t, derive)
+}

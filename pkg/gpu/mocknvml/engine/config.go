@@ -150,6 +150,10 @@ func applyYAMLConfig(config *Config, yamlConfig *YAMLConfig, configPath string) 
 	// to NOT_SUPPORTED when none is set, matching non-GB200 GPUs).
 	applyTopologyOverlay(yamlConfig, configPath)
 
+	// Per-node identities, for a process that reads a profile the node agent has
+	// not already derived; see EnvIdentityDerive.
+	applyIdentityOverlay(yamlConfig, configPath)
+
 	debugLog("[CONFIG] Loaded YAML config: %d devices, driver %s\n", config.NumDevices, config.DriverVersion)
 
 	configCache = config

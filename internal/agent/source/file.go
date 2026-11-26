@@ -50,6 +50,10 @@ type FileSource struct {
 	topologyPath   string
 	resyncInterval time.Duration
 	log            *zap.Logger
+
+	// identityNode is the node whose identities the profile is rewritten to
+	// carry; empty leaves the profile's hard-coded identities alone.
+	identityNode string
 }
 
 // NewFileSource returns a FileSource that watches configPath and topologyPath.
@@ -63,6 +67,16 @@ func NewFileSource(configPath, topologyPath string, resyncInterval time.Duration
 		resyncInterval: resyncInterval,
 		log:            log,
 	}
+}
+
+// WithNodeIdentity makes the source rewrite the profile's GPU UUIDs, serials and
+// rack position so they are unique to nodeName (engine.ApplyNodeIdentity). The
+// rewrite has to happen here: the CDI device names the agent stages and the
+// config every workload and the device plugin read are built from the State,
+// and they must name the UUIDs NVML reports.
+func (f *FileSource) WithNodeIdentity(nodeName string) *FileSource {
+	f.identityNode = nodeName
+	return f
 }
 
 // Watch sends the current State immediately and then pushes updates whenever
@@ -211,12 +225,26 @@ func (f *FileSource) reload(ctx context.Context, ch chan<- agent.Update, lastHas
 	}
 	*lastHash = h
 
-	state, err := compileState(data, f.configPath)
+	derive, err := f.identityDeriver(topology)
+	if err != nil {
+		f.send(ctx, ch, agent.Update{Err: err, At: time.Now()})
+		return
+	}
+	state, err := compileStateFor(data, f.configPath, derive)
 	if err != nil {
 		f.send(ctx, ch, agent.Update{Err: fmt.Errorf("%s: %w", f.configPath, err), At: time.Now()})
 		return
 	}
 	state.ConfigRaw = data
+	if derive != nil {
+		// The staged engine config is built from ConfigRaw, so it carries the
+		// derived identities. gpudriver parses it into the same YAMLConfig, so
+		// nothing the profile models is lost in the round trip.
+		if state.ConfigRaw, err = deriveRaw(data, derive); err != nil {
+			f.send(ctx, ch, agent.Update{Err: fmt.Errorf("%s: %w", f.configPath, err), At: time.Now()})
+			return
+		}
+	}
 	state.TopologyRaw = topology
 	state.MIGProfilesRaw = migTable
 	f.log.Info("state updated from config", zap.String("config", f.configPath))
@@ -228,6 +256,50 @@ func (f *FileSource) send(ctx context.Context, ch chan<- agent.Update, u agent.U
 	case ch <- u:
 	case <-ctx.Done():
 	}
+}
+
+// identityDeriver returns the rewrite to apply to a parsed profile, or nil when
+// identities are left as the profile has them.
+func (f *FileSource) identityDeriver(topology []byte) (func(*engine.YAMLConfig) error, error) {
+	if f.identityNode == "" {
+		return nil, nil
+	}
+	var topo *engine.TopologyDocument
+	if len(topology) > 0 {
+		topo = &engine.TopologyDocument{}
+		if err := yaml.Unmarshal(topology, topo); err != nil {
+			return nil, fmt.Errorf("parse topology for node identity: %w", err)
+		}
+	}
+	if topo == nil {
+		f.log.Info("deriving per-node GPU identities; no topology, so the profile's chassis serial, tray and slot stay",
+			zap.String("node", f.identityNode))
+	} else if domain, position, ok := topo.PositionOf(f.identityNode); ok {
+		f.log.Info("deriving per-node GPU identities with a rack position",
+			zap.String("node", f.identityNode), zap.String("domain", domain.Name), zap.Int("position", position))
+	} else {
+		f.log.Info("deriving per-node GPU identities; the node is in no topology domain, so the profile's chassis serial, tray and slot stay",
+			zap.String("node", f.identityNode))
+	}
+	return func(cfg *engine.YAMLConfig) error {
+		return engine.ApplyNodeIdentity(cfg, f.identityNode, topo)
+	}, nil
+}
+
+// deriveRaw applies derive to the profile and returns it serialized.
+func deriveRaw(data []byte, derive func(*engine.YAMLConfig) error) ([]byte, error) {
+	var cfg engine.YAMLConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parse yaml: %w", err)
+	}
+	if err := derive(&cfg); err != nil {
+		return nil, err
+	}
+	out, err := yaml.Marshal(&cfg)
+	if err != nil {
+		return nil, fmt.Errorf("marshal derived profile: %w", err)
+	}
+	return out, nil
 }
 
 // readTopology returns the cluster topology document, or nil where the node has
@@ -298,10 +370,15 @@ func inputsHash(config, topology, migTable []byte) [32]byte {
 // PCI tree, capability nodes and CDI entries staged beside it do not describe.
 // Colliding minors and PCI addresses are among those rules, and matter here
 // before anywhere else: the agent renders from them first.
-func parseProfile(data []byte, configPath string) (engine.YAMLConfig, error) {
+func parseProfile(data []byte, configPath string, derive func(*engine.YAMLConfig) error) (engine.YAMLConfig, error) {
 	var cfg engine.YAMLConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse yaml: %w", err)
+	}
+	if derive != nil {
+		if err := derive(&cfg); err != nil {
+			return cfg, fmt.Errorf("derive node identity: %w", err)
+		}
 	}
 	// A board's partition table is a document of its own, and the agent has to
 	// join it exactly as the library does: the capability nodes it stages are
@@ -337,7 +414,13 @@ func compileIMEX(nvlink *engine.NVLinkConfig) agent.IMEXState {
 // is resolved relative to it. Callers with a config that carries its own table
 // inline pass "".
 func compileState(data []byte, configPath string) (*agent.State, error) {
-	cfg, err := parseProfile(data, configPath)
+	return compileStateFor(data, configPath, nil)
+}
+
+// compileStateFor is compileState with an optional rewrite of the parsed
+// profile, applied before validation so the State describes what NVML will.
+func compileStateFor(data []byte, configPath string, derive func(*engine.YAMLConfig) error) (*agent.State, error) {
+	cfg, err := parseProfile(data, configPath, derive)
 	if err != nil {
 		return nil, err
 	}

@@ -483,6 +483,17 @@ topology:
   # -- Synthetic topology domains and clique membership.
   domains: []
 
+# Simulated GPU identities. A profile hard-codes its GPU UUIDs, board serials and
+# rack position, so every node running it reports the same ones. That is faithful
+# for one node and wrong for a cluster: a consumer keying on `gpu_uuid` sees one
+# GPU where the cluster has hundreds.
+identity:
+  # -- How GPU identities are made unique. Empty keeps the profile's values on
+  # every node. `node` derives UUIDs and serials from the Kubernetes node name,
+  # and, for a node placed in a `topology.domains` entry, the chassis serial,
+  # tray and slot from the node's position in that domain.
+  derive: ""
+
 # InfiniBand ping mock. For profiles with infiniband.enabled=true, the
 # DaemonSet preloads libibmockumad alongside libibmocksys, starts mock-ib via
 # the container entrypoint, exposes a headless Service on `ping.port`, and sets

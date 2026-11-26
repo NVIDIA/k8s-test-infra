@@ -266,6 +266,18 @@
         "IMEXDownload": { "type": "boolean" }
       }
     },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Simulated GPU identities. Closed to unknown keys so a typo cannot silently leave derivation off.",
+      "properties": {
+        "derive": {
+          "type": "string",
+          "enum": ["", "node"],
+          "description": "Empty keeps the profile's identities on every node; node derives them from the Kubernetes node name."
+        }
+      }
+    },
     "driverVersion": { "type": "string" },
     "driverBranch": { "type": "string" },
     "hic": {

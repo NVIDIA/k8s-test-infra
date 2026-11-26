@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  helm: `identity.derive: node` gives every node its own GPU UUIDs, board serials and, for rack-scale profiles, chassis serial, slot and tray, so one release covers all nodes of a profile. See [Per-node identities](https://nvidia.github.io/k8s-test-infra/configuration/#per-node-identities).
+time: 2026-11-26T16:08:42Z

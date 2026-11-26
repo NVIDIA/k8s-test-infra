@@ -37,6 +37,11 @@ type SystemConfig struct {
 	CUDAVersionMinor int    `json:"cuda_version_minor"`
 	NumDevices       int    `json:"num_devices,omitzero"`
 
+	// IdentityNode names the node whose derived identities this config already
+	// carries. ApplyNodeIdentity sets it, so a config that passes through the
+	// node agent and then the engine is derived once, not twice.
+	IdentityNode string `json:"identity_node,omitempty"`
+
 	// ProductName is the system's DMI product name, the string a real node
 	// reports in /sys/class/dmi/id/product_name and GPU Feature Discovery
 	// labels as nvidia.com/gpu.machine. Empty falls back to the GPU name.
