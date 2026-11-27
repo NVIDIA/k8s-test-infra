@@ -278,7 +278,7 @@ as on real hardware. Ada and later expose them as signed T.Limit offsets
 field IDs), which `nvidia-smi -q` renders as the "T.Limit" rows. Pre-Ada
 architectures report `NVML_ERROR_NOT_SUPPORTED` for both, so `nvidia-smi -q`
 falls back to the absolute `GPU Shutdown / Slowdown / Max Operating Temp` rows.
-The target follows the [optional feature support](#optional-feature-support)
+The target follows the [optional feature support](#features-a-profile-leaves-out)
 rules. Threshold kinds without a modeled value return `NVML_ERROR_NOT_SUPPORTED`
 rather than the max-operating temperature.
 
