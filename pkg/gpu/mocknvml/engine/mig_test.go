@@ -169,10 +169,10 @@ func TestCreateGpuInstance_RequiresMigEnabled(t *testing.T) {
 
 	dev := newTestDeviceWithConfig(t, a100MIGConfig())
 
-	_, ret := dev.GetGpuInstanceProfileInfo(nvml.GPU_INSTANCE_PROFILE_1_SLICE)
-	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "profile info is unavailable while MIG is off")
+	info, ret := dev.GetGpuInstanceProfileInfo(nvml.GPU_INSTANCE_PROFILE_1_SLICE)
+	require.Equal(t, nvml.SUCCESS, ret, "profile metadata is available while MIG is off")
 
-	_, ret = dev.CreateGpuInstance(&nvml.GpuInstanceProfileInfo{Id: nvml.GPU_INSTANCE_PROFILE_1_SLICE})
+	_, ret = dev.CreateGpuInstance(&info)
 	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
 }
 
