@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  mokka-capture: `profile` writes an `imex` block recording whether the driver registers the IMEX devices in `/proc/devices` and creates channel0, including on boards without an NVLink fabric such as H100.
+time: 2026-11-26T23:13:50Z

@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+  mokka-capture: `dump` no longer dies with "undefined symbol" on drivers older than its NVML headers, such as 580.105.08; a getter the driver lacks is recorded as `ERROR_FUNCTION_NOT_FOUND`.
+time: 2026-11-26T23:39:01Z

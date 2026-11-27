@@ -32,7 +32,7 @@ mokka-capture collect [flags] build-dump
 
 | Command | Runs | Takes |
 | --- | --- | --- |
-| `driver <node>...` | in the GPU Operator driver container, or with `-mock` a stand-in pod | `nvidia-smi`, the NVML dump, `/proc/driver/nvidia` |
+| `driver <node>...` | in the GPU Operator driver container; with `-host-driver` or `-mock`, a stand-in pod | `nvidia-smi`, the NVML dump, `/proc/driver/nvidia` |
 | `host <node>...` | in a temporary privileged pod | PCI, NUMA, device files, NICs, CDI specs |
 | `network <node>...` | in the same pod | only the NIC, interface and RDMA surfaces, plus the cluster's network objects |
 | `cluster` | on your machine | node labels, ResourceSlices, `ClusterPolicy`, DCGM metrics |
@@ -58,6 +58,29 @@ time, so the binary is linked dynamically and built natively). `collect` copies
 the file given with `-dump-binary` into the driver container, runs
 `mokka-capture dump` there, and removes it. Without `-dump-binary` the dump is
 skipped.
+
+### A driver installed on the host
+
+On some nodes the driver is installed on the host rather than by the GPU
+Operator, such as the EKS GPU AMIs. Such a node has no driver container, so
+`driver` finds no driver pod, says so, and skips the node. `-host-driver`
+captures it instead:
+
+```bash
+mokka-capture collect -host-driver -dump-binary <linux binary> all <node>
+```
+
+`collect` then starts a stand-in pod, `capture-driver-<node>-<pid>`, with the
+host pod's spec (privileged, host PID namespace, the node's root mounted at
+`/host`), and runs every driver command as `chroot /host <command>`. The
+commands therefore use the node's own `nvidia-smi`, NVML library, `modinfo` and
+`/proc`, and the outputs have the same names as from a driver container. The
+NVML dump binary is copied to the node's `/tmp` for the run and removed after
+it; it runs against the node's own C library. The stand-in installs nothing and
+is deleted like the host pod. A tool the node lacks, such as `nm`, leaves its
+file empty and its error in `errors.log`.
+
+`-host-driver` and `-mock` exclude each other.
 
 ### A Mokka node
 
@@ -99,6 +122,7 @@ is a gap in the mock.
 | --- | --- | --- |
 | `-out` | `./capture` | Output directory |
 | `-mock` | off | The nodes are Mokka nodes: run the driver commands in a stand-in pod and opt both pods into the mock |
+| `-host-driver` | off | The driver is installed on the nodes, not by the GPU Operator: run the driver commands in a stand-in pod, chrooted into the node's root |
 | `-dump-binary` | none | Linux `mokka-capture` to run `dump` with in the driver container |
 | `-operator-namespace` | `gpu-operator` | GPU Operator namespace |
 | `-driver-container` | `nvidia-driver-ctr` | Driver container name |
@@ -251,6 +275,7 @@ The NVML dump supplies most values. The other files fill what it cannot record:
 | `host-ib-sysfs.txt`, `host-ibstat.txt` | the NIC block |
 | `rdma-sysfs.txt`, `pci-nic-functions.txt` | each RDMA device's PCI function, and which functions are SR-IOV virtual functions |
 | `host-pci-hierarchy.txt`, `host-pci-nvidia.txt` | PCIe root complexes and each GPU's NUMA node |
+| `host-proc-devices.txt`, `proc-nvidia-params.txt` | the `imex` block |
 
 The thermal values are GPU 0's readings, so they add up in the mock. The
 T.Limit view is read, and the absolute thresholds follow from it:
@@ -286,6 +311,32 @@ tie in any other NIC value. With MIG disabled, the
 capture lists no compute instance profiles; each MIG table row assumes one
 compute instance spanning its GPU instance.
 
+The `imex` block records the driver's IMEX (Internode Memory Exchange) kernel
+surface, which the NVIDIA DRA driver's compute-domain kubelet plugin reads at
+startup:
+
+```yaml
+imex:
+  enabled: true                     # host-proc-devices.txt = 504 nvidia-caps-imex-channels, 503 nvidia-caps
+  create_channel0: false            # proc-nvidia-params.txt CreateImexChannel0 = 0
+```
+
+`enabled` is `true` when `/proc/devices` lists both `nvidia-caps-imex-channels`
+and `nvidia-caps`, and `false` when it does not. A driver registers them on
+boards without an NVLink fabric too, such as an H100 node, so the block does
+not follow `nvlink.multi_node`. The majors are the ones the kernel assigned on
+the captured node, so they appear only in the comment. `create_channel0` is the
+driver's `NVreg_CreateImexChannel0` parameter: whether the driver creates
+`/dev/nvidia-caps-imex-channels/channel0` when it loads. Without
+`host-proc-devices.txt`, from `collect host`, the block is left out, and so it
+is when that file lists no `nvidia` device: every GPU node lists one, so the
+command that wrote it failed.
+
+!!! note
+    The mock engine and the node agent do not read the `imex` block yet. The
+    node agent still stages the IMEX surface only on `nvlink.multi_node`
+    profiles, with the majors from the chart's `imex.deviceNumbers`.
+
 ### Output
 
 | Flag | Default | Description |
@@ -298,7 +349,7 @@ The output depends only on the capture and `-base`, so regenerating gives the
 same bytes. `internal/capture/profile/testdata/` holds the profile generated
 from each committed capture; the tests fail when a rule change alters it, check
 that it loads in the mock engine, and check that every key is one the engine
-reads. `go test ./internal/capture/profile -update` rewrites it.
+reads, apart from the keys the engine does not read yet, such as `imex`. `go test ./internal/capture/profile -update` rewrites it.
 
 ## diff smi
 
@@ -435,6 +486,15 @@ call is named in `skipped`.
 - A getter with any other kind of argument (a struct, a handle, a string) is
   listed under `skipped` and not called, so the coverage of a dump is visible in
   the dump.
+- A getter the library does not export is not called. go-nvml declares every
+  function of the NVML headers it was built from, and an older driver's library
+  lacks the newer ones (driver 580.105.08 has no
+  `nvmlDeviceGetAccountingStats_v2`): calling one ends the process. Before each
+  getter the dump looks up its C function, `nvmlDevice<Name>`, and records a
+  missing one under the keys a call would have, as `ERROR_FUNCTION_NOT_FOUND`,
+  which is what an application that looks the function up gets from that
+  driver. Where NVML has several versions of a function, go-nvml calls the
+  newest the library has, so an older library still answers that getter.
 
 Each call is recorded with its NVML return code, as a fixed name such as
 `ERROR_NOT_SUPPORTED`, and its value. A getter the library answers with

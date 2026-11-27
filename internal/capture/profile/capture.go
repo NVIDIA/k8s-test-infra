@@ -33,6 +33,8 @@ const (
 	nvlinkSpeeds   = "smi-nvlink-s.txt"
 	migProfiles    = "smi-mig-lgip.txt"
 	migPlacements  = "smi-mig-lgipp.txt"
+	procDevices    = "host-proc-devices.txt"
+	driverParams   = "proc-nvidia-params.txt"
 	notSupportedNA = "N/A"
 )
 
@@ -81,7 +83,7 @@ func loadCapture(dir string) (*capture, error) {
 // profile.
 func readFiles(dir string) (map[string]string, error) {
 	files := map[string]string{}
-	for _, name := range []string{smiXMLFile, dmiFile, ibSysfsFile, ibstatFile, rdmaSysfsFile, nicFunctions, lscpuFile, numactlFile, pciNvidiaFile, pciTreeFile, nvlinkSpeeds, migProfiles, migPlacements} {
+	for _, name := range []string{smiXMLFile, dmiFile, ibSysfsFile, ibstatFile, rdmaSysfsFile, nicFunctions, lscpuFile, numactlFile, pciNvidiaFile, pciTreeFile, nvlinkSpeeds, migProfiles, migPlacements, procDevices, driverParams} {
 		raw, err := os.ReadFile(filepath.Join(dir, name))
 		switch {
 		case errors.Is(err, fs.ErrNotExist):

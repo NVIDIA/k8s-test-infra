@@ -267,3 +267,24 @@ func migPlacementsByProfile(text string) map[int]migPlacement {
 	}
 	return out
 }
+
+// deviceMajors reads "<major> <name>" lines of /proc/devices, such as
+// host-proc-devices.txt, keyed by name. A name listed twice keeps its first
+// major.
+func deviceMajors(text string) map[string]int {
+	out := map[string]int{}
+	for _, line := range strings.Split(text, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		major, err := strconv.Atoi(fields[0])
+		if err != nil {
+			continue
+		}
+		if _, seen := out[fields[1]]; !seen {
+			out[fields[1]] = major
+		}
+	}
+	return out
+}

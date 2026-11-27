@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  mokka-capture: `collect -host-driver` captures nodes whose driver is installed on the host, such as EKS GPU AMIs, which `driver` used to skip with "no driver pod"; see [mokka-capture](docs/tools/mokka-capture.md#a-driver-installed-on-the-host).
+time: 2026-11-26T23:13:49Z

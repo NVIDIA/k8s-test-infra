@@ -121,10 +121,10 @@ func argLists(name string, mt reflect.Type) ([][]int64, bool) {
 	return lists, true
 }
 
-// callWithArgs calls a getter once per tuple of argument values and records
-// each answer under "Name(a,b)". It reports false, calling nothing, when the
-// getter takes an argument it cannot enumerate.
-func callWithArgs(name string, m reflect.Value, calls map[string]call) bool {
+// callWithArgs calls a getter with inv once per tuple of argument values and
+// records each answer under "Name(a,b)". It reports false, calling nothing,
+// when the getter takes an argument it cannot enumerate.
+func callWithArgs(name string, m reflect.Value, calls map[string]call, inv func(reflect.Value, []reflect.Value) call) bool {
 	mt := m.Type()
 	if mt.NumOut() == 0 || mt.Out(mt.NumOut()-1) != returnType {
 		return false
@@ -155,7 +155,7 @@ func callWithArgs(name string, m reflect.Value, calls map[string]call) bool {
 				args[j] = arg
 				parts[j] = strconv.FormatInt(v, 10)
 			}
-			calls[fmt.Sprintf("%s(%s)", name, strings.Join(parts, ","))] = invoke(m, args)
+			calls[fmt.Sprintf("%s(%s)", name, strings.Join(parts, ","))] = inv(m, args)
 			return
 		}
 		for _, v := range lists[i] {
@@ -169,10 +169,15 @@ func callWithArgs(name string, m reflect.Value, calls map[string]call) bool {
 
 // callFieldValues probes every field ID one at a time. The IDs a driver defines
 // differ between releases, and which of them it answers, and how, is what a
-// consumer such as DCGM depends on.
-func callFieldValues(m reflect.Value, calls map[string]call) {
+// consumer such as DCGM depends on. When the library lacks the getter, missing
+// records every ID as not found without calling it.
+func callFieldValues(m reflect.Value, calls map[string]call, missing bool) {
 	for id := 0; id < fieldIDLimit; id++ {
 		key := fmt.Sprintf("GetFieldValues(id=%d)", id)
+		if missing {
+			calls[key] = notFound(m, nil)
+			continue
+		}
 		values := []nvml.FieldValue{{FieldId: uint32(id)}}
 
 		got := invokeFieldValues(m, values)
