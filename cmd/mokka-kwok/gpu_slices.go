@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -26,7 +27,8 @@ import (
 
 const gpuSliceKey = "mokka.nvidia.com/kwok-gpu-slice"
 
-type gpuSlices struct {
+type nodeSlices struct {
+	domains *domainChannels
 	// A release must not acknowledge an empty pool while a publication for the
 	// previous assignment is between its live Node check and its slice write.
 	mu     sync.Mutex
@@ -41,18 +43,21 @@ func ownsSlice(slice *resourcev1.ResourceSlice, nodeName string, uid types.UID) 
 	return owner != nil && owner.APIVersion == "v1" && owner.Kind == "Node" && owner.Name == nodeName && owner.UID == uid
 }
 
-func (s *gpuSlices) publish(ctx context.Context, node *corev1.Node, slot state.NodePayload) error {
+func (s *nodeSlices) publish(ctx context.Context, node *corev1.Node, slot state.NodePayload) error {
 	devices, err := sliceDevices(slot)
 	if err != nil {
 		return err
 	}
-	name := sliceName(node.UID)
-	spec := resourcev1.ResourceSliceSpec{Driver: s.driver, NodeName: &node.Name,
+	return s.writePool(ctx, node, sliceName(node.UID), gpuSliceKey, s.driver, devices)
+}
+
+func (s *nodeSlices) writePool(ctx context.Context, node *corev1.Node, name, key, driver string, devices []resourcev1.Device) error {
+	spec := resourcev1.ResourceSliceSpec{Driver: driver, NodeName: &node.Name,
 		Pool: resourcev1.ResourcePool{Name: node.Name, Generation: 1, ResourceSliceCount: 1}, Devices: devices}
 	current, err := s.client.Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		_, err = s.client.Create(ctx, &resourcev1.ResourceSlice{ObjectMeta: metav1.ObjectMeta{
-			Name: name, Labels: map[string]string{gpuSliceKey: "true"},
+			Name: name, Labels: map[string]string{key: "true"},
 			OwnerReferences: []metav1.OwnerReference{{APIVersion: "v1", Kind: "Node", Name: node.Name, UID: node.UID, Controller: ptr.To(true)}},
 		}, Spec: spec}, metav1.CreateOptions{FieldManager: fieldManager})
 		return err
@@ -66,34 +71,45 @@ func (s *gpuSlices) publish(ctx context.Context, node *corev1.Node, slot state.N
 	if current.DeletionTimestamp != nil {
 		return fmt.Errorf("waiting for slice %s to be deleted", name)
 	}
-	if current.Spec.Driver != s.driver {
+	if current.Spec.Driver != driver {
 		// spec.driver is immutable. A new driver has a different pool.
-		if err := s.remove(ctx, node.Name, node.UID); err != nil {
+		if err := s.removeNamed(ctx, name, node.Name, node.UID); err != nil {
 			return err
 		}
-		return fmt.Errorf("replacing slice %s for driver %s", name, s.driver)
+		return fmt.Errorf("replacing slice %s for driver %s", name, driver)
 	}
-	return s.update(ctx, current, spec)
+	return s.update(ctx, current, spec, key)
 }
 
-func (s *gpuSlices) update(ctx context.Context, current *resourcev1.ResourceSlice, spec resourcev1.ResourceSliceSpec) error {
+func (s *nodeSlices) update(ctx context.Context, current *resourcev1.ResourceSlice, spec resourcev1.ResourceSliceSpec, key string) error {
 	spec.Pool.Generation = current.Spec.Pool.Generation
 	if !apiequality.Semantic.DeepEqual(current.Spec, spec) {
 		spec.Pool.Generation++
-	} else if current.Labels[gpuSliceKey] == "true" {
+	} else if current.Labels[key] == "true" {
 		return nil
 	}
 	current.Spec = spec
 	if current.Labels == nil {
 		current.Labels = make(map[string]string)
 	}
-	current.Labels[gpuSliceKey] = "true"
+	current.Labels[key] = "true"
 	_, err := s.client.Update(ctx, current, metav1.UpdateOptions{FieldManager: fieldManager})
 	return err
 }
 
-func (s *gpuSlices) remove(ctx context.Context, node string, uid types.UID) error {
-	slice, err := s.client.Get(ctx, sliceName(uid), metav1.GetOptions{})
+func (s *nodeSlices) remove(ctx context.Context, node string, uid types.UID) error {
+	var gpu, domain error
+	if s.driver != "" {
+		gpu = s.removeNamed(ctx, sliceName(uid), node, uid)
+	}
+	if s.domains != nil {
+		domain = s.removeNamed(ctx, domainSliceName(uid), node, uid)
+	}
+	return errors.Join(gpu, domain)
+}
+
+func (s *nodeSlices) removeNamed(ctx context.Context, name, node string, uid types.UID) error {
+	slice, err := s.client.Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return nil
 	}
@@ -110,13 +126,13 @@ func (s *gpuSlices) remove(ctx context.Context, node string, uid types.UID) erro
 	}
 	// DELETE may only set deletionTimestamp. Release can proceed on the
 	// next reconciliation once GET confirms that finalizers have finished.
-	return fmt.Errorf("waiting for deletion of GPU slice %s", slice.Name)
+	return fmt.Errorf("waiting for deletion of slice %s", slice.Name)
 }
 
 // Mark before publishing. A restart in device-plugin mode must never expose
 // capacity on top of a pool whose deletion has not been confirmed.
-func (p *labelPublisher) markSlice(ctx context.Context, node *corev1.Node, name string) (*corev1.Node, error) {
-	if node.Annotations[gpuSliceKey] == name {
+func (p *labelPublisher) markSlice(ctx context.Context, node *corev1.Node, key, name string) (*corev1.Node, error) {
+	if node.Annotations[key] == name {
 		return node, nil
 	}
 	var value *string
@@ -124,7 +140,7 @@ func (p *labelPublisher) markSlice(ctx context.Context, node *corev1.Node, name 
 		value = &name
 	}
 	patch, err := json.Marshal(map[string]any{"metadata": map[string]any{
-		"uid": node.UID, "resourceVersion": node.ResourceVersion, "annotations": map[string]*string{gpuSliceKey: value},
+		"uid": node.UID, "resourceVersion": node.ResourceVersion, "annotations": map[string]*string{key: value},
 	}})
 	if err != nil {
 		return nil, err
@@ -132,9 +148,9 @@ func (p *labelPublisher) markSlice(ctx context.Context, node *corev1.Node, name 
 	return p.nodes.Patch(ctx, node.Name, types.MergePatchType, patch, metav1.PatchOptions{FieldManager: fieldManager})
 }
 
-func (p *labelPublisher) watchSlices(ctx context.Context, kube kubernetes.Interface) error {
+func (p *labelPublisher) watchSlices(ctx context.Context, kube kubernetes.Interface, key string) error {
 	w := resourceinformers.NewFilteredResourceSliceInformer(kube, 0, cache.Indexers{}, func(o *metav1.ListOptions) {
-		o.LabelSelector = gpuSliceKey + "=true"
+		o.LabelSelector = key + "=true"
 	})
 	// Reconcile from live data. Keep only the Node reference in the watch cache.
 	if err := w.SetTransform(func(obj any) (any, error) {

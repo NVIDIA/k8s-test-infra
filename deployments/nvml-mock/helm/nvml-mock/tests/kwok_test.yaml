@@ -101,11 +101,15 @@ tests:
       kwok.dataPlane.computeDomains.driverNamespace: nvidia-drivers
     asserts:
       - hasDocuments: {count: 7}
-      - lengthEqual: {path: rules, count: 9}
+      - lengthEqual: {path: rules, count: 10}
         documentIndex: 1
       - contains:
           path: rules
           content: {apiGroups: [resource.k8s.io], resources: [resourceslices], verbs: [get, list, watch, create, patch, update, delete]}
+        documentIndex: 1
+      - contains:
+          path: rules
+          content: {apiGroups: [resource.nvidia.com], resources: [computedomains], verbs: [list, watch]}
         documentIndex: 1
       - equal: {path: metadata.namespace, value: nvidia-drivers}
         documentIndex: 5

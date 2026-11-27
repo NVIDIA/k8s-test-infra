@@ -23,6 +23,7 @@ import (
 // The API can select all bound Pods, but cannot select a set of node names.
 // Filter at the reflector's store so unrelated Pods never enter the model.
 type shardPods struct {
+	notifyNode  func(string)
 	claims      *shardClaims
 	mu          sync.Mutex
 	racks       map[string]sets.Set[string]
@@ -33,6 +34,7 @@ type shardPods struct {
 }
 
 type nodePods struct {
+	name   string
 	claims map[cache.ObjectName]*resourcev1.ResourceClaim
 	owners sets.Set[string]
 	pods   map[cache.ObjectName]*corev1.Pod
@@ -67,7 +69,7 @@ func (s *shardPods) setRack(rack string, nodes sets.Set[string]) {
 	for name := range nodes.Difference(previous) {
 		node := s.nodes[name]
 		if node == nil {
-			node = &nodePods{owners: sets.New[string](), pods: make(map[cache.ObjectName]*corev1.Pod), needsList: s.synced}
+			node = &nodePods{name: name, owners: sets.New[string](), pods: make(map[cache.ObjectName]*corev1.Pod), needsList: s.synced}
 			s.nodes[name] = node
 			if node.needsList {
 				s.backfills.Add(name)
@@ -141,8 +143,8 @@ func (s *shardPods) Replace(objects []any, _ string) error {
 			node.pods[cache.MetaObjectToName(pod)] = pod
 		}
 	}
-	for rack := range s.racks {
-		s.allocations.Add(rack)
+	for _, n := range s.nodes {
+		s.enqueueOwners(n)
 	}
 	s.synced = true
 	return nil
@@ -238,6 +240,9 @@ func needsDeviceAdmission(pod *corev1.Pod) bool {
 }
 
 func (s *shardPods) enqueueOwners(n *nodePods) {
+	if s.notifyNode != nil {
+		s.notifyNode(n.name)
+	}
 	for rack := range n.owners {
 		s.allocations.Add(rack)
 	}

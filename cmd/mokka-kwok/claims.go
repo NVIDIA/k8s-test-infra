@@ -77,7 +77,8 @@ func (c *shardClaims) observe(claim *resourcev1.ResourceClaim) {
 		return
 	}
 	for _, r := range allocation.Devices.Results {
-		if r.Driver == c.driver {
+		switch r.Driver {
+		case c.driver, domainDriver:
 			c.keep(key, r.Pool, claim)
 		}
 	}

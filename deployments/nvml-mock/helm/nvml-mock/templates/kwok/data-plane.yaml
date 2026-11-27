@@ -55,6 +55,11 @@ rules:
     resourceNames: [{{ $driver | quote }}]
     verbs: ["get"]
 {{- end }}
+{{- if $domains.enabled }}
+  - apiGroups: ["resource.nvidia.com"]
+    resources: ["computedomains"]
+    verbs: ["list", "watch"]
+{{- end }}
 {{- if $topology.enabled }}
   - apiGroups: ["topology.node.k8s.io"]
     resources: ["noderesourcetopologies"]

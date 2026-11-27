@@ -20,6 +20,7 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/rest"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
@@ -97,7 +98,14 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	m := newModel(mokka, kube, c) //nolint:contextcheck // RunWithContext uses the generated context-aware list and watch callbacks.
+	var domainMeta metadata.Interface
+	if c.computeDomains {
+		domainMeta, err = metadata.NewForConfig(cfg)
+		if err != nil {
+			return err
+		}
+	}
+	m := newModel(mokka, kube, c, domainMeta) //nolint:contextcheck // RunWithContext uses the generated context-aware list and watch callbacks.
 	return m.run(ctx, c)
 }
 

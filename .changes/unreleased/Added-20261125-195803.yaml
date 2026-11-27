@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  kwok: NVLink Nodes can publish ComputeDomain channel and daemon devices. A Node keeps its domain label while a Pod holds the channel claim.
+time: 2026-11-25T17:58:03Z
+custom:
+  Issue: "1318"

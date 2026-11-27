@@ -50,7 +50,7 @@ func TestGPUSliceLifecycle(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	kube := fake.NewSimpleClientset()
-	s := &gpuSlices{client: kube.ResourceV1().ResourceSlices(), driver: "gpu.example.com"}
+	s := &nodeSlices{client: kube.ResourceV1().ResourceSlices(), driver: "gpu.example.com"}
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker", UID: "uid-a"}}
 	slot := state.NodePayload{Hardware: state.Hardware{GPUModel: state.GPUModel{Memory: "4Gi"}}, Slot: state.Slot{GPUs: []state.GPU{{SGPURackGPU: api.SGPURackGPU{UUID: "GPU-A", MinorNumber: 7}}}}}
 	require.NoError(t, s.publish(ctx, node, slot))
@@ -100,7 +100,7 @@ func TestDeletionPrecedesWithdrawalAndModeChange(t *testing.T) {
 		OwnerReferences: []metav1.OwnerReference{{Kind: "Node", APIVersion: "v1", Name: node.Name, UID: node.UID, Controller: ptr.To(true)}},
 	}}
 	kube := fake.NewSimpleClientset(node, slice)
-	p := labelPublisher{nodes: kube.CoreV1().Nodes(), dra: true, slices: &gpuSlices{client: kube.ResourceV1().ResourceSlices()}}
+	p := labelPublisher{nodes: kube.CoreV1().Nodes(), dra: true, slices: &nodeSlices{client: kube.ResourceV1().ResourceSlices(), driver: "gpu.nvidia.com"}}
 	require.ErrorContains(t, p.publishResources(ctx, node, nil), "waiting for deletion")
 	require.Len(t, kube.Actions(), 1)
 	p.dra, p.slices = false, nil
@@ -120,7 +120,7 @@ func TestTerminatingBoundNodeDoesNotRepublish(t *testing.T) {
 	now := metav1.Now()
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "retiring", DeletionTimestamp: &now, Labels: map[string]string{"mokka.nvidia.com/node-type": "KWOK", metadata.AssignedLabel: "true"}, Annotations: map[string]string{metadata.AssignmentAnnotation: "previous binding"}}}
 	kube := fake.NewSimpleClientset(node)
-	p := labelPublisher{nodes: kube.CoreV1().Nodes(), dra: true, slices: &gpuSlices{client: kube.ResourceV1().ResourceSlices()}}
+	p := labelPublisher{nodes: kube.CoreV1().Nodes(), dra: true, slices: &nodeSlices{client: kube.ResourceV1().ResourceSlices(), driver: "gpu.nvidia.com"}}
 	require.NoError(t, p.reconcile(t.Context(), node.Name))
 	require.Len(t, kube.Actions(), 1)
 }
