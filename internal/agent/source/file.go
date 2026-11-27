@@ -314,16 +314,16 @@ func parseProfile(data []byte, configPath string) (engine.YAMLConfig, error) {
 	return cfg, engine.ValidateConfig(&cfg)
 }
 
-// compileIMEX gives a multi-node NVLink board the IMEX capability surface the
-// NVIDIA kernel module provides on a real node of such a board, which the DRA
-// driver's ComputeDomain plugin reads. The chart sets the device numbers the
-// agent prefers; the IMEX simulator replaces any the host already uses.
+// compileIMEX gives every board the IMEX capability surface the NVIDIA kernel
+// module registers wherever it loads, and a multi-node NVLink board the channel
+// and node software as well. The DRA driver's ComputeDomain kubelet plugin reads
+// the surface at startup on every GPU node, NVLink fabric or not. The chart sets
+// the device numbers the agent prefers; the IMEX simulator replaces any the host
+// already uses.
 func compileIMEX(nvlink *engine.NVLinkConfig) agent.IMEXState {
-	if nvlink == nil || !nvlink.MultiNode {
-		return agent.IMEXState{}
-	}
 	return agent.IMEXState{
 		Enabled:   true,
+		MultiNode: nvlink != nil && nvlink.MultiNode,
 		IMEXMajor: envIntOrDefault("IMEX_CHANNEL_MAJOR", 235),
 		CapsMajor: envIntOrDefault("IMEX_CAPS_MAJOR", 236),
 	}

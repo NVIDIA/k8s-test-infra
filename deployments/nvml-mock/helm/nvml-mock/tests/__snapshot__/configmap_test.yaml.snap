@@ -2322,9 +2322,13 @@ should match snapshot with h100 profile:
           # HGX H100 baseboard couples each GPU's fabric-manager readiness to the fake
           # fabricmanager via state: auto (resolves to "completed" when fabricmanager
           # is disabled). See pkg/gpu/mocknvml/engine/fabric.go.
+          #
+          # The NVLink domain stays on one baseboard, so it belongs to no multi-node
+          # clique: a real HGX H100 reports a zero cluster UUID, and consumers such as
+          # the DRA compute-domain plugin and GFD treat it as not fabric-attached.
           # ---------------------------------------------------------------------------
           fabric:
-            cluster_uuid: "00000000-0000-0000-0000-000000000001"
+            cluster_uuid: "00000000-0000-0000-0000-000000000000"
             clique_id: 0
             state: "auto"
             # Health defaults to a healthy fabric (nvidia-smi -q reports Summary:

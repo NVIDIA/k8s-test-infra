@@ -54,16 +54,17 @@ func TestCompileState_FabricState(t *testing.T) {
 	require.Positive(t, state.Fabric.LinksPerGPU)
 }
 
-// The IMEX surface follows the board, not a chart switch: a multi-node NVLink
-// profile gets it with the chart's device numbers, and an HGX profile, whose NVLink
-// fabric stays on one baseboard, gets none.
+// The IMEX surface follows the board, not a chart switch. Every board gets the
+// device numbers the NVIDIA kernel module registers wherever it loads, with the
+// chart's majors; only a multi-node NVLink board also gets the channel and the
+// IMEX node software. An HGX board's NVLink fabric stays on one baseboard.
 func TestCompileState_IMEXFollowsMultiNodeNVLink(t *testing.T) {
 	for _, tc := range []struct {
 		config string
 		want   agent.IMEXState
 	}{
-		{config: "mock-nvml-config-gb200.yaml", want: agent.IMEXState{Enabled: true, IMEXMajor: 240, CapsMajor: 241}},
-		{config: "mock-nvml-config-h100.yaml", want: agent.IMEXState{}},
+		{config: "mock-nvml-config-gb200.yaml", want: agent.IMEXState{Enabled: true, MultiNode: true, IMEXMajor: 240, CapsMajor: 241}},
+		{config: "mock-nvml-config-h100.yaml", want: agent.IMEXState{Enabled: true, IMEXMajor: 240, CapsMajor: 241}},
 	} {
 		t.Run(tc.config, func(t *testing.T) {
 			t.Setenv("IMEX_CHANNEL_MAJOR", "240")

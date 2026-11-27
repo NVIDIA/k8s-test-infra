@@ -138,12 +138,9 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 
 			// #780. GPU-management workloads receive the driver overlay containing
 			// this capability. IMEX-only opt-in pods receive channel devices, not
-			// the overlay, so they are not the consumer of this file.
+			// the overlay, so they are not the consumer of this file. Every
+			// profile stages it, as the kernel module does on any node (#1399).
 			It("serves the IMEX capability at the GPU-management workload kernel path", Label("compute-domain"), func(ctx SpecContext) {
-				if !p.MultiNodeNVLink() {
-					Skip("profile " + name + " is not multi-node NVLink, so its nodes stage no IMEX capability")
-				}
-
 				managementPod := nriAgentPodOnNode(ctx, h, workers[0].Name)
 				res, err := h.Kube.Exec(ctx, managementPod, "cat", "/proc/driver/nvidia/capabilities/fabric-imex-mgmt")
 				Expect(err).NotTo(HaveOccurred(),

@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  profiles: h100 reports a zero NVLink fabric cluster UUID, as a real HGX H100 does, so the DRA driver and GFD no longer place it in a multi-node clique.
+time: 2026-11-26T23:17:43Z
+custom:
+  Issue: "1399"

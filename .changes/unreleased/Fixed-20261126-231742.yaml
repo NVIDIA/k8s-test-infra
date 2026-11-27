@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  node-agent: the DRA driver's compute-domain kubelet plugin starts on h100 and other single-node profiles: every profile now stages the IMEX /proc/devices entries a real driver registers, and only multi-node NVLink profiles get channel0.
+time: 2026-11-26T23:17:42Z
+custom:
+  Issue: "1399"

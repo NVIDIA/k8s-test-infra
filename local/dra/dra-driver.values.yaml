@@ -25,8 +25,15 @@ kubeletPlugin:
   tolerations:
     - {key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}
 
-# Off by default: Compute Domains need the fabric of --compute-domain, whose
-# overlay (local/compute-domain/dra-driver.values.yaml) turns them on.
+# On for every profile, as downstream stacks such as AICR deploy the driver: the
+# compute-domain kubelet plugin starts on every GPU node, NVLink fabric or not.
+# Running a ComputeDomain still needs a multi-node NVLink profile and the
+# fabric of --compute-domain.
 resources:
   computeDomains:
-    enabled: false
+    enabled: true
+# The node agent's substitute /proc/devices, which carries the
+# nvidia-caps-imex-channels major a real NVIDIA kernel module registers on every
+# profile. The compute-domain kubelet plugin reads it at startup and aborts
+# without it. Needs chart 0.5.0 or later.
+altProcDevices: /var/lib/nvml-mock/imex/proc-devices

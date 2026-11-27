@@ -128,10 +128,10 @@ func (s *Simulator) Requeue() <-chan struct{} {
 // without IMEX node software is still ready: see nodeSoftware.stage.
 func (s *Simulator) Ready() bool { return s.ready.Load() }
 
-// Stage materializes the IMEX capability surface and node software under
-// host.Root. When state.IMEX.Enabled is false it removes all of it, as Discard
-// does, and marks ready: the flag follows the profile and can change at
-// runtime.
+// Stage materializes the IMEX capability surface under host.Root, and the node
+// software on a multi-node NVLink board. When state.IMEX.Enabled is false it
+// removes all of it, as Discard does, and marks ready: the state follows the
+// profile and can change at runtime.
 func (s *Simulator) Stage(ctx context.Context, state *agent.State) error {
 	s.ready.Store(false)
 	zap.L().Info("staging simulator", zap.String("simulator", name))
@@ -156,10 +156,14 @@ func (s *Simulator) Stage(ctx context.Context, state *agent.State) error {
 		s.ready.Store(true)
 		return nil
 	}
-	s.nodeSoftware.stage(ctx)
+	if state.IMEX.MultiNode {
+		s.nodeSoftware.stage(ctx)
+	} else if err := s.nodeSoftware.remove(); err != nil {
+		return fmt.Errorf("remove imex node software: %w", err)
+	}
 
 	s.ready.Store(true)
-	zap.L().Info("simulator staged", zap.String("simulator", name))
+	zap.L().Info("simulator staged", zap.String("simulator", name), zap.Bool("multiNode", state.IMEX.MultiNode))
 	return nil
 }
 

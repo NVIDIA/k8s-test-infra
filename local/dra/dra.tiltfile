@@ -11,16 +11,12 @@ _REPO_RESOURCE = 'nvidia'
 _CHART = 'nvidia/dra-driver-nvidia-gpu'
 _CHART_VERSION = '0.5.0'
 
-def install(nvml_mock_releases, extra_values=[]):
-    values_flags = ['--values', 'local/dra/dra-driver.values.yaml']
-    for v in extra_values:
-        values_flags += ['--values', v]
-
+def install(nvml_mock_releases):
     helm_resource(
         'nvidia-dra-driver',
         _CHART,
         namespace='nvidia',
-        flags=['--create-namespace', '--version', _CHART_VERSION] + values_flags + ['--timeout', '300s'],
+        flags=['--create-namespace', '--version', _CHART_VERSION, '--values', 'local/dra/dra-driver.values.yaml', '--timeout', '300s'],
         resource_deps=[_REPO_RESOURCE] + nvml_mock_releases,
         labels=['dra'],
     )
