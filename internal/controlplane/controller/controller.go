@@ -52,8 +52,9 @@ var errProjectionCleanupRevisionChanged = errors.New("allocation revision change
 
 // Options controls worker concurrency and aggregate-status coalescing.
 type Options struct {
-	KWOKShardName string
-	Workers       int
+	KWOKWaitForCleanup bool
+	KWOKShardName      string
+	Workers            int
 	// StatusDebounce is the quiet period before a final status update.
 	StatusDebounce time.Duration
 	// StatusProgressInterval bounds status staleness while changes continue.
@@ -285,6 +286,9 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		inventories.Lister(), profiles.Lister(), rackInformer.GetIndexer(), nodeCatalog, nodes, mokkaClient.MokkaV1alpha1().SGPURacks(),
 		options,
 	)
+	if options.KWOKWaitForCleanup {
+		snapshot.liveAllocations = mokkaClient.MokkaV1alpha1().SGPURackAllocations()
+	}
 	projection := sgpuprojection.NewController(snapshot, nodes)
 	allocation := sgpuinventory.NewAllocationCache(snapshot)
 	rackReconciler := sgpuinventory.NewReconcilerWithAllocationCache(
@@ -493,6 +497,10 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			})
 			if errors.Is(err, sgpuprojection.ErrRevisionPending) {
 				controller.queues.inventories.Add(key.cleanup.Binding.Coordinate.Group.InventoryName)
+				return nil
+			}
+			if errors.Is(err, sgpurelease.ErrCleanupPending) {
+				controller.queues.projections.AddAfter(key, 2*time.Second)
 				return nil
 			}
 			if err == nil && outcome.State == sgpuprojection.StateCleaned {

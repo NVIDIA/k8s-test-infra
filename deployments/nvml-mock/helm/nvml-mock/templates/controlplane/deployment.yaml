@@ -69,6 +69,7 @@ spec:
             - --leader-election-name={{ .Values.controlPlane.leaderElection.name }}
             - --leader-election-namespace=$(POD_NAMESPACE)
             {{- if (.Values.kwok | default dict).enabled }}
+            - --kwok-wait-for-cleanup
             - --kwok-shard-name={{ include "nvml-mock.kwokDataPlaneName" . }}-0
             {{- else if .Values.controlPlane.kwokShardName }}
             - --kwok-shard-name={{ .Values.controlPlane.kwokShardName }}

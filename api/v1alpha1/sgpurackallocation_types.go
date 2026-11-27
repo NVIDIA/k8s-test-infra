@@ -4,6 +4,7 @@
 package v1alpha1
 
 import (
+	"fmt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -53,6 +54,25 @@ func (a *SGPURackAllocation) OwnedByRack(rack *SGPURack) bool {
 	owner := a.OwnerReferences[0]
 	return owner.APIVersion == GroupVersion.String() && owner.Kind == "SGPURack" &&
 		owner.Name == rack.Name && owner.UID == rack.UID
+}
+
+// Keep one acknowledgement per slot, including when a deleted Node no longer
+// has managed fields. A later binding must never reuse an old acknowledgement.
+func releaseAnnotation(index int32) string {
+	return fmt.Sprintf("mokka.nvidia.com/released-slot-%d", index)
+}
+
+// SlotReleased reports whether cleanup finished for this exact publication.
+func (a *SGPURackAllocation) SlotReleased(index int32, uid types.UID, revision int64) bool {
+	return a.Annotations[releaseAnnotation(index)] == fmt.Sprintf("%s/%d", uid, revision)
+}
+
+// MarkSlotReleased records completion after the final Node write.
+func (a *SGPURackAllocation) MarkSlotReleased(index int32, uid types.UID, revision int64) {
+	if a.Annotations == nil {
+		a.Annotations = make(map[string]string)
+	}
+	a.Annotations[releaseAnnotation(index)] = fmt.Sprintf("%s/%d", uid, revision)
 }
 
 // NodeAllocation groups the Pods allocated resources on one node.

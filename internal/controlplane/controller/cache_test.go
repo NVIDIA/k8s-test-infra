@@ -15,6 +15,8 @@ import (
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/release"
+	mokkafake "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/fake"
 	"github.com/stretchr/testify/require"
 )
 
@@ -92,4 +94,28 @@ func (g *blockingNodeGetter) Get(ctx context.Context, _ string, _ metav1.GetOpti
 	g.started <- ctx
 	<-ctx.Done()
 	return nil, context.Cause(ctx)
+}
+
+func TestKWOKReleaseWaitsForExactCleanup(t *testing.T) {
+	t.Parallel()
+	ref := &mokkav1alpha1.SGPUNodeReference{Name: "worker", UID: "worker-uid", AssignmentRevision: 7}
+	rack := &mokkav1alpha1.SGPURack{ObjectMeta: metav1.ObjectMeta{Name: "rack", UID: "rack-uid"},
+		Spec:   mokkav1alpha1.SGPURackSpec{NodeType: mokkav1alpha1.NodeTypeKWOK, Nodes: []mokkav1alpha1.SGPURackNode{{Index: 0, NodeRef: ref}}},
+		Status: mokkav1alpha1.SGPURackStatus{Delivery: &mokkav1alpha1.RackDelivery{Generation: 11}}}
+	client := mokkafake.NewSimpleClientset(rack).MokkaV1alpha1()
+	c := informerCache{liveRacks: client.SGPURacks(), liveAllocations: client.SGPURackAllocations(), liveTimeout: defaultLiveNodeGetTimeout}
+	needed := release.ForSlot(rack, rack.Spec.Nodes[0], release.NodeGone)
+	require.ErrorIs(t, c.PublishRelease(t.Context(), needed, 0), release.ErrCleanupPending)
+	record := mokkav1alpha1.NewSGPURackAllocation(rack)
+	record.MarkSlotReleased(0, ref.UID, 6)
+	record, err := c.liveAllocations.Create(t.Context(), record, metav1.CreateOptions{})
+	require.NoError(t, err)
+	require.ErrorIs(t, c.PublishRelease(t.Context(), needed, 0), release.ErrCleanupPending)
+	record.MarkSlotReleased(0, ref.UID, 8)
+	_, err = c.liveAllocations.Update(t.Context(), record, metav1.UpdateOptions{})
+	require.NoError(t, err)
+	require.NoError(t, c.PublishRelease(t.Context(), needed, 0))
+	live, err := c.LiveRack(t.Context(), rack.Name)
+	require.NoError(t, err)
+	require.EqualValues(t, 12, live.Status.Delivery.Generation)
 }

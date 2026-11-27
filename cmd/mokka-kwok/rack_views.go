@@ -60,11 +60,15 @@ func (f *rackFetcher) observe(obj any) {
 		item = &trackedRack{ref: state.Object{Name: rack.Name, UID: rack.UID}, firstRead: make(chan struct{})}
 		f.owned[rack.Name] = item
 	}
+
 	if d := rack.Status.Delivery; d != nil && d.Generation > item.wanted {
 		// A pending item already has a queued request, an in-flight request,
 		// or a retry timer. Only the transition from current to pending needs Add.
 		wasCurrent := item.wanted <= item.applied
 		item.wanted = d.Generation
+		if len(d.ReleaseRevisions) > 0 {
+			f.pods.allocations.Add(rack.Name)
+		}
 		if wasCurrent && item.wanted > item.applied {
 			f.queue.Add(item)
 		}

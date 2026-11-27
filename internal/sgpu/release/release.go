@@ -6,11 +6,15 @@
 package release
 
 import (
+	"errors"
 	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 )
+
+// ErrCleanupPending means the KWOK data plane has yet to finish this release.
+var ErrCleanupPending = errors.New("waiting for KWOK data plane cleanup")
 
 // Reason identifies why a durable binding must be released.
 type Reason string

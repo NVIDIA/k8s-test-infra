@@ -586,6 +586,9 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --kwok-shard-name=mokka-kwok-data-plane-0
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kwok-wait-for-cleanup
 
   - it: uses the binary default when an older release has no KWOK values
     set:
@@ -597,3 +600,6 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].args
           content: "--kwok-shard-name="
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --kwok-wait-for-cleanup
