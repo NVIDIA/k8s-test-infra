@@ -1013,6 +1013,8 @@ the exact Node UID's durable rack binding, selects the applicable accepted
 policies from its informer indexes, and computes the effective view using the
 precedence rules above.
 
+![Runtime view delivery](./img/runtime-view-delivery.svg)
+
 This lazy path scales with agent polling and the policies relevant to the
 requested coordinates instead of creating or rewriting an object for every
 possible target. Policy changes and deletions invalidate rebuildable indexes.
@@ -1067,6 +1069,8 @@ Node projection cannot be changed in one Kubernetes transaction:
    revision as the minimal unassigned tombstone. Assignment labels are added or
    removed with this projection update.
 
+![Two-phase publication](./img/two-phase-publication.svg)
+
 The first assignment for a Node UID uses revision 1. Every subsequent move,
 release, and rebind advances it; a release followed later by a rebind therefore
 uses two distinct revisions. A failed Node update is reread and retried, so an
@@ -1103,6 +1107,8 @@ offered pair older than the agent's last applied `(assignment revision, rack
 delivery generation)` yields retry/not-ready instead of replacement state. The
 effective per-node runtime payload itself remains lazy and is never written to
 Redis or Kubernetes.
+
+![Delivery pair order](./img/delivery-pair-order.svg)
 
 For example, an assignment published at `(7, 12)` remains valid after a profile
 or policy change advances that rack's delivery record to generation 13. A
