@@ -111,6 +111,8 @@ tests:
           path: rules
           content: {apiGroups: [resource.nvidia.com], resources: [computedomains], verbs: [list, watch]}
         documentIndex: 1
+      - contains: {path: "spec.template.spec.containers[0].args", content: "--driver-namespace=nvidia-drivers"}
+        documentIndex: 4
       - equal: {path: metadata.namespace, value: nvidia-drivers}
         documentIndex: 5
       - equal: {path: "rules[0].resources", value: [computedomaincliques]}

@@ -19,6 +19,7 @@ import (
 
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/rest"
@@ -31,10 +32,11 @@ const fieldManager = "mokka-kwok-data-plane"
 
 type config struct {
 	features
-	shard        string
-	listen       string
-	controlPlane string
-	batch        batchOptions
+	shard           string
+	listen          string
+	controlPlane    string
+	driverNamespace string
+	batch           batchOptions
 }
 
 func parseConfig(args []string) (config, error) {
@@ -45,6 +47,7 @@ func parseConfig(args []string) (config, error) {
 	flags := flag.NewFlagSet("data-plane", flag.ContinueOnError)
 	flags.StringVar(&c.gpuPublishing, "gpu-publishing", "DevicePlugin", "GPU publishing mode: DevicePlugin or DRA")
 	flags.StringVar(&c.gpuDriver, "gpu-driver", "gpu.nvidia.com", "GPU DRA driver and DeviceClass name")
+	flags.StringVar(&c.driverNamespace, "driver-namespace", "nvidia", "namespace of NVIDIA ComputeDomain daemon Pods and cliques")
 	flags.BoolVar(&c.computeDomains, "compute-domains", false, "enable ComputeDomain API support")
 	flags.BoolVar(&c.nodeResourceTopology, "node-resource-topology", false, "enable NodeResourceTopology API support")
 	flags.StringVar(&c.shard, "shard-name", "", "replica name on assigned racks")
@@ -58,6 +61,9 @@ func parseConfig(args []string) (config, error) {
 	}
 	if flags.NArg() != 0 || len(validation.IsDNS1123Label(c.shard)) != 0 {
 		return c, errors.New("expected a DNS label for --shard-name and no positional arguments")
+	}
+	if c.computeDomains && len(validation.IsDNS1123Label(c.driverNamespace)) != 0 {
+		return c, errors.New("expected a DNS label for --driver-namespace")
 	}
 	if err := c.features.validate(); err != nil {
 		return c, err
@@ -98,14 +104,19 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	var domainMeta metadata.Interface
+	var domains *domainChannels
 	if c.computeDomains {
-		domainMeta, err = metadata.NewForConfig(cfg)
+		domainMeta, err := metadata.NewForConfig(cfg)
 		if err != nil {
 			return err
 		}
+		client, err := dynamic.NewForConfig(cfg)
+		if err != nil {
+			return err
+		}
+		domains = newDomainChannels(domainMeta, newDaemonReports(client, kube.CoreV1(), c.driverNamespace))
 	}
-	m := newModel(mokka, kube, c, domainMeta) //nolint:contextcheck // RunWithContext uses the generated context-aware list and watch callbacks.
+	m := newModel(mokka, kube, c, domains) //nolint:contextcheck // RunWithContext uses the generated context-aware list and watch callbacks.
 	return m.run(ctx, c)
 }
 

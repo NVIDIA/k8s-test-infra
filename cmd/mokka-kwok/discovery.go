@@ -165,6 +165,7 @@ func (p *labelPublisher) run(ctx context.Context) error {
 		}
 		if n, ok := obj.(*nodeObservation); ok {
 			p.views.forgetNode(n.UID)
+			p.queue.Add(n.Name)
 		}
 	}})
 	if err != nil {
@@ -205,7 +206,7 @@ func (p *labelPublisher) reconcile(ctx context.Context, name string) error {
 	}
 	node, err := p.nodes.Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		return nil
+		return p.slices.withdrawReports(ctx, name)
 	}
 	if err != nil {
 		return err

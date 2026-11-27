@@ -104,7 +104,7 @@ func (s *shardPods) apply(pod *corev1.Pod, deleted bool) error {
 	if node.touched != nil {
 		node.touched.Insert(key)
 	}
-	if allocationChanged(previous, pod, deleted) {
+	if allocationChanged(previous, pod, deleted) || (s.notifyNode != nil && daemonChanged(previous, pod)) {
 		s.enqueueOwners(node)
 	}
 	if deleted {

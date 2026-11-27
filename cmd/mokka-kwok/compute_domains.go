@@ -36,18 +36,23 @@ const (
 )
 
 type domainChannels struct {
-	retry  func(string, time.Duration)
-	claims *shardClaims
-	watch  cache.SharedIndexInformer
+	reports *daemonReports
+	retry   func(string, time.Duration)
+	claims  *shardClaims
+	watch   cache.SharedIndexInformer
 }
 
-func newDomainChannels(client metadata.Interface, claims *shardClaims) *domainChannels {
+func newDomainChannels(client metadata.Interface, reports *daemonReports) *domainChannels {
 	gvr := schema.GroupVersionResource{Group: "resource.nvidia.com", Version: "v1beta1", Resource: "computedomains"}
 	index := func(obj any) ([]string, error) {
 		m := obj.(metav1.Object)
 		return []string{m.GetNamespace() + "/" + string(m.GetUID())}, nil
 	}
-	return &domainChannels{claims: claims, watch: metadatainformer.NewFilteredMetadataInformer(client, gvr, metav1.NamespaceAll, 0, cache.Indexers{domainLabel: index}, nil).Informer()}
+	return &domainChannels{reports: reports, watch: metadatainformer.NewFilteredMetadataInformer(client, gvr, metav1.NamespaceAll, 0, cache.Indexers{domainLabel: index}, nil).Informer()}
+}
+
+func (d *domainChannels) hasSynced() bool {
+	return d.watch.HasSynced() && d.reports.watch.HasSynced()
 }
 
 func (p *labelPublisher) watchDomains(ctx context.Context) error {
@@ -117,17 +122,24 @@ func (p *labelPublisher) publishDomain(ctx context.Context, node *corev1.Node, s
 	if err := p.slices.writePool(ctx, node, name, domainSliceKey, domainDriver, domainDevices()); err != nil {
 		return err
 	}
-	return p.prepareChannels(ctx, node)
+	return p.prepareChannels(ctx, node, slot)
 }
 
-func (p *labelPublisher) prepareChannels(ctx context.Context, node *corev1.Node) error {
+func (p *labelPublisher) prepareChannels(ctx context.Context, node *corev1.Node, slot state.NodePayload) error {
 	d := p.slices.domains
 	pods := d.claims.pods.allocationSnapshot(node.Name)
-	if pods == nil || !d.claims.hasSynced() || !d.watch.HasSynced() {
+	if pods == nil || !d.claims.hasSynced() || !d.hasSynced() {
 		p.queue.AddAfter(node.Name, time.Second)
 		return nil
 	}
-	return p.preparePods(ctx, node, pods)
+	if err := p.preparePods(ctx, node, pods); err != nil {
+		return err
+	}
+	pod, err := d.daemonPod(ctx, node, pods)
+	if err != nil {
+		return err
+	}
+	return d.reports.sync(ctx, node.Name, slot, pod)
 }
 
 func (p *labelPublisher) preparePods(ctx context.Context, node *corev1.Node, pods map[types.UID]*corev1.Pod) error {
@@ -255,6 +267,9 @@ func (p *labelPublisher) applyDomainLabel(ctx context.Context, node *corev1.Node
 }
 
 func (p *labelPublisher) clearDomain(ctx context.Context, node *corev1.Node) (*corev1.Node, error) {
+	if err := p.slices.withdrawReports(ctx, node.Name); err != nil {
+		return nil, err
+	}
 	n, err := p.applyDomainLabel(ctx, node, "")
 	if err != nil {
 		return nil, err

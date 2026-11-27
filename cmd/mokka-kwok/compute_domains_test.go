@@ -39,7 +39,8 @@ func TestSharedChannelLifecycle(t *testing.T) {
 	t.Cleanup(pods.backfills.ShutDown)
 	pods.setRack("rack", sets.New("worker"))
 	claims := &shardClaims{pods: pods, client: kube.ResourceV1(), locations: make(map[cache.ObjectName]sets.Set[string])}
-	domain := newDomainChannels(nil, claims)
+	domain := newDomainChannels(nil, nil)
+	domain.claims = claims
 	p := &labelPublisher{nodes: kube.CoreV1().Nodes(), slices: &nodeSlices{domains: domain}}
 	claim := &resourcev1.ResourceClaim{ObjectMeta: metav1.ObjectMeta{Name: "channel", Namespace: "team"}, Status: resourcev1.ResourceClaimStatus{
 		Allocation: &resourcev1.AllocationResult{Devices: resourcev1.DeviceAllocationResult{Results: []resourcev1.DeviceRequestAllocationResult{{Driver: domainDriver, Pool: "worker", Device: "channel-0", Request: "channel"}}, Config: []resourcev1.DeviceAllocationConfiguration{channelConfig("expected", resourcev1.AllocationConfigSourceClaim), channelConfig("class-default", resourcev1.AllocationConfigSourceClass)}}},
