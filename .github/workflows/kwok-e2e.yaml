@@ -57,7 +57,7 @@ jobs:
         run: ./hack/e2e-ci-cluster.sh
       - name: Install KWOK and Mokka
         run: make e2e-kwok-setup
-      - name: Test rack binding and node-daemon placement
+      - name: Test rack binding and discovery labels
         run: make e2e-kwok
       - name: Show cluster state on failure
         if: failure()

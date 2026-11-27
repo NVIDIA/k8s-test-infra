@@ -17,7 +17,7 @@ import (
 )
 
 var _ = Describe("KWOK rack binding", Label("kwok"), func() {
-	It("binds each node to its own rack type", func(ctx SpecContext) {
+	It("binds each node to its own rack type and publishes the virtual GPU labels", func(ctx SpecContext) {
 		h := setupCluster(ctx, "kwok")
 		realName := config.ClusterName() + "-worker"
 		const virtualName = "kwok-worker"
@@ -42,6 +42,16 @@ var _ = Describe("KWOK rack binding", Label("kwok"), func() {
 				bound[rack.Spec.NodeType] = rack.Spec.Identity.RackGroup
 			}
 			g.Expect(bound).To(Equal(map[mokkav1.NodeType]string{mokkav1.NodeTypeCPU: "real", mokkav1.NodeTypeKWOK: "virtual"}))
+		}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
+
+		By("reading all five hardware labels from the virtual Node")
+		Eventually(func(g Gomega) {
+			g.Expect(h.Kube.GetJSON(ctx, &kwokNode, "node", virtualName)).To(Succeed())
+			g.Expect(kwokNode.Labels).To(HaveKeyWithValue("nvidia.com/gpu.product", "NVIDIA-A100-SXM4-40GB"))
+			g.Expect(kwokNode.Labels).To(HaveKeyWithValue("nvidia.com/gpu.count", "8"))
+			g.Expect(kwokNode.Labels).To(HaveKeyWithValue("nvidia.com/gpu.memory", "40960"))
+			g.Expect(kwokNode.Labels).To(HaveKeyWithValue("nvidia.com/mig.strategy", "none"))
+			g.Expect(kwokNode.Labels).To(HaveKeyWithValue("feature.node.kubernetes.io/pci-10de.present", "true"))
 		}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
 
 		By("checking actual node-daemon Pods after the DaemonSet has converged")

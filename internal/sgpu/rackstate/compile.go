@@ -149,6 +149,9 @@ func gpuModel(gpus *api.SGPUGPUs) state.GPUModel {
 		Memory: memory.String(), PCI: *gpus.PCI.DeepCopy(), Cores: m.Cores.DeepCopy(),
 		Board: m.Board.DeepCopy(), Firmware: m.Firmware.DeepCopy(),
 	}
+	if capabilities := gpus.Capabilities; capabilities != nil && capabilities.MIG != nil {
+		result.MIGCapable = capabilities.MIG.Supported
+	}
 	if cc := m.ComputeCapability; cc != nil {
 		result.ComputeCapability = fmt.Sprintf("%d.%d", cc.Major, cc.Minor)
 	}

@@ -90,7 +90,8 @@ printed at the end of every run, so a skip is never silent.
 ## KWOK rack binding
 
 This test uses one real kind worker and one virtual KWOK node. Both match the
-same placement selector. It checks the node reference in each rack and the node-daemon Pod on the worker.
+same placement selector. It checks the node reference in each rack, all five
+GPU discovery labels on the virtual node, and the node-daemon Pod on the worker.
 
 From the repository root:
 
