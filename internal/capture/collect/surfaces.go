@@ -214,13 +214,17 @@ func (c *collector) startPod(name, node, what string) bool {
 // and /proc. Its tools come from apt; if the cluster has no egress the sysfs
 // captures still work and the rest fail into errors.log.
 func (c *collector) startHostPod(node string) bool {
+	if c.execIn != nil {
+		return c.borrowPod(node)
+	}
 	c.hostPod = hostPodName(node, c.suffix)
 	if !c.startPod(c.hostPod, node, "host pod") {
 		return false
 	}
+	c.hostExec, c.hostNS, c.hostCtr = c.hostPod, c.cfg.hostPodNS, ""
 	errs := c.errorsLog()
 	defer func() { _ = errs.Close() }()
-	install := `apt-get update -qq && apt-get install -y -qq pciutils numactl rdma-core ibverbs-utils infiniband-diags iproute2 ethtool >/dev/null`
+	install := `apt-get update -qq && apt-get install -y -qq pciutils numactl rdma-core ibverbs-utils infiniband-diags iproute2 ethtool mstflint >/dev/null`
 	if err := c.exec(nil, io.Discard, errs, c.host(sh(install)...)...); err != nil {
 		c.logf("tool install failed in the host pod; some captures will fail")
 	}
@@ -258,7 +262,7 @@ func (c *collector) stopPod(ctx context.Context, name *string) {
 
 func (c *collector) captureHost(node string) {
 	c.enter(node)
-	c.logf("== %s: host pod", node)
+	c.logf("== %s: host surfaces", node)
 	defer c.stopPod(c.ctx, &c.hostPod)
 	if !c.startHostPod(node) {
 		return
@@ -271,8 +275,6 @@ func (c *collector) captureHost(node string) {
 	c.capture("host-numactl.txt", nil, c.host("numactl", "-H")...)
 	c.capture("host-lspci-nvidia.txt", nil, c.host("lspci", "-nnvvv", "-d", "10de:")...)
 	c.capture("host-lspci-mellanox.txt", nil, c.host("lspci", "-nn", "-d", "15b3:")...)
-	c.capture("host-ibstat.txt", nil, c.host("ibstat")...)
-	c.capture("host-ibv-devinfo.txt", nil, c.host("ibv_devinfo", "-v")...)
 	c.capture("host-rdma-link.txt", nil, c.host("rdma", "link", "show")...)
 	for _, f := range []struct{ file, script string }{
 		{"host-numa-cpulist.txt", `for n in /sys/devices/system/node/node*; do echo "$n: $(cat $n/cpulist)"; done`},
@@ -283,7 +285,6 @@ func (c *collector) captureHost(node string) {
 		{"host-proc-devices.txt", `grep -i nvidia /proc/devices`},
 		{"host-proc-modules.txt", `grep -E "^(nvidia|nvidia_uvm|nvidia_modeset|nvidia_peermem|mlx5_core|ib_core)" /proc/modules`},
 		{"host-ib-sysfs.txt", `for h in /sys/class/infiniband/*; do echo "== $h"; for f in node_guid node_type fw_ver hca_type board_id; do echo "$f=$(cat $h/$f 2>&1)"; done; for p in $h/ports/*; do echo "port $(basename $p) state=$(cat $p/state) phys=$(cat $p/phys_state) rate=$(cat $p/rate) layer=$(cat $p/link_layer)"; done; done`},
-		{"host-ib-dev.txt", `ls -l /dev/infiniband 2>&1`},
 	} {
 		c.capture(f.file, nil, c.host(sh(f.script)...)...)
 	}
@@ -298,50 +299,49 @@ func (c *collector) captureHost(node string) {
 	}
 }
 
-const rdmaSysfsScript = `for h in /sys/class/infiniband/*; do
-  echo "== $(basename $h)"
-  for f in node_guid node_desc node_type sys_image_guid fw_ver hca_type board_id; do echo "$f=$(cat $h/$f 2>&1)"; done
-  for f in vendor device class numa_node subsystem_vendor subsystem_device; do echo "device/$f=$(cat $h/device/$f 2>&1)"; done
-  echo "devpath=$(readlink -f $h/device)"
-  echo "driver=$(basename "$(readlink -f $h/device/driver 2>/dev/null)")"
-  for p in $h/ports/*; do
-    echo "-- port $(basename $p)"
-    for f in state phys_state rate lid sm_lid sm_sl lmc link_layer cap_mask; do echo "$f=$(cat $p/$f 2>&1)"; done
-    for g in $p/gids/*; do
-      n=$(basename $g)
-      t=$(cat $p/gid_attrs/types/$n 2>/dev/null) || continue
-      echo "gid[$n]=$(cat $g 2>&1) type=$t ndev=$(cat $p/gid_attrs/ndevs/$n 2>&1)"
-    done
-  done
-done
-`
-
-const rdmaCountersScript = `for h in /sys/class/infiniband/*; do
-  p=$h/ports/1
-  echo "== $(basename $h) port 1"
-  for d in counters hw_counters; do
-    for c in $p/$d/*; do [ -f "$c" ] && echo "$d/$(basename $c)=$(cat $c 2>&1)"; done
-  done
-done
-`
-
 // captureNetworkSurfaces runs inside the host pod: a privileged pod on the host
 // network sees the node's own interfaces, /sys/class/net and RDMA devices.
 func (c *collector) captureNetworkSurfaces() {
-	hostScript := []string{"kubectl", "-n", c.cfg.hostPodNS, "exec", "-i", c.hostPod, "--", "sh", "-s"}
-	c.capture("host-lspci-mellanox-vv.txt", nil, c.host("lspci", "-nnvvv", "-d", "15b3:")...)
-	c.capture("net-ip-link.txt", nil, c.host("ip", "-d", "link", "show")...)
-	c.capture("rdma-dev.txt", nil, c.host("rdma", "dev", "show")...)
-	c.capture("rdma-link.txt", nil, c.host("rdma", "link", "show")...)
-	c.capture("rdma-sysfs.txt", strings.NewReader(rdmaSysfsScript), hostScript...)
-	c.capture("rdma-counters.txt", strings.NewReader(rdmaCountersScript), hostScript...)
+	hostScript := c.hostStdin("sh", "-s")
+	for _, q := range []struct{ file, argv string }{
+		{"host-lspci-mellanox-vv.txt", "lspci -nnvvv -d 15b3:"},
+		{"host-ibstat.txt", "ibstat"},
+		{"host-ibv-devinfo.txt", "ibv_devinfo -v"},
+		{"net-ip-link.txt", "ip -d link show"},
+		{"rdma-dev.txt", "rdma dev show"},
+		{"rdma-link.txt", "rdma link show"},
+		{"rdma-system.txt", "rdma system show"},
+		{"devlink-dev-info.txt", "devlink dev info"},
+		{"devlink-port.txt", "devlink port show"},
+		{"devlink-health.txt", "devlink health show"},
+	} {
+		c.capture(q.file, nil, c.host(strings.Fields(q.argv)...)...)
+	}
+	for _, f := range []struct{ file, script string }{
+		{"rdma-sysfs.txt", rdmaSysfsScript},
+		{"rdma-counters.txt", rdmaCountersScript},
+		{"rdma-char-devices.txt", rdmaCharDevicesScript},
+		{"pci-nic-sysfs.txt", pciNICSysfsScript},
+		{"pci-vpd-fields.txt", pciVPDScript},
+		{"sys-module-rdma.txt", sysModuleRDMAScript},
+		{"net-ecn-qos.txt", netECNQoSScript},
+		{"net-ethtool.txt", netEthtoolScript},
+		{"net-ethtool-m.txt", netEthtoolModuleScript},
+		{"devlink-eswitch.txt", devlinkEswitchScript},
+		{"fw-mlxconfig.txt", fwMLXConfigScript},
+		{"fw-flint.txt", fwFlintScript},
+		{"cable-mlxlink.txt", cableMLXLinkScript},
+	} {
+		c.capture(f.file, strings.NewReader(f.script), hostScript...)
+	}
 	for _, f := range []struct{ file, script string }{
 		{"pci-all-functions.txt", `for d in /sys/bus/pci/devices/*; do echo "$(basename $d) vendor=$(cat $d/vendor) device=$(cat $d/device) class=$(cat $d/class) numa=$(cat $d/numa_node) driver=$(basename $(readlink $d/driver 2>/dev/null) 2>/dev/null) root=$(readlink -f $d | cut -d/ -f4)"; done`},
 		{"pci-nic-functions.txt", `for d in /sys/bus/pci/devices/*; do [ "$(cat $d/vendor)" = 0x15b3 ] || continue; echo "$(basename $d) subsys=$(cat $d/subsystem_vendor):$(cat $d/subsystem_device) sriov_totalvfs=$(cat $d/sriov_totalvfs 2>&1) sriov_numvfs=$(cat $d/sriov_numvfs 2>&1) physfn=$(readlink $d/physfn 2>&1) virtfn=$(ls -d $d/virtfn* 2>/dev/null | wc -l)"; done`},
 		{"pci-vpd.txt", `for d in /sys/bus/pci/devices/*; do [ "$(cat $d/vendor)" = 0x15b3 ] || continue; echo "$(basename $d): $(tr -c "[:print:]" " " < $d/vpd 2>/dev/null | grep -oE "PN[^ ]* [^ ]*" | tr "\n" " ")"; done`},
-		{"net-sysfs.txt", `for i in /sys/class/net/*; do echo "== $(basename $i)"; for f in address operstate carrier speed duplex mtu type dev_id dev_port; do echo "$f=$(cat $i/$f 2>&1)"; done; echo "device=$(readlink -f $i/device 2>&1)"; done`},
+		{"net-sysfs.txt", `for i in /sys/class/net/*; do echo "== $(basename $i)"; for f in address operstate carrier speed duplex mtu type dev_id dev_port; do echo "$f=$(cat $i/$f 2>&1)"; done; for f in addr_len phys_port_name phys_switch_id mode pkey; do [ -e $i/$f ] && v=$(cat $i/$f 2>/dev/null) && echo "$f=$v"; done; echo "device=$(readlink -f $i/device 2>&1)"; echo "files=$(ls $i | tr "\n" "," | sed "s/,$//")"; done`},
 		{"net-ethtool-i.txt", `for i in /sys/class/net/*; do n=$(basename $i); echo "== $n"; ethtool -i $n 2>&1; done`},
 		{"rdma-classes.txt", `for c in infiniband infiniband_verbs infiniband_mad infiniband_cm; do echo "== /sys/class/$c"; ls /sys/class/$c 2>&1; done; true`},
+		{"host-ib-dev.txt", `ls -l /dev/infiniband 2>&1`},
 		{"sys-module-mlx5.txt", `for m in mlx5_core mlx5_ib ib_core ib_uverbs nvidia; do echo "$m version=$(cat /sys/module/$m/version 2>&1) parameters=$(ls /sys/module/$m/parameters 2>&1 | tr "\n" " ")"; done`},
 		{"kernel-log-nic-gpu.txt", `dmesg 2>&1 | grep -i -E "mlx5|NVRM|nvidia" | tail -300`},
 	} {
@@ -353,7 +353,7 @@ func (c *collector) captureNetworkSurfaces() {
 // capture.
 func (c *collector) captureNetwork(node string) {
 	c.enter(node)
-	c.logf("== %s: network surfaces (host pod)", node)
+	c.logf("== %s: network surfaces", node)
 	defer c.stopPod(c.ctx, &c.hostPod)
 	if !c.startHostPod(node) {
 		return
@@ -361,7 +361,14 @@ func (c *collector) captureNetwork(node string) {
 	c.captureNetworkSurfaces()
 }
 
-func (c *collector) captureClusterNetwork() {
+// nodeFeatureNodeLabel names the node each NFD NodeFeature describes; a node
+// can have several, from NFD's worker and from operators.
+const nodeFeatureNodeLabel = "nfd.node.kubernetes.io/node-name"
+
+// captureClusterNetwork takes the cluster's network objects. Of the NodeFeature
+// objects it takes those of nodes, or every node's when nodes is empty: one
+// per node and source, they run to a gigabyte on a cluster of thousands.
+func (c *collector) captureClusterNetwork(nodes []string) {
 	c.enter("cluster")
 	crds, err := c.kubectlOut("get", "crd", "-o", "name")
 	var matched []string
@@ -375,7 +382,11 @@ func (c *collector) captureClusterNetwork() {
 		text += "\n"
 	}
 	c.captureText("crds-network.txt", text, err)
-	c.capture("nodefeatures.yaml", nil, "kubectl", "get", "nodefeatures", "-A", "-o", "yaml")
+	nodeFeatures := []string{"kubectl", "get", "nodefeatures", "-A", "-o", "yaml"}
+	if len(nodes) > 0 {
+		nodeFeatures = append(nodeFeatures, "-l", nodeFeatureNodeLabel+" in ("+strings.Join(nodes, ",")+")")
+	}
+	c.capture("nodefeatures.yaml", nil, nodeFeatures...)
 	c.capture("nicclusterpolicy.yaml", nil, "kubectl", "get", "nicclusterpolicies.mellanox.com", "-o", "yaml")
 	c.capture("network-attachments.yaml", nil, "kubectl", "get", "network-attachment-definitions", "-A", "-o", "yaml")
 	c.capture("sriov-node-state.yaml", nil, "kubectl", "get", "sriovnetworknodestates", "-A", "-o", "yaml")

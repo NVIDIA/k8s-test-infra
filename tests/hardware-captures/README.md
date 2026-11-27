@@ -10,12 +10,15 @@ every node, the outputs of `nvidia-smi`, an NVML recording of every getter, the
 driver's `/proc` files, device files, PCI and NUMA topology, RDMA devices and
 network interfaces, CDI specs, kernel modules and log, plus a `cluster/` directory
 with the Kubernetes view (node labels, ResourceSlices, `ClusterPolicy`, DCGM
-metrics). The whole-file `nvidia-smi -q -x` fixtures that tests read live in
+metrics). Some platforms hold only the NIC surfaces `mokka-capture collect network` takes,
+which `mokka-capture diff nic` compares with a Mokka node. The whole-file `nvidia-smi -q -x` fixtures that tests read live in
 [`tests/e2e/go/assertions/nvidiasmi/testdata/hardware`](../e2e/go/assertions/nvidiasmi/testdata/hardware/README.md).
 
 | Directory | Platform |
 | --- | --- |
 | [`vr-nvl72`](vr-nvl72/README.md) | A compute tray of a rack-scale NVLink system, 4 GPUs, arm64 |
+| [`gb300-ib`](gb300-ib/README.md) | NIC surfaces of a GB300 NVL72 compute tray, ConnectX-8 on InfiniBand |
+| [`gb300-roce`](gb300-roce/README.md) | NIC surfaces of a GB300 NVL72 compute tray, ConnectX-8 on Ethernet (RoCE) |
 
 ## How a capture is taken
 

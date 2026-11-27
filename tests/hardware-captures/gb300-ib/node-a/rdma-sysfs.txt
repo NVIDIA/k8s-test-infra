@@ -1,0 +1,656 @@
+== mlx5_0
+node_guid=0000:0000:0000:0001
+node_desc=node-a mlx5_0
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0001
+fw_ver=40.47.3576
+hca_type=MT4131
+board_id=MT_0000001513
+hw_rev=0
+device/vendor=0x15b3
+device/device=0x1023
+device/class=0x020700
+device/numa_node=0
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0208
+devpath=/sys/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.0
+driver=mlx5_core
+files=board_id,device,fw_pages,fw_ver,hca_type,hw_rev,mad_sa_cc,mr_cache,node_desc,node_guid,node_type,ports,power,reg_pages,subsystem,sys_image_guid,tc,ttl,uevent
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=800 Gb/sec (4X XDR)
+lid=0x9a7
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa751ec48
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=duplicate_request,implied_nak_seq_err,lifespan,local_ack_timeout_err,out_of_buffer,out_of_sequence,packet_seq_err,req_cqe_error,req_cqe_flush_error,req_remote_access_errors,req_remote_invalid_request,req_rnr_retries_exceeded,req_transport_retries_exceeded,resp_cqe_error,resp_cqe_flush_error,resp_local_length_error,resp_remote_access_errors,rnr_nak_retry_err,roce_adp_retrans,roce_adp_retrans_to,roce_slow_restart,roce_slow_restart_cnps,roce_slow_restart_trans,rx_atomic_requests,rx_dct_connect,rx_icrc_encapsulated,rx_read_requests,rx_write_requests
+files=cap_mask,cm_rx_duplicates,cm_rx_msgs,cm_tx_msgs,cm_tx_retries,counters,gid_attrs,gids,has_smi,hw_counters,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0001 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_0/ports/1/gid_attrs/ndevs/7: Invalid argument
+== mlx5_1
+node_guid=0000:0000:0000:0003
+node_desc=node-a mlx5_1
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0002
+fw_ver=40.47.3576
+hca_type=MT4131
+board_id=MT_0000001513
+hw_rev=0
+device/vendor=0x15b3
+device/device=0x1023
+device/class=0x020700
+device/numa_node=0
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0208
+devpath=/sys/devices/pci0002:00/0002:00:00.0/0002:01:00.0/0002:02:00.0/0002:03:00.0
+driver=mlx5_core
+files=board_id,device,fw_pages,fw_ver,hca_type,hw_rev,mad_sa_cc,mr_cache,node_desc,node_guid,node_type,ports,power,reg_pages,subsystem,sys_image_guid,tc,ttl,uevent
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=800 Gb/sec (4X XDR)
+lid=0xa4d
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa751ec48
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=duplicate_request,implied_nak_seq_err,lifespan,local_ack_timeout_err,out_of_buffer,out_of_sequence,packet_seq_err,req_cqe_error,req_cqe_flush_error,req_remote_access_errors,req_remote_invalid_request,req_rnr_retries_exceeded,req_transport_retries_exceeded,resp_cqe_error,resp_cqe_flush_error,resp_local_length_error,resp_remote_access_errors,rnr_nak_retry_err,roce_adp_retrans,roce_adp_retrans_to,roce_slow_restart,roce_slow_restart_cnps,roce_slow_restart_trans,rx_atomic_requests,rx_dct_connect,rx_icrc_encapsulated,rx_read_requests,rx_write_requests
+files=cap_mask,cm_rx_duplicates,cm_rx_msgs,cm_tx_msgs,cm_tx_retries,counters,gid_attrs,gids,has_smi,hw_counters,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0003 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_1/ports/1/gid_attrs/ndevs/7: Invalid argument
+== mlx5_2
+node_guid=0000:0000:0000:0004
+node_desc=node-a mlx5_2
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0004
+fw_ver=40.47.3576
+hca_type=MT4131
+board_id=MT_0000001513
+hw_rev=0
+device/vendor=0x15b3
+device/device=0x1023
+device/class=0x020700
+device/numa_node=1
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0208
+devpath=/sys/devices/pci0010:00/0010:00:00.0/0010:01:00.0/0010:02:00.0/0010:03:00.0
+driver=mlx5_core
+files=board_id,device,fw_pages,fw_ver,hca_type,hw_rev,mad_sa_cc,mr_cache,node_desc,node_guid,node_type,ports,power,reg_pages,subsystem,sys_image_guid,tc,ttl,uevent
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=800 Gb/sec (4X XDR)
+lid=0x9e8
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa751ec48
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=duplicate_request,implied_nak_seq_err,lifespan,local_ack_timeout_err,out_of_buffer,out_of_sequence,packet_seq_err,req_cqe_error,req_cqe_flush_error,req_remote_access_errors,req_remote_invalid_request,req_rnr_retries_exceeded,req_transport_retries_exceeded,resp_cqe_error,resp_cqe_flush_error,resp_local_length_error,resp_remote_access_errors,rnr_nak_retry_err,roce_adp_retrans,roce_adp_retrans_to,roce_slow_restart,roce_slow_restart_cnps,roce_slow_restart_trans,rx_atomic_requests,rx_dct_connect,rx_icrc_encapsulated,rx_read_requests,rx_write_requests
+files=cap_mask,cm_rx_duplicates,cm_rx_msgs,cm_tx_msgs,cm_tx_retries,counters,gid_attrs,gids,has_smi,hw_counters,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0004 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_2/ports/1/gid_attrs/ndevs/7: Invalid argument
+== mlx5_3
+node_guid=0000:0000:0000:0006
+node_desc=node-a mlx5_3
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0005
+fw_ver=40.47.3576
+hca_type=MT4131
+board_id=MT_0000001513
+hw_rev=0
+device/vendor=0x15b3
+device/device=0x1023
+device/class=0x020700
+device/numa_node=1
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0208
+devpath=/sys/devices/pci0012:00/0012:00:00.0/0012:01:00.0/0012:02:00.0/0012:03:00.0
+driver=mlx5_core
+files=board_id,device,fw_pages,fw_ver,hca_type,hw_rev,mad_sa_cc,mr_cache,node_desc,node_guid,node_type,ports,power,reg_pages,subsystem,sys_image_guid,tc,ttl,uevent
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=800 Gb/sec (4X XDR)
+lid=0x3d4
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa751ec48
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=duplicate_request,implied_nak_seq_err,lifespan,local_ack_timeout_err,out_of_buffer,out_of_sequence,packet_seq_err,req_cqe_error,req_cqe_flush_error,req_remote_access_errors,req_remote_invalid_request,req_rnr_retries_exceeded,req_transport_retries_exceeded,resp_cqe_error,resp_cqe_flush_error,resp_local_length_error,resp_remote_access_errors,rnr_nak_retry_err,roce_adp_retrans,roce_adp_retrans_to,roce_slow_restart,roce_slow_restart_cnps,roce_slow_restart_trans,rx_atomic_requests,rx_dct_connect,rx_icrc_encapsulated,rx_read_requests,rx_write_requests
+files=cap_mask,cm_rx_duplicates,cm_rx_msgs,cm_tx_msgs,cm_tx_retries,counters,gid_attrs,gids,has_smi,hw_counters,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0006 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/mlx5_3/ports/1/gid_attrs/ndevs/7: Invalid argument
+== mlx5_4
+node_guid=0000:0000:0000:0007
+node_desc=node-a mlx5_4
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0007
+fw_ver=32.47.3576
+hca_type=MT41692
+board_id=MT_0000001188
+hw_rev=1
+device/vendor=0x15b3
+device/device=0xa2dc
+device/class=0x020000
+device/numa_node=1
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0041
+devpath=/sys/devices/pci0016:00/0016:00:00.0/0016:01:00.0
+driver=mlx5_core
+files=board_id,device,fw_pages,fw_ver,hca_type,hw_rev,mad_sa_cc,mr_cache,node_desc,node_guid,node_type,ports,power,reg_pages,subsystem,sys_image_guid,tc,ttl,uevent
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=400 Gb/sec (4X NDR)
+lid=0x0
+sm_lid=0x0
+sm_sl=0
+lid_mask_count=0
+link_layer=Ethernet
+cap_mask=0x00010000
+pkeys=0xffff
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=duplicate_request,implied_nak_seq_err,lifespan,local_ack_timeout_err,np_cnp_sent,np_ecn_marked_roce_packets,out_of_buffer,out_of_sequence,packet_seq_err,req_cqe_error,req_cqe_flush_error,req_remote_access_errors,req_remote_invalid_request,req_rnr_retries_exceeded,req_transport_retries_exceeded,resp_cqe_error,resp_cqe_flush_error,resp_local_length_error,resp_remote_access_errors,rnr_nak_retry_err,roce_adp_retrans,roce_adp_retrans_to,roce_slow_restart,roce_slow_restart_cnps,roce_slow_restart_trans,rp_cnp_handled,rp_cnp_ignored,rx_atomic_requests,rx_dct_connect,rx_icrc_encapsulated,rx_read_requests,rx_write_requests
+files=cap_mask,cm_rx_duplicates,cm_rx_msgs,cm_tx_msgs,cm_tx_retries,counters,gid_attrs,gids,has_smi,hw_counters,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0008 type=IB/RoCE v1 ndev=enP22s22f0np0
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0008 type=RoCE v2 ndev=enP22s22f0np0
+gid[2]=2001:0db8:0000:0000:0000:0000:0000:0001 type=IB/RoCE v1 ndev=enP22s22f0np0
+gid[3]=2001:0db8:0000:0000:0000:0000:0000:0001 type=RoCE v2 ndev=enP22s22f0np0
+== mlx5_5
+node_guid=0000:0000:0000:0009
+node_desc=node-a mlx5_5
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0007
+fw_ver=32.47.3576
+hca_type=MT41692
+board_id=MT_0000001188
+hw_rev=1
+device/vendor=0x15b3
+device/device=0xa2dc
+device/class=0x020000
+device/numa_node=1
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0041
+devpath=/sys/devices/pci0016:00/0016:00:00.0/0016:01:00.1
+driver=mlx5_core
+files=board_id,device,fw_pages,fw_ver,hca_type,hw_rev,mad_sa_cc,mr_cache,node_desc,node_guid,node_type,ports,power,reg_pages,subsystem,sys_image_guid,tc,ttl,uevent
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=400 Gb/sec (4X NDR)
+lid=0x0
+sm_lid=0x0
+sm_sl=0
+lid_mask_count=0
+link_layer=Ethernet
+cap_mask=0x00010000
+pkeys=0xffff
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=duplicate_request,implied_nak_seq_err,lifespan,local_ack_timeout_err,np_cnp_sent,np_ecn_marked_roce_packets,out_of_buffer,out_of_sequence,packet_seq_err,req_cqe_error,req_cqe_flush_error,req_remote_access_errors,req_remote_invalid_request,req_rnr_retries_exceeded,req_transport_retries_exceeded,resp_cqe_error,resp_cqe_flush_error,resp_local_length_error,resp_remote_access_errors,rnr_nak_retry_err,roce_adp_retrans,roce_adp_retrans_to,roce_slow_restart,roce_slow_restart_cnps,roce_slow_restart_trans,rp_cnp_handled,rp_cnp_ignored,rx_atomic_requests,rx_dct_connect,rx_icrc_encapsulated,rx_read_requests,rx_write_requests
+files=cap_mask,cm_rx_duplicates,cm_rx_msgs,cm_tx_msgs,cm_tx_retries,counters,gid_attrs,gids,has_smi,hw_counters,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:000a type=IB/RoCE v1 ndev=enP22s22f1np1
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:000a type=RoCE v2 ndev=enP22s22f1np1
+gid[2]=2001:0db8:0000:0000:0000:0000:0000:0002 type=IB/RoCE v1 ndev=enP22s22f1np1
+gid[3]=2001:0db8:0000:0000:0000:0000:0000:0002 type=RoCE v2 ndev=enP22s22f1np1
+== smi0
+node_guid=0000:0000:0000:0001
+node_desc=node-a smi0
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0001
+fw_ver=40.47.3576
+hca_type=MT4131
+board_id=MT_0000001513
+hw_rev=0
+device/vendor=0x15b3
+device/device=0x1023
+device/class=0x020700
+device/numa_node=0
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0208
+devpath=/sys/devices/pci0000:00/0000:00:00.0/0000:01:00.0/0000:02:00.0/0000:03:00.0
+driver=mlx5_core
+files=board_id,device,fw_pages,fw_ver,hca_type,hw_rev,mad_sa_cc,node_desc,node_guid,node_type,ports,power,reg_pages,subsystem,sys_image_guid,uevent
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x9a7
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0001 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/1/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/1/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/1/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/1/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/1/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/1/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/1/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/1/gid_attrs/ndevs/7: Invalid argument
+-- port 2
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x9a7
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0001 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/2/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/2/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/2/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/2/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/2/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/2/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/2/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/2/gid_attrs/ndevs/7: Invalid argument
+-- port 3
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x9a7
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0001 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/3/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/3/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/3/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/3/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/3/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/3/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/3/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/3/gid_attrs/ndevs/7: Invalid argument
+-- port 4
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x9a7
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0001 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/4/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/4/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/4/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/4/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/4/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/4/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/4/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi0/ports/4/gid_attrs/ndevs/7: Invalid argument
+== smi1
+node_guid=0000:0000:0000:0003
+node_desc=node-a smi1
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0002
+fw_ver=40.47.3576
+hca_type=MT4131
+board_id=MT_0000001513
+hw_rev=0
+device/vendor=0x15b3
+device/device=0x1023
+device/class=0x020700
+device/numa_node=0
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0208
+devpath=/sys/devices/pci0002:00/0002:00:00.0/0002:01:00.0/0002:02:00.0/0002:03:00.0
+driver=mlx5_core
+files=board_id,device,fw_pages,fw_ver,hca_type,hw_rev,mad_sa_cc,node_desc,node_guid,node_type,ports,power,reg_pages,subsystem,sys_image_guid,uevent
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0xa4d
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0003 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/1/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/1/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/1/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/1/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/1/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/1/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/1/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/1/gid_attrs/ndevs/7: Invalid argument
+-- port 2
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0xa4d
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0003 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/2/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/2/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/2/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/2/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/2/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/2/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/2/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/2/gid_attrs/ndevs/7: Invalid argument
+-- port 3
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0xa4d
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0003 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/3/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/3/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/3/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/3/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/3/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/3/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/3/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/3/gid_attrs/ndevs/7: Invalid argument
+-- port 4
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0xa4d
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0003 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/4/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/4/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/4/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/4/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/4/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/4/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/4/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi1/ports/4/gid_attrs/ndevs/7: Invalid argument
+== smi2
+node_guid=0000:0000:0000:0004
+node_desc=node-a smi2
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0004
+fw_ver=40.47.3576
+hca_type=MT4131
+board_id=MT_0000001513
+hw_rev=0
+device/vendor=0x15b3
+device/device=0x1023
+device/class=0x020700
+device/numa_node=1
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0208
+devpath=/sys/devices/pci0010:00/0010:00:00.0/0010:01:00.0/0010:02:00.0/0010:03:00.0
+driver=mlx5_core
+files=board_id,device,fw_pages,fw_ver,hca_type,hw_rev,mad_sa_cc,node_desc,node_guid,node_type,ports,power,reg_pages,subsystem,sys_image_guid,uevent
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x9e8
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0004 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/1/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/1/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/1/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/1/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/1/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/1/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/1/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/1/gid_attrs/ndevs/7: Invalid argument
+-- port 2
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x9e8
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0004 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/2/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/2/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/2/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/2/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/2/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/2/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/2/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/2/gid_attrs/ndevs/7: Invalid argument
+-- port 3
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x9e8
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0004 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/3/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/3/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/3/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/3/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/3/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/3/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/3/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/3/gid_attrs/ndevs/7: Invalid argument
+-- port 4
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x9e8
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0004 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/4/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/4/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/4/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/4/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/4/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/4/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/4/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi2/ports/4/gid_attrs/ndevs/7: Invalid argument
+== smi3
+node_guid=0000:0000:0000:0006
+node_desc=node-a smi3
+node_type=1: CA
+sys_image_guid=0000:0000:0000:0005
+fw_ver=40.47.3576
+hca_type=MT4131
+board_id=MT_0000001513
+hw_rev=0
+device/vendor=0x15b3
+device/device=0x1023
+device/class=0x020700
+device/numa_node=1
+device/subsystem_vendor=0x15b3
+device/subsystem_device=0x0208
+devpath=/sys/devices/pci0012:00/0012:00:00.0/0012:01:00.0/0012:02:00.0/0012:03:00.0
+driver=mlx5_core
+files=board_id,device,fw_pages,fw_ver,hca_type,hw_rev,mad_sa_cc,node_desc,node_guid,node_type,ports,power,reg_pages,subsystem,sys_image_guid,uevent
+-- port 1
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x3d4
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0006 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/1/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/1/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/1/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/1/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/1/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/1/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/1/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/1/gid_attrs/ndevs/7: Invalid argument
+-- port 2
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x3d4
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0006 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/2/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/2/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/2/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/2/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/2/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/2/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/2/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/2/gid_attrs/ndevs/7: Invalid argument
+-- port 3
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x3d4
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0006 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/3/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/3/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/3/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/3/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/3/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/3/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/3/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/3/gid_attrs/ndevs/7: Invalid argument
+-- port 4
+state=4: ACTIVE
+phys_state=5: LinkUp
+rate=200 Gb/sec (1X XDR)
+lid=0x3d4
+sm_lid=0x1
+sm_sl=0
+lid_mask_count=0
+link_layer=InfiniBand
+cap_mask=0xa750e848
+pkeys=0x7fff,0x8003
+counters=VL15_dropped,excessive_buffer_overrun_errors,link_downed,link_error_recovery,local_link_integrity_errors,multicast_rcv_packets,multicast_xmit_packets,port_rcv_constraint_errors,port_rcv_data,port_rcv_errors,port_rcv_packets,port_rcv_remote_physical_errors,port_rcv_switch_relay_errors,port_xmit_constraint_errors,port_xmit_data,port_xmit_discards,port_xmit_packets,port_xmit_wait,symbol_error,unicast_rcv_packets,unicast_xmit_packets
+hw_counters=
+files=cap_mask,counters,gid_attrs,gids,has_smi,lid,lid_mask_count,link_layer,phys_state,pkeys,rate,sm_lid,sm_sl,state
+gid[0]=fe80:0000:0000:0000:0000:0000:0000:0006 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/4/gid_attrs/ndevs/0: Invalid argument
+gid[1]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/4/gid_attrs/ndevs/1: Invalid argument
+gid[2]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/4/gid_attrs/ndevs/2: Invalid argument
+gid[3]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/4/gid_attrs/ndevs/3: Invalid argument
+gid[4]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/4/gid_attrs/ndevs/4: Invalid argument
+gid[5]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/4/gid_attrs/ndevs/5: Invalid argument
+gid[6]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/4/gid_attrs/ndevs/6: Invalid argument
+gid[7]=fe80:0000:0000:0000:0000:0000:0000:0000 type=IB/RoCE v1 ndev=cat: /sys/class/infiniband/smi3/ports/4/gid_attrs/ndevs/7: Invalid argument

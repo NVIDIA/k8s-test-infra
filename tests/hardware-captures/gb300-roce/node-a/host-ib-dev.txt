@@ -1,0 +1,20 @@
+total 0
+crw-rw-rw-    1 root     root      234,   0 Nov 17 10:45 mlx5_perm_ctrl_local
+crw-rw-rw-    1 root     root      234,   1 Nov 17 10:45 mlx5_perm_ctrl_other_vhca
+crw-rw-rw-    1 root     root       10, 264 Nov 17 10:45 rdma_cm
+crw-rw-rw-    1 root     root      231,   0 Nov 17 10:45 umad0
+crw-rw-rw-    1 root     root      231,   1 Nov 17 10:45 umad1
+crw-rw-rw-    1 root     root      231,  17 Nov 17 10:45 umad17
+crw-rw-rw-    1 root     root      231,   2 Nov 17 10:45 umad2
+crw-rw-rw-    1 root     root      231,   3 Nov 17 10:45 umad3
+crw-rw-rw-    1 root     root      231,   8 Nov 17 10:45 umad8
+crw-rw-rw-    1 root     root      231, 192 Nov 17 10:45 uverbs0
+crw-rw-rw-    1 root     root      231, 193 Nov 17 10:45 uverbs1
+crw-rw-rw-    1 root     root      231, 209 Nov 17 10:45 uverbs17
+crw-rw-rw-    1 root     root      231, 194 Nov 17 10:45 uverbs2
+crw-rw-rw-    1 root     root      231, 195 Nov 17 10:45 uverbs3
+crw-rw-rw-    1 root     root      231, 196 Nov 17 10:45 uverbs4
+crw-rw-rw-    1 root     root      231, 197 Nov 17 10:45 uverbs5
+crw-rw-rw-    1 root     root      231, 198 Nov 17 10:45 uverbs6
+crw-rw-rw-    1 root     root      231, 199 Nov 17 10:45 uverbs7
+crw-rw-rw-    1 root     root      231, 200 Nov 17 10:45 uverbs8

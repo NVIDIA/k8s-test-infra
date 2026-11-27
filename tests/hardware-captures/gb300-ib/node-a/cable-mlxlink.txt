@@ -1,0 +1,510 @@
+== 0000:03:00.0
+
+Operational Info
+----------------
+State                              : Active 
+Physical state                     : N/A 
+Speed                              : IB-XDR 
+Width                              : 4x 
+FEC                                : Interleaved_Standard_RS_FEC_PLR - (544,514) 
+Loopback Mode                      : No Loopback 
+Auto Negotiation                   : ON 
+
+Supported Info
+--------------
+Enabled Link Speed                 : 0x00000100 (XDR) 
+Supported Cable Speed              : 0x00000100 (XDR) 
+
+Troubleshooting Info
+--------------------
+Status Opcode                      : 0 
+Group Opcode                       : N/A 
+Recommendation                     : No issue was observed 
+
+Tool Information
+----------------
+Firmware Version                   : 40.47.3576 
+amBER Version                      : 5.75 
+MFT Version                        : mft 4.33.0-169 
+
+Module Info
+-----------
+Temperature [C]                    : 38 [-10..75]
+Voltage [mV]                       : 3341 [3100..3500]
+Bias Current [mA]                  : 126.340,107.372,102.868,109.640 [50..149.8]
+Rx Power Current [dBm]             : 4,4,4,4 [-2..6]
+Tx Power Current [dBm]             : 4,4,4,4 [0..6]
+Identifier                         : OSFP
+Compliance                         : IB XDR
+Cable Technology                   : 1310 nm EML
+Cable Type                         : Optical Module (separated)
+OUI                                : Nvidia
+Vendor Name                        : NVIDIA
+Vendor Part Number                 : 980-9IAT0-00XM00
+Vendor Serial Number               : 1650000000001
+Rev                                : B1
+Wavelength [nm]                    : 1311
+Transfer Distance [m]              : 0.0
+Attenuation (5g,7g,12g,25g)[dB]    : N/A
+FW Version                         : 70.240.124
+Digital Diagnostic Monitoring      : Yes
+Power Class                        : 8 (> 14 W max)
+MAX Power                          : 18.0 W max
+CDR RX                             : ON,ON,ON,ON
+CDR TX                             : ON,ON,ON,ON
+LOS Alarm                          : N/A
+SNR Media Lanes [dB]               : N/A
+SNR Host Lanes [dB]                : N/A
+IB Cable Width                     : 1x,2x
+Memory Map Revision                : 64
+Linear Direct Drive                : 0
+Cable Breakout                     : Unspecified
+SMF Length                         : 500m
+Cable Rx AMP                       : 0
+Cable Rx Emphasis (Pre)            : 2
+Cable Rx Post Emphasis             : 0
+Cable Tx Equalization              : 0
+Wavelength Tolerance               : 6.5nm
+Module State                       : Ready state
+DataPath state [per lane]          : DPActivated,DPActivated,DPActivated,DPActivated
+Rx Output Valid [per lane]         : 0,0,0,0
+Nominal bit rate                   : N/A
+Rx Power Type                      : Average power
+Manufacturing Date                 : 03_12_25
+Active Set Host Compliance Code    : IB XDR
+Active Set Media Compliance Code   : 
+Error Code Response                : ConfigUndefined
+Module FW Fault                    : 0
+DataPath FW Fault                  : 0
+Tx Fault [per lane]                : 0,0,0,0
+Tx LOS [per lane]                  : 0,0,0,0
+Tx CDR LOL [per lane]              : 0,0,0,0
+Rx LOS [per lane]                  : 0,0,0,0
+Rx CDR LOL [per lane]              : 0,0,0,0
+Tx Adaptive EQ Fault [per lane]    : 0,0,0,0
+
+== 0002:03:00.0
+
+Operational Info
+----------------
+State                              : Active 
+Physical state                     : N/A 
+Speed                              : IB-XDR 
+Width                              : 4x 
+FEC                                : Interleaved_Standard_RS_FEC_PLR - (544,514) 
+Loopback Mode                      : No Loopback 
+Auto Negotiation                   : ON 
+
+Supported Info
+--------------
+Enabled Link Speed                 : 0x00000100 (XDR) 
+Supported Cable Speed              : 0x00000100 (XDR) 
+
+Troubleshooting Info
+--------------------
+Status Opcode                      : 0 
+Group Opcode                       : N/A 
+Recommendation                     : No issue was observed 
+
+Tool Information
+----------------
+Firmware Version                   : 40.47.3576 
+amBER Version                      : 5.75 
+MFT Version                        : mft 4.33.0-169 
+
+Module Info
+-----------
+Temperature [C]                    : 36 [-10..75]
+Voltage [mV]                       : 3314.5 [3100..3500]
+Bias Current [mA]                  : 115.428,95.324,103.124,115.208 [50..149.8]
+Rx Power Current [dBm]             : 4,4,4,4 [-2..6]
+Tx Power Current [dBm]             : 4,4,4,4 [0..6]
+Identifier                         : OSFP
+Compliance                         : IB XDR
+Cable Technology                   : 1310 nm EML
+Cable Type                         : Optical Module (separated)
+OUI                                : Nvidia
+Vendor Name                        : NVIDIA
+Vendor Part Number                 : 980-9IAT0-00XM00
+Vendor Serial Number               : 1650000000002
+Rev                                : B1
+Wavelength [nm]                    : 1311
+Transfer Distance [m]              : 0.0
+Attenuation (5g,7g,12g,25g)[dB]    : N/A
+FW Version                         : 70.240.124
+Digital Diagnostic Monitoring      : Yes
+Power Class                        : 8 (> 14 W max)
+MAX Power                          : 18.0 W max
+CDR RX                             : ON,ON,ON,ON
+CDR TX                             : ON,ON,ON,ON
+LOS Alarm                          : N/A
+SNR Media Lanes [dB]               : N/A
+SNR Host Lanes [dB]                : N/A
+IB Cable Width                     : 1x,2x
+Memory Map Revision                : 64
+Linear Direct Drive                : 0
+Cable Breakout                     : Unspecified
+SMF Length                         : 500m
+Cable Rx AMP                       : 0
+Cable Rx Emphasis (Pre)            : 2
+Cable Rx Post Emphasis             : 0
+Cable Tx Equalization              : 0
+Wavelength Tolerance               : 6.5nm
+Module State                       : Ready state
+DataPath state [per lane]          : DPActivated,DPActivated,DPActivated,DPActivated
+Rx Output Valid [per lane]         : 0,0,0,0
+Nominal bit rate                   : N/A
+Rx Power Type                      : Average power
+Manufacturing Date                 : 15_12_25
+Active Set Host Compliance Code    : IB XDR
+Active Set Media Compliance Code   : 
+Error Code Response                : ConfigUndefined
+Module FW Fault                    : 0
+DataPath FW Fault                  : 0
+Tx Fault [per lane]                : 0,0,0,0
+Tx LOS [per lane]                  : 0,0,0,0
+Tx CDR LOL [per lane]              : 0,0,0,0
+Rx LOS [per lane]                  : 0,0,0,0
+Rx CDR LOL [per lane]              : 0,0,0,0
+Tx Adaptive EQ Fault [per lane]    : 0,0,0,0
+
+== 0010:03:00.0
+
+Operational Info
+----------------
+State                              : Active 
+Physical state                     : N/A 
+Speed                              : IB-XDR 
+Width                              : 4x 
+FEC                                : Interleaved_Standard_RS_FEC_PLR - (544,514) 
+Loopback Mode                      : No Loopback 
+Auto Negotiation                   : ON 
+
+Supported Info
+--------------
+Enabled Link Speed                 : 0x00000100 (XDR) 
+Supported Cable Speed              : 0x00000100 (XDR) 
+
+Troubleshooting Info
+--------------------
+Status Opcode                      : 0 
+Group Opcode                       : N/A 
+Recommendation                     : No issue was observed 
+
+Tool Information
+----------------
+Firmware Version                   : 40.47.3576 
+amBER Version                      : 5.75 
+MFT Version                        : mft 4.33.0-169 
+
+Module Info
+-----------
+Temperature [C]                    : 34 [-10..75]
+Voltage [mV]                       : 3367.8 [3100..3500]
+Bias Current [mA]                  : 124.656,127.404,95.764,104.956 [50..149.8]
+Rx Power Current [dBm]             : 4,4,4,4 [-2..6]
+Tx Power Current [dBm]             : 4,4,4,4 [0..6]
+Identifier                         : OSFP
+Compliance                         : IB XDR
+Cable Technology                   : 1310 nm EML
+Cable Type                         : Optical Module (separated)
+OUI                                : Nvidia
+Vendor Name                        : NVIDIA
+Vendor Part Number                 : 980-9IAT0-00XM00
+Vendor Serial Number               : 1650000000003
+Rev                                : B1
+Wavelength [nm]                    : 1311
+Transfer Distance [m]              : 0.0
+Attenuation (5g,7g,12g,25g)[dB]    : N/A
+FW Version                         : 70.240.124
+Digital Diagnostic Monitoring      : Yes
+Power Class                        : 8 (> 14 W max)
+MAX Power                          : 18.0 W max
+CDR RX                             : ON,ON,ON,ON
+CDR TX                             : ON,ON,ON,ON
+LOS Alarm                          : N/A
+SNR Media Lanes [dB]               : N/A
+SNR Host Lanes [dB]                : N/A
+IB Cable Width                     : 1x,2x
+Memory Map Revision                : 64
+Linear Direct Drive                : 0
+Cable Breakout                     : Unspecified
+SMF Length                         : 500m
+Cable Rx AMP                       : 0
+Cable Rx Emphasis (Pre)            : 2
+Cable Rx Post Emphasis             : 0
+Cable Tx Equalization              : 0
+Wavelength Tolerance               : 6.5nm
+Module State                       : Ready state
+DataPath state [per lane]          : DPActivated,DPActivated,DPActivated,DPActivated
+Rx Output Valid [per lane]         : 0,0,0,0
+Nominal bit rate                   : N/A
+Rx Power Type                      : Average power
+Manufacturing Date                 : 15_12_25
+Active Set Host Compliance Code    : IB XDR
+Active Set Media Compliance Code   : 
+Error Code Response                : ConfigUndefined
+Module FW Fault                    : 0
+DataPath FW Fault                  : 0
+Tx Fault [per lane]                : 0,0,0,0
+Tx LOS [per lane]                  : 0,0,0,0
+Tx CDR LOL [per lane]              : 0,0,0,0
+Rx LOS [per lane]                  : 0,0,0,0
+Rx CDR LOL [per lane]              : 0,0,0,0
+Tx Adaptive EQ Fault [per lane]    : 0,0,0,0
+
+== 0012:03:00.0
+
+Operational Info
+----------------
+State                              : Active 
+Physical state                     : N/A 
+Speed                              : IB-XDR 
+Width                              : 4x 
+FEC                                : Interleaved_Standard_RS_FEC_PLR - (544,514) 
+Loopback Mode                      : No Loopback 
+Auto Negotiation                   : ON 
+
+Supported Info
+--------------
+Enabled Link Speed                 : 0x00000100 (XDR) 
+Supported Cable Speed              : 0x00000100 (XDR) 
+
+Troubleshooting Info
+--------------------
+Status Opcode                      : 0 
+Group Opcode                       : N/A 
+Recommendation                     : No issue was observed 
+
+Tool Information
+----------------
+Firmware Version                   : 40.47.3576 
+amBER Version                      : 5.75 
+MFT Version                        : mft 4.33.0-169 
+
+Module Info
+-----------
+Temperature [C]                    : 35 [-10..75]
+Voltage [mV]                       : 3331.3 [3100..3500]
+Bias Current [mA]                  : 92.468,120.592,121.836,126.780 [50..149.8]
+Rx Power Current [dBm]             : 4,2,4,4 [-2..6]
+Tx Power Current [dBm]             : 4,4,4,2 [0..6]
+Identifier                         : OSFP
+Compliance                         : IB XDR
+Cable Technology                   : 1310 nm EML
+Cable Type                         : Optical Module (separated)
+OUI                                : Nvidia
+Vendor Name                        : NVIDIA
+Vendor Part Number                 : 980-9IAT0-00XM00
+Vendor Serial Number               : 1650000000004
+Rev                                : B1
+Wavelength [nm]                    : 1311
+Transfer Distance [m]              : 0.0
+Attenuation (5g,7g,12g,25g)[dB]    : N/A
+FW Version                         : 70.240.124
+Digital Diagnostic Monitoring      : Yes
+Power Class                        : 8 (> 14 W max)
+MAX Power                          : 18.0 W max
+CDR RX                             : ON,ON,ON,ON
+CDR TX                             : ON,ON,ON,ON
+LOS Alarm                          : N/A
+SNR Media Lanes [dB]               : N/A
+SNR Host Lanes [dB]                : N/A
+IB Cable Width                     : 1x,2x
+Memory Map Revision                : 64
+Linear Direct Drive                : 0
+Cable Breakout                     : Unspecified
+SMF Length                         : 500m
+Cable Rx AMP                       : 0
+Cable Rx Emphasis (Pre)            : 2
+Cable Rx Post Emphasis             : 0
+Cable Tx Equalization              : 0
+Wavelength Tolerance               : 6.5nm
+Module State                       : Ready state
+DataPath state [per lane]          : DPActivated,DPActivated,DPActivated,DPActivated
+Rx Output Valid [per lane]         : 0,0,0,0
+Nominal bit rate                   : N/A
+Rx Power Type                      : Average power
+Manufacturing Date                 : 15_12_25
+Active Set Host Compliance Code    : IB XDR
+Active Set Media Compliance Code   : 
+Error Code Response                : ConfigUndefined
+Module FW Fault                    : 0
+DataPath FW Fault                  : 0
+Tx Fault [per lane]                : 0,0,0,0
+Tx LOS [per lane]                  : 0,0,0,0
+Tx CDR LOL [per lane]              : 0,0,0,0
+Rx LOS [per lane]                  : 0,0,0,0
+Rx CDR LOL [per lane]              : 0,0,0,0
+Tx Adaptive EQ Fault [per lane]    : 0,0,0,0
+
+== 0016:01:00.0
+
+Operational Info
+----------------
+State                              : Active 
+Physical state                     : LinkUp 
+Speed                              : 400G 
+Width                              : 4x 
+FEC                                : Standard_RS-FEC - (544,514) 
+Loopback Mode                      : No Loopback 
+Auto Negotiation                   : ON 
+
+Supported Info
+--------------
+Enabled Link Speed (Ext.)          : 0x00013ff2 (400G_4X,200G_2X,200G_4X,100G_1X,100G_2X,100G_4X,50G_1X,50G_2X,40G,25G,10G,1G) 
+Supported Cable Speed (Ext.)       : 0x00012800 (400G_4X,200G_2X,100G_1X) 
+
+Troubleshooting Info
+--------------------
+Status Opcode                      : 0 
+Group Opcode                       : N/A 
+Recommendation                     : No issue was observed 
+
+Tool Information
+----------------
+Firmware Version                   : 32.47.3576 
+amBER Version                      : 5.75 
+MFT Version                        : mft 4.33.0-169 
+
+Module Info
+-----------
+Temperature [C]                    : 50 [-10..80]
+Voltage [mV]                       : 3244.9 [3100..3500]
+Bias Current [mA]                  : 9.438,9.106,9.316,9.106 [7..11]
+Rx Power Current [dBm]             : 2,2,2,2 [-6..4]
+Tx Power Current [dBm]             : 2,2,2,2 [-4..4]
+Identifier                         : QSFP_CMIS
+Compliance                         : ,400G-SR4
+Cable Technology                   : 850 nm VCSEL
+Cable Type                         : Optical Module (separated)
+OUI                                : Nvidia
+Vendor Name                        : NVIDIA
+Vendor Part Number                 : MMA1Z00-NS400-T
+Vendor Serial Number               : 1650000000005
+Rev                                : A1
+Wavelength [nm]                    : 854
+Transfer Distance [m]              : 0.0
+Attenuation (5g,7g,12g,25g)[dB]    : N/A
+FW Version                         : 52.181.1004
+Digital Diagnostic Monitoring      : Yes
+Power Class                        : 8 (> 5.0 W max)
+MAX Power                          : 8.5 W max
+CDR RX                             : ON,ON,ON,ON
+CDR TX                             : ON,ON,ON,ON
+LOS Alarm                          : N/A
+SNR Media Lanes [dB]               : 22.47,22.62,22.62,23.12
+SNR Host Lanes [dB]                : 25.62,25.50,25.37,25.87
+IB Cable Width                     : 1x,2x,4x
+Memory Map Revision                : 64
+Linear Direct Drive                : 0
+Cable Breakout                     : Unspecified
+SMF Length                         : N/A
+Cable Rx AMP                       : 1
+Cable Rx Emphasis (Pre)            : 0
+Cable Rx Post Emphasis             : 0
+Cable Tx Equalization              : 0
+Wavelength Tolerance               : 14.0nm
+Module State                       : Ready state
+DataPath state [per lane]          : DPActivated,DPActivated,DPActivated,DPActivated
+Rx Output Valid [per lane]         : 0,0,0,0
+Nominal bit rate                   : N/A
+Rx Power Type                      : Average power
+Manufacturing Date                 : 10_12_25
+Active Set Host Compliance Code    : 
+Active Set Media Compliance Code   : 400G-SR4
+Error Code Response                : ConfigUndefined
+Module FW Fault                    : 0
+DataPath FW Fault                  : 0
+Tx Fault [per lane]                : 0,0,0,0
+Tx LOS [per lane]                  : 0,0,0,0
+Tx CDR LOL [per lane]              : 0,0,0,0
+Rx LOS [per lane]                  : 0,0,0,0
+Rx CDR LOL [per lane]              : 0,0,0,0
+Tx Adaptive EQ Fault [per lane]    : 0,0,0,0
+
+== 0016:01:00.1
+
+Operational Info
+----------------
+State                              : Active 
+Physical state                     : LinkUp 
+Speed                              : 400G 
+Width                              : 4x 
+FEC                                : Standard_RS-FEC - (544,514) 
+Loopback Mode                      : No Loopback 
+Auto Negotiation                   : ON 
+
+Supported Info
+--------------
+Enabled Link Speed (Ext.)          : 0x00013ff2 (400G_4X,200G_2X,200G_4X,100G_1X,100G_2X,100G_4X,50G_1X,50G_2X,40G,25G,10G,1G) 
+Supported Cable Speed (Ext.)       : 0x00012800 (400G_4X,200G_2X,100G_1X) 
+
+Troubleshooting Info
+--------------------
+Status Opcode                      : 0 
+Group Opcode                       : N/A 
+Recommendation                     : No issue was observed 
+
+Tool Information
+----------------
+Firmware Version                   : 32.47.3576 
+amBER Version                      : 5.75 
+MFT Version                        : mft 4.33.0-169 
+
+Module Info
+-----------
+Temperature [C]                    : 50 [-10..80]
+Voltage [mV]                       : 3234.6 [3100..3500]
+Bias Current [mA]                  : 9.350,9.158,9.280,9.246 [7..11]
+Rx Power Current [dBm]             : 2,2,2,2 [-6..4]
+Tx Power Current [dBm]             : 2,2,2,0 [-4..4]
+Identifier                         : QSFP_CMIS
+Compliance                         : ,400G-SR4
+Cable Technology                   : 850 nm VCSEL
+Cable Type                         : Optical Module (separated)
+OUI                                : Nvidia
+Vendor Name                        : NVIDIA
+Vendor Part Number                 : MMA1Z00-NS400-T
+Vendor Serial Number               : 1650000000006
+Rev                                : A1
+Wavelength [nm]                    : 854
+Transfer Distance [m]              : 0.0
+Attenuation (5g,7g,12g,25g)[dB]    : N/A
+FW Version                         : 52.181.1004
+Digital Diagnostic Monitoring      : Yes
+Power Class                        : 8 (> 5.0 W max)
+MAX Power                          : 8.5 W max
+CDR RX                             : ON,ON,ON,ON
+CDR TX                             : ON,ON,ON,ON
+LOS Alarm                          : N/A
+SNR Media Lanes [dB]               : 22.47,22.62,22.62,23.12
+SNR Host Lanes [dB]                : 25.75,25.37,25.50,25.87
+IB Cable Width                     : 1x,2x,4x
+Memory Map Revision                : 64
+Linear Direct Drive                : 0
+Cable Breakout                     : Unspecified
+SMF Length                         : N/A
+Cable Rx AMP                       : 1
+Cable Rx Emphasis (Pre)            : 0
+Cable Rx Post Emphasis             : 0
+Cable Tx Equalization              : 0
+Wavelength Tolerance               : 14.0nm
+Module State                       : Ready state
+DataPath state [per lane]          : DPActivated,DPActivated,DPActivated,DPActivated
+Rx Output Valid [per lane]         : 0,0,0,0
+Nominal bit rate                   : N/A
+Rx Power Type                      : Average power
+Manufacturing Date                 : 10_12_25
+Active Set Host Compliance Code    : 
+Active Set Media Compliance Code   : 400G-SR4
+Error Code Response                : ConfigUndefined
+Module FW Fault                    : 0
+DataPath FW Fault                  : 0
+Tx Fault [per lane]                : 0,0,0,0
+Tx LOS [per lane]                  : 0,0,0,0
+Tx CDR LOL [per lane]              : 0,0,0,0
+Rx LOS [per lane]                  : 0,0,0,0
+Rx CDR LOL [per lane]              : 0,0,0,0
+Tx Adaptive EQ Fault [per lane]    : 0,0,0,0
+

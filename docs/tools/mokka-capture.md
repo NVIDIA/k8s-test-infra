@@ -14,8 +14,10 @@ go build -o bin/mokka-capture ./cmd/mokka-capture
 | [`collect`](#collect) | Captures nodes and the cluster through `kubectl` |
 | [`scrub`](#scrub) | Replaces identifiers in a capture, or checks that none are left |
 | [`profile`](#profile) | Writes a mock NVML profile from a scrubbed capture |
+| [`nic-surfaces`](#nic-surfaces) | Lists a captured node's NIC surfaces as one normalized list |
 | [`diff smi`](#diff-smi) | Compares two `nvidia-smi -q -x` documents |
 | [`diff nvml`](#diff-nvml) | Compares two NVML recordings |
+| [`diff nic`](#diff-nic) | Compares two captured nodes' NIC surfaces, one check per surface |
 | [`dump`](#dump) | Records the NVML library on the loader path; `collect` runs it in the driver container |
 
 `mokka-capture <command> --help` lists a command's flags and arguments. A flag
@@ -34,21 +36,58 @@ mokka-capture collect [flags] build-dump
 | --- | --- | --- |
 | `driver <node>...` | in the GPU Operator driver container, or with `-mock` a stand-in pod | `nvidia-smi`, the NVML dump, `/proc/driver/nvidia` |
 | `host <node>...` | in a temporary privileged pod | PCI, NUMA, device files, NICs, CDI specs |
-| `network <node>...` | in the same pod | only the NIC, interface and RDMA surfaces, plus the cluster's network objects |
+| `network <node>...` | in the same pod | only the NIC, interface and RDMA surfaces (below), plus the cluster's network objects and the nodes' NFD `NodeFeature`s |
 | `cluster` | on your machine | node labels, ResourceSlices, `ClusterPolicy`, DCGM metrics |
 | `all <node>...` | all of the above | `driver` and `host` for each node, then `cluster` |
 | `build-dump` | Docker, on your machine | a Linux `mokka-capture` for the NVML dump (below) |
 
 Every command runs in the cluster and every output is written on your machine,
 one file per command under `-out`/`<node>/` or `-out`/`cluster/`. A command that
-fails does not stop the run: its error goes to `errors.log` beside the output.
+fails does not stop the run: its error goes to `errors.log` beside the output,
+under a `--- <file>, try <n>` heading for each try that failed or printed an
+error, and a failure ends with `FAILED: <file>`.
 The cluster connection is checked before each node, since a dropped connection
-leaves empty files that look like answers; the run ends by listing any empty
+leaves empty files that look like answers, and a command whose connection drops
+is run again, up to three times in all; the run ends by listing any empty
 files.
 
 The host pod is named `capture-<node>-<pid>` and is deleted when the command
 finishes, is interrupted, or fails. It is privileged, mounts the node's root
-filesystem, and installs `pciutils`, `rdma-core` and other tools with `apt`.
+filesystem, and installs `pciutils`, `rdma-core`, `mstflint` and other tools
+with `apt`.
+
+`network`, and `host` with it, takes each NIC surface a workload or operator
+can read, as plain text, one file per source:
+
+- PCI: every function with its config space (`host-lspci-mellanox-vv.txt`),
+  each NIC function's sysfs attributes and the bridges above it
+  (`pci-nic-sysfs.txt`), and its vital product data decoded from sysfs, as
+  `lspci` prints it (`pci-vpd-fields.txt`).
+- RDMA: devices and ports with GIDs, partition keys and counter names
+  (`rdma-sysfs.txt`), `/dev/infiniband` with each node's type and number and
+  the verbs and MAD classes behind it (`rdma-char-devices.txt`), `rdma dev`,
+  `link` and `system`, `ibstat`, `ibv_devinfo -v`, and the RDMA kernel
+  modules with their parameters (`sys-module-rdma.txt`).
+- Interfaces: `ip -d link`, sysfs (`net-sysfs.txt`), ECN and QoS settings
+  (`net-ecn-qos.txt`), `ethtool` with `-i` and `-m` (`net-ethtool*.txt`).
+- The NIC itself: `devlink` dev info, ports, eswitch mode and health reporters
+  (`devlink-*.txt`), and where MFT or mstflint is present the firmware
+  configuration (`fw-mlxconfig.txt`), firmware image (`fw-flint.txt`) and each
+  port's link and cable (`cable-mlxlink.txt`).
+
+A file whose tool the pod lacks is marked `FAILED` in `errors.log`.
+
+On a cluster where a new privileged pod is not welcome, `-exec-in
+namespace/name-part[/container]` runs the `host` and `network` commands in a pod
+the cluster already runs on each node instead: the first pod on the node, in
+that namespace, whose name contains `name-part`. Nothing is created, installed
+or deleted. The pod should be privileged and on the host network to see the
+node's `/sys` and interfaces, and commands whose tools it lacks fail into
+`errors.log`. A node with no matching pod is skipped.
+
+```bash
+mokka-capture collect -exec-in nvidia-network-operator/nic-configuration-daemon -out real network <node>
+```
 
 The NVML dump has to run inside the driver container, which holds the driver's
 `libnvidia-ml.so.1`. `build-dump` builds `mokka-capture` for Linux in a `golang`
@@ -106,6 +145,7 @@ is a gap in the mock.
 | `-toolkit-ctk` | `/usr/local/nvidia/toolkit/nvidia-ctk` | `nvidia-ctk` in the toolkit container |
 | `-host-pod-namespace` | `default` | Namespace for the host pod |
 | `-host-pod-image` | `ubuntu:24.04` pinned by digest | Image for the host pod; pin it by digest |
+| `-exec-in` | none | Run the host commands in an existing pod, `namespace/name-part[/container]`, instead of a host pod |
 
 `kubectl` uses its own configuration (`KUBECONFIG`, the current context).
 
@@ -129,12 +169,14 @@ every source directory.
 | --- | --- |
 | GPU UUID, MIG UUID | `GPU-0000000N-0000-0000-0000-00000000000N`, `MIG-…` |
 | Other UUIDs (fabric cluster, Kubernetes object UIDs) | `0000000N-0000-0000-0000-00000000000N` |
-| 32-digit machine IDs, and the unit fields of PCI vital product data | 32 hex digits ending in `N` |
+| 32-digit machine IDs, the unit fields of PCI vital product data (`V3`, and up to 64 digits of `VU`), and a NIC's switch and port IDs (`switchid` in `ip -d link`, `phys_switch_id`, `phys_port_id`) | 32 hex digits ending in `N` |
 | Serial numbers: `<serial>`, `<chassis_serial_number>`, `Serial Number` lines, VPD `[SN]` | `1650000000NNN` and `1820000000NNN` |
 | PDIs, fabric GUIDs and other 16-digit hex values (except the masks below) | `0x000000000000000N` |
 | Colon-separated GUIDs (`cc30:8903:00cb:be0e`) | `0000:0000:0000:000N`, the same `N` as the `0x` form of that GUID |
-| IPv6 addresses in any notation (`fd00::12`, `::ffff:10.0.0.7`), such as node addresses and RDMA GIDs | `fe80:0000:…:000N` |
+| Link-local IPv6 addresses (`fe80::…`), such as RDMA GIDs, whose interface ID is a GUID or a MAC | Built from that GUID's or MAC's placeholder: `fe80:0000:0000:0000:0000:0000:0000:000N` or `fe80:0000:0000:0000:0000:00ff:fe00:000N` |
+| Other IPv6 addresses in any notation (`fd00::12`, `::ffff:10.0.0.7`), such as node addresses and RoCE GIDs of IP addresses | `2001:0db8:0000:…:000N` |
 | MAC addresses, and `enx<mac>` interface names | `02:00:00:00:00:0N` |
+| IPoIB hardware addresses (20 bytes, ending in the port GUID) | The first 12 bytes, then the GUID's placeholder: `…:fe:80:00:00:00:00:00:00:00:00:00:00:00:0N` |
 | IPv4 addresses | `192.0.2.N` |
 | Anything given with `-replace old=new` | `new` |
 
@@ -151,6 +193,11 @@ Rules that follow from keeping the data useful:
 - **A serial number is scrubbed everywhere once it is found in a context that
   names it.** The same value in an NVML dump or a kernel log line carries nothing
   around it that says "serial".
+- **Relations inside a value survive.** GID 0 of an InfiniBand port carries the
+  port GUID, a RoCE link-local GID carries its interface's MAC, and an IPoIB
+  address carries the port GUID, so their placeholders carry that GUID's or
+  MAC's placeholder. An interface ID that appears elsewhere as a GUID is taken
+  as a GUID; otherwise one with `ff:fe` in its middle is taken as a MAC.
 - **Absent values stay.** Empty, `N/A` and all-zero values are not rewritten.
 - **Things that look like identifiers but are not stay.** Version numbers
   (`99.00.16.55`), netmasks, the unspecified, loopback and broadcast addresses,
@@ -300,6 +347,40 @@ from each committed capture; the tests fail when a rule change alters it, check
 that it loads in the mock engine, and check that every key is one the engine
 reads. `go test ./internal/capture/profile -update` rewrites it.
 
+## nic-surfaces
+
+```bash
+mokka-capture nic-surfaces <capture node directory>
+```
+
+Reads the files `collect network` wrote for one node (and `smi-topo-m.txt`
+from `collect driver`) and prints every NIC surface in them as one record per
+line: object, attribute, value and the file it came from (or, for a record
+derived from several files, all of them joined by `+`), separated by tabs.
+Objects are keyed by what the hardware fixes, not by names cluster software or
+probe order chooses, so a renamed device keeps its key and two nodes' lists
+compare record by record:
+
+| Object | Key | From |
+| --- | --- | --- |
+| `pci/<bus ID>`, `bridge/<bus ID>` | a NIC function, a bridge of its PCIe switch | `pci-nic-sysfs.txt`, `pci-vpd-fields.txt`, `host-lspci-mellanox-vv.txt` |
+| `gpu/<bus ID>` | a GPU, for pairing it with a NIC | `pci-all-functions.txt` |
+| `rdma/<bus ID>/<role>`, `port/<bus ID>/<role>/<port>` | an RDMA device by its function, `smi` for a plane sub-device and `dev` otherwise | `rdma-sysfs.txt` |
+| `uverbs/…`, `mad/…`, `devnode/<name>` | a device file, by the RDMA device and port it serves | `rdma-char-devices.txt` |
+| `net/<bus ID>/<port name>` | an interface on a NIC function, by the driver's port name or its device port, and an IPoIB interface also by its partition key | `net-sysfs.txt`, `net-ecn-qos.txt`, `net-ethtool*.txt` |
+| `module/<name>` | a kernel module | `sys-module-rdma.txt` |
+| `ibv/…`, `ibstat/…`, `rdmalink/…`, `topo/…` | a tool's view of an RDMA device, keyed like `rdma` | `host-ibv-devinfo.txt`, `host-ibstat.txt`, `rdma-link.txt`, `smi-topo-m.txt` |
+| `devlink/<bus ID>`, `fw/<bus ID>`, `cable/<bus ID>` | a NIC function's devlink view, firmware and cable | `devlink-*.txt`, `fw-*.txt`, `cable-mlxlink.txt` |
+
+An RDMA device that is no PCI function, as on a Mokka node, is keyed
+`unbound/<name>/<role>`. Identifiers are kept as captured, but three relations
+inside a value are added as records, because a scrub keeps them:
+`gid0_is_node_guid` (an InfiniBand port's GID 0 carries the port GUID),
+`link_local_gid_from_mac` (a RoCE link-local GID carries its interface's MAC)
+and `address_has_node_guid` (an IPoIB address ends in the port GUID). A first
+comment line names the files the capture lacks, absent or marked `FAILED` in
+`errors.log`.
+
 ## diff smi
 
 ```bash
@@ -407,6 +488,99 @@ entries listed per kind (`-max 100000` lists every value left out); a listed
 difference shows only the parts that were compared. Devices pair by index, which holds when both sides expose the same
 GPUs in the same order. Gzipped recordings (`.json.gz`) are read directly, which
 is how a committed capture is stored.
+
+## diff nic
+
+```bash
+mokka-capture diff nic [-causes file] [-failed] [-json | -report] <real node directory> <mock node directory>
+```
+
+Reads both capture node directories through [`nic-surfaces`](#nic-surfaces)
+and reports one check per object and attribute, so the result reads like a
+test run:
+
+```text
+PASS  port.state  port/0000:03:00.0/dev/1  = 4: ACTIVE
+FAIL  port.rate  port/0000:03:00.0/dev/1  real="800 Gb/sec (2X XDR)" simulated="400 Gb/sec (4X NDR)"  [schema gap: …]
+SKIP  rdma.name  rdma/0000:03:00.0/smi  only on the real node (smi0)  [by design: …]
+SKIP  rdma.node_guid  rdma/0000:03:00.0/dev  [by design: an identifier; compared through relations]
+SKIP  fw.NUM_OF_PLANES_P1  fw/0000:03:00.0  [capture blind spot: fw-mlxconfig.txt was not captured on the simulated node: the capturing pod lacks the tool]
+```
+
+There is one check per attribute either side has. An attribute only one side
+has fails, so an object Mokka doesn't render fails once per attribute, and
+rendering it can only lower the failures. Otherwise each attribute is
+compared by its rule (`internal/capture/nicdiff/rules.go`): exactly by
+default; as a set for lists of files, counters and GID types, with the
+probe numbers of auxiliary devices (`mlx5_core.rdma.0`) dropped from a PCI
+function's files; by count for
+lists of identifiers such as GIDs and partition keys; by major number and mode
+for device numbers, whose minor follows probe order; and by its `MLNX` marker
+for a VPD `VU` field. A Mokka RDMA device that is no PCI function is compared
+with the real device of the same name, and its `pci_function` attribute
+records the difference.
+
+**Identifiers are compared as relations, never as values.** GUIDs, MACs, LIDs,
+serials, VPD IDs and switch IDs are not compared. What they relate is: the
+relations inside one value that `nic-surfaces` records, and these, as
+`rel/<relation>/<subject>` checks:
+
+| Relation | Holds when |
+| --- | --- |
+| `smi_node_guid`, `smi_lid` | an SMI plane device shares its parent's node GUID, and each of its ports the parent port's LID |
+| `sys_image_guid` | whose node GUID a device's system image GUID is: its own (`self`), another device's (its PCI address), or no device's (`none`) |
+| `node_guids` | no two devices share a node GUID |
+| `vf_sys_image_guid` | a VF shares its PF's system image GUID |
+| `vu_serial` | a function's VPD `VU` field starts with its serial number, as a BlueField's does |
+| `board` | which ASICs share a board serial number |
+| `data_direct` | the Data Direct function each network PF shares its VPD `V3` UUID with (`by_v3`, as rdma-core's `rdma_topo` pairs them), the GPU under it (`gpu`), and the pairing by the `VU` field (`by_vu`) |
+| `switch_id` | which functions' interfaces share a switch ID |
+| `devnode` | each device file in `/dev/infiniband` carries the number its sysfs entry gives |
+
+A scrub gives equal values equal placeholders and keeps the relations inside a
+value, so the relations hold in scrubbed captures too.
+
+**Every failure and every check not made is counted by cause:**
+
+| Cause | Meaning | Assigned by |
+| --- | --- | --- |
+| schema gap | Mokka cannot show the surface yet | the causes file |
+| rule bug | `diff nic` compares it wrongly | the causes file |
+| capture blind spot | one side could not capture it: a file it comes from or is derived from is absent or marked `FAILED` in that side's `errors.log` (its pod lacked the tool, or the connection dropped), `rdma-sysfs.txt`, which keys everything per RDMA device, is missing, or the pod could not see `/dev/infiniband` | `diff nic` |
+| by design | out of scope, so not a failure: a value that is not comparable (an identifier, a name cluster software chooses, the host's CPUs), or a difference the causes file says Mokka does not aim to show, such as a DPU it does not simulate. Listed as `SKIP` with what differed, and counted as not compared | `diff nic`, or the causes file |
+| unclassified | nothing explains it yet | — |
+
+The causes file is a YAML list. Each entry's `match` is a regular expression
+over the check's rule and object, `"<rule> <object>"`; the first entry that
+matches a difference gives its cause and note:
+
+```yaml
+- match: '^\S+ \S*/smi(/|$)|^rel\.smi_'
+  cause: by design
+  note: SMI plane devices come from the cluster's rdma-smi-sub-device DaemonSet
+```
+
+`-failed` lists only the failures; `-json` writes one JSON object per check and
+then the summary. `-report` writes a Markdown page to review instead of a line
+per check: the checks by surface (PCI functions, RDMA ports, device files and
+so on), then every failure and every check not made grouped by cause, with the
+rules each group covers, then the rules that pass. The command exits `1` when
+a failure is unclassified, so a new difference fails it until it has a cause.
+An entry that matches no difference, because its gap was fixed or an earlier
+entry takes its matches, is named on standard error.
+
+To measure a Mokka profile against a committed capture, such as
+[`gb300-ib`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/hardware-captures/gb300-ib/README.md),
+capture a Mokka node running it and compare the two:
+
+```bash
+mokka-capture collect -mock -out mock network <node>
+mokka-capture collect -mock -out mock driver <node>
+mokka-capture diff nic -report tests/hardware-captures/gb300-ib/node-a mock/<node>
+```
+
+A committed capture leaves out `errors.log`, which names the machine, and the
+files its pod could not take, so `nic-surfaces` reads them as not captured.
 
 ## dump
 
