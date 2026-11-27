@@ -31,6 +31,7 @@ import (
 )
 
 type rackAllocator struct {
+	slices       *gpuSlices
 	dra          bool
 	records      client.SGPURackAllocationInterface
 	rackAPI      client.SGPURackInterface

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -89,21 +90,30 @@ func (a *rackAllocator) dropAllocations(ctx context.Context, record *api.SGPURac
 }
 
 func (a *rackAllocator) withdrawNode(ctx context.Context, ref *api.SGPUNodeReference, revision int64) error {
+	if a.slices != nil {
+		a.slices.mu.Lock()
+		defer a.slices.mu.Unlock()
+	}
 	nodes := a.core.Nodes()
 	node, err := nodes.Get(ctx, ref.Name, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) || err == nil && node.UID != ref.UID {
+		if a.slices != nil {
+			return a.slices.remove(ctx, ref.Name, ref.UID)
+		}
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if node.UID != ref.UID {
-		return nil
-	}
-	tombstone, err := assignment.DecodeAssignment(node.Annotations[metadata.AssignmentAnnotation])
-	if err != nil || tombstone.Assigned || tombstone.NodeUID != ref.UID || tombstone.AssignmentRevision != revision || node.Labels[metadata.AssignedLabel] == "true" {
+	if !matchesRelease(node, ref, revision) {
 		return fmt.Errorf("node %s does not carry release revision %d", ref.Name, revision)
 	}
-	publisher := labelPublisher{nodes: nodes, recorder: a.recorder}
+	publisher := labelPublisher{nodes: nodes, recorder: a.recorder, dra: a.dra, slices: a.slices}
 	return publisher.publishResources(ctx, node, nil)
+}
+
+func matchesRelease(node *corev1.Node, ref *api.SGPUNodeReference, revision int64) bool {
+	tombstone, err := assignment.DecodeAssignment(node.Annotations[metadata.AssignmentAnnotation])
+	return err == nil && !tombstone.Assigned && tombstone.NodeUID == ref.UID &&
+		tombstone.AssignmentRevision == revision && node.Labels[metadata.AssignedLabel] != "true"
 }

@@ -32,6 +32,7 @@ import (
 )
 
 type labelPublisher struct {
+	slices    *gpuSlices
 	dra       bool
 	nodes     coreclient.NodeInterface
 	views     *rackViews
@@ -54,11 +55,12 @@ func newLabelPublisher(kube kubernetes.Interface, racks cache.SharedIndexInforme
 // is down. Keep only discovery metadata and the two GPU status fields in the watch cache.
 type nodeObservation struct {
 	metav1.PartialObjectMetadata
-	assignment string
-	ownership  string
-	gpu        gpuStatus
-	kwok       bool
-	assigned   bool
+	sliceMarker string
+	assignment  string
+	ownership   string
+	gpu         gpuStatus
+	kwok        bool
+	assigned    bool
 }
 
 func observeNode(obj any) (any, error) {
@@ -73,6 +75,7 @@ func observeNode(obj any) (any, error) {
 	}
 	n := &nodeObservation{
 		PartialObjectMetadata: metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Name: node.Name, UID: node.UID, ResourceVersion: node.ResourceVersion}},
+		sliceMarker:           node.Annotations[gpuSliceKey],
 		assignment:            node.Annotations[metadata.AssignmentAnnotation],
 		kwok:                  isKWOK(node.ObjectMeta),
 		assigned:              node.Labels[metadata.AssignedLabel] == "true",
@@ -100,7 +103,7 @@ func appliedNodeFields(entries []metav1.ManagedFieldsEntry) string {
 }
 
 func (n *nodeObservation) relevant() bool {
-	return n.ownership != "" || n.gpu.capacity.owned || n.gpu.allocatable.owned || n.kwok && n.assignment != ""
+	return n.sliceMarker != "" || n.ownership != "" || n.gpu.capacity.owned || n.gpu.allocatable.owned || n.kwok && n.assignment != ""
 }
 
 func isKWOK(node metav1.ObjectMeta) bool {
@@ -133,7 +136,7 @@ func (p *labelPublisher) nodeUpdated(old, current any) {
 	if a.UID != b.UID {
 		p.views.forgetNode(a.UID)
 	}
-	if a.UID != b.UID || a.assignment != b.assignment || a.gpu != b.gpu || a.ownership != b.ownership || a.kwok != b.kwok || a.assigned != b.assigned || !maps.Equal(a.Labels, b.Labels) {
+	if a.UID != b.UID || a.sliceMarker != b.sliceMarker || a.assignment != b.assignment || a.gpu != b.gpu || a.ownership != b.ownership || a.kwok != b.kwok || a.assigned != b.assigned || !maps.Equal(a.Labels, b.Labels) {
 		p.enqueue(b)
 	}
 }
@@ -186,6 +189,10 @@ func (p *labelPublisher) processNext(ctx context.Context) bool {
 }
 
 func (p *labelPublisher) reconcile(ctx context.Context, name string) error {
+	if p.slices != nil {
+		p.slices.mu.Lock()
+		defer p.slices.mu.Unlock()
+	}
 	node, err := p.nodes.Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return nil
@@ -202,14 +209,52 @@ func (p *labelPublisher) reconcile(ctx context.Context, name string) error {
 		}
 		return p.publishResources(ctx, node, nil)
 	}
-	desired, err := p.desiredLabels(node)
-	if err != nil || desired == nil {
+	// A terminating Node can outlive its slice while a finalizer holds the Node.
+	// Do not recreate a pool that Kubernetes is garbage collecting.
+	if node.DeletionTimestamp != nil {
+		return nil
+	}
+	return p.publishBoundNode(ctx, node)
+}
+
+func (p *labelPublisher) publishBoundNode(ctx context.Context, node *corev1.Node) error {
+	slot, err := p.desiredSlot(node)
+	if err != nil || slot == nil {
 		return err
 	}
-	return p.publishResources(ctx, node, desired)
+	desired, err := metadata.DiscoveryLabels(len(slot.GPUs), slot.Hardware)
+	if err != nil {
+		return err
+	}
+	if p.slices != nil {
+		node, err = p.markSlice(ctx, node, sliceName(node.UID))
+		if err != nil {
+			return err
+		}
+	}
+	if err := p.publishResources(ctx, node, desired); err != nil {
+		return err
+	}
+	if p.slices != nil {
+		return p.slices.publish(ctx, node, *slot)
+	}
+	return nil
 }
 
 func (p *labelPublisher) publishResources(ctx context.Context, node *corev1.Node, desired map[string]string) error {
+	if desired == nil && p.slices != nil {
+		if err := p.slices.remove(ctx, node.Name, node.UID); err != nil {
+			return err
+		}
+		var err error
+		node, err = p.markSlice(ctx, node, "")
+		if err != nil {
+			return err
+		}
+	}
+	if !p.dra && node.Annotations[gpuSliceKey] != "" {
+		return fmt.Errorf("node %s still has a DRA pool: release its rack slot in DRA mode before enabling device-plugin capacity", node.Name)
+	}
 	capacity := desired[metadata.GPUCountLabel]
 	if p.dra {
 		capacity = ""
@@ -223,7 +268,7 @@ func (p *labelPublisher) publishResources(ctx context.Context, node *corev1.Node
 
 // Only publish an accepted response for the exact live Node assignment.
 // A rack watch without a usable response leaves the previous labels in place.
-func (p *labelPublisher) desiredLabels(node *corev1.Node) (map[string]string, error) {
+func (p *labelPublisher) desiredSlot(node *corev1.Node) (*state.NodePayload, error) {
 	a, err := assignment.DecodeAssignment(node.Annotations[metadata.AssignmentAnnotation])
 	if err != nil {
 		return nil, err
@@ -232,7 +277,7 @@ func (p *labelPublisher) desiredLabels(node *corev1.Node) (map[string]string, er
 	if !ok || n.Node.Name != node.Name || !matchesPublication(n, a) {
 		return nil, nil
 	}
-	return metadata.DiscoveryLabels(len(n.GPUs), n.Hardware)
+	return &n, nil
 }
 
 func matchesPublication(n state.NodePayload, a assignment.Assignment) bool {

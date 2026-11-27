@@ -70,10 +70,14 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) 
 	podWatch := cache.NewReflectorWithOptions(cache.ToListWatcherWithWatchListSemantics(lw, kube), &corev1.Pod{}, pods, cache.ReflectorOptions{Name: "bound Pods"})
 	discovery := newLabelPublisher(kube, racks)
 	discovery.dra = c.gpuPublishing == "DRA"
+	if discovery.dra {
+		discovery.slices = &gpuSlices{client: kube.ResourceV1().ResourceSlices(), driver: c.gpuDriver}
+	}
 	views := newRackViews(pods, discovery.queue.Add)
 	discovery.views = views
 	allocator := &rackAllocator{
 		dra:     discovery.dra,
+		slices:  discovery.slices,
 		records: mokka.MokkaV1alpha1().SGPURackAllocations(),
 		rackAPI: mokka.MokkaV1alpha1().SGPURacks(),
 		core:    kube.CoreV1(),
@@ -134,6 +138,9 @@ func (m model) runWorkers(ctx context.Context, c config, rackEvents cache.Resour
 	recorder := b.NewRecorder(scheme.Scheme, corev1.EventSource{Component: fieldManager})
 	m.discovery.recorder = recorder
 	m.allocator.recorder = recorder
+	if m.discovery.slices != nil {
+		group.Go(func() error { return m.discovery.watchSlices(ctx, m.kube) })
+	}
 	group.Go(func() error { return m.discovery.run(ctx) })
 	group.Go(func() error { return m.fetcher.run(ctx) })
 	group.Go(func() error { m.racks.RunWithContext(ctx); return nil })

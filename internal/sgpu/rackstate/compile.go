@@ -145,6 +145,7 @@ func gpuModel(gpus *api.SGPUGPUs) state.GPUModel {
 	m := &gpus.Model
 	memory := gpus.Memory.Capacity.DeepCopy()
 	result := state.GPUModel{
+		Brand: m.Brand, AddressingMode: m.AddressingMode,
 		Vendor: m.Vendor, Product: m.Product, ProductName: m.ProductName, Architecture: m.Architecture,
 		Memory: memory.String(), PCI: *gpus.PCI.DeepCopy(), Cores: m.Cores.DeepCopy(),
 		Board: m.Board.DeepCopy(), Firmware: m.Firmware.DeepCopy(),

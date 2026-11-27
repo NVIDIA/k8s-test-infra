@@ -72,17 +72,16 @@ func TestPublishRequiresExactKWOKBinding(t *testing.T) {
 	nodeState := state.NodePayload{Hardware: state.Hardware{Rack: state.Object{Name: rack.Name, UID: rack.UID}, RackDeliveryGeneration: 4, GPUModel: state.GPUModel{Memory: "40Gi", ProductName: "NVIDIA A100"}}, Slot: state.Slot{Node: state.Object{Name: "node", UID: node.UID}, AssignmentRevision: 2, GPUs: make([]state.GPU, 8)}}
 	views.nodes[node.UID] = nodeState
 	p := labelPublisher{views: views}
-	labels, err := p.desiredLabels(node)
+	slot, err := p.desiredSlot(node)
 	require.NoError(t, err)
-	require.Equal(t, "8", labels[metadata.GPUCountLabel])
-	require.Equal(t, "40960", labels[metadata.GPUMemoryLabel])
+	require.Equal(t, nodeState, *slot)
 	nodeState.RackDeliveryGeneration = 3
 	views.nodes[node.UID] = nodeState
-	labels, err = p.desiredLabels(node)
+	slot, err = p.desiredSlot(node)
 	require.NoError(t, err)
-	require.Nil(t, labels)
+	require.Nil(t, slot)
 	node.UID = "replacement"
-	labels, err = p.desiredLabels(node)
+	slot, err = p.desiredSlot(node)
 	require.NoError(t, err)
-	require.Nil(t, labels)
+	require.Nil(t, slot)
 }

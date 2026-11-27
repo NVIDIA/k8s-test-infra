@@ -407,6 +407,14 @@ spec:
                         description: Model describes the GPU vendor, product, and
                           architecture.
                         properties:
+                          addressingMode:
+                            description: AddressingMode is the GPU system-memory addressing
+                              mode reported by NVML.
+                            enum:
+                            - ATS
+                            - HMM
+                            - None
+                            type: string
                           architecture:
                             description: Architecture is the GPU architecture name.
                             type: string
@@ -418,6 +426,10 @@ spec:
                                   for the GPU.
                                 type: string
                             type: object
+                          brand:
+                            description: Brand is the NVIDIA driver brand string (for
+                              example, Nvidia or Tesla).
+                            type: string
                           computeCapability:
                             description: ComputeCapability is the CUDA compute capability
                               version.
