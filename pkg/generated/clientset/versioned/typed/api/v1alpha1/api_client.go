@@ -17,6 +17,7 @@ type MokkaV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	SGPUInventoriesGetter
 	SGPURacksGetter
+	SGPURackAllocationsGetter
 	SGPURackProfilesGetter
 	SGPURuntimePoliciesGetter
 	SNICProfilesGetter
@@ -33,6 +34,10 @@ func (c *MokkaV1alpha1Client) SGPUInventories() SGPUInventoryInterface {
 
 func (c *MokkaV1alpha1Client) SGPURacks() SGPURackInterface {
 	return newSGPURacks(c)
+}
+
+func (c *MokkaV1alpha1Client) SGPURackAllocations() SGPURackAllocationInterface {
+	return newSGPURackAllocations(c)
 }
 
 func (c *MokkaV1alpha1Client) SGPURackProfiles() SGPURackProfileInterface {

@@ -1,0 +1,115 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+    helm.sh/resource-policy: keep
+  name: sgpurackallocations.mokka.nvidia.com
+spec:
+  group: mokka.nvidia.com
+  names:
+    categories:
+    - mokka
+    kind: SGPURackAllocation
+    listKind: SGPURackAllocationList
+    plural: sgpurackallocations
+    singular: sgpurackallocation
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SGPURackAllocation records container allocations for one rack. The KWOK data
+          plane names the record after its owning rack and updates it with resourceVersion.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          nodes:
+            description: Nodes lists the rack's nodes with recorded allocations.
+            items:
+              description: NodeAllocation groups the Pods allocated resources on one
+                node.
+              properties:
+                name:
+                  minLength: 1
+                  type: string
+                pods:
+                  items:
+                    description: PodAllocation uses the Pod UID to distinguish replacements
+                      with the same name.
+                    properties:
+                      containers:
+                        items:
+                          description: ContainerAllocation records the GPU identities
+                            and optional NUMA placement.
+                          properties:
+                            gpus:
+                              items:
+                                pattern: ^GPU-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: set
+                            name:
+                              minLength: 1
+                              type: string
+                            numaZone:
+                              description: NUMAZone is absent when no zone was assigned.
+                                Zero is a valid zone.
+                              format: int32
+                              minimum: 0
+                              type: integer
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      pod:
+                        description: Pod identifies the Pod as namespace/name.
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?/[a-z0-9]([-a-z0-9.]*[a-z0-9])?$
+                        type: string
+                      uid:
+                        description: |-
+                          UID is a type that holds unique ID values, including UUIDs.  Because we
+                          don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                          intent and helps make sure that UIDs and names do not get conflated.
+                        minLength: 1
+                        type: string
+                    required:
+                    - containers
+                    - pod
+                    - uid
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                  - uid
+                  x-kubernetes-list-type: map
+              required:
+              - name
+              - pods
+              type: object
+            type: array
+            x-kubernetes-list-map-keys:
+            - name
+            x-kubernetes-list-type: map
+        type: object
+    served: true
+    storage: true

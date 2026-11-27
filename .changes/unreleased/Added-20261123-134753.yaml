@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  helm: The mokka-crds chart adds SGPURackAllocation to store GPU UUIDs and optional NUMA zones for containers on each rack.
+time: 2026-11-23T11:47:53Z
+custom:
+  Issue: "1247"

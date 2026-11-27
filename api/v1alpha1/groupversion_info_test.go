@@ -22,6 +22,7 @@ func TestAddToScheme(t *testing.T) {
 		"SGPURuntimePolicy", "SGPURuntimePolicyList",
 		"SGPURack", "SGPURackList",
 		"SNICProfile", "SNICProfileList",
+		"SGPURackAllocation", "SGPURackAllocationList",
 	}
 	for _, k := range kinds {
 		require.Truef(t, scheme.Recognizes(GroupVersion.WithKind(k)),

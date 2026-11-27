@@ -13,6 +13,10 @@ type SGPUInventoryListerExpansion interface{}
 // SGPURackLister.
 type SGPURackListerExpansion interface{}
 
+// SGPURackAllocationListerExpansion allows custom methods to be added to
+// SGPURackAllocationLister.
+type SGPURackAllocationListerExpansion interface{}
+
 // SGPURackProfileListerExpansion allows custom methods to be added to
 // SGPURackProfileLister.
 type SGPURackProfileListerExpansion interface{}

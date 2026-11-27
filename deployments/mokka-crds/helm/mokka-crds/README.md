@@ -6,6 +6,7 @@ CRDs for the `mokka.nvidia.com/v1alpha1` API group:
 - `SGPUInventory`
 - `SGPURuntimePolicy`
 - `SGPURack`
+- `SGPURackAllocation`
 - `SNICProfile`
 
 ## Install
