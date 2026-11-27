@@ -38,6 +38,37 @@ generation, then fetches the newer generation. A rack that leaves the shard lose
 its previous ownership is discarded. For each Node UID, the assignment revision
 takes precedence. Within one revision, the rack delivery generation orders updates.
 
+## Optional Kubernetes APIs
+
+The chart uses device-plugin mode by default. To select the APIs that the
+KWOK data plane will use, set these values:
+
+```yaml
+kwok:
+  enabled: true
+  dataPlane:
+    gpuPublishing: DRA
+    gpuDriver: gpu.nvidia.com
+    computeDomains:
+      enabled: false
+      driverNamespace: nvidia
+    nodeResourceTopology:
+      enabled: false
+```
+
+In DRA mode the replica checks for ResourceSlices, ResourceClaims, and
+DeviceClasses. If its GPU DeviceClass does not map to `nvidia.com/gpu`, it
+logs a warning and continues. A KWOK Node with positive GPU capacity gets
+a warning Event. Mokka withdraws its own device-plugin capacity and leaves
+capacity owned by another component in place.
+
+ComputeDomains require the resource and NVIDIA ComputeDomain APIs.
+NodeResourceTopology requires the NFD topology API. During startup the replica
+serves `/healthz` and retries missing APIs before it starts its workers.
+Its log and the response body from `/readyz` identify the missing API. The switches configure readiness and RBAC.
+Publishing ResourceSlices, allocating from claims, and writing ComputeDomain
+and topology objects are separate implementation steps.
+
 ## GPU capacity
 
 A bound KWOK node advertises the number of GPUs in its rack slot as

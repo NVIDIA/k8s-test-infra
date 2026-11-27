@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  helm: Configure the KWOK GPU publishing mode and optional ComputeDomain and NodeResourceTopology APIs. The data plane waits for the selected APIs before it reports ready.
+time: 2026-11-25T14:25:44Z
+custom:
+  Issue: "1315"

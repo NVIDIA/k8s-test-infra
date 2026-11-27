@@ -5,6 +5,8 @@ package main
 
 import (
 	"context"
+	"sync/atomic"
+	"time"
 
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -30,6 +32,7 @@ import (
 const rackUIDIndex = "rackUID"
 
 type model struct {
+	kube      kubernetes.Interface
 	events    coreclient.EventInterface
 	racks     cache.SharedIndexInformer
 	pods      *shardPods
@@ -66,9 +69,11 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) 
 	pods := newShardPods()
 	podWatch := cache.NewReflectorWithOptions(cache.ToListWatcherWithWatchListSemantics(lw, kube), &corev1.Pod{}, pods, cache.ReflectorOptions{Name: "bound Pods"})
 	discovery := newLabelPublisher(kube, racks)
+	discovery.dra = c.gpuPublishing == "DRA"
 	views := newRackViews(pods, discovery.queue.Add)
 	discovery.views = views
 	allocator := &rackAllocator{
+		dra:     discovery.dra,
 		records: mokka.MokkaV1alpha1().SGPURackAllocations(),
 		rackAPI: mokka.MokkaV1alpha1().SGPURacks(),
 		core:    kube.CoreV1(),
@@ -77,6 +82,7 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) 
 		views:   views,
 	}
 	return model{
+		kube:      kube,
 		events:    kube.CoreV1().Events(metav1.NamespaceAll),
 		allocator: allocator,
 		fetcher:   newRackFetcher(c, views),
@@ -99,12 +105,29 @@ func (m model) run(ctx context.Context, c config) error {
 		return err
 	}
 	server := health.NewServer(c.listen, health.DefaultShutdownTimeout)
+	var prerequisites atomic.Value
+	prerequisites.Store("checking the configured Kubernetes APIs")
 	server.SetReadiness(func() health.Probe {
+		if reason := prerequisites.Load().(string); reason != "" {
+			return health.Unhealthy("%s", reason)
+		}
 		if !rackEvents.HasSynced() || !m.pods.hasSynced() || !m.discovery.nodeWatch.HasSynced() {
 			return health.Unhealthy("waiting for rack, pod and node caches")
 		}
 		return health.OK()
 	})
+	group.Go(func() error { return server.Run(ctx) })
+	group.Go(func() error {
+		if !c.waitForAPIs(ctx, m.kube, 10*time.Second, func(reason string) { prerequisites.Store(reason) }) {
+			return nil
+		}
+		return m.runWorkers(ctx, c, rackEvents)
+	})
+	return group.Wait()
+}
+
+func (m model) runWorkers(ctx context.Context, c config, rackEvents cache.ResourceEventHandlerRegistration) error {
+	group, ctx := errgroup.WithContext(ctx)
 	b := record.NewBroadcaster(record.WithContext(ctx))
 	defer b.Shutdown()
 	b.StartRecordingToSink(&coreclient.EventSinkImpl{Interface: m.events})
@@ -136,6 +159,5 @@ func (m model) run(ctx context.Context, c config) error {
 		}
 		return nil
 	})
-	group.Go(func() error { return server.Run(ctx) })
 	return group.Wait()
 }

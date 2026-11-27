@@ -31,6 +31,7 @@ import (
 )
 
 type rackAllocator struct {
+	dra          bool
 	records      client.SGPURackAllocationInterface
 	rackAPI      client.SGPURackInterface
 	core         coreclient.CoreV1Interface
@@ -66,6 +67,10 @@ func (a *rackAllocator) reconcile(ctx context.Context, name string) error {
 	var releaseErr error
 	if d := rack.Status.Delivery; d != nil && len(d.ReleaseRevisions) > 0 {
 		releaseErr = a.releaseSlots(ctx, rack)
+	}
+	// In DRA mode the scheduler owns device selection. Slot release still runs.
+	if a.dra {
+		return releaseErr
 	}
 	slots, ready := a.views.allocationSlots(rack)
 	if !ready {

@@ -640,6 +640,16 @@ kwok:
   # -- Deploy the single KWOK data-plane replica.
   enabled: false
   dataPlane:
+    # -- Choose DevicePlugin for Node GPU capacity or DRA for claim-based allocation.
+    gpuPublishing: DevicePlugin
+    # -- Name of the GPU DRA driver and its DeviceClass.
+    gpuDriver: gpu.nvidia.com
+    computeDomains:
+      enabled: false
+      # -- Namespace where NVIDIA's DRA driver maintains ComputeDomainCliques.
+      driverNamespace: nvidia
+    nodeResourceTopology:
+      enabled: false
     # -- Override when the control-plane Service belongs to another release.
     controlPlaneURL: ""
     batch:

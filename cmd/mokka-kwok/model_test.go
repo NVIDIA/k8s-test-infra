@@ -31,7 +31,7 @@ func TestConfig(t *testing.T) {
 	t.Parallel()
 	c, err := parseConfig([]string{"data-plane", "--shard-name", "replica-0", "--control-plane-url=http://cp:8080"})
 	require.NoError(t, err)
-	require.Equal(t, config{shard: "replica-0", listen: ":8080", controlPlane: "http://cp:8080", batch: batchOptions{100, time.Second, 2}}, c)
+	require.Equal(t, config{features: features{gpuPublishing: "DevicePlugin", gpuDriver: "gpu.nvidia.com"}, shard: "replica-0", listen: ":8080", controlPlane: "http://cp:8080", batch: batchOptions{100, time.Second, 2}}, c)
 	for _, args := range [][]string{nil, {"data-plane"}, {"data-plane", "--shard-name", "bad/name"}, {"data-plane", "--shard-name", "valid", "--listen-addr", "bad"}} {
 		_, err = parseConfig(args)
 		require.Error(t, err)
