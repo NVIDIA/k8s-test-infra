@@ -41,6 +41,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&SGPURuntimePolicyList{},
 		&SGPURack{},
 		&SGPURackList{},
+		&SNICProfile{},
+		&SNICProfileList{},
 	)
 	metav1.AddToGroupVersion(scheme, GroupVersion)
 	return nil

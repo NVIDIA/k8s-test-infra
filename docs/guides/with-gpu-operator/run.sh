@@ -52,9 +52,9 @@ RELEASE_NAME="nvml-mock-operator"
 OPERATOR_RELEASE="gpu-operator"
 : "${OPERATOR_NAMESPACE:=gpu-operator}"
 OPERATOR_VALUES="${DEMO_DIR}/gpu-operator-values.yaml"
-# v26.7.1 gates its operands on an `nvidia` line in /proc/modules, which the
-# mock cannot serve to them, so the operands never start on that release.
-: "${GPU_OPERATOR_VERSION:=v26.3.3}"
+# v26.7.1 and v26.7.2 operands never start on the mock: they gate on an
+# `nvidia` line in /proc/modules, which it cannot serve to them.
+: "${GPU_OPERATOR_VERSION:=v26.7.3}"
 # Pods carry app.kubernetes.io/name=<CHART name> and
 # app.kubernetes.io/instance=<RELEASE name> (nvml-mock.selectorLabels). The
 # name label is the same string for every release of this chart, so selecting

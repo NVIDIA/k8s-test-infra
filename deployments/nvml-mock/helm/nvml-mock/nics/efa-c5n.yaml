@@ -1,0 +1,39 @@
+# AWS EFA adapter as a c5n.9xlarge instance shows it: one EFA function on the
+# root bus, next to a separate ENA function that has the netdev.
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SNICProfile
+metadata:
+  name: efa-c5n
+spec:
+  identity:
+    model: EFA
+    firmwareVersion: "0.0.0.0"
+    hwRev: "0xEFA0"
+    vendorOUI: "0x1d0f"
+  sources:
+    - EFA capture on an AWS c5n.9xlarge instance (see internal/nic/conformance/testdata/converted)
+  functionTypes:
+    efa:
+      vendorID: "1d0f"
+      deviceID: "efa0"
+      subsystemVendorID: "1d0f"
+      subsystemDeviceID: "efa0"
+      revision: "0x00"
+      pcieLink: {speed: Unknown, width: 0, maxWidth: 255}
+      driver: efa
+      rdmaNamePrefix: efa_
+      rdmaNodeType: "7: unspecified"
+      # The efa driver doesn't create hca_type, board_id or hw_rev, and
+      # leaves fw_ver empty; ibv_devinfo still reports firmware 0.0.0.0 and
+      # hw_ver 0xEFA0.
+      rdmaOmit: [hca_type, board_id, hw_rev]
+      rdmaEmpty: [fw_ver]
+  defaultConfiguration: efa-1x50
+  configurations:
+    - name: efa-1x50
+      ports:
+        - {id: p0, technology: efa, width: 1, laneSpeed: HDR, planes: 0, capMask: "0x00000000", lmc: 1}
+      functions:
+        - {id: efa0, type: efa, pciDevice: efa, function: 0, class: "0x020000", ports: [p0]}
+      rdmaDevices:
+        - {id: rdma0, function: efa0, ports: [p0]}

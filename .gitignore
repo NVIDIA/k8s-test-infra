@@ -35,7 +35,8 @@ docs/magi/
 
 tmp
 
-# MkDocs build output
+# MkDocs build output and hook bytecode
+hack/__pycache__/
 site/
 
 # MkDocs toolchain venv created by `make docs-deps`

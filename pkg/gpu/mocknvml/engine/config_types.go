@@ -37,6 +37,15 @@ type SystemConfig struct {
 	CUDAVersionMinor int    `json:"cuda_version_minor"`
 	NumDevices       int    `json:"num_devices,omitzero"`
 
+	// ProductName is the system's DMI product name, the string a real node
+	// reports in /sys/class/dmi/id/product_name and GPU Feature Discovery
+	// labels as nvidia.com/gpu.machine. Empty falls back to the GPU name.
+	ProductName string `json:"product_name,omitempty"`
+
+	// AbsentFeatures is what a feature the profile leaves out answers; see
+	// absent_features.go. Empty means AbsentFeaturesLegacyDefaults.
+	AbsentFeatures string `json:"absent_features,omitempty"`
+
 	// DriverBranch names the driver branch nvmlSystemGetDriverBranch reports.
 	// Left empty it is derived from DriverVersion (580.65.06 -> r580_00), so
 	// only a profile modelling a point-release branch needs to state it.
@@ -63,6 +72,13 @@ type DeviceConfig struct {
 	Serial          string `json:"serial,omitempty"`
 	BoardPartNumber string `json:"board_part_number,omitempty"`
 	VBIOSVersion    string `json:"vbios_version,omitempty"`
+
+	// PDI is the Per Device Identifier nvmlDeviceGetPdi reports. Nil derives
+	// one from the GPU's UUID, which keeps it distinct per GPU and the same in
+	// every process; set it to report an ID a capture or an outside inventory
+	// assigned. A pointer so that an explicit zero stays distinguishable from
+	// an unset key.
+	PDI *HexID `json:"pdi,omitempty"`
 
 	// Hostname seeds nvmlDeviceGetHostname_v1 before anything calls the setter.
 	// Blackwell and newer only, matching NVML's support statement.
@@ -124,11 +140,23 @@ type DeviceConfig struct {
 	PersistenceMode string `json:"persistence_mode,omitempty"`
 	ComputeMode     string `json:"compute_mode,omitempty"`
 
+	// BoardID is the board nvmlDeviceGetBoardId reports. Unset, it is derived
+	// from the PCI address, so every GPU is a board of its own. GPUs that share
+	// one, as the two GPUs behind a dual-GPU card's PLX switch do, answer
+	// nvmlDeviceOnSameBoard for each other and nvmlDeviceGetMultiGpuBoard 1:
+	// both follow from the shared ID, so neither can disagree with it.
+	BoardID *HexID `json:"board_id,omitempty"`
+
 	// AddressingMode is how the GPU reaches system-allocated memory: "hmm",
 	// "ats" or "none". It is a property of the host as much as the board —
 	// HMM needs kernel support, ATS a Grace CPU — so the same GPU on the same
 	// driver can report either, and the profile has to say which host it models.
 	AddressingMode string `json:"addressing_mode,omitempty"`
+
+	// EGM reports Extended GPU Memory as enabled in the device capability
+	// mask. It is off unless the host's kernel module turns it on, which the
+	// captured Vera Rubin tray did.
+	EGM bool `json:"egm,omitzero"`
 
 	// Draining is the drain state nvmlDeviceModifyDrainState sets. A draining
 	// GPU drops out of enumeration for every process that initialises NVML
@@ -249,9 +277,15 @@ type PlatformConfig struct {
 	// "switch_connected" through an NVSwitch tray, or "direct_connected".
 	// Empty defaults to direct. See PeerType* constants.
 	PeerType string `json:"peer_type,omitempty"`
-	// ModuleID is the id of this GPU within the node, and the one field a
-	// profile is expected to vary per device.
+	// ModuleID is the id of this GPU within the node, so a profile sets it
+	// per device.
 	ModuleID uint8 `json:"module_id,omitzero"`
+	// GPUFabricGUID is what nvidia-smi reports as "GPU Fabric GUID"
+	// (platform.gpu_fabric_guid), carried in nvmlPlatformInfo_t.ibGuid. NVLink
+	// fabric managers identify a GPU by it, so it has to differ between GPUs.
+	// Nil leaves it zero; "pdi" reports the GPU's PDI, as Grace-Blackwell does;
+	// a hex value is reported as given, which takes a per-device entry.
+	GPUFabricGUID *FabricGUIDConfig `json:"gpu_fabric_guid,omitempty"`
 }
 
 // NVLinkErrorInjectionConfig injects NVLink data-link error accrual on a
@@ -333,6 +367,7 @@ type PCIConfig struct {
 // PCIeConfig defines PCIe link information
 type PCIeConfig struct {
 	MaxLinkGen       int    `json:"max_link_gen,omitzero"`
+	HostMaxLinkGen   int    `json:"host_max_link_gen,omitzero"`
 	CurrentLinkGen   int    `json:"current_link_gen,omitzero"`
 	MaxLinkWidth     int    `json:"max_link_width,omitzero"`
 	CurrentLinkWidth int    `json:"current_link_width,omitzero"`
@@ -363,6 +398,11 @@ type PowerConfig struct {
 	// Empty, or a name NVML does not define, is auto — the driver-controlled
 	// mode.
 	PowerMizerMode string `json:"power_mizer_mode,omitempty"`
+
+	// SupportedPowerMizerModes lists the modes the device accepts, by the
+	// names PowerMizerMode uses. Unset, empty, or naming no NVML mode, it is
+	// all four; names NVML does not define are ignored.
+	SupportedPowerMizerModes []string `json:"supported_power_mizer_modes,omitempty"`
 
 	// Smoothing configures the datacenter power smoothing feature that
 	// `nvidia-smi power-smoothing` drives. Absent still models the feature on
@@ -440,6 +480,26 @@ type ThermalConfig struct {
 	SlowdownThreshold_C int `json:"slowdown_threshold_c,omitzero"`
 	MaxOperating_C      int `json:"max_operating_c,omitzero"`
 	TargetTemperature_C int `json:"target_temperature_c,omitzero"`
+
+	// TLimit is the T.Limit view an Ada-or-later board reports through
+	// GetMarginTemperature and the NVML_FI_DEV_TEMPERATURE_*_TLIMIT fields.
+	// The driver keeps it apart from the thresholds above, and on a real tray
+	// it cannot be derived from them, so a profile captured from hardware
+	// states it here. Without it the view is derived from the slowdown
+	// threshold.
+	TLimit *TLimitConfig `json:"tlimit,omitempty"`
+}
+
+// TLimitConfig is the T.Limit view of the thermal limits, in degrees C.
+// Reference is the temperature the margin is measured to: the margin reads
+// Reference minus the current temperature. The thresholds are the signed
+// distances nvidia-smi prints as the T.Limit rows; 0 is a valid distance, so
+// they are pointers and a nil one is derived as without this block.
+type TLimitConfig struct {
+	Reference_C    int  `json:"reference_c"`
+	Shutdown_C     *int `json:"shutdown_c,omitempty"`
+	Slowdown_C     *int `json:"slowdown_c,omitempty"`
+	MaxOperating_C *int `json:"max_operating_c,omitempty"`
 }
 
 // FanConfig defines fan settings.
@@ -1085,7 +1145,8 @@ type XidErrorConfig struct {
 }
 
 // FabricConfig models the per-GPU NVLink fabric attributes that
-// nvmlDeviceGetGpuFabricInfo / nvmlDeviceGetGpuFabricInfoV expose for
+// nvmlDeviceGetGpuFabricInfo / nvmlDeviceGetGpuFabricInfoV /
+// nvmlDeviceGetGpuFabricInfo_v4 expose for
 // fabric-attached GPUs (Hopper+ / GB200 / GB300). All GPUs on the same
 // physical node share the same fabric config — the NVLink domain is a
 // node-level property.
@@ -1108,6 +1169,11 @@ type FabricConfig struct {
 	ClusterUUID string `json:"cluster_uuid,omitempty"`
 	// CliqueID is the clique within the cluster this GPU belongs to.
 	CliqueID uint32 `json:"clique_id,omitzero"`
+	// Cliques sets the per-type cliques nvmlDeviceGetGpuFabricInfo_v4
+	// reports where they differ from CliqueID, which every type the
+	// architecture reports follows by default. Entries of a type replace
+	// that type's default. The unicast-pointer clique is always CliqueID.
+	Cliques []FabricCliqueConfig `json:"cliques,omitempty"`
 	// State is the GPU registration state with the fabric manager.
 	// Defaults to "completed" (the healthy steady-state value). The
 	// special value "auto" couples the state to the fake fabricmanager's
@@ -1128,6 +1194,14 @@ type FabricConfig struct {
 	// A raw 0 means "the driver reported no health at all", which
 	// nvidia-smi renders as N/A for the whole Health block.
 	HealthMask *uint32 `json:"health_mask,omitempty"`
+}
+
+// FabricCliqueConfig is one clique of FabricConfig.Cliques.
+type FabricCliqueConfig struct {
+	// Type is "multicast_pointer", "unicast_logical_endpoint" or
+	// "multicast_logical_endpoint".
+	Type string `json:"type"`
+	ID   uint32 `json:"id"`
 }
 
 // FabricHealthConfig models the individual NVLink fabric health conditions

@@ -1,0 +1,484 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+    helm.sh/resource-policy: keep
+  name: snicprofiles.mokka.nvidia.com
+spec:
+  group: mokka.nvidia.com
+  names:
+    categories:
+    - mokka
+    kind: SNICProfile
+    listKind: SNICProfileList
+    plural: snicprofiles
+    shortNames:
+    - snicprof
+    singular: snicprofile
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.identity.model
+      name: Model
+      type: string
+    - jsonPath: .spec.defaultConfiguration
+      name: Default
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SNICProfile is one NIC model as packaged on a card, and every firmware
+          configuration it can run, each declared as its result. It holds model data
+          only: no addresses, identifiers or counts of a particular node. NIC slots in
+          SGPURackProfile place instances of it on a node.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec describes the NIC model and its configurations.
+            properties:
+              configurations:
+                description: |-
+                  Configurations are the firmware configurations the card can run, each
+                  declared as its result.
+                items:
+                  description: |-
+                    NICConfiguration is one firmware configuration, declared as its result: its
+                    ports, the PCI functions it produces and the RDMA devices the driver
+                    creates on them.
+                  properties:
+                    functions:
+                      description: Functions are the PCI functions the configuration
+                        produces.
+                      items:
+                        description: NICFunction is one PCI function a configuration
+                          produces.
+                        properties:
+                          class:
+                            description: |-
+                              Class is the PCI class code the configuration gives the function, such
+                              as "0x020700".
+                            pattern: ^0x[0-9a-f]{6}$
+                            type: string
+                          function:
+                            description: Function is the PCI function number within
+                              the device.
+                            format: int32
+                            maximum: 7
+                            minimum: 0
+                            type: integer
+                          id:
+                            description: ID names the function within the configuration.
+                            minLength: 1
+                            type: string
+                          pciDevice:
+                            description: |-
+                              PCIDevice is the PCI device the function belongs to, which a slot
+                              places, such as network or hostA.
+                            minLength: 1
+                            type: string
+                          ports:
+                            description: |-
+                              Ports are the ports the function owns. A port has one owner per PCI
+                              device, so a NIC with several host links shows it on one function per
+                              link.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: set
+                          type:
+                            description: Type is a key of functionTypes.
+                            minLength: 1
+                            type: string
+                        required:
+                        - class
+                        - function
+                        - id
+                        - pciDevice
+                        - type
+                        type: object
+                      minItems: 1
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - id
+                      x-kubernetes-list-type: map
+                    name:
+                      description: Name is what slots and overrides select.
+                      minLength: 1
+                      type: string
+                    ports:
+                      description: |-
+                        Ports are the configuration's logical network ports, in physical order:
+                        a port's position is its number, p0 first, and its identifiers and
+                        names follow from that number.
+                      items:
+                        description: |-
+                          NICPort is one logical network port: what a fabric attaches to, not a
+                          physical connector.
+                        properties:
+                          capMask:
+                            description: |-
+                              CapMask is the capability mask an ib or efa port reports, which its
+                              firmware sets. A roce port follows a rule instead.
+                            pattern: ^0x[0-9a-f]{8}$
+                            type: string
+                          id:
+                            description: ID names the port within the configuration.
+                            minLength: 1
+                            type: string
+                          laneSpeed:
+                            description: LaneSpeed is the per-lane signalling generation.
+                            enum:
+                            - SDR
+                            - DDR
+                            - QDR
+                            - FDR10
+                            - FDR
+                            - EDR
+                            - HDR
+                            - NDR
+                            - XDR
+                            type: string
+                          lmc:
+                            description: LMC is the LID mask count; empty means 0.
+                            format: int32
+                            maximum: 7
+                            minimum: 0
+                            type: integer
+                          planes:
+                            description: |-
+                              Planes is the number of fabric planes the port carries; 0 is a single
+                              endpoint.
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          technology:
+                            description: Technology is the port's link technology.
+                            enum:
+                            - ib
+                            - roce
+                            - efa
+                            type: string
+                          width:
+                            description: |-
+                              Width is the lane count in the rate text, such as 4 in
+                              "800 Gb/sec (4X XDR)".
+                            format: int32
+                            minimum: 1
+                            type: integer
+                        required:
+                        - id
+                        - laneSpeed
+                        - planes
+                        - technology
+                        - width
+                        type: object
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    rdmaDevices:
+                      description: RDMADevices are the RDMA devices the driver creates.
+                      items:
+                        description: NICRDMADevice is an RDMA device the driver creates
+                          on a function.
+                        properties:
+                          function:
+                            description: Function is the ID of the function the device
+                              is on.
+                            minLength: 1
+                            type: string
+                          id:
+                            description: ID names the RDMA device within the configuration.
+                            minLength: 1
+                            type: string
+                          ports:
+                            description: |-
+                              Ports are the device's ports in order: port k of the device is the k-th
+                              entry.
+                            items:
+                              type: string
+                            minItems: 1
+                            type: array
+                            x-kubernetes-list-type: atomic
+                        required:
+                        - function
+                        - id
+                        - ports
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - id
+                      x-kubernetes-list-type: map
+                  required:
+                  - functions
+                  - name
+                  type: object
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              defaultConfiguration:
+                description: |-
+                  DefaultConfiguration names the configuration used when neither the
+                  cluster nor the slot selects one.
+                minLength: 1
+                type: string
+              functionTypes:
+                additionalProperties:
+                  description: |-
+                    NICFunctionType is the hardware identity and driver binding of one kind of
+                    PCI function. The class isn't here: the configuration decides it.
+                  properties:
+                    deviceID:
+                      description: DeviceID is four lowercase hex digits, without
+                        0x.
+                      pattern: ^[0-9a-f]{4}$
+                      type: string
+                    driver:
+                      description: Driver is the bound kernel driver, such as mlx5_core.
+                      minLength: 1
+                      type: string
+                    pcieLink:
+                      description: |-
+                        PCIeLink is the link the function trains to. It is omitted when no
+                        capture shows it, and then no link attributes are generated.
+                      properties:
+                        maxWidth:
+                          description: |-
+                            MaxWidth is set only when it differs from width, as on a VF reporting 0
+                            of 255.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        speed:
+                          description: Speed is the link speed as sysfs reports it,
+                            such as "64.0 GT/s PCIe".
+                          minLength: 1
+                          type: string
+                        width:
+                          description: Width is the link width in lanes.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                      required:
+                      - speed
+                      - width
+                      type: object
+                    rdmaEmpty:
+                      description: RDMAEmpty lists RDMA attributes the driver creates
+                        with an empty value.
+                      items:
+                        description: |-
+                          RDMAAttribute is an RDMA device attribute a driver may leave out or leave
+                          empty.
+                        enum:
+                        - fw_ver
+                        - hca_type
+                        - board_id
+                        - hw_rev
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                    rdmaNamePrefix:
+                      description: RDMANamePrefix is the kernel's RDMA device name
+                        prefix, such as mlx5_.
+                      type: string
+                    rdmaNodeType:
+                      description: 'RDMANodeType is the node_type the driver reports;
+                        empty means "1: CA".'
+                      type: string
+                    rdmaOmit:
+                      description: |-
+                        RDMAOmit lists RDMA attributes the driver doesn't create: the file is
+                        absent.
+                      items:
+                        description: |-
+                          RDMAAttribute is an RDMA device attribute a driver may leave out or leave
+                          empty.
+                        enum:
+                        - fw_ver
+                        - hca_type
+                        - board_id
+                        - hw_rev
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                    revision:
+                      description: Revision is the PCI revision ID, such as "0x00".
+                      pattern: ^0x[0-9a-f]{2}$
+                      type: string
+                    subsystemDeviceID:
+                      description: SubsystemDeviceID is four lowercase hex digits;
+                        empty means 0000.
+                      pattern: ^[0-9a-f]{4}$
+                      type: string
+                    subsystemVendorID:
+                      description: SubsystemVendorID is four lowercase hex digits;
+                        empty means 0000.
+                      pattern: ^[0-9a-f]{4}$
+                      type: string
+                    totalVFs:
+                      description: |-
+                        TotalVFs is sriov_totalvfs; 0 means no SR-IOV. Enabling VFs is cluster
+                        software's job, so the declaration never says how many are enabled.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    vendorID:
+                      description: VendorID is four lowercase hex digits, without
+                        0x.
+                      pattern: ^[0-9a-f]{4}$
+                      type: string
+                    vfType:
+                      description: |-
+                        VFType names the function type of the VFs this function enables, a key
+                        of functionTypes. It needs totalVFs.
+                      type: string
+                    vpd:
+                      description: VPD reports whether the function exposes the profile's
+                        VPD.
+                      type: boolean
+                    vpdOmit:
+                      description: |-
+                        VPDOmit lists the identity keywords this kind of function doesn't
+                        report.
+                      items:
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                    vpdSuffixes:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        VPDSuffixes are appended to an identity keyword's value on this kind of
+                        function. "{function}" stands for the PCI function number.
+                      type: object
+                  required:
+                  - deviceID
+                  - driver
+                  - vendorID
+                  type: object
+                description: |-
+                  FunctionTypes are the kinds of PCI function the NIC can expose, keyed by
+                  the name configurations use.
+                minProperties: 1
+                type: object
+              identity:
+                description: |-
+                  Identity is what the NIC reports about itself, the same in every
+                  configuration.
+                properties:
+                  boardID:
+                    description: BoardID is the RDMA board_id, such as MT_0000001513.
+                    type: string
+                  firmwareVersion:
+                    description: FirmwareVersion is the RDMA fw_ver; a slot may override
+                      it.
+                    type: string
+                  hcaType:
+                    description: HCAType is the RDMA hca_type, such as MT4131.
+                    type: string
+                  hwRev:
+                    description: HWRev is the RDMA hw_rev and the ibv_devinfo hw_ver;
+                      empty means 0x0.
+                    pattern: ^0x[0-9a-fA-F]+$
+                    type: string
+                  model:
+                    description: Model is the model name, such as ConnectX-8.
+                    minLength: 1
+                    type: string
+                  partNumber:
+                    description: PartNumber is the board part number and the default
+                      for VPD PN.
+                    type: string
+                  vendorOUI:
+                    description: VendorOUI is the IEEE OUI verbs report as vendor_id,
+                      such as "0x02c9".
+                    pattern: ^0x[0-9a-f]+$
+                    type: string
+                required:
+                - model
+                type: object
+              sources:
+                description: Sources cites the captures or documents the values come
+                  from.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: atomic
+              switchPort:
+                description: |-
+                  SwitchPort identifies the ports of the NIC's own PCIe switch, which slots
+                  place as bridges.
+                properties:
+                  deviceID:
+                    description: DeviceID is four lowercase hex digits, without 0x.
+                    pattern: ^[0-9a-f]{4}$
+                    type: string
+                  vendorID:
+                    description: VendorID is four lowercase hex digits, without 0x.
+                    pattern: ^[0-9a-f]{4}$
+                    type: string
+                required:
+                - deviceID
+                - vendorID
+                type: object
+              vpd:
+                description: VPD is the vital product data of the functions whose
+                  type has vpd set.
+                properties:
+                  identities:
+                    additionalProperties:
+                      description: |-
+                        VPDScope names which NIC functions share one generated VPD value: board,
+                        asic or boardPosition, or another identity keyword whose generated value
+                        this one reuses before its function suffix, as a BlueField's VU starts with
+                        its SN.
+                      pattern: ^(board|asic|boardPosition|[A-Z0-9]{2})$
+                      type: string
+                    description: |-
+                      Identities are the keywords whose value is a generated identifier,
+                      mapped to the scope that shares one value.
+                    type: object
+                  keywords:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Keywords are model values by VPD keyword, such as PN, EC or V2. "name"
+                      is the product name, to which a device's vpdPosition is appended. PN
+                      defaults to identity.partNumber.
+                    type: object
+                type: object
+            required:
+            - configurations
+            - defaultConfiguration
+            - functionTypes
+            - identity
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}

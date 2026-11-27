@@ -28,7 +28,15 @@ const (
 	draTestNamespace = "default"
 	draTestPodName   = "gpu-test-pod"
 	draSecondPodName = "gpu-test-pod-2"
+
+	draGPUDriver           = "gpu.nvidia.com"
+	draComputeDomainDriver = "compute-domain.nvidia.com"
 )
+
+// draComputeDomainDevices is what the compute-domain kubelet plugin publishes
+// on every node it starts on, NVLink fabric or not, as a real HGX H100 does:
+// one IMEX channel and one ComputeDomain daemon.
+var draComputeDomainDevices = []string{"channel-0", "daemon-0"}
 
 var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 	var h *harness.Harness
@@ -65,24 +73,43 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 				waitDRAPodsReady(ctx, h)
 			})
 
-			It("lays out the mock driver files for DRA", func(ctx SpecContext) {
+			It("lays out the mock driver files for DRA", Label("mockfiles"), func(ctx SpecContext) {
 				assertions.DRAMockFiles(ctx, h.Kube, pod, p.ExpectedGPUs())
 			})
 
-			It("reports the profile GPUs via nvidia-smi", func(ctx SpecContext) {
+			It("reports the profile GPUs via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
 				nvidiasmi.Inventory(ctx, h.Kube, pod, p)
 			})
 
-			It("exposes the NVLink topology (gated on fabricmanager)", func(ctx SpecContext) {
+			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)
 			})
 
-			It("publishes DRA ResourceSlices for the profile GPUs", func(ctx SpecContext) {
-				assertions.WaitResourceSlicePerNode(ctx, h.Kube, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
+			It("publishes DRA ResourceSlices for the profile GPUs", Label("dra-resourceslices"), func(ctx SpecContext) {
+				assertions.WaitResourceSlicePerNode(ctx, h.Kube, draGPUDriver, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
 			})
 
-			It("schedules a pod with a DRA ResourceClaim", func(ctx SpecContext) {
+			// #1399. The compute-domain kubelet plugin runs on every GPU node,
+			// as stacks such as AICR deploy it, and on a real node it starts
+			// without an NVLink fabric: the loaded kernel module registers the
+			// IMEX device numbers it reads. A profile whose node stages no
+			// /proc/devices entry leaves the plugin crash-looping here.
+			//
+			// The plugin publishes its slice only once it has started, so every
+			// simulated-GPU node, and no other, must carry exactly these devices.
+			It("starts the ComputeDomain kubelet plugin on every profile", Label("dra-compute-domain-plugin"), func(ctx SpecContext) {
+				want := map[string][]string{}
+				for _, n := range sgpuNodes(ctx, h) {
+					want[n.Name] = draComputeDomainDevices
+				}
+				Eventually(func() (map[string][]string, error) {
+					return h.Kube.ResourceSliceDevicesByNode(ctx, draComputeDomainDriver)
+				}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+					Should(Equal(want), "%s devices published per simulated-GPU node", draComputeDomainDriver)
+			})
+
+			It("schedules a pod with a DRA ResourceClaim", Label("dra-scheduling"), func(ctx SpecContext) {
 				scheduleDRAResourceClaimPod(ctx, h)
 				waitDRATestPodRunning(ctx, h, draTestPodName)
 			})

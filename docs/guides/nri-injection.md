@@ -45,6 +45,7 @@ that namespace's workloads without the mock.
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --namespace mokka --create-namespace \
   --wait --timeout 180s
+kubectl -n mokka rollout status ds/nvml-mock --timeout=180s
 ```
 
 An existing release turns NRI on at its next `helm upgrade`. Upgrade from a

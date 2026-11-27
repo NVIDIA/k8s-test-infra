@@ -314,10 +314,13 @@ func (d *ConfigurableDevice) getDeviceFieldValue(fieldID, scopeID uint32) (Field
 // to each threshold; nvidia-smi renders them as the "GPU/Memory <X> T.Limit
 // Temp" rows and the live headroom (GetMarginTemperature / DCGM field 153) is
 // measured against the same reference. Pre-Ada architectures return
-// NOT_SUPPORTED so nvidia-smi falls back to the absolute threshold API. We use
-// the slowdown threshold as that reference (matching GetMarginTemperature), so
-// the slowdown offset is 0, the shutdown offset is negative (a hotter limit),
-// and the GPU-max offset is the gap to the max-operating limit. NVSentinel's
+// NOT_SUPPORTED so nvidia-smi falls back to the absolute threshold API. A
+// distance the profile states under thermal.tlimit is returned as is: the
+// driver keeps these apart from the absolute thresholds, and a real tray's do
+// not follow from them. Otherwise we use the slowdown threshold as the
+// reference (matching GetMarginTemperature), so the slowdown offset is 0, the
+// shutdown offset is negative (a hotter limit), and the GPU-max offset is the
+// gap to the max-operating limit. NVSentinel's
 // GpuThermalMarginWatch treats the slowdown entry as the metadata it needs to
 // arm, then alarms as the live margin closes on it. The memory-max entry stays
 // unsupported because the mock models no separate memory throttle threshold.
@@ -327,10 +330,6 @@ func (d *ConfigurableDevice) tlimitThresholdFieldValue(fieldID uint32) (FieldVal
 	}
 	c := d.cfg()
 	if c.Thermal == nil {
-		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
-	}
-	reference := tlimitReference(c.Thermal)
-	if reference == 0 {
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
 	}
 	var threshold int
@@ -344,11 +343,33 @@ func (d *ConfigurableDevice) tlimitThresholdFieldValue(fieldID uint32) (FieldVal
 	default: // fiTempMemMaxTlimit — no memory throttle threshold modeled
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
 	}
-	if threshold == 0 {
+	declared := declaredTLimit(c.Thermal.TLimit, fieldID)
+	if declared != nil {
+		return FieldValueInt, uint64(uint32(int32(*declared))), nvml.SUCCESS, true
+	}
+	reference := tlimitReference(c.Thermal)
+	if reference == 0 || threshold == 0 {
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
 	}
 	offset := int32(reference - threshold)
 	return FieldValueInt, uint64(uint32(offset)), nvml.SUCCESS, true
+}
+
+// declaredTLimit is the distance a profile states under thermal.tlimit for a
+// T.Limit field, or nil when it states none.
+func declaredTLimit(t *TLimitConfig, fieldID uint32) *int {
+	if t == nil {
+		return nil
+	}
+	switch fieldID {
+	case fiTempShutdownTlimit:
+		return t.Shutdown_C
+	case fiTempSlowdownTlimit:
+		return t.Slowdown_C
+	case fiTempGpuMaxTlimit:
+		return t.MaxOperating_C
+	}
+	return nil
 }
 
 func tlimitReference(thermal *ThermalConfig) int {

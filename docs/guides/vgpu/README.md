@@ -38,6 +38,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --namespace mokka --create-namespace \
   -f host-values.yaml \
   --wait
+kubectl -n mokka rollout status ds/nvml-mock --timeout=5m
 
 POD=$(kubectl -n mokka get pod -l app.kubernetes.io/name=nvml-mock \
   -o jsonpath='{.items[0].metadata.name}')
@@ -123,6 +124,7 @@ helm upgrade --install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-
   --namespace mokka --create-namespace \
   -f guest-values.yaml \
   --wait
+kubectl -n mokka rollout status ds/nvml-mock --timeout=5m
 
 POD=$(kubectl -n mokka get pod -l app.kubernetes.io/name=nvml-mock \
   -o jsonpath='{.items[0].metadata.name}')
@@ -153,9 +155,11 @@ no vGPU types`.** A host needs at least one type, so the chart refuses to render
 without one and nothing is deployed. Add `gpu.vgpu.types`, as
 `host-values.yaml` [above](#simulate-a-vgpu-host) does.
 
-**`helm install --wait` times out, and the `nvml-mock` pods stay in `Init:0/1`
-and restart.** The node agent refused the `gpu.vgpu` block and never becomes
-ready, so its startup probe fails; `--wait` reports that only as a timeout.
+**`kubectl rollout status` times out, and the `nvml-mock` pods stay in
+`Init:0/1` and restart.** The node agent refused the `gpu.vgpu` block and never
+becomes ready, so its startup probe fails; the wait reports that only as a
+timeout. Helm 4's `--wait` times out the same way, while Helm 3's can return
+first on a one-node cluster.
 The node agent's log names the field:
 
 ```bash

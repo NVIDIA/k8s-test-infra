@@ -231,6 +231,8 @@ helm upgrade --install nvml-mock \
   --create-namespace \
   --values mokka-values.yaml \
   --wait --timeout 5m
+kubectl --context "${MOKKA_CONTEXT}" \
+  --namespace mokka rollout status ds/nvml-mock --timeout=5m
 
 kubectl --context "${MOKKA_CONTEXT}" \
   --namespace mokka get daemonset,pods -o wide

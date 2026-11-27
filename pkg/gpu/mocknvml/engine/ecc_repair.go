@@ -228,6 +228,13 @@ func (d *ConfigurableDevice) dramEncryption() (current, pending nvml.EnableState
 	return current, pending
 }
 
+// declaresDramEncryption reports whether the profile has an ecc.dram_encryption
+// block.
+func (d *ConfigurableDevice) declaresDramEncryption() bool {
+	c := d.cfg()
+	return c.ECC != nil && c.ECC.DRAMEncryption != nil
+}
+
 // GetDramEncryptionMode returns the current and pending DRAM encryption modes.
 // Only Blackwell and newer boards have the feature.
 func (d *ConfigurableDevice) GetDramEncryptionMode() (nvml.DramEncryptionInfo, nvml.DramEncryptionInfo, nvml.Return) {
@@ -237,6 +244,9 @@ func (d *ConfigurableDevice) GetDramEncryptionMode() (nvml.DramEncryptionInfo, n
 	if !d.archAtLeast(gpuarch.Blackwell) {
 		debugLog("[NVML] nvmlDeviceGetDramEncryptionMode -> NOT_SUPPORTED (before Blackwell)\n")
 		return nvml.DramEncryptionInfo{}, nvml.DramEncryptionInfo{}, nvml.ERROR_NOT_SUPPORTED
+	}
+	if ret := d.unsupportedWhenAbsent("nvmlDeviceGetDramEncryptionMode", d.declaresDramEncryption()); ret != nvml.SUCCESS {
+		return nvml.DramEncryptionInfo{}, nvml.DramEncryptionInfo{}, ret
 	}
 	current, pending := d.dramEncryption()
 	debugLog("[NVML] nvmlDeviceGetDramEncryptionMode -> current=%d pending=%d\n", current, pending)
@@ -253,6 +263,9 @@ func (d *ConfigurableDevice) SetDramEncryptionMode(info *nvml.DramEncryptionInfo
 	if !d.archAtLeast(gpuarch.Blackwell) {
 		debugLog("[NVML] nvmlDeviceSetDramEncryptionMode -> NOT_SUPPORTED (before Blackwell)\n")
 		return nvml.ERROR_NOT_SUPPORTED
+	}
+	if ret := d.unsupportedWhenAbsent("nvmlDeviceSetDramEncryptionMode", d.declaresDramEncryption()); ret != nvml.SUCCESS {
+		return ret
 	}
 	if info == nil || !validEnableState(nvml.EnableState(info.EncryptionState)) {
 		debugLog("[NVML] nvmlDeviceSetDramEncryptionMode -> INVALID_ARGUMENT\n")

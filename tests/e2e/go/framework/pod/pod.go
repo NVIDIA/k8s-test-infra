@@ -76,6 +76,9 @@ type Spec struct {
 	NodeSelector map[string]string
 	// GPUs, when positive, is requested as a GPU resource limit.
 	GPUs int
+	// CPU and Memory set equal requests and limits for Guaranteed CPU/memory allocation.
+	CPU    string
+	Memory string
 	// Privileged runs the container privileged, so the runtime hands it every
 	// device on the node under a wildcard cgroup rule.
 	Privileged bool

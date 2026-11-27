@@ -78,6 +78,54 @@ spec:
                       maxLength: 63
                       minLength: 1
                       type: string
+                    nicOverrides:
+                      description: |-
+                        NICOverrides replace the profile, configuration, firmware or VPD of NIC
+                        slots for this group's racks, so groups sharing a rack profile can run
+                        other NICs or modes. Overrides apply in order; a later one wins for a
+                        field both set.
+                      items:
+                        description: NICOverride changes NIC slots of a rack profile
+                          for one rack group.
+                        properties:
+                          configuration:
+                            description: Configuration replaces the slot's configuration.
+                            type: string
+                          firmwareVersion:
+                            description: FirmwareVersion replaces the slot's firmware
+                              version.
+                            type: string
+                          profile:
+                            description: |-
+                              Profile replaces the slot's profile. The slot's configuration, firmware
+                              version, VPD and a systemImageGUID that names an RDMA device belong to
+                              the old model, so they no longer apply; the new profile's own do, unless
+                              this override sets them. A distinct systemImageGUID carries over.
+                            type: string
+                          slots:
+                            description: Slots are the names of the slots the override
+                              applies to.
+                            items:
+                              type: string
+                            minItems: 1
+                            type: array
+                            x-kubernetes-list-type: set
+                          systemImageGUID:
+                            description: |-
+                              SystemImageGUID replaces the slot's systemImageGUID: "distinct", or an
+                              RDMA device of the selected configuration.
+                            type: string
+                          vpd:
+                            additionalProperties:
+                              type: string
+                            description: VPD overrides model VPD keywords, on top
+                              of the slot's own overrides.
+                            type: object
+                        required:
+                        - slots
+                        type: object
+                      type: array
+                      x-kubernetes-list-type: atomic
                     placement:
                       description: Placement optionally restricts the Nodes eligible
                         for this rack group.

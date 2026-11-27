@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 484" width="760" height="484" role="img" aria-labelledby="gb300-pcie-title gb300-pcie-desc" class="nicfig nf-pcie">
+  <title id="gb300-pcie-title">Where slot nic0 of the gb300 rack profile sits on PCIe</title>
+  <desc id="gb300-pcie-desc">The ConnectX-8 in slot nic0 has two PCI devices in two PCIe domains. In domain 0000, below root port 0000:00:00.0 and the NIC's switch ports, sits the network device at 0000:03:00; in the default configuration its function 0 is the PF with RDMA device mlx5_0. In domain 0009, below root port 0009:00:00.0 and the NIC's other switch ports, sits the Data Direct device at 0009:03:00, and GPU 1 at 0009:06:00.0 sits below switch port 0009:05:00.0. Both functions of the ASIC report the same VPD V3 value, which software uses to pair them. The slot declares each device's domain, bus and device; the configuration numbers its functions.</desc>
+  <style>
+    .nf-pcie { --fg: #1f2328; --muted: #59636e; --rule: #d1d9e0; --band: #f6f8fa; --box: #ffffff; --gpu: #1a7f37; --nic: #0969da; --root: #59636e; --pair: #9a6700; }
+    @media (prefers-color-scheme: dark) {
+      .nf-pcie { --fg: #f0f6fc; --muted: #9198a1; --rule: #3d444d; --band: #151b23; --box: #0d1117; --gpu: #3fb950; --nic: #4493f8; --root: #9198a1; --pair: #d29922; }
+    }
+    :root[data-theme="light"] .nf-pcie { --fg: #1f2328; --muted: #59636e; --rule: #d1d9e0; --band: #f6f8fa; --box: #ffffff; --gpu: #1a7f37; --nic: #0969da; --root: #59636e; --pair: #9a6700; }
+    :root[data-theme="dark"] .nf-pcie { --fg: #f0f6fc; --muted: #9198a1; --rule: #3d444d; --band: #151b23; --box: #0d1117; --gpu: #3fb950; --nic: #4493f8; --root: #9198a1; --pair: #d29922; }
+    .nf-pcie text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; font-size: 12px; fill: var(--fg); }
+    .nf-pcie .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; fill: var(--muted); }
+    .nf-pcie .addr { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; fill: var(--fg); }
+    .nf-pcie .big { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 15px; fill: var(--fg); }
+    .nf-pcie .b { font-weight: 600; }
+    .nf-pcie .muted { fill: var(--muted); }
+    .nf-pcie .small { font-size: 9.5px; fill: var(--muted); }
+    .nf-pcie .band { fill: var(--band); stroke: var(--rule); }
+    .nf-pcie .root { fill: var(--box); stroke: var(--root); stroke-width: 1.25; }
+    .nf-pcie .bridge { fill: var(--box); stroke: var(--nic); stroke-width: 1; stroke-opacity: 0.7; }
+    .nf-pcie .switch { fill: none; stroke: var(--nic); stroke-width: 1.25; stroke-dasharray: 5 4; }
+    .nf-pcie .dev { fill: var(--box); stroke: var(--nic); stroke-width: 1.75; }
+    .nf-pcie .gpu { fill: var(--box); stroke: var(--gpu); stroke-width: 1.75; }
+    .nf-pcie .edge { fill: none; stroke: var(--muted); stroke-width: 1.25; }
+    .nf-pcie .pair { fill: none; stroke: var(--pair); stroke-width: 1.5; stroke-dasharray: 4 3; }
+    .nf-pcie .t-nic { fill: var(--nic); }
+    .nf-pcie .t-pair { fill: var(--pair); }
+  </style>
+
+  <!-- domain 0000: the network device -->
+  <rect class="band" x="8" y="8" width="364" height="398" rx="8"/>
+  <text class="b" x="20" y="30">PCIe domain 0000</text>
+  <text class="mono" x="20" y="47">rootComplex: pci0000:00</text>
+  <rect class="root" x="36" y="62" width="180" height="28" rx="5"/>
+  <text class="addr" x="126" y="80" text-anchor="middle">root port 0000:00:00.0</text>
+
+  <rect class="switch" x="20" y="102" width="340" height="214" rx="8"/>
+  <rect class="bridge" x="36" y="130" width="104" height="26" rx="4"/>
+  <text class="addr" x="88" y="147" text-anchor="middle">0000:01:00.0</text>
+  <rect class="bridge" x="36" y="176" width="104" height="26" rx="4"/>
+  <text class="addr" x="88" y="193" text-anchor="middle">0000:02:00.0</text>
+  <rect class="bridge" x="196" y="176" width="104" height="26" rx="4"/>
+  <text class="addr" x="248" y="193" text-anchor="middle">0000:02:03.0</text>
+  <rect class="bridge" x="196" y="222" width="104" height="26" rx="4"/>
+  <text class="addr" x="248" y="239" text-anchor="middle">0000:04:00.0</text>
+  <rect class="bridge" x="144" y="268" width="96" height="26" rx="4"/>
+  <text class="addr" x="192" y="285" text-anchor="middle">0000:05:08.0</text>
+  <rect class="bridge" x="252" y="268" width="96" height="26" rx="4"/>
+  <text class="addr" x="300" y="285" text-anchor="middle">0000:05:0c.0</text>
+  <text class="mono t-nic" x="352" y="120" text-anchor="end">nic0's switch ports · bridges</text>
+
+  <path class="edge" d="M88,90 V130 M88,156 V176 M88,166 H248 V176 M248,202 V222 M248,248 V258 H192 V268 M248,258 H300 V268 M88,202 V330"/>
+
+  <rect class="dev" x="20" y="330" width="200" height="66" rx="6"/>
+  <text class="b" x="32" y="350">network device</text>
+  <text class="mono" x="32" y="367">address: "0000:03:00"</text>
+  <text class="addr" x="32" y="385">fn 0: PF · mlx5_0</text>
+
+  <!-- domain 0009: the Data Direct device and GPU 1 -->
+  <rect class="band" x="388" y="8" width="364" height="398" rx="8"/>
+  <text class="b" x="400" y="30">PCIe domain 0009</text>
+  <text class="mono" x="400" y="47">rootComplex: pci0009:00</text>
+  <rect class="root" x="416" y="62" width="180" height="28" rx="5"/>
+  <text class="addr" x="506" y="80" text-anchor="middle">root port 0009:00:00.0</text>
+
+  <rect class="switch" x="400" y="102" width="340" height="214" rx="8"/>
+  <rect class="bridge" x="416" y="130" width="104" height="26" rx="4"/>
+  <text class="addr" x="468" y="147" text-anchor="middle">0009:01:00.0</text>
+  <rect class="bridge" x="416" y="176" width="104" height="26" rx="4"/>
+  <text class="addr" x="468" y="193" text-anchor="middle">0009:02:00.0</text>
+  <rect class="bridge" x="576" y="176" width="104" height="26" rx="4"/>
+  <text class="addr" x="628" y="193" text-anchor="middle">0009:02:01.0</text>
+  <rect class="bridge" x="576" y="222" width="104" height="26" rx="4"/>
+  <text class="addr" x="628" y="239" text-anchor="middle">0009:04:00.0</text>
+  <rect class="bridge" x="576" y="268" width="104" height="26" rx="4"/>
+  <text class="addr" x="628" y="285" text-anchor="middle">0009:05:00.0</text>
+  <text class="mono t-nic" x="732" y="120" text-anchor="end">nic0's switch ports · bridges</text>
+
+  <path class="edge" d="M468,90 V130 M468,156 V176 M468,166 H628 V176 M628,202 V222 M628,248 V268 M628,294 V312 H666 V330 M468,202 V330"/>
+
+  <rect class="dev" x="400" y="330" width="180" height="66" rx="6"/>
+  <text class="b" x="412" y="350">Data Direct device</text>
+  <text class="mono" x="412" y="367">address: "0009:03:00"</text>
+  <text class="addr" x="412" y="385">fn 0: no RDMA device</text>
+  <rect class="gpu" x="592" y="330" width="148" height="66" rx="6"/>
+  <text class="b" x="604" y="350">GPU 1</text>
+  <text class="addr" x="604" y="367">0009:06:00.0</text>
+  <text class="mono" x="604" y="385">parent: 0009:05:00.0</text>
+
+  <!-- the pairing -->
+  <path class="pair" d="M220,372 C290,372 330,372 400,372"/>
+  <text class="mono t-pair" x="310" y="352" text-anchor="middle">same ASIC:</text>
+  <text class="mono t-pair" x="310" y="365" text-anchor="middle">same VPD V3</text>
+
+  <!-- address anatomy -->
+  <text class="big" x="20" y="438">0009</text>
+  <text class="big muted" x="60" y="438">:</text>
+  <text class="big" x="72" y="438">03</text>
+  <text class="big muted" x="94" y="438">:</text>
+  <text class="big" x="106" y="438">00</text>
+  <text class="big muted" x="128" y="438">.</text>
+  <text class="big" x="140" y="438">0</text>
+  <text class="small" x="38" y="454" text-anchor="middle">domain</text>
+  <text class="small" x="81" y="454" text-anchor="middle">bus</text>
+  <text class="small" x="115" y="454" text-anchor="middle">device</text>
+  <text class="small" x="145" y="454" text-anchor="middle">fn</text>
+  <text class="muted" x="190" y="428">The slot places each PCI device: domain, bus and device, such as address "0009:03:00".</text>
+  <text class="muted" x="190" y="446">The configuration numbers its functions: .0 in ib-xdr-4plane, .0 to .3 in eth-multiplane.</text>
+  <text class="muted" x="190" y="464">Each line is a parent link. All four devices declare numaNode: 0.</text>
+</svg>

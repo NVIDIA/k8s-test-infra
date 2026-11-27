@@ -68,7 +68,10 @@ gfd:
 #
 # toolkit-validation runs under RuntimeClass nvidia, whose handler the node daemon
 # registers. nvidia-container-runtime turns NVIDIA_VISIBLE_DEVICES=all into CDI
-# devices from /var/run/cdi/nvidia.yaml.
+# devices from /var/run/cdi/nvidia.yaml. The operator copies validator.toolkit.env
+# into every operand's toolkit-validation init container too, overriding the
+# image's NVIDIA_VISIBLE_DEVICES=void. That is how those containers receive the
+# CDI mount of /sys/module that their v26.7.3+ nvidia initstate gate reads.
 validator:
   driver:
     env:

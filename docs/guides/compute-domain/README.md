@@ -15,10 +15,11 @@ The driver (chart `0.5.0`) runs its upstream images unmodified. Mokka gives
 each node what a real GB200 node has:
 
 - **NVLink fabric identity.** The mock NVML library answers
-  `nvmlDeviceGetGpuFabricInfo` and `nvmlDeviceGetGpuFabricInfoV` with the
-  cluster UUID, clique ID and registration state that a cluster-level topology,
-  set in the chart's `topology` values, assigns to the node. The driver's
-  kubelet plugin reads each node's clique from there.
+  `nvmlDeviceGetGpuFabricInfo`, `nvmlDeviceGetGpuFabricInfoV` and
+  `nvmlDeviceGetGpuFabricInfo_v4` with the cluster UUID, clique ID and
+  registration state that a cluster-level topology, set in the chart's
+  `topology` values, assigns to the node. The driver's kubelet plugin reads
+  each node's clique from there.
 - **The IMEX kernel surface.** A substitute `/proc/devices` with the
   `nvidia-caps-imex-channels` major, the `fabric-imex-mgmt` capability file, and
   the `channel0` device node, as a real driver loaded with
@@ -194,11 +195,12 @@ helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
   --set imex.binaries.image.tag="${IMEX_VERSION}" \
   --set featureGates.IMEXDownload=false \
   --wait --timeout 10m
+kubectl -n mokka rollout status ds/nvml-mock --timeout=10m
 ```
 
 | Setting | Why |
 |---|---|
-| `gpu.profile=gb200` | A multi-node NVLink profile, as `gb300` is; the node agent stages IMEX only on such profiles |
+| `gpu.profile=gb200` | A multi-node NVLink profile, as `gb300` is; only such profiles get `channel0` and the IMEX node software a ComputeDomain runs |
 | `-f topology.yaml` | The two racks; pass it with `-f`, not `--set-file`, so Helm parses the list |
 | `nodeSelector` | Workers only: the topology gives the control plane no clique |
 | `imex.binaries.image.*` | The binaries image from step 3 |

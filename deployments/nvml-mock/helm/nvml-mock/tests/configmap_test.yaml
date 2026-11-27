@@ -65,6 +65,17 @@ tests:
     asserts:
       - matchSnapshot: {}
 
+  - it: should match snapshot with vrnvl72 profile
+    set:
+      gpu:
+        profile: vrnvl72
+        count: 4
+    asserts:
+      - matchSnapshot: {}
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "host_max_link_gen: 6"
+
   # ── Assertions ──────────────────────────────────────────────────────
   - it: should render a ConfigMap with default values
     asserts:
@@ -218,7 +229,7 @@ tests:
         count: 1
     asserts:
       - failedTemplate:
-          errorMessage: 'Unknown GPU profile "invalid-gpu": profiles/invalid-gpu.yaml not found in chart. Available profiles: a100, b200, gb200, gb300, h100, l40s, t4. Or set gpu.customConfig with inline YAML.'
+          errorMessage: 'Unknown GPU profile "invalid-gpu": profiles/invalid-gpu.yaml not found in chart. Available profiles: a100, b200, gb200, gb300, h100, l40s, t4, vrnvl72. Or set gpu.customConfig with inline YAML.'
 
   - it: should respect fullnameOverride in ConfigMap name
     set:
@@ -231,7 +242,7 @@ tests:
   # ── Dynamic metrics ─────────────────────────────────────────────────
   # #506 item 3. The default install must still report a moving, non-zero
   # utilization: every profile now ships its own `dynamic_metrics.utilization`
-  # block, so DCGM_FI_DEV_GPU_UTIL — and the DCGM_FI_PROF_* fractions derived
+  # block, so DCGM_FI_DEV_GPU_UTIL_RATIO — and the DCGM_FI_PROF_* fractions derived
   # from it — are never a constant 0 without opting into the chart overlay.
   # The overlay's temperature/power simulation stays opt-in and must NOT appear.
   - it: should keep the profile's own utilization block when the overlay is disabled (default)

@@ -36,9 +36,14 @@ load('./local/dynamo/dynamo.tiltfile',
 load('./local/slinky/slinky.tiltfile',
      slinky_install='install',
      slinky_upsert_timeout_s='UPSERT_TIMEOUT_S')
+load('./local/hami/hami.tiltfile',
+     hami_install='install',
+     hami_repo_resource='REPO_RESOURCE',
+     hami_repo_url='REPO_URL',
+     hami_upsert_timeout_s='UPSERT_TIMEOUT_S')
 
 config.define_string('gpu-profile', args=False,
-    usage='GPU profile to simulate (used unless --multi-gpu-profile is set): a100 | h100 | b200 | gb200 | gb300 | l40s | t4. Defaults to the chart\'s gpu.profile.')
+    usage='GPU profile to simulate (used unless --multi-gpu-profile is set): a100 | h100 | b200 | gb200 | gb300 | l40s | t4 | vrnvl72. Defaults to the chart\'s gpu.profile.')
 config.define_string('k8s-context', args=False,
     usage='kubectl context to deploy into (must be a local cluster)')
 # Boolean toggles use config.define_bool so `--multi-gpu-profile --gpu-operator
@@ -62,6 +67,8 @@ config.define_bool('dynamo', args=False,
     usage='Also deploy NVIDIA Dynamo (operator only) and an aggregated DynamoGraphDeployment whose worker runs the mocker engine on a mock GPU, plus a manual dynamo-smoke trigger. Implies --gpu-operator (the worker requests nvidia.com/gpu). OpenAI API on http://localhost:8000.')
 config.define_bool('slinky', args=False,
     usage='Also deploy Slinky (cert-manager, slurm-operator, a Slurm cluster) with one slurmd per mock-GPU worker. Implies --gpu-operator (slurmd requests nvidia.com/gpu). Fits any cluster shape; with --compute-domain it gives a 4-node GB200 Slurm cluster.')
+config.define_bool('hami', args=False,
+    usage='Also deploy HAMi (scheduler, admission webhook and device plugin) on top of nvml-mock, so pods can share a mock GPU through nvidia.com/gpumem and nvidia.com/gpucores. The manual hami-smoke trigger schedules two pods onto one GPU and asserts each sees only its own memory cap.')
 config.define_bool('control-plane', args=False,
     usage='Also deploy the Mokka Control Plane (MEP-0001) alongside nvml-mock. Composes with --multi-gpu-profile (the first profile release owns the single control plane), --compute-domain and --nvmlmock-image.')
 # CI passes the image its build job produced instead of having Tilt rebuild it.
@@ -81,6 +88,7 @@ with_topograph      = cfg.get('topograph', False)
 with_observability  = cfg.get('observability', False)
 with_dynamo         = cfg.get('dynamo', False)
 with_slinky         = cfg.get('slinky', False)
+with_hami           = cfg.get('hami', False)
 with_control_plane  = cfg.get('control-plane', False)
 
 # --topograph needs cliques, which only the compute-domain cluster has. It asks
@@ -111,6 +119,14 @@ if with_fgo and with_gpu_operator:
     fail('--fgo is mutually exclusive with --gpu-operator (FGO replaces the GPU Operator)')
 if with_fgo and with_compute_domain:
     fail('--fgo is mutually exclusive with --compute-domain')
+
+# Checked after the implications above, so it also covers --observability,
+# --dynamo and --slinky.
+if with_hami and with_gpu_operator:
+    fail('--hami is mutually exclusive with --gpu-operator and the flags that imply it ' +
+         '(both device plugins register nvidia.com/gpu)')
+if with_hami and with_fgo:
+    fail('--hami is mutually exclusive with --fgo (both device plugins register nvidia.com/gpu)')
 
 if with_slinky and with_dynamo:
     fail('--slinky is mutually exclusive with --dynamo (slurmd claims every mock GPU)')
@@ -148,6 +164,9 @@ if with_dynamo:
 if with_slinky:
     active_consumers.append('slinky')
 
+if with_hami:
+    active_consumers.append('hami')
+
 allow_k8s_contexts(k8s_context)
 
 if with_control_plane:
@@ -181,7 +200,11 @@ if active_consumers:
     helm_repo('nvidia', 'https://helm.ngc.nvidia.com/nvidia', labels=active_consumers)
 
 if with_topograph:
-    helm_repo('topograph-repo', 'https://dsx-ai-factory.github.io/topograph', labels=['topograph'])
+    # Topograph's release channel; its dsx-ai-factory.github.io index has no 1.1.0.
+    helm_repo('topograph-repo', 'https://helm.ngc.nvidia.com/nvidia/topograph', labels=['topograph'])
+
+if with_hami:
+    helm_repo(hami_repo_resource, hami_repo_url, labels=['hami'])
 
 if with_observability:
     helm_repo('prometheus-community', 'https://prometheus-community.github.io/helm-charts',
@@ -198,6 +221,8 @@ if with_dynamo:
     upsert_timeouts.append(dynamo_upsert_timeout_s)
 if with_slinky:
     upsert_timeouts.append(slinky_upsert_timeout_s)
+if with_hami:
+    upsert_timeouts.append(hami_upsert_timeout_s)
 if upsert_timeouts:
     update_settings(k8s_upsert_timeout_secs=max(upsert_timeouts))
 
@@ -219,13 +244,7 @@ if with_gpu_operator:
     )
 
 if with_dra:
-    # --compute-domain layers ComputeDomains and the node agent's /proc/devices
-    # substitute on top; the driver keeps its upstream images.
-    dra_extra_values = []
-    if with_compute_domain:
-        dra_extra_values.append('local/compute-domain/dra-driver.values.yaml')
-
-    dra_install(nvml_mock_releases, extra_values=dra_extra_values)
+    dra_install(nvml_mock_releases)
 
 if with_fgo:
     fgo_install(nvml_mock_releases)
@@ -238,6 +257,9 @@ if with_dynamo:
 
 if with_slinky:
     slinky_install(nvml_mock_releases)
+
+if with_hami:
+    hami_install(nvml_mock_releases)
 
 # Manual: the pod cannot run before the device plugin advertises nvidia.com/gpu.
 if with_gpu_operator:

@@ -12,3 +12,5 @@ type SGPURackExpansion interface{}
 type SGPURackProfileExpansion interface{}
 
 type SGPURuntimePolicyExpansion interface{}
+
+type SNICProfileExpansion interface{}

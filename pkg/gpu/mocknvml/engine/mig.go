@@ -755,15 +755,20 @@ func (st *migState) newMigDeviceLocked(
 	// locks. A MIG device deliberately gets no failure injector and no dynamic
 	// metrics: those model the physical GPU, and the parent already reports them.
 	dev := &ConfigurableDevice{
-		Device:      parent.Device,
-		fabric:      parent.fabric,
-		index:       parent.index,
-		minorNumber: parent.minorNumber,
-		baseConfig:  parent.baseConfig,
-		bar1Memory:  parent.bar1Memory,
-		pciInfo:     parent.pciInfo,
-		boardID:     parent.boardID,
-		mig:         id,
+		Device:        parent.Device,
+		fabric:        parent.fabric,
+		index:         parent.index,
+		minorNumber:   parent.minorNumber,
+		baseConfig:    parent.baseConfig,
+		bar1Memory:    parent.bar1Memory,
+		pciInfo:       parent.pciInfo,
+		boardID:       parent.boardID,
+		gpuID:         parent.gpuID,
+		multiGPUBoard: parent.multiGPUBoard,
+		mig:           id,
+
+		absentNotSupported: parent.absentNotSupported,
+		driverVersion:      parent.driverVersion,
 	}
 	dev.effective.Store(parent.effective.Load())
 

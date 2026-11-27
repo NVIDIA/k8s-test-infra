@@ -39,6 +39,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --set 'gpu.mig.gpuInstances[0].profile=1g.10gb' \
   --set 'gpu.mig.gpuInstances[0].count=7' \
   --wait
+kubectl -n mokka rollout status ds/nvml-mock --timeout=5m
 ```
 
 That is two boards of seven slices each, so the node carries fourteen
@@ -54,6 +55,7 @@ name, which is what the device plugin's `migStrategy=single` requires:
 | `b200` | `1g.23gb` | 7 |
 | `gb200` | `1g.23gb` | 7 |
 | `gb300` | `1g.35gb` | 7 |
+| `vrnvl72` | `1g.35gb` | 7 |
 
 `l40s` and `t4` cannot partition. The chart refuses MIG on them, and NVML
 answers `NVML_ERROR_NOT_SUPPORTED` exactly as it does on that hardware.

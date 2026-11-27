@@ -20,10 +20,11 @@ import (
 )
 
 // stageKernelSurface stages what the NVIDIA kernel module provides on a real
-// node: channel0, the /proc/devices substitute and the fabric-imex-mgmt
-// capability file. A configured major that the node's kernel already gives to
-// another driver is replaced by a free one, so the mock never shadows a real
-// device; channel0 and the substitute always carry the same majors.
+// node: the /proc/devices substitute and the fabric-imex-mgmt capability file
+// on every board, and channel0 on a multi-node NVLink board. A configured major
+// that the node's kernel already gives to another driver is replaced by a free
+// one, so the mock never shadows a real device; channel0 and the substitute
+// always carry the same majors.
 func stageKernelSurface(h *host.Host, state *agent.State, procDevicesPath string) error {
 	src, err := os.ReadFile(procDevicesPath) //nolint:gosec // path is validated by caller
 	if err != nil {
@@ -40,7 +41,11 @@ func stageKernelSurface(h *host.Host, state *agent.State, procDevicesPath string
 			zap.Int("stagedChannelMajor", imexMajor), zap.Int("stagedCapsMajor", capsMajor))
 	}
 
-	if err := stageChannelDevs(h, imexMajor); err != nil {
+	if state.IMEX.MultiNode {
+		if err := stageChannelDevs(h, imexMajor); err != nil {
+			return fmt.Errorf("imex channel devs: %w", err)
+		}
+	} else if err := removeChannelDevs(h); err != nil {
 		return fmt.Errorf("imex channel devs: %w", err)
 	}
 	if err := stageProcDevices(h, string(src), imexMajor, capsMajor); err != nil {
@@ -83,6 +88,17 @@ func stageChannelDevs(h *host.Host, imexMajor int) error {
 
 	// NRI injects every file here, so drop channels an earlier version staged.
 	return fsutil.PruneDir(dir, func(name string) bool { return name == "channel0" })
+}
+
+// removeChannelDevs removes the channels of a board that is no longer
+// multi-node NVLink. A real single-node board's driver is loaded without
+// NVreg_CreateImexChannel0, so it has no channel files.
+func removeChannelDevs(h *host.Host) error {
+	dir := h.RootPath(imex.ChannelsDir)
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("remove %s: %w", dir, err)
+	}
+	return nil
 }
 
 // removeOtherDevice removes path unless it is the character device dev.

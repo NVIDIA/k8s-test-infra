@@ -85,6 +85,7 @@ device_defaults:
 
   pcie:
     max_link_gen: 4                 # PCIe Gen4
+    host_max_link_gen: 4            # Explicit success path for the host-max ABI test
     current_link_gen: 4
     max_link_width: 16              # x16
     current_link_width: 16
@@ -385,12 +386,21 @@ devices:
         hw_power_brake_slowdown_us: 55555
     # One faulted condition, so the harness can tell a per-device health mask
     # apart from a constant: only this row flips, and the summary follows.
+    # The cliques are listed out of order: testFabricCliques expects
+    # nvmlDeviceGetGpuFabricInfo_v4 to sort them by type, then id.
     fabric:
       cluster_uuid: "00000000-0000-0000-0000-0000000000ab"
       clique_id: 3
       state: "completed"
       health:
         route_unhealthy: true
+      cliques:
+        - type: unicast_logical_endpoint
+          id: 9
+        - type: multicast_pointer
+          id: 5
+        - type: unicast_logical_endpoint
+          id: 2
 
   - index: 2
     uuid: "GPU-12345678-1234-1234-1234-123456780002"
@@ -448,9 +458,36 @@ devices:
     pci:
       bus_id: "0000:87:00.0"
     minor_number: 4
+    # The one device that models encoder and FBC sessions, so the bridge suite
+    # reads non-empty session buffers across the C boundary (testSessionsAndBoard).
+    # Capacity is 100 minus the processes' enc_util: 100 - 30 - 25 = 45.
+    encoder_stats:
+      session_count: 3
+      average_fps: 60
+      average_latency_us: 4200
+    fbc_stats:
+      session_count: 2
+      average_fps: 30
+      average_latency_us: 900
+    processes:
+      - pid: 4242
+        type: "C"
+        name: "python"
+        used_memory_mib: 6000
+        enc_util: 30
+      - pid: 4343
+        type: "C"
+        name: "ffmpeg"
+        used_memory_mib: 500
+        enc_util: 25
+    board_id: "0x4100"            # shared with device 5: one dual-GPU board
+    gpu_operation_mode:
+      current: "compute"
+      pending: "low_dp"
 
   - index: 5
     uuid: "GPU-12345678-1234-1234-1234-123456780005"
+    board_id: "0x4100"            # shared with device 4
     serial: "1324821083805"
     pci:
       bus_id: "0000:90:00.0"

@@ -54,7 +54,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 ```
 
 Every node now reports four mock GB300 GPUs. Swap in `a100`, `b200`, `gb200`,
-`h100`, `l40s` or `t4` with `--set gpu.profile=<name>`.
+`h100`, `l40s`, `t4` or `vrnvl72` with `--set gpu.profile=<name>`.
 
 [Simulation depth by area](https://nvidia.github.io/k8s-test-infra/#simulation-depth-by-area)
 breaks this down per surface — GPU and NVML, Kubernetes allocation, metrics, PCI
@@ -84,6 +84,13 @@ Visit **[our documentation website](https://nvidia.github.io/k8s-test-infra/)** 
 | [Guides](https://nvidia.github.io/k8s-test-infra/guides/)                 | Device plugin, DRA, GPU Operator, failure injection, node-wide injection |
 | [Configuration](https://nvidia.github.io/k8s-test-infra/configuration/) | Every profile knob                                                       |
 | [FAQ](https://nvidia.github.io/k8s-test-infra/faq/)                     | What Mokka simulates, and what it does not                               |
+
+## Use with coding agents
+
+[`skills/mokka`](skills/mokka/) is an agent skill for Claude Code, Codex,
+Cursor and other coding agents. It teaches an agent to install Mokka, run a
+consumer on top, inject failures and troubleshoot. Copy it into your agent's
+skills directory; see [its README](skills/mokka/README.md).
 
 ## Contributing
 

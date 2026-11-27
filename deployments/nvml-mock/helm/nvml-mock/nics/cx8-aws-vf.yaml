@@ -1,0 +1,44 @@
+# ConnectX-8 as an AWS p6e-gb300r instance shows it: two RoCE virtual functions
+# the hypervisor assigns, and a Data Direct function, with no PF visible.
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SNICProfile
+metadata:
+  name: cx8-aws-vf
+spec:
+  identity:
+    model: ConnectX-8
+    hcaType: MT4126
+    firmwareVersion: "40.47.1088"
+    partNumber: 900-9X86E-B4CX-ST0
+    vendorOUI: "0x02c9"
+  sources:
+    - Trimmed capture of an AWS p6e-gb300r.36xlarge instance (see internal/nic/conformance/testdata/converted)
+  vpd:
+    identities: {VU: asic}
+  functionTypes:
+    vf:
+      vendorID: "15b3"
+      deviceID: "101e"
+      driver: mlx5_core
+      rdmaNamePrefix: mlx5_
+      vpd: true
+      vpdOmit: [VU]
+    dataDirect:
+      vendorID: "15b3"
+      deviceID: "2100"
+      driver: mlx5_ib
+      vpd: true
+      vpdSuffixes: {VU: MLNXDDIS0D0F0}
+  defaultConfiguration: roce-2x400-vf
+  configurations:
+    - name: roce-2x400-vf
+      ports:
+        - {id: p0, technology: roce, width: 4, laneSpeed: NDR, planes: 0}
+        - {id: p1, technology: roce, width: 4, laneSpeed: NDR, planes: 0}
+      functions:
+        - {id: vf0, type: vf, pciDevice: vfA, function: 0, class: "0x020000", ports: [p0]}
+        - {id: vf1, type: vf, pciDevice: vfB, function: 0, class: "0x020000", ports: [p1]}
+        - {id: dd0, type: dataDirect, pciDevice: dataDirect, function: 0, class: "0x080100"}
+      rdmaDevices:
+        - {id: rdma0, function: vf0, ports: [p0]}
+        - {id: rdma1, function: vf1, ports: [p1]}

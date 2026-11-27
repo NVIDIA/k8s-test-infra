@@ -1,0 +1,37 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+load('ext://helm_resource', 'helm_resource')
+
+REPO_RESOURCE = 'hami-charts'
+REPO_URL = 'https://project-hami.github.io/HAMi/'
+
+_RELEASE = 'hami'
+_CHART = REPO_RESOURCE + '/hami'
+_CHART_VERSION = '2.11.0'
+_HELM_TIMEOUT_S = 300
+# The chart's pre-install hook Job pulls its image before helm returns, with or
+# without --wait.
+UPSERT_TIMEOUT_S = _HELM_TIMEOUT_S + 60
+
+
+def install(nvml_mock_releases):
+    helm_resource(
+        _RELEASE,
+        _CHART,
+        namespace='kube-system',
+        flags=['--version', _CHART_VERSION,
+               '--values', 'local/hami/hami.values.yaml',
+               '--timeout', '%ds' % _HELM_TIMEOUT_S],
+        resource_deps=[REPO_RESOURCE] + nvml_mock_releases,
+        labels=['hami'],
+    )
+
+    # Manual: it schedules pods, which a reload of the Tiltfile should not do.
+    local_resource(
+        'hami-smoke',
+        cmd='bash local/hami/scenarios/smoke.sh',
+        resource_deps=[_RELEASE],
+        auto_init=False,
+        labels=['hami-tests'],
+    )

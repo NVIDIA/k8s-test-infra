@@ -39,11 +39,10 @@ const chassisSerialLen = 16
 // where the board physically sits in a rack. The CGo bridge converts it to
 // whichever nvmlPlatformInfo_t struct version the caller selected.
 //
-// Only ModuleID is per-GPU: NVML defines it as "ID of this GPU within the
-// node", while the chassis serial, slot, tray, and host id describe the one
-// node this process runs on and are therefore shared by all of its GPUs.
-// No IbGuid: nvidia-smi sources "GPU Fabric GUID" from nvmlDeviceGetPdi, so
-// carrying an unread GUID through the engine would only be dead weight.
+// ModuleID and FabricGUID are per-GPU: NVML defines the module id as "ID of
+// this GPU within the node", and an NVLink fabric manager tells GPUs apart by
+// their fabric GUID. The chassis serial, slot, tray, and host id describe the
+// one node this process runs on and are therefore shared by all of its GPUs.
 type PlatformInfo struct {
 	ChassisSerialNumber [chassisSerialLen]byte
 	SlotNumber          uint8
@@ -51,6 +50,9 @@ type PlatformInfo struct {
 	HostID              uint8
 	PeerType            uint8
 	ModuleID            uint8
+	// FabricGUID is the value nvidia-smi renders as "GPU Fabric GUID": the
+	// first eight bytes of nvmlPlatformInfo_t.ibGuid, read little-endian.
+	FabricGUID uint64
 }
 
 // chassisSerial reads the serial back as the string nvidia-smi renders.
@@ -80,8 +82,11 @@ func (d *ConfigurableDevice) GetMockPlatformInfo() (PlatformInfo, nvml.Return) {
 		return PlatformInfo{}, nvml.ERROR_NOT_SUPPORTED
 	}
 	info := buildPlatformInfo(cfg.Platform)
-	debugLog("[NVML] nvmlDeviceGetPlatformInfo -> slot=%d tray=%d host=%d module=%d\n",
-		info.SlotNumber, info.TrayIndex, info.HostID, info.ModuleID)
+	if guid := cfg.Platform.GPUFabricGUID; guid != nil {
+		info.FabricGUID = guid.resolve(d.pdi(cfg))
+	}
+	debugLog("[NVML] nvmlDeviceGetPlatformInfo -> slot=%d tray=%d host=%d module=%d fabric_guid=%#016x\n",
+		info.SlotNumber, info.TrayIndex, info.HostID, info.ModuleID, info.FabricGUID)
 	return info, nvml.SUCCESS
 }
 

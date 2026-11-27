@@ -178,3 +178,12 @@ func TestRenderedAddressingMode(t *testing.T) {
 		assert.Equal(t, want, RenderedAddressingMode(configured), "RenderedAddressingMode(%q)", configured)
 	}
 }
+
+// The Vera Rubin capture, on a 615 driver, reports ATS and EGM enabled.
+func TestDeviceIdentityProblems_AcceptsVeraRubinCapture(t *testing.T) {
+	t.Parallel()
+	want := identityOnDriver580("ATS")
+	want.EGM = egmEnabled
+	problems := DeviceIdentityProblems(loadHardwareCapture(t, "qx-vrnvl72.xml"), want)
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}

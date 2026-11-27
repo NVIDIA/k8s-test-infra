@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 490" width="1000" height="490" role="img" aria-labelledby="title desc">
+  <title id="title">Two-phase publication</title>
+  <desc id="desc">Two-phase publication as the leader moves Node worker-06 from rack A to rack B. Before, worker-06 is bound to rack A at revision 7 and rack A is at generation 13. The Node's annotation names revision 7 on rack A with floor 12, a ready replica serves (7, 13), and the node daemon has applied it. Phase 1 changes the authoritative rack bindings. The leader picks revision 8 and removes rack A's binding, which advances rack A to generation 14; a replica now returns retry, since rack A no longer binds worker-06. The leader then binds worker-06 on rack B at revision 8, which advances rack B from generation 3 to 4; a replica still returns retry, since revision 8 is not published. Phase 2 publishes it: the leader updates the Node's annotation to revision 8 on rack B with floor 4, and the Node's labels. A replica then serves (8, 4), rack B's view, and the node daemon applies it. While replicas return retry, the node daemon keeps running (7, 13) and polls again.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .title { font-size: 14px; font-weight: 600; }
+    .phase { font-size: 13px; font-weight: 600; }
+    .strong { font-size: 12.5px; font-weight: 600; }
+    .body { font-size: 12.5px; fill: #59636e; }
+    .label { font-size: 12px; fill: #59636e; }
+    .box { fill: #ffffff; stroke-width: 1.5; }
+    .wire { fill: none; stroke-width: 1.5; }
+    .b-cp, .w-cp { stroke: #8250df; }
+    .b-dp { stroke: #1a7f37; }
+    .b-obj { stroke: #59636e; }
+    .f-cp { fill: #8250df; fill-opacity: 0.1; }
+    .f-dp { fill: #1a7f37; fill-opacity: 0.1; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .body, .label { fill: #9198a1; }
+      .box { fill: #0d1117; }
+      .b-cp, .w-cp { stroke: #ab7df8; }
+      .b-dp { stroke: #3fb950; }
+      .b-obj { stroke: #9198a1; }
+      .f-cp { fill: #ab7df8; fill-opacity: 0.16; }
+      .f-dp { fill: #3fb950; fill-opacity: 0.16; }
+    }
+  </style>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="489" rx="12"/>
+
+  <!-- The leader's two phases -->
+  <text class="phase" x="574" y="30" text-anchor="middle">Phase 1: the authoritative rack binding</text>
+  <path class="wire w-cp" d="M376,48 V40 H772 V48"/>
+  <text class="phase" x="880" y="30" text-anchor="middle">Phase 2: the Node</text>
+  <path class="wire w-cp" d="M784,48 V40 H976 V48"/>
+
+  <!-- Steps -->
+  <text class="title" x="184" y="70">Before</text>
+  <text class="body" x="184" y="90">worker-06 is bound to</text>
+  <text class="body" x="184" y="108">rack A at revision 7</text>
+
+  <text class="title" x="388" y="70">Unbind</text>
+  <text class="body" x="388" y="90">picks revision 8, removes</text>
+  <text class="body" x="388" y="108">rack A's binding</text>
+
+  <text class="title" x="592" y="70">Bind</text>
+  <text class="body" x="592" y="90">binds worker-06 on rack B</text>
+  <text class="body" x="592" y="108">at revision 8</text>
+
+  <text class="title" x="796" y="70">Publish</text>
+  <text class="body" x="796" y="90">updates the Node's</text>
+  <text class="body" x="796" y="108">annotation and labels</text>
+
+  <!-- SGPURack A -->
+  <text class="title" x="24" y="146">SGPURack A</text>
+  <text class="body" x="24" y="164">binding, generation</text>
+  <rect class="box b-obj" x="172" y="124" width="192" height="52" rx="8"/>
+  <text class="body" x="184" y="146">worker-06, revision 7</text>
+  <text class="body" x="184" y="164">generation 13</text>
+  <rect class="box b-cp" x="376" y="124" width="192" height="52" rx="8"/>
+  <rect class="f-cp" x="376" y="124" width="192" height="52" rx="8"/>
+  <text class="body" x="388" y="146">no binding</text>
+  <text class="body" x="388" y="164">generation 14</text>
+  <rect class="box b-obj" x="580" y="124" width="192" height="52" rx="8"/>
+  <text class="body" x="592" y="146">no binding</text>
+  <text class="body" x="592" y="164">generation 14</text>
+  <rect class="box b-obj" x="784" y="124" width="192" height="52" rx="8"/>
+  <text class="body" x="796" y="146">no binding</text>
+  <text class="body" x="796" y="164">generation 14</text>
+
+  <!-- SGPURack B -->
+  <text class="title" x="24" y="208">SGPURack B</text>
+  <text class="body" x="24" y="226">binding, generation</text>
+  <rect class="box b-obj" x="172" y="186" width="192" height="52" rx="8"/>
+  <text class="body" x="184" y="208">free slot</text>
+  <text class="body" x="184" y="226">generation 3</text>
+  <rect class="box b-obj" x="376" y="186" width="192" height="52" rx="8"/>
+  <text class="body" x="388" y="208">free slot</text>
+  <text class="body" x="388" y="226">generation 3</text>
+  <rect class="box b-cp" x="580" y="186" width="192" height="52" rx="8"/>
+  <rect class="f-cp" x="580" y="186" width="192" height="52" rx="8"/>
+  <text class="body" x="592" y="208">worker-06, revision 8</text>
+  <text class="body" x="592" y="226">generation 4</text>
+  <rect class="box b-obj" x="784" y="186" width="192" height="52" rx="8"/>
+  <text class="body" x="796" y="208">worker-06, revision 8</text>
+  <text class="body" x="796" y="226">generation 4</text>
+
+  <!-- Node worker-06 -->
+  <text class="title" x="24" y="270">Node worker-06</text>
+  <text class="body" x="24" y="288">sgpu-assignment</text>
+  <rect class="box b-obj" x="172" y="248" width="192" height="52" rx="8"/>
+  <text class="body" x="184" y="270">revision 7, rack A</text>
+  <text class="body" x="184" y="288">floor 12</text>
+  <rect class="box b-obj" x="376" y="248" width="192" height="52" rx="8"/>
+  <text class="body" x="388" y="270">revision 7, rack A</text>
+  <text class="body" x="388" y="288">floor 12</text>
+  <rect class="box b-obj" x="580" y="248" width="192" height="52" rx="8"/>
+  <text class="body" x="592" y="270">revision 7, rack A</text>
+  <text class="body" x="592" y="288">floor 12</text>
+  <rect class="box b-cp" x="784" y="248" width="192" height="52" rx="8"/>
+  <rect class="f-cp" x="784" y="248" width="192" height="52" rx="8"/>
+  <text class="body" x="796" y="270">revision 8, rack B</text>
+  <text class="body" x="796" y="288">floor 4</text>
+
+  <!-- What a ready replica serves at each step -->
+  <text class="title" x="24" y="338">Ready replica</text>
+  <text class="body" x="24" y="356">what it serves</text>
+  <rect class="box b-cp" x="172" y="316" width="192" height="52" rx="8"/>
+  <text class="strong" x="184" y="338">(7, 13)</text>
+  <text class="body" x="184" y="356">rack A's view</text>
+  <rect class="box b-cp" x="376" y="316" width="192" height="52" rx="8"/>
+  <text class="strong" x="388" y="338">retry</text>
+  <text class="body" x="388" y="356">rack A no longer binds it</text>
+  <rect class="box b-cp" x="580" y="316" width="192" height="52" rx="8"/>
+  <text class="strong" x="592" y="338">retry</text>
+  <text class="body" x="592" y="356">revision 8 not published</text>
+  <rect class="box b-cp" x="784" y="316" width="192" height="52" rx="8"/>
+  <text class="strong" x="796" y="338">(8, 4)</text>
+  <text class="body" x="796" y="356">rack B's view</text>
+
+  <!-- What the node daemon runs at each step -->
+  <text class="title" x="24" y="400">Node daemon</text>
+  <text class="body" x="24" y="418">what it runs</text>
+  <rect class="box b-dp" x="172" y="378" width="192" height="52" rx="8"/>
+  <text class="strong" x="184" y="409">applied (7, 13)</text>
+  <rect class="box b-dp" x="376" y="378" width="192" height="52" rx="8"/>
+  <text class="strong" x="388" y="400">keeps (7, 13)</text>
+  <text class="body" x="388" y="418">and polls again</text>
+  <rect class="box b-dp" x="580" y="378" width="192" height="52" rx="8"/>
+  <text class="strong" x="592" y="400">keeps (7, 13)</text>
+  <text class="body" x="592" y="418">and polls again</text>
+  <rect class="box b-dp" x="784" y="378" width="192" height="52" rx="8"/>
+  <rect class="f-dp" x="784" y="378" width="192" height="52" rx="8"/>
+  <text class="strong" x="796" y="409">applies (8, 4)</text>
+
+  <!-- Legend -->
+  <rect class="box b-cp" x="24" y="454" width="28" height="16" rx="4"/>
+  <rect class="f-cp" x="24" y="454" width="28" height="16" rx="4"/>
+  <text class="label" x="60" y="466">written by the leader in this step</text>
+  <rect class="box b-dp" x="292" y="454" width="28" height="16" rx="4"/>
+  <rect class="f-dp" x="292" y="454" width="28" height="16" rx="4"/>
+  <text class="label" x="328" y="466">applied by the node daemon in this step</text>
+</svg>

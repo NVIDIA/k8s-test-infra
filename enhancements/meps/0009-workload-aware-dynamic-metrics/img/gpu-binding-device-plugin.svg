@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 569" width="1000" height="569" role="img" aria-labelledby="title desc">
+  <title id="title">Pod-to-GPU binding with the device plugin</title>
+  <desc id="desc">NVIDIA's device plugin lists the GPUs through Mokka's NVML engine, which reports UUIDs from the profile, and advertises them to the kubelet with each device ID set to a GPU UUID. kube-scheduler binds the pod to the Node with a GPU count and no device. The kubelet's device manager picks free device IDs, with Topology Manager hints, checkpoints them and calls Allocate on the device plugin with those IDs. Every 2 seconds, the workload tracker sidecar calls List on the kubelet's PodResources API, which returns each pod and container with its device IDs; the tracker matches each ID to a UUID and marks that GPU busy in the NVML engine. Teal marks the workload tracker's steps.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .t { font-size: 13px; font-weight: 600; }
+    .b { font-size: 12px; fill: #59636e; }
+    .c { font-size: 12.5px; }
+    .msg, .sub { paint-order: stroke; stroke: #ffffff; stroke-width: 5px; stroke-linejoin: round; }
+    .msg { font-size: 12.5px; }
+    .sub { font-size: 12px; fill: #59636e; }
+    .in { stroke: #ecf7f8; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+    .box { fill: #ffffff; stroke: #1f2328; stroke-width: 1.5; }
+    .life { fill: none; stroke: #8c959f; stroke-width: 1; stroke-dasharray: 4 4; }
+    .note { fill: #f6f8fa; stroke: #8c959f; stroke-width: 1; }
+    .wire { fill: none; stroke: #59636e; stroke-width: 1.5; }
+    .reply { fill: none; stroke: #59636e; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #59636e; }
+    .loop { fill: #ecf7f8; stroke: #0a7782; stroke-width: 1.5; }
+    .tag { fill: #0a7782; }
+    .tagtext { font-size: 12px; font-weight: 600; fill: #ffffff; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .b, .sub { fill: #9198a1; }
+      .msg, .sub { stroke: #0d1117; }
+      .in { stroke: #112329; }
+      .box { fill: #0d1117; stroke: #f0f6fc; }
+      .life { stroke: #6e7681; }
+      .note { fill: #151b23; stroke: #6e7681; }
+      .wire, .reply { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+      .loop { fill: #112329; stroke: #39c5cf; }
+      .tag { fill: #39c5cf; }
+      .tagtext { fill: #0d1117; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="568" rx="12"/>
+
+  <!-- The workload tracker's steps, repeated every 2 seconds -->
+  <rect class="loop" x="264" y="359" width="710" height="170" rx="8"/>
+
+  <!-- Participants and their lifelines -->
+  <path class="life" d="M108,72 V547"/>
+  <path class="life" d="M304,72 V547"/>
+  <path class="life" d="M500,72 V547"/>
+  <path class="life" d="M696,72 V547"/>
+  <path class="life" d="M892,72 V547"/>
+  <rect class="box" x="24" y="20" width="168" height="52" rx="8"/>
+  <text class="t" x="108" y="41" text-anchor="middle">kube-scheduler</text>
+  <text class="b" x="108" y="58" text-anchor="middle">picks the Node</text>
+  <rect class="box" x="220" y="20" width="168" height="52" rx="8"/>
+  <text class="t" x="304" y="41" text-anchor="middle">kubelet</text>
+  <text class="b" x="304" y="58" text-anchor="middle">device manager</text>
+  <rect class="box" x="416" y="20" width="168" height="52" rx="8"/>
+  <text class="t" x="500" y="41" text-anchor="middle">NVIDIA device plugin</text>
+  <text class="b" x="500" y="58" text-anchor="middle">real, on Mokka's NVML</text>
+  <rect class="box" x="612" y="20" width="168" height="52" rx="8"/>
+  <text class="t" x="696" y="41" text-anchor="middle">NVML engine</text>
+  <text class="b" x="696" y="58" text-anchor="middle">GPUs from the profile</text>
+  <rect class="box" x="808" y="20" width="168" height="52" rx="8"/>
+  <text class="t" x="892" y="41" text-anchor="middle">workload tracker</text>
+  <text class="b" x="892" y="58" text-anchor="middle">sidecar</text>
+
+  <!-- Messages: solid calls, dashed replies -->
+  <path class="wire" d="M500,107 H696" marker-end="url(#arrow)"/>
+  <text class="msg" x="598" y="98" text-anchor="middle">lists the GPUs through NVML</text>
+  <path class="reply" d="M696,142 H500" marker-end="url(#arrow)"/>
+  <text class="msg" x="598" y="133" text-anchor="middle">UUIDs from the profile</text>
+  <path class="wire" d="M500,177 H304" marker-end="url(#arrow)"/>
+  <text class="msg" x="402" y="168" text-anchor="middle">advertises GPUs, ID = UUID</text>
+  <path class="wire" d="M108,227 H304" marker-end="url(#arrow)"/>
+  <text class="msg" x="206" y="203" text-anchor="middle">binds the pod to this Node</text>
+  <text class="sub" x="206" y="218" text-anchor="middle">a GPU count, no device</text>
+  <path class="wire" d="M304,337 H500" marker-end="url(#arrow)"/>
+  <text class="msg" x="402" y="328" text-anchor="middle"><tspan class="mono">Allocate</tspan>(those IDs)</text>
+  <path class="wire" d="M892,400 H304" marker-end="url(#arrow)"/>
+  <text class="msg in" x="598" y="391" text-anchor="middle">PodResources <tspan class="mono">List</tspan></text>
+  <path class="reply" d="M304,435 H892" marker-end="url(#arrow)"/>
+  <text class="msg in" x="598" y="426" text-anchor="middle">pod, container → device IDs</text>
+  <path class="wire" d="M892,515 H696" marker-end="url(#arrow)"/>
+  <text class="msg in" x="794" y="506" text-anchor="middle">marks that GPU busy</text>
+
+  <!-- Notes -->
+  <rect class="note" x="208" y="241" width="192" height="61" rx="6"/>
+  <text class="c" x="304" y="261" text-anchor="middle">picks free device IDs,</text>
+  <text class="c" x="304" y="276" text-anchor="middle">with Topology Manager hints,</text>
+  <text class="c" x="304" y="291" text-anchor="middle">and checkpoints them</text>
+  <rect class="note" x="782" y="449" width="180" height="31" rx="6"/>
+  <text class="c" x="872" y="469" text-anchor="middle">matches each ID to a UUID</text>
+
+  <!-- The loop's tag, on its top edge -->
+  <rect class="tag" x="278" y="349" width="181" height="20" rx="10"/>
+  <text class="tagtext" x="290" y="363">workload tracker · every 2 s</text>
+</svg>

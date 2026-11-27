@@ -6,7 +6,7 @@
 # these values only point it at what the Mokka node agent stages.
 #
 # The same settings as the ComputeDomain e2e scenario, which Tilt installs from
-# local/dra/dra-driver.values.yaml and local/compute-domain/dra-driver.values.yaml.
+# local/dra/dra-driver.values.yaml.
 
 # Mokka's mock driver tree: libnvidia-ml.so, the device nodes and, on multi-node
 # NVLink profiles such as gb200, nvidia-imex and nvidia-imex-ctl.

@@ -136,6 +136,9 @@ Add a sign-off line to every git commit message:
 
     Signed-off-by: Your Name <your.email@example.com>
 
+Merge commits, such as the one GitHub's **Update branch** button creates, are
+exempt. Every other commit in the pull request still needs a sign-off.
+
 Use your real name. If you set `user.name` and `user.email` in your git config,
 you can sign automatically with:
 

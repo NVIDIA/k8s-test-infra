@@ -68,12 +68,44 @@ spec:
           supported: true
           maxGPUInstances: 7
     topology:
+      # The platform's PCIe root ports, named once. GPUs and NIC devices sit
+      # below them in one PCIe tree.
+      rootPorts:
+        - address: "0000:00:01.0"
+          rootComplex: pci0000:00
+        - address: "0000:00:02.0"
+          rootComplex: pci0000:00
+        - address: "0000:00:03.0"
+          rootComplex: pci0000:00
       gpuSlots:
         - index: 0
           pciAddress: "0000:01:00.0"
           rootComplex: pci0000:00
+          parent: "0000:00:01.0"
           numaNode: 0
           hostProcessorIndex: 0
+      # NICs as slots: each names an SNICProfile, one NIC model and the
+      # configurations it can run, and places that model's PCI devices. This
+      # one is a ConnectX-7 adapter with two host links; the nvml-mock chart
+      # ships its profile, cx7-hhhl, in nics/.
+      nics:
+        - slot: frontend0
+          profile: cx7-hhhl
+          board: 0
+          gpus: [0]
+          devices:
+            hostA:
+              rootComplex: pci0000:00
+              address: "0000:02:00"
+              parent: "0000:00:02.0"
+              numaNode: 0
+              vpdPosition: "-Prime"
+            hostB:
+              rootComplex: pci0000:00
+              address: "0000:03:00"
+              parent: "0000:00:03.0"
+              numaNode: 0
+              vpdPosition: "-Aux[1]"
       gpuFabric:
         type: NVLink
         generation: 3
@@ -85,13 +117,10 @@ spec:
           gpuCount: 2
         switches:
           visiblePerNode: 1
-      network:
-        type: InfiniBand
-        adapterModel: ConnectX-7
-        firmwareVersion: 28.43.1014
-        linkSpeedGbps: 400
-        adaptersPerGPU: 1
   software:
+    # The node image's RDMA stack: ib_umad loads, ib_ipoib doesn't.
+    rdma:
+      umad: true
     driverVersion: 580.65.06
     nvmlVersion: "13.0"
     cudaVersion: "13.0"

@@ -24,6 +24,7 @@ kind create cluster --name mokka-device-plugin
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --namespace mokka --create-namespace \
   --wait --timeout 120s
+kubectl -n mokka rollout status ds/nvml-mock --timeout=120s
 ```
 
 ## Step 2 — Label the node
@@ -167,11 +168,13 @@ helm install nvml-mock-a100 oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock 
   --namespace mokka --create-namespace \
   --set gpu.profile=a100 --set gpu.count=4 \
   --set "nodeSelector.nvml-mock/profile=a100" --wait --timeout 120s
+kubectl -n mokka rollout status ds/nvml-mock-a100 --timeout=120s
 
 helm install nvml-mock-t4 oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --namespace mokka \
   --set gpu.profile=t4 --set gpu.count=2 \
   --set "nodeSelector.nvml-mock/profile=t4" --wait --timeout 120s
+kubectl -n mokka rollout status ds/nvml-mock-t4 --timeout=120s
 ```
 
 Deploy the device plugin as in Step 3, and each worker reports its own count:
@@ -215,9 +218,11 @@ kubectl -n kube-system logs -l name=nvidia-device-plugin-mock --tail=30
 **The plugin pod is `Pending`.** The node is missing
 `mokka.nvidia.com/type=sgpu`.
 
-**A pod requesting one GPU sees all of them.** The NRI plugin is also injecting.
-`--pass-device-specs=true` is what lets Mokka's plugin detect the allocation and
-stand down — see [NRI Plugin](../components/nri-plugin.md).
+**A pod requesting one GPU gets no mock GPUs.** The device plugin runs without
+`--pass-device-specs=true`, so Mokka's NRI plugin finds no allocation in the
+container and leaves it alone. With that flag the plugin recognises the
+allocation and gives the container exactly the GPUs it was allocated — see
+[Recognising a GPU allocation](../components/nri-plugin.md#recognising-a-gpu-allocation).
 
 ## Clean up
 

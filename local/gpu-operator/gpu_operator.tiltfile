@@ -8,11 +8,11 @@ load('ext://helm_resource', 'helm_resource')
 
 _REPO_RESOURCE = 'nvidia'
 
-# v26.7.1 gates every operand's toolkit-validation init container on an `nvidia`
-# line in /proc/modules (NVIDIA/gpu-operator#2881), which the mock cannot serve to
-# those containers, so GFD, the device plugin and dcgm-exporter never start (#911).
+# v26.7.1 and v26.7.2 gate every operand on an `nvidia` line in /proc/modules,
+# which the mock cannot serve to those containers (#911). v26.7.3 reads
+# /sys/module/nvidia/initstate instead, which the CDI spec bind-mounts.
 _CHART = 'nvidia/gpu-operator'
-_CHART_VERSION = 'v26.3.3'
+_CHART_VERSION = 'v26.7.3'
 
 def install(nvml_mock_releases, extra_values=[], extra_resource_deps=[]):
     values_flags = ['--values', 'local/gpu-operator/gpu-operator.values.yaml']

@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 486" width="760" height="486" role="img" aria-labelledby="decl-surfaces-title decl-surfaces-desc" class="nicfig nf-flow">
+  <title id="decl-surfaces-title">From declarations to simulated surfaces</title>
+  <desc id="decl-surfaces-desc">SNICProfile declares each NIC model's layouts and defaults, such as cx8-c8280z and bf3-b3240. SGPURackProfile gb300 places NIC slots on each node's PCIe tree, four naming cx8-c8280z and one naming bf3-b3240. SGPUInventory declares a simulated cluster and the configuration each slot runs. Resolve combines them with the node's coordinates into the resolved node state, State.NICs, in which every value is decided. SGPURuntimePolicy adds values read while the cluster runs, without changing which devices exist. The node agent's simulators render the state as surfaces: the PCIe tree, PCI devices, VPD, RDMA devices and ports, character devices and network interfaces.</desc>
+  <style>
+    .nf-flow { --fg: #1f2328; --muted: #59636e; --rule: #d1d9e0; --band: #f6f8fa; --box: #ffffff; --decl: #0969da; --resolve: #8250df; --state: #1a7f37; --sim: #59636e; }
+    @media (prefers-color-scheme: dark) {
+      .nf-flow { --fg: #f0f6fc; --muted: #9198a1; --rule: #3d444d; --band: #151b23; --box: #0d1117; --decl: #4493f8; --resolve: #ab7df8; --state: #3fb950; --sim: #9198a1; }
+    }
+    :root[data-theme="light"] .nf-flow { --fg: #1f2328; --muted: #59636e; --rule: #d1d9e0; --band: #f6f8fa; --box: #ffffff; --decl: #0969da; --resolve: #8250df; --state: #1a7f37; --sim: #59636e; }
+    :root[data-theme="dark"] .nf-flow { --fg: #f0f6fc; --muted: #9198a1; --rule: #3d444d; --band: #151b23; --box: #0d1117; --decl: #4493f8; --resolve: #ab7df8; --state: #3fb950; --sim: #9198a1; }
+    .nf-flow text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; font-size: 11.5px; fill: var(--fg); }
+    .nf-flow .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; fill: var(--muted); }
+    .nf-flow .code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; fill: var(--fg); }
+    .nf-flow .kind { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; font-weight: 600; fill: var(--decl); }
+    .nf-flow .b { font-weight: 600; }
+    .nf-flow .muted { fill: var(--muted); }
+    .nf-flow .head { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; fill: var(--muted); }
+    .nf-flow .decl { fill: var(--box); stroke: var(--decl); stroke-width: 1.5; }
+    .nf-flow .resolve { fill: var(--box); stroke: var(--resolve); stroke-width: 1.5; }
+    .nf-flow .state { fill: var(--box); stroke: var(--state); stroke-width: 1.75; }
+    .nf-flow .sim { fill: var(--box); stroke: var(--sim); stroke-width: 1.5; }
+    .nf-flow .chip { fill: var(--band); stroke: var(--rule); }
+    .nf-flow .flow { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+    .nf-flow .tip { fill: var(--muted); }
+    .nf-flow .t-resolve { fill: var(--resolve); }
+    .nf-flow .t-state { fill: var(--state); }
+  </style>
+
+  <!-- declarations -->
+  <text class="head" x="8" y="18">DECLARATIONS</text>
+  <rect class="decl" x="8" y="28" width="174" height="96" rx="6"/>
+  <text class="kind" x="20" y="48">SNICProfile</text>
+  <text class="mono" x="20" y="64">cx8-c8280z, bf3-b3240</text>
+  <text x="20" y="86">A NIC model: its identity,</text>
+  <text x="20" y="102">PCI devices, configurations</text>
+  <text x="20" y="118">and defaults</text>
+
+  <rect class="decl" x="198" y="28" width="174" height="96" rx="6"/>
+  <text class="kind" x="210" y="48">SGPURackProfile</text>
+  <text class="mono" x="210" y="64">gb300</text>
+  <text x="210" y="86">Per node, slots on PCIe:</text>
+  <text class="code" x="210" y="102">4 × cx8-c8280z</text>
+  <text class="code" x="210" y="118">1 × bf3-b3240</text>
+
+  <rect class="decl" x="388" y="28" width="174" height="96" rx="6"/>
+  <text class="kind" x="400" y="48">SGPUInventory</text>
+  <text class="mono" x="400" y="64">one simulated cluster</text>
+  <text x="400" y="86">Its rack groups, and the</text>
+  <text x="400" y="102">configuration each slot</text>
+  <text x="400" y="118">runs (nicConfigurations)</text>
+
+  <rect class="decl" x="578" y="28" width="174" height="96" rx="6"/>
+  <text class="kind" x="590" y="48">SGPURuntimePolicy</text>
+  <text class="mono" x="590" y="64">runtime values</text>
+  <text x="590" y="86">Values read while the</text>
+  <text x="590" y="102">cluster runs, such as the</text>
+  <text x="590" y="118">NIC firmware version</text>
+
+  <!-- into resolve and the state -->
+  <path class="flow" d="M95,124 V168"/>
+  <path class="tip" d="M90,166 L95,174 L100,166 Z"/>
+  <text class="mono" x="102" y="150">layouts, defaults</text>
+  <path class="flow" d="M285,124 V168"/>
+  <path class="tip" d="M280,166 L285,174 L290,166 Z"/>
+  <text class="mono" x="292" y="150">placement</text>
+  <path class="flow" d="M475,124 V168"/>
+  <path class="tip" d="M470,166 L475,174 L480,166 Z"/>
+  <text class="mono" x="482" y="144">configuration,</text>
+  <text class="mono" x="482" y="157">node coordinates</text>
+
+  <rect class="resolve" x="8" y="174" width="530" height="46" rx="6"/>
+  <text class="b t-resolve" x="20" y="194">Resolve</text>
+  <text class="muted" x="76" y="194">one node: the selected layout of every slot, at its place,</text>
+  <text class="muted" x="20" y="211">with identifiers hashed from the node's coordinates</text>
+
+  <path class="flow" d="M285,220 V246"/>
+  <path class="tip" d="M280,244 L285,252 L290,244 Z"/>
+  <path class="flow" d="M665,124 V246"/>
+  <path class="tip" d="M660,244 L665,252 L670,244 Z"/>
+  <text class="mono" x="657" y="200" text-anchor="end">values only;</text>
+  <text class="mono" x="657" y="213" text-anchor="end">devices unchanged</text>
+
+  <!-- resolved state -->
+  <rect class="state" x="8" y="252" width="744" height="78" rx="6"/>
+  <text class="b t-state" x="20" y="272">Resolved node state</text>
+  <text class="mono" x="152" y="272">State.NICs · every value decided · one instance per slot</text>
+  <rect class="chip" x="20" y="284" width="96" height="30" rx="4"/>
+  <text x="68" y="303" text-anchor="middle">5 instances</text>
+  <rect class="chip" x="124" y="284" width="100" height="30" rx="4"/>
+  <text x="174" y="303" text-anchor="middle">PCIe bridges</text>
+  <rect class="chip" x="232" y="284" width="104" height="30" rx="4"/>
+  <text x="284" y="303" text-anchor="middle">PCI functions</text>
+  <rect class="chip" x="344" y="284" width="104" height="30" rx="4"/>
+  <text x="396" y="303" text-anchor="middle">RDMA devices</text>
+  <rect class="chip" x="456" y="284" width="64" height="30" rx="4"/>
+  <text x="488" y="303" text-anchor="middle">ports</text>
+  <rect class="chip" x="528" y="284" width="72" height="30" rx="4"/>
+  <text x="564" y="303" text-anchor="middle">netdevs</text>
+  <rect class="chip" x="608" y="284" width="132" height="30" rx="4"/>
+  <text x="674" y="303" text-anchor="middle">runtime values</text>
+
+  <!-- surfaces -->
+  <path class="flow" d="M380,330 V358"/>
+  <path class="tip" d="M375,356 L380,364 L385,356 Z"/>
+  <rect class="sim" x="8" y="364" width="744" height="88" rx="6"/>
+  <text class="b" x="20" y="384">Simulated surfaces</text>
+  <text class="mono" x="138" y="384">rendered by the node agent's simulators, such as pcibus and ib</text>
+  <rect class="chip" x="20" y="398" width="80" height="30" rx="4"/>
+  <text x="60" y="417" text-anchor="middle">PCIe tree</text>
+  <rect class="chip" x="108" y="398" width="92" height="30" rx="4"/>
+  <text x="154" y="417" text-anchor="middle">PCI devices</text>
+  <rect class="chip" x="208" y="398" width="48" height="30" rx="4"/>
+  <text x="232" y="417" text-anchor="middle">VPD</text>
+  <rect class="chip" x="264" y="398" width="160" height="30" rx="4"/>
+  <text x="344" y="417" text-anchor="middle">RDMA devices and ports</text>
+  <rect class="chip" x="432" y="398" width="132" height="30" rx="4"/>
+  <text x="498" y="417" text-anchor="middle">character devices</text>
+  <rect class="chip" x="572" y="398" width="136" height="30" rx="4"/>
+  <text x="640" y="417" text-anchor="middle">network interfaces</text>
+  <rect class="chip" x="716" y="398" width="24" height="30" rx="4"/>
+  <text x="728" y="417" text-anchor="middle">…</text>
+  <text class="muted" x="20" y="444">What Linux software reads on a real node, from the same values</text>
+
+  <text class="muted" x="8" y="476">File mode reads the same profiles from the chart; the GPU profile carries the slots, and Helm values stand in for the inventory.</text>
+</svg>

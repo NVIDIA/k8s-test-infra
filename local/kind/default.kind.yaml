@@ -19,9 +19,12 @@
 #     it (local/nvml-mock.values.yaml), which keeps it off the control plane.
 #
 # Cluster-wide: the DynamicResourceAllocation gate and resource.k8s.io/v1beta1 let
-# the DRA driver publish ResourceSlices. With no ResourceClaim the scheduler paths
-# never fire, so non-DRA scenarios pay nothing. containerd 2.x in kindest/node has
-# NRI on, which the mock's NRI plugin attaches to, so no containerd patch is needed.
+# the DRA driver publish ResourceSlices. DRAExtendedResource (alpha in 1.35) lets
+# a pod request a DRA device through an extended resource name
+# (deviceclass.resource.kubernetes.io/<class>), as DRA-aware schedulers do. With
+# no ResourceClaim the scheduler paths never fire, so non-DRA scenarios pay
+# nothing. containerd 2.x in kindest/node has NRI on, which the mock's NRI plugin
+# attaches to, so no containerd patch is needed.
 #
 # hostPaths in a Kind config are repo-relative: create the cluster from the repo
 # root (make cluster-create does).
@@ -30,6 +33,7 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: mokka
 featureGates:
   DynamicResourceAllocation: true
+  DRAExtendedResource: true
 nodes:
   - role: control-plane
     extraMounts: &node-syslog

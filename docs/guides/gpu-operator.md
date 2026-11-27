@@ -39,6 +39,7 @@ containerd when it starts in Step 2, so the cluster needs nothing more.
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --namespace mokka --create-namespace \
   --wait --timeout 120s
+kubectl -n mokka rollout status ds/nvml-mock --timeout=120s
 ```
 
 ## Step 3 — Install the GPU Operator
@@ -98,14 +99,24 @@ helm repo add nvidia https://helm.ngc.nvidia.com/nvidia && helm repo update
 
 helm install gpu-operator nvidia/gpu-operator \
   --namespace gpu-operator --create-namespace \
-  --version v26.3.3 \
+  --version v26.7.3 \
   -f gpu-operator-values.yaml \
   --wait --timeout 600s
 ```
 
-The version is deliberate. GPU Operator `v26.3.3` is the release CI validates
+The version is deliberate. GPU Operator `v26.7.3` is the release CI validates
 for this workflow. Later releases can add hardware checks or change the chart
 schema, so validate them against Mokka before updating the pin.
+
+Avoid `v26.7.1` and `v26.7.2`. They hold every operand in its
+`toolkit-validation` init container until `/proc/modules` lists `nvidia`, which
+Mokka cannot serve to those containers, so GFD, the device plugin and
+`dcgm-exporter` never start. From `v26.7.3` the check reads
+`/sys/module/nvidia/initstate` instead. Mokka serves that file through its CDI
+spec, and the operator copies `validator.toolkit.env` into each operand's
+`toolkit-validation` container. Keep `NVIDIA_VISIBLE_DEVICES=all` there: without
+it, the image's `void` default leaves the container without the mount and the
+operands wait forever.
 
 !!! warning "Use a values file, not `--set`"
 
@@ -203,7 +214,7 @@ not tolerate the control-plane `NoSchedule` taint.
 | `GPU_PROFILE` | `gb300` | Any profile under the chart's `profiles/` directory |
 | `NAMESPACE` | `mokka-operator` | Namespace for the Mokka release |
 | `OPERATOR_NAMESPACE` | `gpu-operator` | Namespace for the GPU Operator release |
-| `GPU_OPERATOR_VERSION` | `v26.3.3` | GPU Operator chart version to install |
+| `GPU_OPERATOR_VERSION` | `v26.7.3` | GPU Operator chart version to install |
 | `NVML_MOCK_IMAGE` | `ghcr.io/nvidia/nvml-mock:latest` | Published image to install |
 | `BUILD_LOCAL` | `false` | Build the image from source and side-load it with `kind load` |
 | `HELM_TIMEOUT` | `15m` | Wait budget for each Helm install |

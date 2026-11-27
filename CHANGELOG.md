@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-11-25
+
+### Added
+
+- nvml-mock: encoder and FBC sessions, encoder utilization and capacity, and GPU operation mode now come from the profile instead of fixed values, and a new board_id field puts GPUs on a shared board, which nvmlDeviceGetBoardId, nvmlDeviceOnSameBoard and nvmlDeviceGetMultiGpuBoard report; see the configuration reference. ([#1049](https://github.com/NVIDIA/k8s-test-infra/issues/1049))
+- node-agent: add opt-in NUMA simulation for GPU, CPU, and memory allocation. Reapply CPU, memory, or GPU placement changes, restore the original setup when disabled, and reapply after reboot; memory locality is simulated through NRI. ([#1148](https://github.com/NVIDIA/k8s-test-infra/issues/1148))
+- nvml-mock: `nvmlDeviceGetGpuFabricInfo_v4` reports per-type fabric cliques on a `615` or newer driver; see [Fabric Cliques](docs/configuration.md#fabric-cliques). ([#1203](https://github.com/NVIDIA/k8s-test-infra/issues/1203))
+- A `--hami` Tilt consumer that installs HAMi 2.11.0 and packs two pods onto one mock GPU, each capped by its own `nvidia.com/gpumem`, with a `hami-smoke` trigger that checks the path end to end. The HAMi guide walks through the same setup from published artifacts.
+- helm: the `mokka-crds` chart adds the `SNICProfile` CRD, NIC slots and `software.rdma` in `SGPURackProfile`, and `nicOverrides` in `SGPUInventory`, which declare NIC hardware as data (MEP-0016); nothing reads them yet. ([#1266](https://github.com/NVIDIA/k8s-test-infra/issues/1266))
+
+### Changed
+
+- mokka-capture: `mokka-capture <command> --help` lists that command's own flags and arguments, a bad invocation prints the reason and that help on standard error, and flags may follow the arguments; flag names, defaults and exit codes are unchanged.
+- mokka-capture: `profile` writes the `fabric.cliques` a capture reports through `nvmlDeviceGetGpuFabricInfo_v4`, and `diff smi` no longer compares clique IDs, which the fabric manager assigns; see [mokka-capture](docs/tools/mokka-capture.md#diff-smi).
+- helm: the GPU Operator chart that Tilt, CI and the guides install moves from v26.3.3 to v26.7.3, whose operands start on the mock; v26.7.1 and v26.7.2 still hang in toolkit-validation. ([#911](https://github.com/NVIDIA/k8s-test-infra/issues/911))
+- observability: the Mokka GPU dashboard and the `inject-thermal` and `inject-xid` scenarios read the metric names and units that dcgm-exporter 4.9.0 serves (for example `DCGM_FI_DEV_GPU_TEMP_CELSIUS`), the version GPU Operator v26.7.3 deploys.
+
+### Removed
+
+- helm: **Breaking:** `SGPURackProfile` drops `spec.node.topology.network`, which nothing read; remove it from rack profiles, and declare NICs as NIC slots in `topology.nics` instead. ([#1266](https://github.com/NVIDIA/k8s-test-infra/issues/1266))
+
+### Fixed
+
+- nvml-mock: Host Max PCIe generation reports N/A unless explicitly configured; GB300 reports Gen4 independently of its Gen6 device maximum, and VRNVL72 reports Gen6. ([#692](https://github.com/NVIDIA/k8s-test-infra/issues/692))
+- nv-sentinel demo: keep idle mock-GPU NVLink suppressions so recovery is not blocked by mock-data warnings. ([#1154](https://github.com/NVIDIA/k8s-test-infra/issues/1154))
+- nvml-mock: `nvmlDeviceGetMemoryInfo` (v1) reported 0 MiB used on an idle GPU, leaving free plus used short of the total, and `nvmlDeviceGetMemoryInfo_v2` reported the parent GPU's reserved memory on a MIG device.
+- helm: the NRI plugin container no longer fails to start with `error reading from server: EOF` while the node agent restarts containerd on a new node; NRI now starts after that restart.
+
+### Security
+
+- build: nvml-mock-ctl and the control plane move to golang.org/x/net v0.63.0, fixing GO-2026-6860 (excessive CPU when parsing HTML with many short text runs); klauspost/compress moves to v1.20.5, fixing CVE-2026-116591 (zstd decoder panic).
+
+## [0.7.0] - 2026-11-12
+
+### Added
+
+- profiles: new `vrnvl72` profile simulates one Vera Rubin compute tray (four Rubin GPUs, compute capability 10.7, multi-node NVLink); select it with `--set gpu.profile=vrnvl72`. ([#1174](https://github.com/NVIDIA/k8s-test-infra/issues/1174))
+- profiles: `system.product_name` sets the machine type GPU Feature Discovery labels as `nvidia.com/gpu.machine`; profiles without it keep the GPU name. ([#1165](https://github.com/NVIDIA/k8s-test-infra/issues/1165))
+- nvml-mock: nodes on a 615 driver (a profile's `system.driver_version` or the chart's `driverVersion`) now run nvidia-smi 615.71.09 instead of 580.65.06; nodes on other drivers are unchanged. ([#1169](https://github.com/NVIDIA/k8s-test-infra/issues/1169))
+- profiles: `system.absent_features: not_supported` makes a feature the profile leaves out answer `NOT_SUPPORTED` (N/A), as a real GPU without it does; the default, `legacy_defaults`, keeps the mock's built-in values. `vrnvl72` sets it. ([#1172](https://github.com/NVIDIA/k8s-test-infra/issues/1172))
+- nvml-mock: profiles can set each GPU's PDI (`pdi`) and GPU Fabric GUID (`platform.gpu_fabric_guid`, a hex value or "pdi"); gb200 and gb300 now report each GPU's PDI as its fabric GUID instead of zero. See the configuration docs. ([#1187](https://github.com/NVIDIA/k8s-test-infra/issues/1187))
+
+### Changed
+
+- nvml-mock: on a 615 or newer driver, the NVLink error and utilization counter getters and the per-link speed and data-link error fields answer NOT_SUPPORTED, as on a real 615 tray; NVLink errors, injected ones included, show in the NVLink5 counter fields that `nvidia-smi nvlink -e` reads. Output on older drivers is unchanged. ([#1165](https://github.com/NVIDIA/k8s-test-infra/issues/1165))
+
+### Fixed
+
+- nvml-mock: field ids now follow `system.driver_version`, so a profile on a newer 580 driver (580.95.05+) serves throttle counters and power smoothing at the ids that driver uses; 580.65.06 profiles are unchanged. ([#1096](https://github.com/NVIDIA/k8s-test-infra/issues/1096))
+- nri-plugin: containers created soon after containerd restarts, as the container toolkit does on each rollout, are no longer started without the mock. ([#1137](https://github.com/NVIDIA/k8s-test-infra/issues/1137))
+- node-agent: short InfiniBand verbs queries no longer crash mock-ib. Connection handler panics are logged and close the affected connection. ([#588](https://github.com/NVIDIA/k8s-test-infra/issues/588))
+
+### Security
+
+- build: images and binaries are now built with Go 1.27.4, which fixes GO-2026-6859 (HTTP/1 servers in net/http crashing on a MaxBytesReader header race). ([#1222](https://github.com/NVIDIA/k8s-test-infra/issues/1222))
+
 ## [0.6.0] - 2026-10-28
 
 ### Added
@@ -1218,6 +1274,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Rebranded from gpu-mock to nvml-mock (PRs #273, #274, #275, #281, #282)
 
+[0.8.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.4.1...v0.5.0

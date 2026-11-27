@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/gpuarch"
 )
 
 // The checks over a decoded document. Each is named *Problems because it
@@ -47,6 +49,38 @@ func InventoryProblems(out, wantProductName string, wantGPUs int) []string {
 		if name != wantProductName {
 			problems = append(problems, fmt.Sprintf("GPU %d product_name = %q, want %q",
 				i, name, wantProductName))
+		}
+	}
+	return problems
+}
+
+// ArchitectureName is how nvidia-smi prints a generation in
+// <product_architecture>: "Ada Lovelace" for Ada, otherwise the generation's
+// name capitalized ("Rubin").
+func ArchitectureName(a gpuarch.Arch) string {
+	if a == gpuarch.Ada {
+		return "Ada Lovelace"
+	}
+	name := a.String()
+	if name == "" {
+		return ""
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
+}
+
+// ArchitectureProblems checks every GPU's <product_architecture> names want. An
+// nvidia-smi older than the generation prints "Unknown" although NVML reports
+// it, so this also catches a binary from the wrong driver branch.
+func ArchitectureProblems(out string, want gpuarch.Arch) []string {
+	snap, err := ParseSnapshot(out)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	wantName := ArchitectureName(want)
+	var problems []string
+	for i, gpu := range snap.doc.GPUs {
+		if got := strings.TrimSpace(string(gpu.ProductArchitecture)); got != wantName {
+			problems = append(problems, fmt.Sprintf("GPU %d product_architecture = %q, want %q", i, got, wantName))
 		}
 	}
 	return problems
@@ -279,22 +313,17 @@ func EncoderFBCProblems(out string, encoder, fbc EncoderFBCStats, accountingBuff
 	return problems
 }
 
-// PCIeIdentityProblems checks the per-GPU PCIe identity elements for values no
-// real GPU can report (#638):
+// PCIeIdentityProblems checks the per-GPU PCIe identity elements (#638, #692):
 //
-//   - max_link_gen, max_device_link_gen and max_host_link_gen all equal the
-//     profile's configured pcie.max_link_gen. max_device_link_gen read N/A while
-//     nvmlDeviceGetGpuMaxPcieLinkGeneration was a generated stub, and
-//     max_host_link_gen read 0 while the internal export-table slot behind it
-//     went unserved. Requiring the three to agree encodes the invariant a Gen0
-//     host maximum violated: a link never negotiates higher than either
-//     endpoint supports.
+//   - max_link_gen and max_device_link_gen equal the configured device maximum.
+//     max_host_link_gen equals the independent configured host maximum, or N/A
+//     when absent. Real GB300 reports device Max 6 and Host Max 4.
 //   - board_id is non-zero and unique across the node. Every GPU reported 0x0,
 //     leaving the GPUs of a multi-GPU node indistinguishable by board ID.
 //
 // wantGPUs guards against a truncated document silently passing every per-GPU
 // check.
-func PCIeIdentityProblems(out string, wantGPUs, wantMaxLinkGen int) []string {
+func PCIeIdentityProblems(out string, wantGPUs, wantDeviceMaxLinkGen, wantHostMaxLinkGen int) []string {
 	snap, err := ParseSnapshot(out)
 	if err != nil {
 		return []string{err.Error()}
@@ -310,11 +339,17 @@ func PCIeIdentityProblems(out string, wantGPUs, wantMaxLinkGen int) []string {
 		name := gpu.label(i)
 		gen := gpu.PCI.GPULinkInfo.PCIeGen
 		problems = append(problems,
-			intReadingProblems(name+" max_link_gen", gen.Max, wantMaxLinkGen, "")...)
+			intReadingProblems(name+" max_link_gen", gen.Max, wantDeviceMaxLinkGen, "")...)
 		problems = append(problems,
-			intReadingProblems(name+" max_device_link_gen", gen.DeviceMax, wantMaxLinkGen, "")...)
-		problems = append(problems,
-			intReadingProblems(name+" max_host_link_gen", gen.HostMax, wantMaxLinkGen, "")...)
+			intReadingProblems(name+" max_device_link_gen", gen.DeviceMax, wantDeviceMaxLinkGen, "")...)
+		if wantHostMaxLinkGen == 0 {
+			if !gen.HostMax.unsupported() {
+				problems = append(problems, fmt.Sprintf("%s max_host_link_gen = %q, want N/A", name, string(gen.HostMax)))
+			}
+		} else {
+			problems = append(problems,
+				intReadingProblems(name+" max_host_link_gen", gen.HostMax, wantHostMaxLinkGen, "")...)
+		}
 		problems = append(problems, boardIDProblems(name, gpu.BoardID, boardIDs)...)
 	}
 	return problems

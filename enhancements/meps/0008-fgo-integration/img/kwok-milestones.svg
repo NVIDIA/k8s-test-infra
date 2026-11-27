@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 578" width="1000" height="578" role="img" aria-labelledby="title desc">
+  <title id="title">KWOK integration milestones</title>
+  <desc id="desc">Five milestones. M1, GPUs on KWOK Nodes, needs MEP0001's compiled rack state and delivery generation. M2, DRA and ComputeDomains, needs only M1. M3, DCGM metrics with workload telemetry, needs M1 and MEP0009's M1, workload telemetry on CPU Nodes, whose generator and tracker the data plane runs. M2 and M3 can run in parallel, and both lead to M4, scale out. M5, the optional KWOK provisioner, needs only M1 and can run alongside M2 to M4.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .title { font-size: 14px; font-weight: 600; }
+    .item { font-size: 12.5px; }
+    .body { font-size: 12px; fill: #59636e; }
+    .done { font-size: 12px; fill: #59636e; }
+    .strong { font-weight: 600; fill: #1f2328; }
+    .label { font-size: 12px; fill: #59636e; }
+    .ms { fill: #ffffff; stroke: #1f2328; stroke-width: 1.5; }
+    .ext { fill: #ffffff; stroke: #59636e; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .rule { stroke: #d1d9e0; stroke-width: 1; }
+    .wire { fill: none; stroke: #59636e; stroke-width: 1.5; }
+    .head { fill: #59636e; }
+    .cp { fill: #8250df; } .dp { fill: #1a7f37; } .prov { fill: #0969da; } .doc { fill: #59636e; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .body, .done, .label { fill: #9198a1; }
+      .strong { fill: #f0f6fc; }
+      .ms { fill: #0d1117; stroke: #f0f6fc; }
+      .ext { fill: #0d1117; stroke: #9198a1; }
+      .rule { stroke: #3d444d; }
+      .wire { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+      .cp { fill: #ab7df8; } .dp { fill: #3fb950; } .prov { fill: #4493f8; } .doc { fill: #9198a1; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="577" rx="12"/>
+
+  <!-- Prerequisites from other MEPs -->
+  <rect class="ext" x="24" y="20" width="300" height="44" rx="8"/>
+  <text class="item strong" x="40" y="38">MEP0001</text>
+  <text class="body" x="40" y="55">compiled rack state, delivery generation</text>
+  <path class="wire" d="M174,64 V95" marker-end="url(#arrow)"/>
+
+  <rect class="ext" x="350" y="488" width="300" height="44" rx="8"/>
+  <text class="item strong" x="366" y="506">MEP0009 · M1</text>
+  <text class="body" x="366" y="523">workload telemetry on CPU Nodes</text>
+  <path class="wire" d="M500,488 V457" marker-end="url(#arrow)"/>
+
+  <!-- M1 -->
+  <rect class="ms" x="24" y="96" width="300" height="208" rx="8"/>
+  <text class="title" x="40" y="122">M1 · GPUs on KWOK Nodes</text>
+  <circle class="cp" cx="46" cy="144" r="4"/><text class="item" x="58" y="148">node.type and KWOK placement</text>
+  <circle class="cp" cx="46" cy="163" r="4"/><text class="item" x="58" y="167">batched rack state</text>
+  <circle class="cp" cx="46" cy="182" r="4"/><text class="item" x="58" y="186">rack shard label, one replica</text>
+  <circle class="dp" cx="46" cy="201" r="4"/><text class="item" x="58" y="205">nvidia.com/gpu, GFD and NFD labels</text>
+  <circle class="dp" cx="46" cy="220" r="4"/><text class="item" x="58" y="224">GPU allocation on Pods</text>
+  <circle class="doc" cx="46" cy="239" r="4"/><text class="item" x="58" y="243">kwok.enabled, Node template</text>
+  <line class="rule" x1="40" y1="256" x2="308" y2="256"/>
+  <text class="done" x="40" y="274"><tspan class="strong">Done when</tspan> KAI's scale suite passes</text>
+  <text class="done" x="40" y="291">on Nodes from kwok-operator</text>
+
+  <!-- M2 and M3, in parallel after M1 -->
+  <rect class="ms" x="350" y="96" width="300" height="131" rx="8"/>
+  <text class="title" x="366" y="122">M2 · DRA and ComputeDomains</text>
+  <circle class="dp" cx="372" cy="144" r="4"/><text class="item" x="384" y="148">DRA mode with ResourceSlices</text>
+  <circle class="dp" cx="372" cy="163" r="4"/><text class="item" x="384" y="167">ComputeDomains</text>
+  <line class="rule" x1="366" y1="181" x2="634" y2="181"/>
+  <text class="done" x="366" y="199"><tspan class="strong">Done when</tspan> KAI's DRA tests pass</text>
+  <text class="done" x="366" y="216">and a ComputeDomain turns Ready</text>
+
+  <rect class="ms" x="350" y="270" width="300" height="186" rx="8"/>
+  <text class="title" x="366" y="296">M3 · DCGM metrics</text>
+  <circle class="dp" cx="372" cy="318" r="4"/><text class="item" x="384" y="322">DCGM metrics and exporter Service</text>
+  <circle class="dp" cx="372" cy="337" r="4"/><text class="item" x="384" y="341">workload telemetry from Pods</text>
+  <circle class="doc" cx="372" cy="356" r="4"/><text class="item" x="384" y="360">ServiceMonitor</text>
+  <circle class="doc" cx="372" cy="375" r="4"/><text class="item" x="384" y="379">FGO migration guide</text>
+  <line class="rule" x1="366" y1="393" x2="634" y2="393"/>
+  <text class="done" x="366" y="411"><tspan class="strong">Done when</tspan> Run:ai's harness runs</text>
+  <text class="done" x="366" y="428">on Mokka instead of FGO, and</text>
+  <text class="done" x="366" y="445">MEP0009's third user story passes</text>
+
+  <!-- M4 -->
+  <rect class="ms" x="676" y="96" width="300" height="208" rx="8"/>
+  <text class="title" x="692" y="122">M4 · Scale out</text>
+  <circle class="cp" cx="698" cy="144" r="4"/><text class="item" x="710" y="148">rebalancing on join and leave</text>
+  <circle class="dp" cx="698" cy="163" r="4"/><text class="item" x="710" y="167">several replicas, rack handover</text>
+  <circle class="dp" cx="698" cy="182" r="4"/><text class="item" x="710" y="186">shard Leases, expiry, scale-down</text>
+  <circle class="doc" cx="698" cy="201" r="4"/><text class="item" x="710" y="205">replica autoscaling</text>
+  <circle class="doc" cx="698" cy="220" r="4"/><text class="item" x="710" y="224">data plane scenarios in tests/kwok</text>
+  <line class="rule" x1="692" y1="256" x2="960" y2="256"/>
+  <text class="done" x="692" y="274"><tspan class="strong">Done when</tspan> 1,000 racks run across</text>
+  <text class="done" x="692" y="291">replicas and a failover moves none</text>
+
+  <path class="wire" d="M324,171 H349" marker-end="url(#arrow)"/>
+  <path class="wire" d="M324,287 H349" marker-end="url(#arrow)"/>
+  <path class="wire" d="M650,171 H675" marker-end="url(#arrow)"/>
+  <path class="wire" d="M650,287 H675" marker-end="url(#arrow)"/>
+
+  <!-- M5, alongside M2 to M4 -->
+  <path class="wire" d="M174,304 V345" marker-end="url(#arrow)"/>
+  <text class="label" x="184" y="322">can run alongside</text>
+  <text class="label" x="184" y="337">M2 to M4</text>
+
+  <rect class="ms" x="24" y="346" width="300" height="150" rx="8"/>
+  <text class="title" x="40" y="372">M5 · KWOK provisioner (optional)</text>
+  <circle class="prov" cx="46" cy="394" r="4"/><text class="item" x="58" y="398">node.source and node.template</text>
+  <circle class="prov" cx="46" cy="413" r="4"/><text class="item" x="58" y="417">creates, replaces, scales down Nodes</text>
+  <circle class="doc" cx="46" cy="432" r="4"/><text class="item" x="58" y="436">kwok.provisioner.enabled</text>
+  <line class="rule" x1="40" y1="450" x2="308" y2="450"/>
+  <text class="done" x="40" y="468"><tspan class="strong">Done when</tspan> a node.source: Mokka</text>
+  <text class="done" x="40" y="485">group comes up without kwokctl</text>
+
+  <!-- Legend -->
+  <circle class="cp" cx="30" cy="557" r="4"/><text class="label" x="40" y="561">control plane</text>
+  <circle class="dp" cx="140" cy="557" r="4"/><text class="label" x="150" y="561">KWOK data plane</text>
+  <circle class="prov" cx="268" cy="557" r="4"/><text class="label" x="278" y="561">KWOK provisioner</text>
+  <circle class="doc" cx="400" cy="557" r="4"/><text class="label" x="410" y="561">chart, docs and tests</text>
+  <rect class="ext" x="552" y="549" width="28" height="16" rx="4"/><text class="label" x="588" y="561">another MEP</text>
+  <path class="wire" d="M690,557 H724" marker-end="url(#arrow)"/><text class="label" x="732" y="561">comes first</text>
+</svg>
