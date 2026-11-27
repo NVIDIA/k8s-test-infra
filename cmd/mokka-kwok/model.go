@@ -32,9 +32,10 @@ type model struct {
 	pods      *shardPods
 	podClient coreclient.PodInterface
 	podWatch  *cache.Reflector
+	fetcher   *rackFetcher
 }
 
-func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, shard string) model {
+func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) model {
 	racks := mokkainformers.NewFilteredSGPURackInformer(mokka, 0, cache.Indexers{
 		rackUIDIndex: func(obj any) ([]string, error) {
 			rack, err := meta.Accessor(obj)
@@ -43,7 +44,7 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, shard stri
 			}
 			return []string{string(rack.GetUID())}, nil
 		},
-	}, func(o *metav1.ListOptions) { o.LabelSelector = labels.Set{inventory.KWOKShardLabel: shard}.String() })
+	}, func(o *metav1.ListOptions) { o.LabelSelector = labels.Set{inventory.KWOKShardLabel: c.shard}.String() })
 	client := kube.CoreV1().Pods(metav1.NamespaceAll)
 	bound := fields.OneTermNotEqualSelector("spec.nodeName", "").String()
 	lw := &cache.ListWatch{
@@ -58,15 +59,16 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, shard stri
 	}
 	pods := newShardPods()
 	podWatch := cache.NewReflectorWithOptions(cache.ToListWatcherWithWatchListSemantics(lw, kube), &corev1.Pod{}, pods, cache.ReflectorOptions{Name: "bound Pods"})
-	return model{racks: racks, pods: pods, podClient: client, podWatch: podWatch}
+	views := newRackViews(pods)
+	return model{fetcher: newRackFetcher(c, views), racks: racks, pods: pods, podClient: client, podWatch: podWatch}
 }
 
 func (m model) run(ctx context.Context, c config) error {
 	group, ctx := errgroup.WithContext(ctx)
 	rackEvents, err := m.racks.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    m.pods.observeRack,
-		UpdateFunc: func(_, current any) { m.pods.observeRack(current) },
-		DeleteFunc: m.pods.removeRack,
+		AddFunc:    m.fetcher.observe,
+		UpdateFunc: func(_, current any) { m.fetcher.observe(current) },
+		DeleteFunc: m.fetcher.remove,
 	})
 	if err != nil {
 		return err
@@ -78,10 +80,11 @@ func (m model) run(ctx context.Context, c config) error {
 		}
 		return health.OK()
 	})
+	group.Go(func() error { return m.fetcher.run(ctx) })
 	group.Go(func() error { m.racks.RunWithContext(ctx); return nil })
 	group.Go(func() error {
 		// Populate initial rack membership before the first cluster-wide Pod list.
-		if cache.WaitForCacheSync(ctx.Done(), rackEvents.HasSynced) {
+		if cache.WaitForCacheSync(ctx.Done(), rackEvents.HasSynced) && m.fetcher.waitInitialReads(ctx) {
 			m.podWatch.RunWithContext(ctx)
 		}
 		return nil
