@@ -123,7 +123,8 @@ func (a *rackAllocator) confirmDenials(ctx context.Context, rack *api.SGPURack, 
 		if pod == nil || !awaitingAdmission(pod) {
 			continue
 		}
-		if allocation, _ := allocatePod(pod, available); allocation != nil {
+		_, _, shortage := allocatePod(pod, available)
+		if shortage == nil {
 			continue
 		}
 		current, err := a.denialCurrent(ctx, rack, p, record)
@@ -133,7 +134,7 @@ func (a *rackAllocator) confirmDenials(ctx context.Context, rack *api.SGPURack, 
 		patch := admissionPatch{Status: map[string]string{
 			"phase":   string(corev1.PodFailed),
 			"reason":  "UnexpectedAdmissionError",
-			"message": fmt.Sprintf("Cannot admit Pod on node %s: only %d whole GPUs are free", p.name, len(available)),
+			"message": fmt.Sprintf("Pod was rejected: Allocate failed due to %s, which is unexpected", shortage),
 		}}
 		err = a.patchPod(ctx, pod, patch, "status")
 		if err != nil {

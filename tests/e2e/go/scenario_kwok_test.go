@@ -100,6 +100,27 @@ spec:
 `)
 		Expect(h.Kube.Apply(ctx, probe)).To(Succeed())
 		DeferCleanup(func(ctx SpecContext) { Expect(h.Kube.Delete(ctx, probe)).To(Succeed()) })
+		By("binding a Pod with a resource claim and no whole-GPU request")
+		claim := []byte(`apiVersion: resource.k8s.io/v1
+kind: ResourceClaim
+metadata: {name: kwok-external-e2e, namespace: default}
+spec: {devices: {}}
+`)
+		Expect(h.Kube.Apply(ctx, claim)).To(Succeed())
+		DeferCleanup(func(ctx SpecContext) { Expect(h.Kube.Delete(ctx, claim)).To(Succeed()) })
+		claimPod := []byte(`apiVersion: v1
+kind: Pod
+metadata: {name: kwok-claim-e2e, namespace: default}
+spec:
+  nodeName: kwok-worker
+  resourceClaims: [{name: external, resourceClaimName: kwok-external-e2e}]
+  containers:
+    - name: probe
+      image: registry.k8s.io/pause:3.10
+      resources: {claims: [{name: external}]}
+`)
+		Expect(h.Kube.Apply(ctx, claimPod)).To(Succeed())
+		DeferCleanup(func(ctx SpecContext) { Expect(h.Kube.Delete(ctx, claimPod)).To(Succeed()) })
 		By("checking that KWOK can start an ordinary Pod while the GPU Pod waits")
 		ordinary := []byte(`apiVersion: v1
 kind: Pod
@@ -125,6 +146,10 @@ spec:
 		Consistently(func(g Gomega) {
 			var pod corev1.Pod
 			g.Expect(h.Kube.GetJSON(ctx, &pod, "pod", "kwok-capacity-e2e", "-n", "default")).To(Succeed())
+			var claimed corev1.Pod
+			g.Expect(h.Kube.GetJSON(ctx, &claimed, "pod", "kwok-claim-e2e", "-n", "default")).To(Succeed())
+			g.Expect(claimed.Status.Phase).To(Equal(corev1.PodPending))
+			g.Expect(claimed.Annotations).NotTo(HaveKey("mokka.nvidia.com/gpu-allocation"))
 			g.Expect(pod.Status.Phase).To(Equal(corev1.PodPending))
 			g.Expect(pod.Status.Conditions).NotTo(ContainElement(And(HaveField("Type", corev1.PodReady), HaveField("Status", corev1.ConditionTrue))))
 			g.Expect(pod.Annotations).NotTo(HaveKey("mokka.nvidia.com/gpu-allocation"))
@@ -132,6 +157,12 @@ spec:
 
 		By("resuming the data plane")
 		restore(ctx)
+		Eventually(func(g Gomega) {
+			var pod corev1.Pod
+			g.Expect(h.Kube.GetJSON(ctx, &pod, "pod", "kwok-claim-e2e", "-n", "default")).To(Succeed())
+			g.Expect(pod.Status.Conditions).To(ContainElement(And(HaveField("Type", corev1.PodReady), HaveField("Status", corev1.ConditionTrue))))
+			g.Expect(pod.Annotations).To(HaveKeyWithValue("mokka.nvidia.com/gpu-allocation", "{}"))
+		}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
 		By("checking the container allocation against the GPUs in its rack slot")
 		var scheduled corev1.Pod
 		Expect(h.Kube.GetJSON(ctx, &scheduled, "pod", "kwok-capacity-e2e", "-n", "default")).To(Succeed())
@@ -184,6 +215,8 @@ spec:
 			g.Expect(h.Kube.GetJSON(ctx, &pod, "pod", "kwok-admission-shortage", "-n", "default")).To(Succeed())
 			g.Expect(pod.Status.Phase).To(Equal(corev1.PodFailed))
 			g.Expect(pod.Status.Reason).To(Equal("UnexpectedAdmissionError"))
+			g.Expect(pod.Status.PodIP).NotTo(BeEmpty())
+			g.Expect(pod.Status.Message).To(Equal("Pod was rejected: Allocate failed due to requested number of devices unavailable for nvidia.com/gpu. Requested: 9, Available: 8, which is unexpected"))
 			g.Expect(pod.Annotations).NotTo(HaveKey("mokka.nvidia.com/gpu-allocation"))
 		}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).Should(Succeed())
 
