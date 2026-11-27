@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -488,10 +489,10 @@ func TestControllerRestoresBindingWhenAllocationChangesDuringCleanup(t *testing.
 	releaseCleanupPatch()
 
 	require.Eventually(t, func() bool {
-		return nodes.patchCalls() >= patchesBeforeMismatch+2 &&
+		return nodes.conflicts.Load() > 0 && nodes.patchCalls() == patchesBeforeMismatch &&
 			nodeIsProjected(nodes.snapshot(node.Name), node.UID)
 	}, 10*time.Second, 20*time.Millisecond,
-		"stale cleanup must be followed by a fresh projection that clears its acknowledgement")
+		"the resource-version conflict must preserve the restored binding")
 }
 
 //nolint:cyclop // The barriers place restoration after acknowledgement but before its follow-up reconcile.
@@ -853,7 +854,7 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 				mokkalisters.NewSGPURackProfileLister(profileIndexer),
 				rackIndexer,
 				nodeCatalog,
-				liveNodes,
+				liveNodes, mokka.MokkaV1alpha1().SGPURacks(),
 				DefaultOptions(),
 			)
 			projection := sgpuprojection.NewController(snapshot, liveNodes)
@@ -924,27 +925,17 @@ func installAcceptanceAPIReactors(t *testing.T, client *mokkafake.Clientset) {
 				mokkav1alpha1.Resource("sgpuracks"), desired.Name, errors.New("rack resource version changed"),
 			)
 		}
+		desired.Generation = current.Generation
+		if !equality.Semantic.DeepEqual(desired.Spec, current.Spec) {
+			desired.Generation++
+		}
 		desired.Status = current.Status
 		desired.ResourceVersion += "a"
 		setAcceptanceRackManagedFields(desired)
 		err = client.Tracker().Update(resource, desired, "")
 		return true, desired, err
 	})
-	client.PrependReactor("update", "sgpuracks", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		if action.GetSubresource() != "status" {
-			return false, nil, nil
-		}
-		candidate := action.(k8stesting.UpdateAction).GetObject().(*mokkav1alpha1.SGPURack)
-		resource := mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuracks")
-		stored, err := client.Tracker().Get(resource, "", candidate.Name)
-		if err != nil {
-			return true, nil, err
-		}
-		updated := stored.(*mokkav1alpha1.SGPURack).DeepCopy()
-		updated.Status = candidate.Status
-		err = client.Tracker().Update(resource, updated, "")
-		return true, updated, err
-	})
+	installAcceptanceRackStatusReactor(client)
 	client.PrependReactor("update", "sgpuinventories", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		if action.GetSubresource() != "status" {
 			return false, nil, nil
@@ -977,6 +968,28 @@ func installAcceptanceAPIReactors(t *testing.T, client *mokkafake.Clientset) {
 	})
 }
 
+func installAcceptanceRackStatusReactor(client *mokkafake.Clientset) {
+	client.PrependReactor("update", "sgpuracks", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "status" {
+			return false, nil, nil
+		}
+		candidate := action.(k8stesting.UpdateAction).GetObject().(*mokkav1alpha1.SGPURack)
+		resource := mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuracks")
+		stored, err := client.Tracker().Get(resource, "", candidate.Name)
+		if err != nil {
+			return true, nil, err
+		}
+		updated := stored.(*mokkav1alpha1.SGPURack).DeepCopy()
+		if candidate.ResourceVersion != updated.ResourceVersion {
+			return true, nil, apierrors.NewConflict(mokkav1alpha1.Resource("sgpuracks"), candidate.Name, errors.New("rack status resource version changed"))
+		}
+		updated.ResourceVersion += "s"
+		updated.Status = candidate.Status
+		err = client.Tracker().Update(resource, updated, "")
+		return true, updated, err
+	})
+}
+
 func installAcceptanceRackCreateReactor(
 	t *testing.T,
 	client *mokkafake.Clientset,
@@ -996,6 +1009,7 @@ func installAcceptanceRackCreateReactor(
 			return true, nil, err
 		}
 		desired.UID = types.UID(fmt.Sprintf("uid-%s-%d", desired.Name, nextRackUID.Add(1)))
+		desired.Generation = 1
 		desired.ResourceVersion = "1"
 		setAcceptanceRackManagedFields(desired)
 		err := client.Tracker().Create(resource, desired, "")
@@ -1129,9 +1143,12 @@ func getAcceptanceRack(ctx context.Context, t *testing.T, client *mokkafake.Clie
 }
 
 func nodeHasProjection(node *corev1.Node) bool {
-	return node != nil && (node.Labels[sgpumetadata.AssignedLabel] != "" ||
-		node.Labels[sgpumetadata.CliqueLabel] != "" ||
-		node.Annotations[sgpumetadata.AssignmentAnnotation] != "")
+	if node == nil {
+		return false
+	}
+	raw := node.Annotations[sgpumetadata.AssignmentAnnotation]
+	a, err := sgpuassignment.DecodeAssignment(raw)
+	return node.Labels[sgpumetadata.AssignedLabel] != "" || node.Labels[sgpumetadata.CliqueLabel] != "" || (raw != "" && (err != nil || a.Assigned))
 }
 
 func nodeIsProjected(node *corev1.Node, uid types.UID) bool {
@@ -1140,7 +1157,7 @@ func nodeIsProjected(node *corev1.Node, uid types.UID) bool {
 		return false
 	}
 	assignment, err := sgpuassignment.DecodeAssignment(node.Annotations[sgpumetadata.AssignmentAnnotation])
-	return err == nil && assignment.NodeUID == uid
+	return err == nil && assignment.Assigned && assignment.NodeUID == uid
 }
 
 type acceptanceNodeClient struct {
@@ -1153,6 +1170,7 @@ type acceptanceNodeClient struct {
 	foreignAnnotations map[string]map[string]struct{}
 	watcher            *watch.RaceFreeFakeWatcher
 	nextRV             int64
+	conflicts          atomic.Int64
 	patches            int
 	nextPatchBarrier   *acceptancePatchBarrier
 }
@@ -1179,25 +1197,21 @@ func (c *acceptanceNodeClient) List(context.Context, metav1.ListOptions) (*corev
 	defer c.mu.Unlock()
 	list := &corev1.NodeList{}
 	for _, node := range c.nodes {
-		if node.Labels[allocate.EligibleNodeLabel] == "true" {
-			list.Items = append(list.Items, *node.DeepCopy())
-		}
+		list.Items = append(list.Items, *node.DeepCopy())
 	}
 	return list, nil
 }
 
 func (c *acceptanceNodeClient) Watch(_ context.Context, options metav1.ListOptions) (watch.Interface, error) {
 	c.mu.Lock()
-	if c.watcher == nil {
+	if c.watcher == nil || c.watcher.IsStopped() {
 		c.watcher = watch.NewRaceFreeFake()
 	}
 	watcher := c.watcher
 	initial := make([]*corev1.Node, 0, len(c.nodes))
 	if options.SendInitialEvents != nil && *options.SendInitialEvents {
 		for _, node := range c.nodes {
-			if node.Labels[allocate.EligibleNodeLabel] == "true" {
-				initial = append(initial, node.DeepCopy())
-			}
+			initial = append(initial, node.DeepCopy())
 		}
 	}
 	c.mu.Unlock()
@@ -1235,9 +1249,10 @@ func (c *acceptanceNodeClient) Patch(
 	}
 	var payload struct {
 		Metadata struct {
-			UID         types.UID          `json:"uid"`
-			Labels      map[string]*string `json:"labels"`
-			Annotations map[string]*string `json:"annotations"`
+			UID             types.UID          `json:"uid"`
+			ResourceVersion string             `json:"resourceVersion"`
+			Labels          map[string]*string `json:"labels"`
+			Annotations     map[string]*string `json:"annotations"`
 		} `json:"metadata"`
 	}
 	if err := json.Unmarshal(data, &payload); err != nil {
@@ -1256,6 +1271,11 @@ func (c *acceptanceNodeClient) Patch(
 	if node == nil {
 		c.mu.Unlock()
 		return nil, apierrors.NewNotFound(corev1.Resource("nodes"), name)
+	}
+	if payload.Metadata.ResourceVersion != node.ResourceVersion {
+		c.conflicts.Add(1)
+		c.mu.Unlock()
+		return nil, apierrors.NewConflict(corev1.Resource("nodes"), name, fmt.Errorf("stale Node resource version %q", payload.Metadata.ResourceVersion))
 	}
 	if payload.Metadata.UID != node.UID {
 		c.mu.Unlock()
@@ -1285,6 +1305,9 @@ func (c *acceptanceNodeClient) Patch(
 
 func (c *acceptanceNodeClient) create(node *corev1.Node) {
 	c.mu.Lock()
+	if rv, err := strconv.ParseInt(node.ResourceVersion, 10, 64); err == nil {
+		c.nextRV = max(c.nextRV, rv)
+	}
 	c.nodes[node.Name] = node.DeepCopy()
 	delete(c.ownedLabels, node.Name)
 	delete(c.ownedAnnotations, node.Name)
@@ -1302,7 +1325,7 @@ func (c *acceptanceNodeClient) create(node *corev1.Node) {
 	setAcceptanceManagedFields(c.nodes[node.Name], c.ownedLabels[node.Name], c.ownedAnnotations[node.Name])
 	watcher := c.watcher
 	c.mu.Unlock()
-	if watcher != nil && node.Labels[allocate.EligibleNodeLabel] == "true" {
+	if watcher != nil {
 		watcher.Add(node.DeepCopy())
 	}
 }
@@ -1313,7 +1336,7 @@ func (c *acceptanceNodeClient) replace(name string, replacement *corev1.Node) {
 	delete(c.nodes, name)
 	watcher := c.watcher
 	c.mu.Unlock()
-	if watcher != nil && old != nil && old.Labels[allocate.EligibleNodeLabel] == "true" {
+	if watcher != nil && old != nil {
 		watcher.Delete(old.DeepCopy())
 	}
 	c.create(replacement)
@@ -1348,7 +1371,7 @@ func (c *acceptanceNodeClient) delete(name string) {
 	delete(c.foreignAnnotations, name)
 	watcher := c.watcher
 	c.mu.Unlock()
-	if watcher != nil && old != nil && old.Labels[allocate.EligibleNodeLabel] == "true" {
+	if watcher != nil && old != nil {
 		watcher.Delete(old.DeepCopy())
 	}
 }

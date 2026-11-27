@@ -431,7 +431,7 @@ func TestReconcileGroupIndexesLargeBindingSetOnce(t *testing.T) {
 				map[string]string{"pool": "gpu"},
 			)
 			nodes[nodeIndex] = node
-			rack.Spec.Nodes[rackNodeIndex].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: node.Name, UID: node.UID}
+			rack.Spec.Nodes[rackNodeIndex].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: node.Name, UID: node.UID, AssignmentRevision: 1}
 		}
 		objects = append(objects, rack)
 	}
@@ -778,6 +778,13 @@ func TestReconcileRendersRecreatedProfileWithoutMovingBindings(t *testing.T) {
 	_, err := h.reconcile(ctx, inventory.Name)
 	require.NoError(t, err)
 
+	racks := h.mokka.MokkaV1alpha1().SGPURacks()
+	rack, err := racks.Get(ctx, rackrender.RackName(inventory.Name, inventory.UID, "group", 0), metav1.GetOptions{})
+	require.NoError(t, err)
+	rack.Spec.Nodes[0].NodeRef.AssignmentRevision = 7
+	_, err = racks.Update(ctx, rack, metav1.UpdateOptions{FieldManager: RackFieldManager})
+	require.NoError(t, err)
+
 	recreated := testProfile("p", "new-profile-uid", 1, 2, 2)
 	recreated.Spec.Node.Topology.GPUSlots[1].PCIAddress = "0000:03:00.0"
 	require.NoError(t, h.mokka.Tracker().Delete(mokkav1alpha1.SchemeGroupVersion.WithResource("sgpurackprofiles"), "", profile.Name))
@@ -795,6 +802,7 @@ func TestReconcileRendersRecreatedProfileWithoutMovingBindings(t *testing.T) {
 	require.Equal(t, recreated.UID, got.Spec.ProfileRef.UID)
 	require.Equal(t, "0000:03:00.0", got.Spec.Nodes[0].GPUs[1].PCIAddress)
 	require.Equal(t, node.UID, got.Spec.Nodes[0].NodeRef.UID)
+	require.EqualValues(t, 7, got.Spec.Nodes[0].NodeRef.AssignmentRevision)
 }
 
 func TestReconcileShrinkWaitsForCleanupThenRetires(t *testing.T) {
@@ -1332,6 +1340,15 @@ func (c *inventoryOverrideCache) Inventory(name string) (*mokkav1alpha1.SGPUInve
 type nodeOverrideCache struct {
 	Cache
 	nodes []*corev1.Node
+}
+
+func (c *nodeOverrideCache) Node(ctx context.Context, name string) (*corev1.Node, error) {
+	for _, node := range c.nodes {
+		if node.Name == name {
+			return node, nil
+		}
+	}
+	return c.Cache.Node(ctx, name)
 }
 
 func (c *nodeOverrideCache) AllocationNodes() ([]allocate.KubernetesNode, error) {

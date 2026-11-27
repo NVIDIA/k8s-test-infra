@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  control-plane: Rack and node readers can use the same versioned GPU hardware description, effective runtime settings, assignment revision, and release status.
+time: 2026-11-22T11:17:09Z
+custom:
+  Issue: "1260"

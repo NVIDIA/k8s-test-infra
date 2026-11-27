@@ -22,7 +22,7 @@ func TestProjectionTargetDoesNotLiveGetNodeOutsideEligibleCache(t *testing.T) {
 	live := &countingNodeGetter{node: &corev1.Node{ObjectMeta: metav1.ObjectMeta{
 		Name: "node", UID: "node-uid",
 	}}}
-	snapshot := newInformerCache(nil, nil, nil, nodecatalog.New(), live, DefaultOptions())
+	snapshot := newInformerCache(nil, nil, nil, nodecatalog.New(), live, nil, DefaultOptions())
 	rack := &mokkav1alpha1.SGPURack{Spec: mokkav1alpha1.SGPURackSpec{
 		Nodes: []mokkav1alpha1.SGPURackNode{{
 			Index: 0, NodeRef: &mokkav1alpha1.SGPUNodeReference{Name: live.node.Name, UID: live.node.UID},
@@ -39,7 +39,7 @@ func TestProjectionTargetDoesNotLiveGetNodeOutsideEligibleCache(t *testing.T) {
 
 func TestLiveNodeFallbackUsesCallerContextAndDeadline(t *testing.T) {
 	live := newBlockingNodeGetter()
-	cache := newInformerCache(nil, nil, nil, nodecatalog.New(), live, Options{
+	cache := newInformerCache(nil, nil, nil, nodecatalog.New(), live, nil, Options{
 		Workers: 1, LiveNodeGetTimeout: 2 * time.Hour,
 	})
 	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(time.Hour))

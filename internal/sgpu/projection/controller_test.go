@@ -56,12 +56,12 @@ func TestProjectAppliesOnlyOwnedMetadataWithExactAssignment(t *testing.T) {
 	annotations := metadata["annotations"].(map[string]any)
 	require.Len(t, annotations, 1)
 
-	var decoded sgpuassignment.Assignment
-	require.NoError(t, json.Unmarshal([]byte(annotations[sgpumetadata.AssignmentAnnotation].(string)), &decoded))
-	require.Equal(t, sgpuassignment.AssignmentVersion, decoded.Version)
-	require.Equal(t, sgpuassignment.ObjectReference{Name: "inventory", UID: "inventory-uid"}, decoded.Inventory)
+	decoded, err := sgpuassignment.DecodeAssignment(annotations[sgpumetadata.AssignmentAnnotation].(string))
+	require.NoError(t, err)
+	require.EqualValues(t, 1, decoded.AssignmentRevision)
+	require.EqualValues(t, 4, decoded.RackDeliveryGenerationFloor)
 	require.Equal(t, sgpuassignment.ObjectReference{Name: rack.Name, UID: rack.UID}, decoded.Rack)
-	require.Equal(t, sgpuassignment.ProfileReference{Name: "profile", UID: "profile-uid", Revision: "revision"}, decoded.Profile)
+	require.NotContains(t, annotations[sgpumetadata.AssignmentAnnotation], "profile")
 	require.Equal(t, "group", decoded.RackGroup)
 	require.Equal(t, int32(0), decoded.RackIndex)
 	require.Equal(t, int32(0), decoded.NodeIndex)
@@ -422,7 +422,7 @@ func TestCleanupRequiresExactAnnotationAndSupportsPartialProgress(t *testing.T) 
 	require.NoError(t, json.Unmarshal(patcher.calls[0].data, &complete))
 	metadata = complete["metadata"].(map[string]any)
 	require.NotContains(t, metadata, "labels")
-	require.NotContains(t, metadata, "annotations")
+	require.Contains(t, metadata, "annotations")
 }
 
 func TestCleanupRetryClearsMetadataConflictOnGenericError(t *testing.T) {
@@ -539,11 +539,13 @@ func TestCleanupRejectsResponseThatRetainsProjectionFields(t *testing.T) {
 			controller.mu.RUnlock()
 
 			cache.nodes[node.Name] = testNode(node.Name, node.UID)
+			patcher.response = nil
+			patcher.node = cache.nodes[node.Name]
 			outcome, err = controller.Cleanup(t.Context(), cleanup)
 			require.NoError(t, err)
 			require.Equal(t, StateCleaned, outcome.State)
 			require.True(t, controller.Ready(cleanup))
-			require.Len(t, patcher.calls, 1, "external removal of every retained field must release the gate without another apply")
+			require.Len(t, patcher.calls, 2, "write the tombstone before acknowledging the release")
 			assertStateIndexesExact(t, controller)
 		})
 	}
@@ -554,12 +556,12 @@ func TestCleanupAcknowledgesSoleOwnerOnlyAfterCleanResponse(t *testing.T) {
 	node := testNode("node", "node-uid")
 	setExactProjection(t, node, rack)
 	setManagedFields(node, FieldManager, []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
-	response := testNode(node.Name, node.UID)
+
 	cache := &fakeCache{
 		nodes: map[string]*corev1.Node{node.Name: node},
 		racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack},
 	}
-	patcher := &recordingPatcher{response: response}
+	patcher := &recordingPatcher{node: node}
 	controller := NewController(cache, patcher)
 	cleanup := cleanupFor(rack)
 
@@ -581,14 +583,13 @@ func TestCleanupTreatsAbsentExactUIDAsCleanAndPreservesStaleAnnotation(t *testin
 	cleanup := cleanupFor(rack)
 
 	outcome, err := controller.Cleanup(t.Context(), cleanup)
-	require.NoError(t, err)
-	require.Equal(t, StateCleaned, outcome.State)
-	require.True(t, controller.Ready(cleanup))
+	var conflict *MetadataConflictError
+	require.ErrorAs(t, err, &conflict)
+	require.Equal(t, StateConflict, outcome.State)
+	require.False(t, controller.Ready(cleanup))
 	require.Empty(t, patcher.calls)
 	require.Contains(t, node.Annotations, sgpumetadata.AssignmentAnnotation)
 
-	_, err = controller.Project(t.Context(), rack.Name, 0) // a stale apply preserves the cleanup acknowledgement
-	require.NoError(t, err)
 	cache.nodes["node"] = testNode("node", "replacement-uid")
 	outcome, err = controller.Cleanup(t.Context(), cleanup)
 	require.NoError(t, err)
@@ -648,7 +649,11 @@ func TestReturningEligibleNodeFreshProjectionSupersedesCleanupAcknowledgement(t 
 	cleaned := applyNodePayload(ineligible, node.Name, patcher.calls[0].data)
 	require.NotContains(t, cleaned.Labels, sgpumetadata.AssignedLabel)
 	require.NotContains(t, cleaned.Labels, sgpumetadata.CliqueLabel)
-	require.NotContains(t, cleaned.Annotations, sgpumetadata.AssignmentAnnotation)
+	release, err := sgpuassignment.DecodeAssignment(cleaned.Annotations[sgpumetadata.AssignmentAnnotation])
+	require.NoError(t, err)
+	require.False(t, release.Assigned)
+	require.EqualValues(t, 2, release.AssignmentRevision)
+	rack.Spec.Nodes[0].NodeRef.AssignmentRevision = 3
 
 	returning := cleaned.DeepCopy()
 	returning.Labels = map[string]string{allocate.EligibleNodeLabel: "true"}
@@ -674,7 +679,7 @@ func TestProjectionStateDoesNotRetainSuccessfulBindings(t *testing.T) {
 		nodeName := fmt.Sprintf("node-%d", i)
 		nodeUID := types.UID(fmt.Sprintf("node-uid-%d", i))
 		rack.UID = types.UID(fmt.Sprintf("rack-uid-%d", i))
-		rack.Spec.Nodes[0].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: nodeName, UID: nodeUID}
+		rack.Spec.Nodes[0].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: nodeName, UID: nodeUID, AssignmentRevision: 1}
 		cache.nodes = map[string]*corev1.Node{nodeName: testNode(nodeName, nodeUID)}
 
 		_, err := controller.Project(t.Context(), rack.Name, 0)
@@ -873,7 +878,10 @@ func TestProjectionStateConcurrentAccess(t *testing.T) {
 	require.Zero(t, cleanups)
 }
 
+func (*fakeCache) PublishRelease(context.Context, sgpurelease.Cleanup, int64) error { return nil }
+
 type fakeCache struct {
+	liveRack         func(context.Context, string) (*mokkav1alpha1.SGPURack, error)
 	nodes            map[string]*corev1.Node
 	racks            map[string]*mokkav1alpha1.SGPURack
 	nodeLookup       func(context.Context, string) (*corev1.Node, error)
@@ -914,6 +922,13 @@ func (f *fakeCache) Rack(name string) (*mokkav1alpha1.SGPURack, error) {
 		return nil, apierrors.NewNotFound(mokkav1alpha1.Resource("sgpuracks"), name)
 	}
 	return rack, nil
+}
+
+func (f *fakeCache) LiveRack(ctx context.Context, name string) (*mokkav1alpha1.SGPURack, error) {
+	if f.liveRack != nil {
+		return f.liveRack(ctx, name)
+	}
+	return f.Rack(name)
 }
 
 func (f *fakeCache) RacksByNodeUID(uid types.UID) ([]*mokkav1alpha1.SGPURack, error) {
@@ -1058,9 +1073,10 @@ func testRack() *mokkav1alpha1.SGPURack {
 			InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: "inventory", UID: "inventory-uid"},
 			ProfileRef:   mokkav1alpha1.SGPURackProfileReference{Name: "profile", UID: "profile-uid", Generation: 3, Revision: "revision"},
 			Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: "group", RackIndex: 0, FabricUUID: "fab", CliqueID: 0},
-			Nodes:        []mokkav1alpha1.SGPURackNode{{Index: 0, NodeRef: &mokkav1alpha1.SGPUNodeReference{Name: "node", UID: "node-uid"}}},
+			Nodes:        []mokkav1alpha1.SGPURackNode{{Index: 0, NodeRef: &mokkav1alpha1.SGPUNodeReference{Name: "node", UID: "node-uid", AssignmentRevision: 1}}},
 		},
 	}
+	rack.Status.Delivery = &mokkav1alpha1.RackDelivery{Generation: 4, RackSpecGeneration: rack.Generation}
 	return rack
 }
 
@@ -1106,19 +1122,7 @@ func setManagedFields(node *corev1.Node, manager string, labels, annotations []s
 }
 
 func cleanupFor(rack *mokkav1alpha1.SGPURack) sgpurelease.Cleanup {
-	slot := rack.Spec.Nodes[0]
-	return sgpurelease.Cleanup{
-		RackName: rack.Name,
-		RackUID:  rack.UID,
-		Binding: allocate.Binding{
-			Coordinate: allocate.Coordinate{
-				Group:     allocate.RackGroupKey{InventoryName: rack.Spec.InventoryRef.Name, InventoryUID: rack.Spec.InventoryRef.UID, RackGroup: rack.Spec.Identity.RackGroup},
-				RackIndex: rack.Spec.Identity.RackIndex,
-				NodeIndex: slot.Index,
-			},
-			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
-		},
-	}
+	return sgpurelease.ForSlot(rack, rack.Spec.Nodes[0], "")
 }
 
 func stateSize(controller *Controller) (outcomes, cleanups int) {
@@ -1158,4 +1162,122 @@ func assertStateIndexesExact(t *testing.T, controller *Controller) {
 		require.True(t, exists)
 		require.Equal(t, coordinate, coordinateKeyForBinding(key))
 	}
+}
+
+func TestCleanupKeepsRevisionWhileCliqueLabelIsShared(t *testing.T) {
+	t.Parallel()
+	rack := testRack()
+	node := testNode("node", "node-uid")
+	setExactProjection(t, node, rack)
+	setManagedFields(node, FieldManager, []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
+	setManagedFields(node, "other", []string{sgpumetadata.CliqueLabel}, nil)
+	// SSA keeps the shared label when Mokka relinquishes its ownership.
+	partial := node.DeepCopy()
+	delete(partial.Labels, sgpumetadata.AssignedLabel)
+	partial.ManagedFields = nil
+	setManagedFields(partial, FieldManager, nil, []string{sgpumetadata.AssignmentAnnotation})
+	setManagedFields(partial, "other", []string{sgpumetadata.CliqueLabel}, nil)
+	patcher := &recordingPatcher{response: partial}
+	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
+	controller := NewController(cache, patcher)
+	cleanup := cleanupFor(rack)
+	_, err := controller.Cleanup(t.Context(), cleanup)
+	var conflict *MetadataConflictError
+	require.ErrorAs(t, err, &conflict)
+	require.Len(t, patcher.calls, 1)
+	var patch corev1.Node
+	require.NoError(t, json.Unmarshal(patcher.calls[0].data, &patch))
+	require.Equal(t, node.Annotations, patch.Annotations)
+	require.Empty(t, patch.Labels)
+	require.False(t, controller.Ready(cleanup))
+
+	cache.nodes[node.Name] = partial
+	_, err = controller.Cleanup(t.Context(), cleanup)
+	require.ErrorAs(t, err, &conflict)
+	require.Len(t, patcher.calls, 1)
+
+	// The foreign manager now removes its label.
+	free := partial.DeepCopy()
+	delete(free.Labels, sgpumetadata.CliqueLabel)
+	free.ManagedFields = nil
+	setManagedFields(free, FieldManager, nil, []string{sgpumetadata.AssignmentAnnotation})
+	cache.nodes[node.Name] = free
+	patcher.node, patcher.response = free, nil
+	_, err = controller.Cleanup(t.Context(), cleanup)
+	require.NoError(t, err)
+	require.True(t, controller.Ready(cleanup))
+	require.Len(t, patcher.calls, 2)
+	released := applyNodePayload(free, node.Name, patcher.calls[1].data)
+	a, err := sgpuassignment.DecodeAssignment(released.Annotations[sgpumetadata.AssignmentAnnotation])
+	require.NoError(t, err)
+	require.False(t, a.Assigned)
+	require.EqualValues(t, 2, a.AssignmentRevision)
+}
+
+func TestCleanupChecksLiveRackWhenNodeRevisionIsNewer(t *testing.T) {
+	t.Parallel()
+	rack := testRack()
+	rack.Spec.Nodes[0].NodeRef.AssignmentRevision = 7
+	newer := rack.DeepCopy()
+	newer.Spec.Nodes[0].NodeRef.AssignmentRevision = 9
+	node := testNode("node", "node-uid")
+	setExactProjection(t, node, newer)
+	setManagedFields(node, FieldManager, []string{sgpumetadata.AssignedLabel, sgpumetadata.CliqueLabel}, []string{sgpumetadata.AssignmentAnnotation})
+	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
+	patcher := &recordingPatcher{node: node}
+	controller := NewController(cache, patcher)
+	cleanup := cleanupFor(rack)
+	readErr := errors.New("rack API unavailable")
+	live := newer
+	cache.liveRack = func(_ context.Context, name string) (*mokkav1alpha1.SGPURack, error) {
+		require.Equal(t, rack.Name, name)
+		return live, readErr
+	}
+
+	_, err := controller.Cleanup(t.Context(), cleanup)
+	require.ErrorIs(t, err, readErr)
+	require.False(t, controller.Ready(cleanup))
+	require.Empty(t, patcher.calls)
+
+	readErr = nil
+	_, err = controller.Cleanup(t.Context(), cleanup)
+	require.NoError(t, err)
+	require.False(t, controller.Ready(cleanup), "revision 7 cannot release the live binding at revision 9")
+	require.Empty(t, patcher.calls)
+
+	// If the API confirms the original binding, finish the pending release
+	// from the higher revision on the Node.
+	live = rack
+	_, err = controller.Cleanup(t.Context(), cleanup)
+	require.NoError(t, err)
+	require.True(t, controller.Ready(cleanup))
+	require.Len(t, patcher.calls, 1)
+	released := applyNodePayload(node, node.Name, patcher.calls[0].data)
+	a, err := sgpuassignment.DecodeAssignment(released.Annotations[sgpumetadata.AssignmentAnnotation])
+	require.NoError(t, err)
+	require.False(t, a.Assigned)
+	require.EqualValues(t, 10, a.AssignmentRevision)
+}
+
+func TestCleanupHonorsAssignmentRevision(t *testing.T) {
+	t.Parallel()
+	rack := testRack()
+	rack.Spec.Nodes[0].NodeRef.AssignmentRevision = 7
+	node := testNode("node", "node-uid")
+	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
+	patcher := &recordingPatcher{node: node}
+	controller := NewController(cache, patcher)
+	old := cleanupFor(rack)
+	_, err := controller.Cleanup(t.Context(), old)
+	require.NoError(t, err)
+	require.True(t, controller.Ready(old))
+	rack.Spec.Nodes[0].NodeRef.AssignmentRevision = 9
+	current := cleanupFor(rack)
+	require.False(t, controller.Ready(current))
+	setExactProjection(t, node, rack)
+	_, err = controller.Cleanup(t.Context(), old)
+	require.NoError(t, err)
+	require.Len(t, patcher.calls, 1, "the delayed cleanup must not write a second time")
+	require.False(t, controller.Ready(old))
+	require.False(t, controller.Ready(current))
 }

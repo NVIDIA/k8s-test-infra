@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SGPURackProfile
+metadata:
+  name: pcie-only
+spec:
+  rack: {nodesPerRack: 2}
+  node:
+    gpus:
+      count: 1
+      model:
+        vendor: NVIDIA
+        product: T4
+        productName: NVIDIA T4
+        architecture: turing
+        computeCapability: {major: 7, minor: 5}
+      memory: {capacity: 16Gi}
+      pci: {vendorID: 10de, deviceID: 1eb8}
+    topology:
+      gpuSlots:
+        - {index: 0, pciAddress: "0000:01:00.0", rootComplex: "pci0000:00"}
+  software:
+    driverVersion: 580.65.06
+    nvmlVersion: "13.580.65"
+    cudaVersion: "13.0"

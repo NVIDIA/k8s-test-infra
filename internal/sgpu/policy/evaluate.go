@@ -31,11 +31,16 @@ type Evaluation struct {
 	InventoryName string
 	// InventoryUID is empty when the inventory does not exist.
 	InventoryUID types.UID
+	// InventoryGeneration pins the spec against which the policies were evaluated.
+	InventoryGeneration int64
 	// Decisions holds one decision per policy, ordered by policy name.
 	Decisions []Decision
 
+	// shapes records the group profiles used to resolve policy targets.
+	shapes map[string]shape
+
 	// layers holds each rack group's accepted overrides.
-	layers map[string][]layer
+	layers map[string]RackPolicies
 }
 
 // Evaluate decides every policy that targets inventoryName. inventory is nil
@@ -72,12 +77,13 @@ func Evaluate(
 	}
 
 	evaluation.InventoryUID = inventory.UID
-	shapes := shapesOf(inventory, profiles)
+	evaluation.InventoryGeneration = inventory.Generation
+	evaluation.shapes = shapesOf(inventory, profiles)
 	candidates := make([]candidate, 0, len(policies))
 
 	for i := range evaluation.Decisions {
 		decision := &evaluation.Decisions[i]
-		selected, problem := resolveTarget(inventoryName, shapes, &decision.Policy.Spec.TargetRef)
+		selected, problem := resolveTarget(inventoryName, evaluation.shapes, &decision.Policy.Spec.TargetRef)
 
 		if problem != "" {
 			decision.Outcome, decision.Message = InvalidTarget, problem

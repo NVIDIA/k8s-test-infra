@@ -280,6 +280,7 @@ func TestComputeInventoryProgrammedRejectsUnhashableProfile(t *testing.T) {
 func TestComputeRackStatusCountsExactProjectionAndDuplicateBindings(t *testing.T) {
 	input := aggregateInput(t)
 	rack := input.Racks[0]
+	rack.Status.Delivery = &mokkav1alpha1.RackDelivery{Generation: 12}
 	oldTime := metav1.NewTime(time.Unix(50, 0))
 	rack.Status.Conditions = []metav1.Condition{{
 		Type: mokkav1alpha1.RackConditionReady, Status: metav1.ConditionFalse,
@@ -288,6 +289,7 @@ func TestComputeRackStatusCountsExactProjectionAndDuplicateBindings(t *testing.T
 
 	got := ComputeRack(RackInput{Rack: rack, Racks: input.Racks, Nodes: input.Nodes, Projection: input.Projection}, metav1.NewTime(time.Unix(100, 0)))
 	require.Equal(t, int32(3), got.AssignedNodes)
+	require.Equal(t, rack.Status.Delivery, got.Delivery)
 	require.Equal(t, metav1.ConditionFalse, condition(got.Conditions, mokkav1alpha1.RackConditionReady).Status)
 	require.Equal(t, ReasonDuplicateBindings, condition(got.Conditions, mokkav1alpha1.RackConditionReady).Reason)
 	require.Equal(t, oldTime, condition(got.Conditions, mokkav1alpha1.RackConditionReady).LastTransitionTime)
@@ -328,6 +330,18 @@ func TestComputeRackDerivesProjectionFromExactCachedNodeMetadata(t *testing.T) {
 			name: "successful process outcome cannot hide missing label",
 			mutate: func(input *RackInput) {
 				delete(input.Nodes[0].Labels, sgpumetadata.AssignedLabel)
+			},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: ReasonProjectionIncomplete,
+		},
+		{
+			name: "previous binding conflict cannot mark a new assignment as conflicting",
+			mutate: func(input *RackInput) {
+				delete(input.Nodes[0].Annotations, sgpumetadata.AssignmentAnnotation)
+				input.Rack.Spec.Nodes[0].NodeRef.AssignmentRevision = 9
+				input.Projection[0].AssignmentRevision = 7
+				input.Projection[0].State = sgpuprojection.StateConflict
+				input.Projection[0].Reason = sgpuprojection.ReasonNodeMetadataConflict
 			},
 			wantStatus: metav1.ConditionFalse,
 			wantReason: ReasonProjectionIncomplete,
@@ -1007,4 +1021,87 @@ func (f *fakeRackWriter) UpdateStatus(_ context.Context, candidate *mokkav1alpha
 	}
 	f.object = candidate.DeepCopy()
 	return f.object.DeepCopy(), nil
+}
+
+func TestDeliveryResumesFromPersistedStatus(t *testing.T) {
+	t.Parallel()
+	in := singleProjectedRackInput(t)
+	in.Rack.Generation = 12
+	in.Rack.Status.Delivery = &mokkav1alpha1.RackDelivery{Generation: 41, RackSpecGeneration: 11}
+	in.Delivery = &mokkav1alpha1.RackDelivery{RackSpecGeneration: 12}
+	writer := &fakeRackWriter{object: in.Rack.DeepCopy(), conflictOnce: true, conflictConverges: true}
+	changed, err := NewReconciler(nil, writer, nil).ReconcileRack(t.Context(), in)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Equal(t, int64(42), writer.object.Status.Delivery.Generation)
+	require.Equal(t, 2, writer.gets)
+	// A new leader takes its counter from the rack, even with no in-memory history.
+	in.Rack = writer.object.DeepCopy()
+	in.Rack.Generation++
+	in.Delivery.RackSpecGeneration = in.Rack.Generation
+	writer.object = in.Rack.DeepCopy()
+	changed, err = NewReconciler(nil, writer, nil).ReconcileRack(t.Context(), in)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, int64(43), writer.object.Status.Delivery.Generation)
+	// An older snapshot of this same rack spec cannot replace the delivery
+	// that a different leader has already published.
+	writer.object.Status.Delivery.Generation++
+	writer.object.Status.Delivery.AcceptedPolicies = []mokkav1alpha1.DeliveryObjectReference{{UID: "new-policy", Generation: 1}}
+	writes := writer.updates
+	changed, err = NewReconciler(nil, writer, nil).ReconcileRack(t.Context(), in)
+	require.Error(t, err)
+	require.False(t, changed)
+	require.Equal(t, writes, writer.updates)
+
+}
+
+func TestDeliveryRejectsOlderInputVersions(t *testing.T) {
+	t.Parallel()
+	for name, ref := range map[string]func(*mokkav1alpha1.RackDelivery) *mokkav1alpha1.DeliveryObjectReference{
+		"inventory": func(d *mokkav1alpha1.RackDelivery) *mokkav1alpha1.DeliveryObjectReference { return &d.InventoryRef },
+		"profile": func(d *mokkav1alpha1.RackDelivery) *mokkav1alpha1.DeliveryObjectReference {
+			return &d.ProfileRef.DeliveryObjectReference
+		},
+		"policy": func(d *mokkav1alpha1.RackDelivery) *mokkav1alpha1.DeliveryObjectReference {
+			return &d.AcceptedPolicies[0]
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := singleProjectedRackInput(t)
+			saved := &mokkav1alpha1.RackDelivery{Generation: 12, RackSpecGeneration: in.Rack.Generation, AcceptedPolicies: []mokkav1alpha1.DeliveryObjectReference{{UID: "policy", Generation: 2}}}
+			*ref(saved) = mokkav1alpha1.DeliveryObjectReference{UID: types.UID(name), Generation: 2}
+			in.Rack.Status.Delivery = saved
+			in.Delivery = saved.DeepCopy()
+			ref(in.Delivery).Generation = 1
+			writer := &fakeRackWriter{object: in.Rack.DeepCopy()}
+			leader := NewReconciler(nil, writer, nil)
+			changed, err := leader.ReconcileRack(t.Context(), in)
+			require.Error(t, err)
+			require.False(t, changed)
+			require.Zero(t, writer.updates)
+			ref(in.Delivery).Generation = 3
+			changed, err = leader.ReconcileRack(t.Context(), in)
+			require.NoError(t, err)
+			require.True(t, changed)
+			require.Equal(t, int64(13), writer.object.Status.Delivery.Generation)
+		})
+	}
+}
+
+func TestDeliveryKeepsOnlyReleasesForCurrentBindings(t *testing.T) {
+	t.Parallel()
+	rack := &mokkav1alpha1.SGPURack{}
+	rack.Status.Delivery = &mokkav1alpha1.RackDelivery{Generation: 11, ReleaseRevisions: map[types.UID]int64{"releasing": 8, "rebound": 4, "gone": 12}}
+	rack.Spec.Nodes = []mokkav1alpha1.SGPURackNode{
+		{NodeRef: &mokkav1alpha1.SGPUNodeReference{UID: "releasing", AssignmentRevision: 7}},
+		{NodeRef: &mokkav1alpha1.SGPUNodeReference{UID: "rebound", AssignmentRevision: 5}},
+	}
+	// A status worker may already have prepared this input when cleanup
+	// acquires its resource version and publishes the release.
+	observed := &mokkav1alpha1.RackDelivery{RackSpecGeneration: 2}
+	updated := nextDelivery(rack, observed)
+	require.EqualValues(t, 12, updated.Generation)
+	require.Equal(t, map[types.UID]int64{"releasing": 8}, updated.ReleaseRevisions)
+	require.Len(t, rack.Status.Delivery.ReleaseRevisions, 3)
 }

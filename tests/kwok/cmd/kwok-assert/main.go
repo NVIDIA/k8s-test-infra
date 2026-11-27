@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/rackrender"
 )
 
@@ -56,28 +57,9 @@ type result struct {
 	Errors           []string `json:"errors,omitempty"`
 }
 
-type assignment struct {
-	Version   int             `json:"v"`
-	Inventory objectReference `json:"inventory"`
-	Rack      objectReference `json:"rack"`
-	RackGroup string          `json:"rackGroup"`
-	RackIndex int32           `json:"rackIndex"`
-	NodeIndex int32           `json:"nodeIndex"`
-	NodeUID   types.UID       `json:"nodeUID"`
-}
-
-type objectReference struct {
-	Name string    `json:"name"`
-	UID  types.UID `json:"uid"`
-}
-
 type binding struct {
-	nodeName  string
-	nodeUID   types.UID
-	rackName  string
-	rackUID   types.UID
-	rackIndex int32
-	nodeIndex int32
+	rack *mokkav1alpha1.SGPURack
+	slot *mokkav1alpha1.SGPURackNode
 }
 
 func main() {
@@ -219,10 +201,7 @@ func check(o options, inventory *mokkav1alpha1.SGPUInventory, racks *mokkav1alph
 			if _, duplicate := bindings[slot.NodeRef.UID]; duplicate {
 				addError("Node UID %q is bound more than once", slot.NodeRef.UID)
 			}
-			bindings[slot.NodeRef.UID] = binding{
-				nodeName: slot.NodeRef.Name, nodeUID: slot.NodeRef.UID,
-				rackName: rack.Name, rackUID: rack.UID, rackIndex: index, nodeIndex: slot.Index,
-			}
+			bindings[slot.NodeRef.UID] = binding{rack: rack, slot: slot}
 		}
 		if rack.Status.ObservedGeneration != rack.Generation || int(rack.Status.AssignedNodes) != assignedInRack {
 			addError("rack %q status is stale or incomplete: %+v", rack.Name, rack.Status)
@@ -254,27 +233,25 @@ func check(o options, inventory *mokkav1alpha1.SGPUInventory, racks *mokkav1alph
 			addError("Node %q retains released assignment metadata", node.Name)
 			continue
 		}
+		publication, decodeErr := sgpuassignment.DecodeAssignment(encoded)
+		if decodeErr == nil && !publication.Assigned && publication.NodeUID == node.UID && !hasAssigned {
+			if _, bound := bindings[node.UID]; bound {
+				addError("bound Node %q has a release tombstone", node.Name)
+			}
+			continue
+		}
 		assigned := assignedValue == "true"
 		if encoded == "" || !assigned {
 			addError("Node %q has only part of the assignment projection", node.Name)
 			continue
 		}
 		checked.ProjectedNodes++
-		var projected assignment
-		if err := json.Unmarshal([]byte(encoded), &projected); err != nil {
-			addError("Node %q has invalid assignment JSON: %v", node.Name, err)
-			continue
-		}
 		want, found := bindings[node.UID]
-		if !found || want.nodeName != node.Name {
+		if !found || want.slot.NodeRef.Name != node.Name {
 			addError("Node %q/%q is projected without an exact rack binding", node.Name, node.UID)
 			continue
 		}
-		if projected.Version != 1 || projected.Inventory.Name != inventory.Name ||
-			projected.Inventory.UID != inventory.UID || projected.Rack.Name != want.rackName ||
-			projected.Rack.UID != want.rackUID || projected.RackGroup != "compute" ||
-			projected.RackIndex != want.rackIndex || projected.NodeIndex != want.nodeIndex ||
-			projected.NodeUID != node.UID {
+		if decodeErr != nil || !publication.CoversBinding(want.rack, want.slot) {
 			addError("Node %q projection does not match its exact rack binding", node.Name)
 		}
 		digestRecords = append(digestRecords, node.Name+"\x00"+string(node.UID)+"\x00"+encoded)

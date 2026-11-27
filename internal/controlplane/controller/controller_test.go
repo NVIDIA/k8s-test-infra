@@ -381,7 +381,7 @@ func TestSameTimestampInventoryAddQueuesDisplacedAdmissionParticipant(t *testing
 		mokkalisters.NewSGPURackProfileLister(profiles),
 		racks,
 		nodecatalog.New(),
-		nil,
+		nil, nil,
 		DefaultOptions(),
 	)
 	allocation := sgpuinventory.NewAllocationCache(snapshot)
@@ -456,7 +456,7 @@ func TestRackCapacityReleaseQueuesAndPromotesRejectedCandidate(t *testing.T) {
 		mokkalisters.NewSGPURackProfileLister(profiles),
 		racks,
 		nodecatalog.New(),
-		nil,
+		nil, nil,
 		DefaultOptions(),
 	)
 	allocation := sgpuinventory.NewAllocationCache(snapshot)
@@ -1555,17 +1555,16 @@ func TestRunLeaderCancelsAndWaitsForWorkers(t *testing.T) {
 	require.Zero(t, controller.queues.inventories.NumRequeues("inventory"))
 }
 
-func TestFilteredNodeListWatchUsesServerSideSelector(t *testing.T) {
+func TestPublicationWatchIncludesIneligibleNodes(t *testing.T) {
 	nodes := &recordingNodeAPI{watcher: watch.NewFake()}
-	listWatch := newFilteredNodeListWatch(nodes)
+	listWatch := newPublicationNodeListWatch(nodes)
 	_, err := listWatch.ListWithContext(t.Context(), metav1.ListOptions{})
 	require.NoError(t, err)
 	watcher, err := listWatch.WatchWithContext(t.Context(), metav1.ListOptions{})
 	require.NoError(t, err)
 	watcher.Stop()
 	require.Equal(t, []string{
-		allocate.EligibleNodeLabel + "=true",
-		allocate.EligibleNodeLabel + "=true",
+		"", "",
 	}, nodes.selectors())
 }
 

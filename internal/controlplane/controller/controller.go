@@ -18,7 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
@@ -29,6 +29,7 @@ import (
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
+	sgpuassignment "github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
 	sgpuinventory "github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
 	sgpumetadata "github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/nodecatalog"
@@ -57,7 +58,7 @@ type Options struct {
 	StatusDebounce time.Duration
 	// StatusProgressInterval bounds status staleness while changes continue.
 	StatusProgressInterval time.Duration
-	// LiveNodeGetTimeout bounds the exact GET used when a Node leaves the filtered cache.
+	// LiveNodeGetTimeout bounds live Node lookups and rack checks during assignment cleanup.
 	LiveNodeGetTimeout time.Duration
 }
 
@@ -234,6 +235,7 @@ type Controller struct {
 	waitForCacheSync func(context.Context) bool
 	snapshot         *informerCache
 	runtimePolicies  *runtimePolicyView
+	publicationNodes cache.Store
 
 	reconcileInventory  func(context.Context, string) error
 	reconcileGroup      func(context.Context, allocate.RackGroupKey) error
@@ -273,14 +275,14 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	if err := runtimePolicyInformer.AddIndexers(runtimePolicyIndexers()); err != nil {
 		return nil, fmt.Errorf("add runtime policy indexes: %w", err)
 	}
-	nodeInformer, err := newFilteredNodeInformer(nodes)
+	nodeInformer, err := newPublicationNodeInformer(nodes)
 	if err != nil {
 		return nil, err
 	}
 	nodeCatalog := nodecatalog.New()
 
 	snapshot := newInformerCache(
-		inventories.Lister(), profiles.Lister(), rackInformer.GetIndexer(), nodeCatalog, nodes,
+		inventories.Lister(), profiles.Lister(), rackInformer.GetIndexer(), nodeCatalog, nodes, mokkaClient.MokkaV1alpha1().SGPURacks(),
 		options,
 	)
 	projection := sgpuprojection.NewController(snapshot, nodes)
@@ -302,14 +304,16 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		profiles:    profiles.Lister(),
 		policies:    runtimePolicyInformer.GetIndexer(),
 	}
+	deliveries := &deliveryCatalog{inventories: make(map[string]*deliveryInputs)}
 	runtimePolicyStatus := sgpustatus.NewRuntimePolicyReconciler(mokkaClient.MokkaV1alpha1().SGPURuntimePolicies(), nil)
 
 	controller := &Controller{
-		options:         options,
-		queues:          newQueuesWithStatusIntervals(options.StatusDebounce, options.statusProgressInterval()),
-		cachesSynced:    make(chan struct{}),
-		snapshot:        snapshot,
-		runtimePolicies: runtimePolicies,
+		options:          options,
+		queues:           newQueuesWithStatusIntervals(options.StatusDebounce, options.statusProgressInterval()),
+		cachesSynced:     make(chan struct{}),
+		snapshot:         snapshot,
+		runtimePolicies:  runtimePolicies,
+		publicationNodes: nodeInformer.GetStore(),
 	}
 	// Test environments use short-lived controller instances and only a few inventories,
 	// so per-name locks and results intentionally live for the controller's lifetime.
@@ -335,10 +339,16 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		inventory, getErr := snapshot.Inventory(name)
 		if getErr == nil {
 			updateRackConflictWaiters(rackWaiters, inventory, observed, group, result)
+			previousAdmission := results.get(inventory.Name, inventory.UID).AdmittedInventory
 			if group == nil {
 				results.put(inventory.Name, inventory.UID, result)
 			} else {
 				results.putGroup(inventory.Name, inventory.UID, group.RackGroup, result)
+			}
+			if previousAdmission != result.AdmittedInventory {
+				// Admission and policy evaluation run on separate queues. Wake the
+				// delivery work even when its input versions have not changed again.
+				controller.queues.addStatus(statusKey{kind: statusRuntimePolicies, name: inventory.Name})
 			}
 			controller.queues.addStatus(statusKey{kind: statusInventory, name: inventory.Name, uid: inventory.UID})
 		} else if !apierrors.IsNotFound(getErr) {
@@ -417,13 +427,21 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			if slot == nil || slot.NodeRef == nil {
 				return nil
 			}
-			if !key.fresh && projection.Ready(cleanupFor(rack, *slot, sgpurelease.NodeIneligible)) {
+			if !key.fresh && projection.Ready(sgpurelease.ForSlot(rack, *slot, sgpurelease.NodeIneligible)) {
 				return nil
 			}
 			if key.fresh {
 				_, err = projection.ProjectFresh(ctx, key.rackName, key.nodeIndex)
 			} else {
 				_, err = projection.Project(ctx, key.rackName, key.nodeIndex)
+			}
+			if errors.Is(err, sgpuprojection.ErrRevisionPending) {
+				controller.queues.inventories.Add(rack.Spec.InventoryRef.Name)
+				return nil
+			}
+			if errors.Is(err, sgpuassignment.ErrDeliveryPending) {
+				controller.queues.addStatus(statusKey{kind: statusRack, name: rack.Name, uid: rack.UID})
+				return nil
 			}
 			controller.queues.addStatus(statusKey{kind: statusRack, name: rack.Name, uid: rack.UID})
 			controller.queues.addStatus(statusKey{kind: statusInventory, name: rack.Spec.InventoryRef.Name, uid: rack.Spec.InventoryRef.UID})
@@ -473,6 +491,10 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 				}
 				return retryErr
 			})
+			if errors.Is(err, sgpuprojection.ErrRevisionPending) {
+				controller.queues.inventories.Add(key.cleanup.Binding.Coordinate.Group.InventoryName)
+				return nil
+			}
 			if err == nil && outcome.State == sgpuprojection.StateCleaned {
 				// Retiring or shrinking racks resumes in the inventory reconcile; a
 				// released binding only needs its group reallocated.
@@ -499,9 +521,22 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		case statusInventory:
 			return reconcileInventoryStatus(ctx, snapshot, statusReconciler, projection, results, key)
 		case statusRack:
-			return reconcileRackStatus(ctx, snapshot, statusReconciler, projection, key)
+			return reconcileRackStatus(ctx, snapshot, statusReconciler, projection, deliveries, key)
 		case statusRuntimePolicies:
-			return reconcileRuntimePolicyStatus(ctx, runtimePolicies, runtimePolicyStatus, key.name)
+			inputs, err := runtimePolicies.evaluate(key.name)
+			if err != nil {
+				return err
+			}
+			admission := results.get(key.name, inputs.InventoryUID).AdmittedInventory
+			inputs.admitted = admission.UID != "" && admission.UID == inputs.InventoryUID && admission.Generation == inputs.InventoryGeneration
+			racks, err := deliveries.update(inputs, snapshot)
+			if err != nil {
+				return err
+			}
+			for _, rack := range racks {
+				controller.queues.addStatus(statusKey{kind: statusRack, name: rack.Name, uid: rack.UID})
+			}
+			return reconcileRuntimePolicyStatus(ctx, inputs.Evaluation, runtimePolicyStatus)
 		default:
 			return fmt.Errorf("unknown status work kind %d", key.kind)
 		}
@@ -540,7 +575,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		},
 		{
 			informer: nodeInformer,
-			handler: cache.ResourceEventHandlerFuncs{
+			handler: cache.FilteringResourceEventHandler{FilterFunc: eligibleNodeEvent, Handler: cache.ResourceEventHandlerFuncs{
 				AddFunc: func(object any) {
 					node, ok := eventObject[*corev1.Node](object)
 					if !ok {
@@ -565,7 +600,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 					nodeCatalog.Delete(node.Name, node.UID)
 					router.nodeDelete(node)
 				},
-			},
+			}},
 		},
 		{
 			informer: runtimePolicyInformer,
@@ -915,9 +950,16 @@ func (s *resultStore) get(name string, uid types.UID) sgpuinventory.Result {
 	return result
 }
 
-func newFilteredNodeInformer(nodes corev1client.NodeInterface) (cache.SharedIndexInformer, error) {
+// The serving cache must observe tombstones even after the eligibility label is removed.
+// Keep the leader's allocation catalog and event routing restricted to eligible Nodes.
+func eligibleNodeEvent(obj any) bool {
+	node, ok := eventObject[*corev1.Node](obj)
+	return ok && node.Labels[allocate.EligibleNodeLabel] == "true"
+}
+
+func newPublicationNodeInformer(nodes corev1client.NodeInterface) (cache.SharedIndexInformer, error) {
 	informer := cache.NewSharedIndexInformer(
-		newFilteredNodeListWatch(nodes),
+		newPublicationNodeListWatch(nodes),
 		&corev1.Node{},
 		0,
 		cache.Indexers{},
@@ -932,6 +974,14 @@ func compactNodeObject(object any) (any, error) {
 	node, ok := object.(*corev1.Node)
 	if !ok {
 		return nil, fmt.Errorf("compact Node received %T", object)
+	}
+	// Unselected Nodes can still carry a release tombstone. Keep just the
+	// fields a reader uses until the Node becomes eligible again.
+	if node.Labels[allocate.EligibleNodeLabel] != "true" {
+		return &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+			Name: node.Name, UID: node.UID, ResourceVersion: node.ResourceVersion,
+			Annotations: map[string]string{sgpumetadata.AssignmentAnnotation: node.Annotations[sgpumetadata.AssignmentAnnotation]},
+		}}, nil
 	}
 	annotations := make(map[string]string, 1)
 	if assignment := node.Annotations[sgpumetadata.AssignmentAnnotation]; assignment != "" {
@@ -956,15 +1006,12 @@ type nodeListerWatcher interface {
 	Watch(context.Context, metav1.ListOptions) (watch.Interface, error)
 }
 
-func newFilteredNodeListWatch(nodes nodeListerWatcher) *cache.ListWatch {
-	selector := labels.SelectorFromSet(labels.Set{allocate.EligibleNodeLabel: "true"}).String()
+func newPublicationNodeListWatch(nodes nodeListerWatcher) *cache.ListWatch {
 	return &cache.ListWatch{
 		ListWithContextFunc: func(ctx context.Context, options metav1.ListOptions) (runtime.Object, error) {
-			options.LabelSelector = selector
 			return nodes.List(ctx, options)
 		},
 		WatchFuncWithContext: func(ctx context.Context, options metav1.ListOptions) (watch.Interface, error) {
-			options.LabelSelector = selector
 			return nodes.Watch(ctx, options)
 		},
 	}

@@ -920,7 +920,7 @@ metadata:
     nvidia.com/gpu.clique: 612ee4ea-82ff-5045-bb7e-04c5f9617370.0
   annotations:
     mokka.nvidia.com/sgpu-assignment: >-
-      {"v":1,"nodeUID":"33427206-1021-4bd9-a6fb-c23737696e98","assignmentRevision":7,"assigned":true,"rack":{"name":"dev-training-0-cf4957078095","uid":"7f6db22d-f91b-4f98-a0d2-a408bc3b78a2"},"rackGroup":"training","rackIndex":0,"nodeIndex":0,"rackDeliveryGenerationFloor":12}
+      {"v":2,"nodeUID":"33427206-1021-4bd9-a6fb-c23737696e98","assignmentRevision":7,"assigned":true,"rack":{"name":"dev-training-0-cf4957078095","uid":"7f6db22d-f91b-4f98-a0d2-a408bc3b78a2"},"rackGroup":"training","rackIndex":0,"nodeIndex":0,"rackDeliveryGenerationFloor":12}
 ```
 
 `assignmentRevision` is allocated from this annotation and is monotonic only
@@ -937,10 +937,10 @@ the fence:
 metadata:
   annotations:
     mokka.nvidia.com/sgpu-assignment: >-
-      {"v":1,"nodeUID":"33427206-1021-4bd9-a6fb-c23737696e98","assignmentRevision":8,"assigned":false}
+      {"v":2,"nodeUID":"33427206-1021-4bd9-a6fb-c23737696e98","assignmentRevision":8,"assigned":false}
 ```
 
-The absent rack generation in a tombstone is represented as zero on the wire.
+The tombstone omits the rack and its delivery generation floor.
 The tombstone prevents a cached response at revision 7 from restoring the old
 binding. Deleting this Kubernetes Node ends the ordering domain; a Node later
 created with the same name has a different UID and starts its own revision
@@ -1058,13 +1058,13 @@ Node projection cannot be changed in one Kubernetes transaction:
    the new one. An assigned `nodeRef` records the chosen revision. The leader
    also advances each affected rack's delivery status with
    `resourceVersion`-guarded updates until the new binding and its dependency
-   manifest are complete. A release ends this phase with no rack binding.
+   manifest are complete. During release, the rack keeps its binding until the Node carries its release tombstone.
 2. Only after the authoritative binding, rack spec, and dependency manifest are
    settled, the leader publishes that completed state by updating the same
    exact Node with a fresh `resourceVersion`. An assignment annotation contains
    the new revision, exact rack UID and coordinates, and the settled rack
    delivery generation as its publication floor. A release publishes the new
-   revision as the minimal unassigned tombstone. Assignment labels are added or
+   revision as the minimal unassigned tombstone before the leader clears the rack binding. Assignment labels are added or
    removed with this projection update.
 
 The first assignment for a Node UID uses revision 1. Every subsequent move,
