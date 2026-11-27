@@ -74,10 +74,10 @@ devicePlugin:
 # /sys/class/dmi/id/product_name, reads "kind" under kind and does not exist on
 # hosts without DMI. The agent writes this one, served by the CDI config mount.
 #
-# Set here only because this suite drives the CDI path, where the toolkit
-# resolving nvidia.com/gpu applies the spec's mounts and drops its env (#747).
-# nri.enabled does not replace it: NRI injects only containers that hold a
-# GPU allocation or opt in by annotation, and GFD does neither.
+# Set here only because this suite drives the CDI path, and the node agent's
+# nvidia.com/gpu spec does not set GFD_MACHINE_TYPE_FILE. nri.enabled does not
+# replace it: NRI injects only containers that hold a GPU allocation or opt in
+# by annotation, and GFD does neither.
 gfd:
   enabled: true
   env:
