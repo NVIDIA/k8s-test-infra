@@ -28,7 +28,9 @@ import (
 	"k8s.io/utils/ptr"
 
 	api "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/allocate"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/assignment"
+	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/metadata"
 	mokkafake "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/fake"
 	state "github.com/NVIDIA/k8s-test-infra/pkg/rackstate/v1alpha1"
 )
@@ -122,6 +124,7 @@ func newAllocationFixture(t *testing.T, saved []api.NodeAllocation, nodeGPUs map
 	members := map[types.UID]string{}
 	views.owned[rack.Name] = &trackedRack{ref: ref, wanted: 1, applied: 1, members: members}
 	nodes := cache.NewStore(cache.MetaNamespaceKeyFunc)
+	kube := kubefake.NewSimpleClientset()
 	for i, name := range slices.Sorted(maps.Keys(nodeGPUs)) {
 		uid := types.UID(name + "-uid")
 		members[uid] = name
@@ -132,6 +135,10 @@ func newAllocationFixture(t *testing.T, saved []api.NodeAllocation, nodeGPUs map
 		views.nodes[uid] = slot
 		raw, err := assignment.EncodePublication(uid, 1, &assignment.PublishedBinding{Rack: assignment.ObjectReference{Name: ref.Name, UID: ref.UID}, RackGroup: "compute", NodeIndex: slot.Index, RackDeliveryGenerationFloor: 1})
 		require.NoError(t, err)
+		require.NoError(t, kube.Tracker().Add(&corev1.Node{ObjectMeta: metav1.ObjectMeta{
+			Name: name, UID: uid, Labels: map[string]string{metadata.AssignedLabel: "true", allocate.NodeTypeLabel: "KWOK"},
+			Annotations: map[string]string{metadata.AssignmentAnnotation: raw},
+		}}))
 		require.NoError(t, nodes.Add(&nodeObservation{PartialObjectMetadata: metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Name: name, UID: uid}}, kwok: true, assigned: true, assignment: raw}))
 	}
 	pods.setRack(rack.Name, sets.KeySet(nodeGPUs))
@@ -139,8 +146,7 @@ func newAllocationFixture(t *testing.T, saved []api.NodeAllocation, nodeGPUs map
 	record := api.NewSGPURackAllocation(rack)
 	record.Nodes = saved
 	mokka := mokkafake.NewSimpleClientset(rack, record)
-	kube := kubefake.NewSimpleClientset()
-	a := rackAllocator{records: mokka.MokkaV1alpha1().SGPURackAllocations(), rackAPI: mokka.MokkaV1alpha1().SGPURacks(), pods: kube.CoreV1(), nodes: nodes, racks: cache.NewStore(cache.MetaNamespaceKeyFunc), views: views}
+	a := rackAllocator{records: mokka.MokkaV1alpha1().SGPURackAllocations(), rackAPI: mokka.MokkaV1alpha1().SGPURacks(), core: kube.CoreV1(), nodes: nodes, racks: cache.NewStore(cache.MetaNamespaceKeyFunc), views: views}
 	require.NoError(t, a.racks.Add(rack))
 	return &allocationFixture{rack: rack, allocator: a, kube: kube, mokka: mokka}
 }
@@ -210,6 +216,7 @@ func TestBatchReleaseConfirmsMissingPodUIDsOncePerNode(t *testing.T) {
 	saved := []api.NodeAllocation{{Name: "worker", Pods: existing}}
 	f := newAllocationFixture(t, saved, map[string][]string{"worker": {"gpu-0"}})
 	lagged := boundTestPod("pod-0", "worker")
+	lagged.Annotations = map[string]string{gpuAllocationAnnotation: `{"main":["gpu-0"]}`}
 	_, err := f.kube.CoreV1().Pods("team").Create(t.Context(), lagged, metav1.CreateOptions{})
 	require.NoError(t, err)
 	replacement := boundTestPod("pod-1", "worker")

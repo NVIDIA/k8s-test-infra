@@ -110,7 +110,8 @@ func allocationChanged(previous, pod *corev1.Pod, deleted bool) bool {
 	if !gpuPod(pod) && (previous == nil || !gpuPod(previous)) {
 		return false
 	}
-	return deleted || previous == nil || previous.UID != pod.UID || previous.Generation != pod.Generation || terminalPod(previous) != terminalPod(pod)
+	return deleted || previous == nil || previous.UID != pod.UID || previous.Generation != pod.Generation || terminalPod(previous) != terminalPod(pod) ||
+		awaitingAdmission(previous) != awaitingAdmission(pod) || previous.Annotations[gpuAllocationAnnotation] != pod.Annotations[gpuAllocationAnnotation]
 }
 
 func (s *shardPods) Replace(objects []any, _ string) error {

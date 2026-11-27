@@ -32,7 +32,7 @@ import (
 type rackAllocator struct {
 	records      client.SGPURackAllocationInterface
 	rackAPI      client.SGPURackInterface
-	pods         coreclient.PodsGetter
+	core         coreclient.CoreV1Interface
 	racks, nodes cache.Store
 	views        *rackViews
 	recorder     record.EventRecorder
@@ -76,12 +76,34 @@ func (a *rackAllocator) reconcile(ctx context.Context, name string) error {
 	if !record.OwnedByRack(rack) {
 		return fmt.Errorf("allocation is not owned by rack %s (%s)", name, rack.UID)
 	}
+	return a.reconcileAdmissions(ctx, rack, slots, record, create)
+}
+
+func (a *rackAllocator) reconcileAdmissions(ctx context.Context, rack *api.SGPURack, slots []nodeAllocationPlan, record *api.SGPURackAllocation, create bool) error {
 	next, err := a.desiredNodes(ctx, slots, record.Nodes)
-	if err != nil || reflect.DeepEqual(record.Nodes, next) {
+	if err != nil {
 		return err
 	}
-	record.Nodes = next
-	return a.save(ctx, rack, record, create)
+	changed := !reflect.DeepEqual(record.Nodes, next)
+	if !changed && !needsAdmission(slots) {
+		return nil
+	}
+	current, err := a.currentRack(ctx, rack)
+	if err != nil || !current {
+		return err
+	}
+	if changed {
+		record.Nodes = next
+		if create {
+			record, err = a.records.Create(ctx, record, metav1.CreateOptions{})
+		} else {
+			record, err = a.records.Update(ctx, record, metav1.UpdateOptions{})
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return a.publishAdmissions(ctx, rack, slots, record)
 }
 
 // Each plan belongs to one reconciliation. A nil pending map means the
@@ -91,6 +113,8 @@ type nodeAllocationPlan struct {
 	slot    state.NodePayload
 	pending map[types.UID]*corev1.Pod
 	kept    []api.PodAllocation
+	publish []podGrant
+	denied  []*corev1.Pod
 }
 
 func (a *rackAllocator) desiredNodes(ctx context.Context, plans []nodeAllocationPlan, saved []api.NodeAllocation) ([]api.NodeAllocation, error) {
@@ -127,28 +151,16 @@ func (a *rackAllocator) desiredNodes(ctx context.Context, plans []nodeAllocation
 	return next, nil
 }
 
-func (a *rackAllocator) save(ctx context.Context, rack *api.SGPURack, record *api.SGPURackAllocation, create bool) error {
-	// Check the published generation and shard after reading the allocation.
-	// A lagging watch must not undo a newer writer's view of the rack.
+func (a *rackAllocator) currentRack(ctx context.Context, rack *api.SGPURack) (bool, error) {
 	current, err := a.rackAPI.Get(ctx, rack.Name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
-	if current.UID != rack.UID || current.Labels[inventory.KWOKShardLabel] != rack.Labels[inventory.KWOKShardLabel] ||
-		current.Status.Delivery == nil || current.Status.Delivery.Generation != rack.Status.Delivery.Generation {
-		return nil
-	}
-	if create {
-		_, err = a.records.Create(ctx, record, metav1.CreateOptions{})
-	} else {
-		// Update carries the version from Get. A conflict (including a racing
-		// Create) requeues the rack and recomputes the choices from durable state.
-		_, err = a.records.Update(ctx, record, metav1.UpdateOptions{})
-	}
-	return err
+	return current.UID == rack.UID && current.Labels[inventory.KWOKShardLabel] == rack.Labels[inventory.KWOKShardLabel] &&
+		current.Status.Delivery != nil && current.Status.Delivery.Generation == rack.Status.Delivery.Generation, nil
 }
 
 func (item *trackedRack) currentFor(rack *api.SGPURack) bool {
@@ -190,11 +202,15 @@ func (a *rackAllocator) boundPods(slot state.NodePayload) map[types.UID]*corev1.
 	if !node.kwok || !node.assigned || node.UID != slot.Node.UID {
 		return nil
 	}
-	binding, err := assignment.DecodeAssignment(node.assignment)
-	if err != nil || !matchesPublication(slot, binding) {
+	if !matchesNodeAssignment(slot, node.assignment) {
 		return nil
 	}
 	return a.views.pods.allocationSnapshot(slot.Node.Name)
+}
+
+func matchesNodeAssignment(slot state.NodePayload, raw string) bool {
+	binding, err := assignment.DecodeAssignment(raw)
+	return err == nil && matchesPublication(slot, binding)
 }
 
 func (a *rackAllocator) retainPods(ctx context.Context, p *nodeAllocationPlan) error {
@@ -213,11 +229,14 @@ func (a *rackAllocator) retainPods(ctx context.Context, p *nodeAllocationPlan) e
 			continue
 		}
 		kept = append(kept, saved)
+		valid := true
 		for _, c := range saved.Containers {
 			if missing := sets.New(c.GPUs...).Difference(inventory); len(missing) != 0 {
+				valid = false
 				a.recorder.Eventf(pod, corev1.EventTypeWarning, "GPUAllocationMismatch", "Container %s has saved GPU UUIDs %v outside the current slot for node %s. These UUIDs remain reserved in rack %s until release.", c.Name, sets.List(missing), p.name, p.slot.Hardware.Rack.Name)
 			}
 		}
+		p.syncGrant(pod, saved, valid)
 	}
 	p.kept = kept
 	return nil
@@ -240,7 +259,7 @@ func (a *rackAllocator) confirmMissing(ctx context.Context, p *nodeAllocationPla
 	case 1:
 		return a.confirmPod(ctx, p, only)
 	}
-	list, err := a.pods.Pods(metav1.NamespaceAll).List(ctx, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector("spec.nodeName", p.name).String()})
+	list, err := a.core.Pods(metav1.NamespaceAll).List(ctx, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector("spec.nodeName", p.name).String()})
 	if err != nil {
 		return err
 	}
@@ -258,7 +277,7 @@ func (a *rackAllocator) confirmPod(ctx context.Context, p *nodeAllocationPlan, s
 	if err != nil {
 		return err
 	}
-	pod, err := a.pods.Pods(ns).Get(ctx, name, metav1.GetOptions{})
+	pod, err := a.core.Pods(ns).Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return nil
 	}
@@ -286,9 +305,12 @@ func (p *nodeAllocationPlan) assignPending(used sets.Set[string]) {
 	for _, pod := range pendingPods(p.pending) {
 		allocation, count := allocatePod(pod, free)
 		if allocation != nil {
+			p.syncGrant(pod, *allocation, true)
 			p.kept = append(p.kept, *allocation)
 			used.Insert(free[:count]...)
 			free = free[count:]
+		} else if awaitingAdmission(pod) {
+			p.denied = append(p.denied, pod)
 		}
 	}
 }
@@ -296,7 +318,7 @@ func (p *nodeAllocationPlan) assignPending(used sets.Set[string]) {
 func pendingPods(live map[types.UID]*corev1.Pod) []*corev1.Pod {
 	pending := make([]*corev1.Pod, 0, len(live))
 	for _, p := range live {
-		if !terminalPod(p) {
+		if p.DeletionTimestamp == nil && !terminalPod(p) {
 			pending = append(pending, p)
 		}
 	}

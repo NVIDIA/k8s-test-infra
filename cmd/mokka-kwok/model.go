@@ -70,7 +70,7 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) 
 	allocator := &rackAllocator{
 		records: mokka.MokkaV1alpha1().SGPURackAllocations(),
 		rackAPI: mokka.MokkaV1alpha1().SGPURacks(),
-		pods:    kube.CoreV1(),
+		core:    kube.CoreV1(),
 		racks:   racks.GetStore(),
 		nodes:   discovery.nodeWatch.GetStore(),
 		views:   views,

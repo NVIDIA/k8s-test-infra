@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+  kwok: Whole-GPU Pods expose each container’s GPU UUIDs in an annotation. With the admission stages installed, a Pod becomes Ready after allocation and fails if its bound node has too few free GPUs.
+time: 2026-11-23T13:56:56Z
