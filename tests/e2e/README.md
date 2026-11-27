@@ -87,6 +87,24 @@ fabric means no fabric-health checks, no InfiniBand means no `ibping`, fewer
 than two GPUs means no isolation check. A consolidated list of skipped specs is
 printed at the end of every run, so a skip is never silent.
 
+## KWOK rack binding
+
+This test uses one real kind worker and one virtual KWOK node. Both match the
+same placement selector. It checks the node reference in each rack and the node-daemon Pod on the worker.
+
+From the repository root:
+
+```bash
+make cluster-create KIND_CLUSTER_NAME=mokka-kwok-e2e KIND_CLUSTER_CONFIG=tests/e2e/kwok/kind.yaml
+make mokka-image
+make e2e-kwok-setup
+make e2e-kwok
+```
+
+The setup uses KWOK v0.8.0 with its controller and default fast Stages.
+Repeat `make e2e-kwok` to check the running cluster. Remove the test cluster
+with `make cluster-delete KIND_CLUSTER_NAME=mokka-kwok-e2e`.
+
 ## Getting started
 
 ### Prerequisites

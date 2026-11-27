@@ -150,6 +150,14 @@ jobs:
         if: always()
         run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
+  e2e-kwok:
+    needs: [build-nvmlmock-image]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/kwok-e2e.yaml
+    with:
+      use_image_artifact: true
+
   # Download the IMEX archive pinned in imex.lock.json into the Actions cache,
   # keyed on the lock, so NVIDIA is contacted once per IMEX version rather than
   # once per run, and only by this job. The cache is the only way the archive

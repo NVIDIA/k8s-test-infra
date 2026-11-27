@@ -179,6 +179,23 @@ docker build -f deployments/control-plane/Dockerfile \
 For local Tilt development, pass `--control-plane`; the control plane and its
 CRDs are otherwise disabled and existing Tilt defaults are unchanged.
 
+## Enable the KWOK data plane
+
+Install the Mokka CRDs and provide a running KWOK controller and virtual nodes.
+Set both flags in the nvml-mock chart values for a new installation.
+
+```yaml
+controlPlane:
+  enabled: true
+kwok:
+  enabled: true
+```
+
+Helm starts one [KWOK data-plane](tools/mokka-kwok.md) Pod. The node daemon
+excludes nodes labeled `mokka.nvidia.com/node-type=KWOK` from its placement.
+The data plane watches rack assignments and bound Pods. GPU capacity
+publication and per-Pod GPU allocation are future work.
+
 ## Declare capacity
 
 Apply the [example profile](https://github.com/NVIDIA/k8s-test-infra/blob/main/examples/controlplane-crds/sgpu-rack-profile.yaml)
@@ -200,9 +217,10 @@ in placement selectors. The control plane applies the group selector and node ty
 A node with the `mokka.nvidia.com/node-type=KWOK` label or the
 `kwok.x-k8s.io/node` annotation matches only KWOK groups. CPU groups also
 accept nodes without a type label. KWOK racks carry the
-`mokka.nvidia.com/kwok-shard` label. The control plane sets it to the replica name from
-`--kwok-shard-name`. The chart sets this flag from `controlPlane.kwokShardName`.
-The default is `mokka-kwok-data-plane-0`.
+`mokka.nvidia.com/kwok-shard` label. With KWOK mode enabled, the chart sets this label through the control
+plane's shard-name flag. It uses the StatefulSet replica name,
+`mokka-kwok-data-plane-0`. With a separately deployed data plane, use
+`controlPlane.kwokShardName` to select the shard.
 
 Only Nodes with `mokka.nvidia.com/sgpu-node=true` enter the control plane's cache.
 An empty placement selector matches every eligible Node of the group's type.

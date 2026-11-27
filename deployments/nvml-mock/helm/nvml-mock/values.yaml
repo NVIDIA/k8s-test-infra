@@ -635,6 +635,17 @@ integrations:
       # -- Additional label applied to generated fake-gpu-operator profiles.
       run.ai/gpu-profile: "true"
 
+# Run the rack-scoped watcher on a real node in a cluster with KWOK installed.
+kwok:
+  # -- Deploy the single KWOK data-plane replica.
+  enabled: false
+  dataPlane:
+    image:
+      repository: ghcr.io/nvidia/mokka-kwok
+      tag: ""  # Defaults to the chart appVersion.
+      digest: ""
+      pullPolicy: ""
+
 # Mokka Control Plane (MEP-0001). Defaults to disabled.
 controlPlane:
   # -- Enable the Mokka control-plane service.
@@ -662,7 +673,7 @@ controlPlane:
   shutdownTimeout: 5s
   # -- Number of control-plane worker goroutines.
   workers: 2
-  # Name of the single data-plane replica assigned to KWOK racks.
+  # Replica assigned to KWOK racks when deploying the data plane separately.
   kwokShardName: mokka-kwok-data-plane-0
   # Client-side Kubernetes API throttling. Raise these together with workers
   # when faster initial convergence is worth the additional control-plane load.

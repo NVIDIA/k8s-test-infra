@@ -691,3 +691,29 @@ omit the flag and let every gate keep its default.
 {{- end -}}
 {{- join "," $pairs -}}
 {{- end }}
+
+{{/* A single StatefulSet replica owns KWOK racks for this milestone. */}}
+{{- define "nvml-mock.kwokDataPlaneName" -}}mokka-kwok-data-plane{{- end -}}
+
+{{/* Kubernetes ORs required terms. Append the exclusion to each nonempty term.
+An explicitly empty term or term list matches no nodes and must stay empty. */}}
+{{- define "nvml-mock.nodeDaemonAffinity" -}}
+{{- $affinity := deepCopy (.Values.affinity | default dict) -}}
+{{- if (.Values.kwok | default dict).enabled -}}
+  {{- $node := get $affinity "nodeAffinity" | default dict -}}
+  {{- $required := get $node "requiredDuringSchedulingIgnoredDuringExecution" | default dict -}}
+  {{- $exclude := dict "key" "mokka.nvidia.com/node-type" "operator" "NotIn" "values" (list "KWOK") -}}
+  {{- if hasKey $node "requiredDuringSchedulingIgnoredDuringExecution" -}}
+    {{- range $term := $required.nodeSelectorTerms -}}
+      {{- if or $term.matchFields $term.matchExpressions -}}
+        {{- $_ := set $term "matchExpressions" (append ($term.matchExpressions | default list) $exclude) -}}
+      {{- end -}}
+    {{- end -}}
+  {{- else -}}
+    {{- $_ := set $required "nodeSelectorTerms" (list (dict "matchExpressions" (list $exclude))) -}}
+  {{- end -}}
+  {{- $_ := set $node "requiredDuringSchedulingIgnoredDuringExecution" $required -}}
+  {{- $_ := set $affinity "nodeAffinity" $node -}}
+{{- end -}}
+{{- if $affinity -}}{{ toYaml $affinity }}{{- end -}}
+{{- end -}}
