@@ -31,6 +31,7 @@ import (
 )
 
 type rackAllocator struct {
+	claims       *shardClaims
 	slices       *gpuSlices
 	dra          bool
 	records      client.SGPURackAllocationInterface
@@ -68,10 +69,6 @@ func (a *rackAllocator) reconcile(ctx context.Context, name string) error {
 	var releaseErr error
 	if d := rack.Status.Delivery; d != nil && len(d.ReleaseRevisions) > 0 {
 		releaseErr = a.releaseSlots(ctx, rack)
-	}
-	// In DRA mode the scheduler owns device selection. Slot release still runs.
-	if a.dra {
-		return releaseErr
 	}
 	slots, ready := a.views.allocationSlots(rack)
 	if !ready {
@@ -141,33 +138,53 @@ func (a *rackAllocator) desiredNodes(ctx context.Context, plans []nodeAllocation
 	for _, n := range saved {
 		existing[n.Name] = n.Pods
 	}
-	// A GPU can move between slots. Reserve every surviving assignment before
-	// handing out any UUID, regardless of which slot we visit first.
-	used := sets.New[string]()
 	for i := range plans {
 		p := &plans[i]
 		p.kept = existing[p.name]
 		p.pending = a.boundPods(p.slot)
-		if p.pending != nil && len(p.kept) > 0 {
-			if err := a.retainPods(ctx, p); err != nil {
-				return nil, err
-			}
+		if p.pending == nil {
+			continue
 		}
+		if err := a.collectPods(ctx, p); err != nil {
+			return nil, err
+		}
+	}
+	if !a.dra {
+		assignFreeGPUs(plans)
+	}
+	var next []api.NodeAllocation
+	for _, p := range plans {
+		if len(p.kept) > 0 {
+			next = append(next, api.NodeAllocation{Name: p.name, Pods: p.kept})
+		}
+	}
+	return next, nil
+}
+
+func (a *rackAllocator) collectPods(ctx context.Context, p *nodeAllocationPlan) error {
+	if a.dra {
+		return a.draPods(ctx, p)
+	}
+	if len(p.kept) > 0 {
+		return a.retainPods(ctx, p)
+	}
+	return nil
+}
+
+// A GPU can move between slots. Reserve surviving assignments across the
+// rack before handing out a UUID in device-plugin mode.
+func assignFreeGPUs(plans []nodeAllocationPlan) {
+	used := sets.New[string]()
+	for _, p := range plans {
 		for _, pod := range p.kept {
 			for _, c := range pod.Containers {
 				used.Insert(c.GPUs...)
 			}
 		}
 	}
-	var next []api.NodeAllocation
 	for i := range plans {
-		p := &plans[i]
-		p.assignPending(used)
-		if len(p.kept) > 0 {
-			next = append(next, api.NodeAllocation{Name: p.name, Pods: p.kept})
-		}
+		plans[i].assignPending(used)
 	}
-	return next, nil
 }
 
 func (a *rackAllocator) currentRack(ctx context.Context, rack *api.SGPURack) (bool, error) {

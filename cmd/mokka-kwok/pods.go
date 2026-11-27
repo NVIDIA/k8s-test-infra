@@ -9,6 +9,8 @@ import (
 
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
@@ -21,6 +23,7 @@ import (
 // The API can select all bound Pods, but cannot select a set of node names.
 // Filter at the reflector's store so unrelated Pods never enter the model.
 type shardPods struct {
+	claims      *shardClaims
 	mu          sync.Mutex
 	racks       map[string]sets.Set[string]
 	nodes       map[string]*nodePods
@@ -30,6 +33,7 @@ type shardPods struct {
 }
 
 type nodePods struct {
+	claims map[cache.ObjectName]*resourcev1.ResourceClaim
 	owners sets.Set[string]
 	pods   map[cache.ObjectName]*corev1.Pod
 	// While a node list is in flight, watch events take precedence over that
@@ -54,6 +58,9 @@ func (s *shardPods) setRack(rack string, nodes sets.Set[string]) {
 	for name := range previous.Difference(nodes) {
 		s.nodes[name].owners.Delete(rack)
 		if s.nodes[name].owners.Len() == 0 {
+			if s.claims != nil {
+				s.claims.dropNode(name, s.nodes[name])
+			}
 			delete(s.nodes, name)
 		}
 	}
@@ -111,7 +118,13 @@ func allocationChanged(previous, pod *corev1.Pod, deleted bool) bool {
 		return false
 	}
 	return deleted || previous == nil || previous.UID != pod.UID || previous.Generation != pod.Generation || terminalPod(previous) != terminalPod(pod) ||
-		awaitingAdmission(previous) != awaitingAdmission(pod) || previous.Annotations[gpuAllocationAnnotation] != pod.Annotations[gpuAllocationAnnotation]
+		admissionChanged(previous, pod) || previous.Annotations[gpuAllocationAnnotation] != pod.Annotations[gpuAllocationAnnotation]
+}
+
+func admissionChanged(previous, pod *corev1.Pod) bool {
+	return awaitingAdmission(previous) != awaitingAdmission(pod) ||
+		!apiequality.Semantic.DeepEqual(previous.Status.ExtendedResourceClaimStatus, pod.Status.ExtendedResourceClaimStatus) ||
+		!apiequality.Semantic.DeepEqual(previous.Status.ResourceClaimStatuses, pod.Status.ResourceClaimStatuses)
 }
 
 func (s *shardPods) Replace(objects []any, _ string) error {

@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  kwok: See which GPUs the scheduler assigned to each container on a DRA Node, in the rack allocation and on the Pod.
+time: 2026-11-25T16:58:40Z
+custom:
+  Issue: "1317"

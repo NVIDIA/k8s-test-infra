@@ -11,11 +11,13 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -32,15 +34,16 @@ import (
 const rackUIDIndex = "rackUID"
 
 type model struct {
-	kube      kubernetes.Interface
-	events    coreclient.EventInterface
-	racks     cache.SharedIndexInformer
-	pods      *shardPods
-	podClient coreclient.PodInterface
-	podWatch  *cache.Reflector
-	discovery *labelPublisher
-	fetcher   *rackFetcher
-	allocator *rackAllocator
+	claimWatch *cache.Reflector
+	kube       kubernetes.Interface
+	events     coreclient.EventInterface
+	racks      cache.SharedIndexInformer
+	pods       *shardPods
+	podClient  coreclient.PodInterface
+	podWatch   *cache.Reflector
+	discovery  *labelPublisher
+	fetcher    *rackFetcher
+	allocator  *rackAllocator
 }
 
 func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) model {
@@ -70,12 +73,19 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) 
 	podWatch := cache.NewReflectorWithOptions(cache.ToListWatcherWithWatchListSemantics(lw, kube), &corev1.Pod{}, pods, cache.ReflectorOptions{Name: "bound Pods"})
 	discovery := newLabelPublisher(kube, racks)
 	discovery.dra = c.gpuPublishing == "DRA"
+	var claimWatch *cache.Reflector
 	if discovery.dra {
+		pods.claims = &shardClaims{pods: pods, client: kube.ResourceV1(), driver: c.gpuDriver, locations: make(map[cache.ObjectName]sets.Set[string])}
+		claims := kube.ResourceV1().ResourceClaims(metav1.NamespaceAll)
+		lw := &cache.ListWatch{ListWithContextFunc: func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) { return claims.List(ctx, o) }, WatchFuncWithContext: claims.Watch}
+		claimWatch = cache.NewReflectorWithOptions(cache.ToListWatcherWithWatchListSemantics(lw, kube), &resourcev1.ResourceClaim{}, pods.claims, cache.ReflectorOptions{Name: "allocated ResourceClaims"})
+
 		discovery.slices = &gpuSlices{client: kube.ResourceV1().ResourceSlices(), driver: c.gpuDriver}
 	}
 	views := newRackViews(pods, discovery.queue.Add)
 	discovery.views = views
 	allocator := &rackAllocator{
+		claims:  pods.claims,
 		dra:     discovery.dra,
 		slices:  discovery.slices,
 		records: mokka.MokkaV1alpha1().SGPURackAllocations(),
@@ -86,15 +96,16 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) 
 		views:   views,
 	}
 	return model{
-		kube:      kube,
-		events:    kube.CoreV1().Events(metav1.NamespaceAll),
-		allocator: allocator,
-		fetcher:   newRackFetcher(c, views),
-		racks:     racks,
-		pods:      pods,
-		podClient: client,
-		podWatch:  podWatch,
-		discovery: discovery,
+		claimWatch: claimWatch,
+		kube:       kube,
+		events:     kube.CoreV1().Events(metav1.NamespaceAll),
+		allocator:  allocator,
+		fetcher:    newRackFetcher(c, views),
+		racks:      racks,
+		pods:       pods,
+		podClient:  client,
+		podWatch:   podWatch,
+		discovery:  discovery,
 	}
 }
 
@@ -114,6 +125,9 @@ func (m model) run(ctx context.Context, c config) error {
 	server.SetReadiness(func() health.Probe {
 		if reason := prerequisites.Load().(string); reason != "" {
 			return health.Unhealthy("%s", reason)
+		}
+		if !m.claimsSynced() {
+			return health.Unhealthy("waiting for ResourceClaim cache")
 		}
 		if !rackEvents.HasSynced() || !m.pods.hasSynced() || !m.discovery.nodeWatch.HasSynced() {
 			return health.Unhealthy("waiting for rack, pod and node caches")
@@ -141,6 +155,14 @@ func (m model) runWorkers(ctx context.Context, c config, rackEvents cache.Resour
 	if m.discovery.slices != nil {
 		group.Go(func() error { return m.discovery.watchSlices(ctx, m.kube) })
 	}
+	if m.claimWatch != nil {
+		group.Go(func() error {
+			if cache.WaitForCacheSync(ctx.Done(), rackEvents.HasSynced) && m.fetcher.waitInitialReads(ctx) {
+				m.claimWatch.RunWithContext(ctx)
+			}
+			return nil
+		})
+	}
 	group.Go(func() error { return m.discovery.run(ctx) })
 	group.Go(func() error { return m.fetcher.run(ctx) })
 	group.Go(func() error { m.racks.RunWithContext(ctx); return nil })
@@ -159,7 +181,7 @@ func (m model) runWorkers(ctx context.Context, c config, rackEvents cache.Resour
 		return nil
 	})
 	group.Go(func() error {
-		if cache.WaitForCacheSync(ctx.Done(), m.pods.hasSynced, m.discovery.nodeWatch.HasSynced) {
+		if cache.WaitForCacheSync(ctx.Done(), m.pods.hasSynced, m.discovery.nodeWatch.HasSynced, m.claimsSynced) {
 			zap.L().Info("Rack and Pod caches synced", zap.String("shard", c.shard), zap.Int("racks", len(m.racks.GetStore().ListKeys())),
 				zap.Int("boundPods", m.pods.podCount()))
 			m.allocator.run(ctx)
@@ -168,3 +190,5 @@ func (m model) runWorkers(ctx context.Context, c config, rackEvents cache.Resour
 	})
 	return group.Wait()
 }
+
+func (m model) claimsSynced() bool { return m.pods.claims == nil || m.pods.claims.hasSynced() }
