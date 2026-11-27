@@ -92,7 +92,8 @@ printed at the end of every run, so a skip is never silent.
 This test uses one real kind worker and one virtual KWOK node. Both match the
 same placement selector. It checks the node reference in each rack, all five
 GPU discovery labels on the virtual node, and the node-daemon Pod on the worker.
-It also schedules a one-GPU Pod and checks that the virtual node still advertises eight GPUs.
+It schedules a one-GPU Pod, checks its saved GPU UUID against the rack slot,
+and verifies release on Pod deletion. The virtual node continues to advertise eight GPUs.
 
 From the repository root:
 

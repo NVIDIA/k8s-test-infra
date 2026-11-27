@@ -11,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
@@ -20,15 +21,16 @@ import (
 // The API can select all bound Pods, but cannot select a set of node names.
 // Filter at the reflector's store so unrelated Pods never enter the model.
 type shardPods struct {
-	mu        sync.Mutex
-	racks     map[string]sets.Set[string]
-	nodes     map[string]*nodePods
-	synced    bool
-	backfills workqueue.TypedRateLimitingInterface[string]
+	mu          sync.Mutex
+	racks       map[string]sets.Set[string]
+	nodes       map[string]*nodePods
+	synced      bool
+	allocations workqueue.TypedRateLimitingInterface[string]
+	backfills   workqueue.TypedRateLimitingInterface[string]
 }
 
 type nodePods struct {
-	owners int
+	owners sets.Set[string]
 	pods   map[cache.ObjectName]*corev1.Pod
 	// While a node list is in flight, watch events take precedence over that
 	// snapshot, including deletions that would otherwise resurrect a Pod.
@@ -39,30 +41,32 @@ type nodePods struct {
 func newShardPods() *shardPods {
 	return &shardPods{
 		racks: make(map[string]sets.Set[string]), nodes: make(map[string]*nodePods),
-		backfills: workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
+		allocations: workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
+		backfills:   workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
 	}
 }
 
 func (s *shardPods) setRack(rack string, nodes sets.Set[string]) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.allocations.Add(rack)
 	previous := s.racks[rack]
 	for name := range previous.Difference(nodes) {
-		s.nodes[name].owners--
-		if s.nodes[name].owners == 0 {
+		s.nodes[name].owners.Delete(rack)
+		if s.nodes[name].owners.Len() == 0 {
 			delete(s.nodes, name)
 		}
 	}
 	for name := range nodes.Difference(previous) {
 		node := s.nodes[name]
 		if node == nil {
-			node = &nodePods{pods: make(map[cache.ObjectName]*corev1.Pod), needsList: s.synced}
+			node = &nodePods{owners: sets.New[string](), pods: make(map[cache.ObjectName]*corev1.Pod), needsList: s.synced}
 			s.nodes[name] = node
 			if node.needsList {
 				s.backfills.Add(name)
 			}
 		}
-		node.owners++
+		node.owners.Insert(rack)
 	}
 	if len(nodes) == 0 {
 		delete(s.racks, rack)
@@ -79,18 +83,34 @@ func (s *shardPods) Resync() error        { return nil }
 func (s *shardPods) apply(pod *corev1.Pod, deleted bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if node := s.nodes[pod.Spec.NodeName]; node != nil {
-		key := cache.MetaObjectToName(pod)
-		if node.touched != nil {
-			node.touched.Insert(key)
-		}
-		if deleted {
-			delete(node.pods, key)
-		} else {
-			node.pods[key] = pod
-		}
+	node := s.nodes[pod.Spec.NodeName]
+	if node == nil {
+		return nil
+	}
+	key := cache.MetaObjectToName(pod)
+	previous := node.pods[key]
+	if deleted && previous != nil && previous.UID != pod.UID {
+		return nil
+	}
+	if node.touched != nil {
+		node.touched.Insert(key)
+	}
+	if allocationChanged(previous, pod, deleted) {
+		s.enqueueOwners(node)
+	}
+	if deleted {
+		delete(node.pods, key)
+	} else {
+		node.pods[key] = pod
 	}
 	return nil
+}
+
+func allocationChanged(previous, pod *corev1.Pod, deleted bool) bool {
+	if !gpuPod(pod) && (previous == nil || !gpuPod(previous)) {
+		return false
+	}
+	return deleted || previous == nil || previous.UID != pod.UID || previous.Generation != pod.Generation || terminalPod(previous) != terminalPod(pod)
 }
 
 func (s *shardPods) Replace(objects []any, _ string) error {
@@ -106,6 +126,9 @@ func (s *shardPods) Replace(objects []any, _ string) error {
 		if node := s.nodes[pod.Spec.NodeName]; node != nil {
 			node.pods[cache.MetaObjectToName(pod)] = pod
 		}
+	}
+	for rack := range s.racks {
+		s.allocations.Add(rack)
 	}
 	s.synced = true
 	return nil
@@ -164,6 +187,7 @@ func (s *shardPods) backfill(ctx context.Context, client coreclient.PodInterface
 		return err
 	}
 	node.mergeList(name, pods.Items)
+	s.enqueueOwners(node)
 	node.needsList = false
 	return nil
 }
@@ -183,4 +207,46 @@ func (node *nodePods) mergeList(name string, items []corev1.Pod) {
 			node.pods[key] = &item
 		}
 	}
+}
+
+func gpuPod(pod *corev1.Pod) bool {
+	for _, containers := range [][]corev1.Container{pod.Spec.InitContainers, pod.Spec.Containers} {
+		for i := range containers {
+			if requestedGPUs(&containers[i]) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (s *shardPods) enqueueOwners(n *nodePods) {
+	for rack := range n.owners {
+		s.allocations.Add(rack)
+	}
+}
+
+func (s *shardPods) nodeChanged(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n := s.nodes[name]; n != nil {
+		s.enqueueOwners(n)
+	}
+}
+
+// A partial list must never be used to reclaim a running Pod's GPUs.
+func (s *shardPods) allocationSnapshot(name string) map[types.UID]*corev1.Pod {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := s.nodes[name]
+	if !s.synced || n == nil || n.needsList {
+		return nil
+	}
+	live := make(map[types.UID]*corev1.Pod)
+	for _, p := range n.pods {
+		if gpuPod(p) {
+			live[p.UID] = p
+		}
+	}
+	return live
 }

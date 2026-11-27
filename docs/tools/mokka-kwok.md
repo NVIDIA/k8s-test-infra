@@ -48,7 +48,29 @@ fixed as Pods bind and leave. The scheduler tracks the requests against that tot
 The data plane patches only the GPU entries. If a node source supplies a
 different GPU total, Mokka keeps the source values and emits a
 `GPUCapacityConflict` Warning Event. On unbinding, it removes GPU entries
-that it alone owns. Per-container GPU selection is a later step.
+that it alone owns.
+
+## Pod GPU allocations
+
+Once the scheduler binds a whole-GPU Pod to a KWOK node, the data plane
+selects GPU UUIDs from the node’s rack slot. It writes one
+`SGPURackAllocation` per rack that needs a record. The record names each
+Pod by namespace, name and UID and lists the UUIDs for each GPU-requesting
+container. To inspect the assignments, run:
+
+```sh
+kubectl get sgpurackallocations
+kubectl get sgpurackallocation "$RACK" -o yaml
+```
+
+All containers in a Pod must fit before the data plane saves its assignment.
+Sequential init containers can reuse GPUs within the same Pod. Restartable
+init containers keep their GPUs while the application runs.
+
+The data plane recovers saved assignments after restart. When a Pod reaches
+`Succeeded` or `Failed`, or is deleted, its GPUs become available for other
+Pods. The rack record can remain empty. Pod annotations and the KWOK stages
+that gate readiness follow in a separate step.
 
 ## Hardware discovery labels
 

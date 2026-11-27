@@ -16,8 +16,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/record"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/sgpu/inventory"
@@ -28,12 +30,14 @@ import (
 const rackUIDIndex = "rackUID"
 
 type model struct {
+	events    coreclient.EventInterface
 	racks     cache.SharedIndexInformer
 	pods      *shardPods
 	podClient coreclient.PodInterface
 	podWatch  *cache.Reflector
 	discovery *labelPublisher
 	fetcher   *rackFetcher
+	allocator *rackAllocator
 }
 
 func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) model {
@@ -63,7 +67,24 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) 
 	discovery := newLabelPublisher(kube, racks)
 	views := newRackViews(pods, discovery.queue.Add)
 	discovery.views = views
-	return model{fetcher: newRackFetcher(c, views), racks: racks, pods: pods, podClient: client, podWatch: podWatch, discovery: discovery}
+	allocator := &rackAllocator{
+		records: mokka.MokkaV1alpha1().SGPURackAllocations(),
+		rackAPI: mokka.MokkaV1alpha1().SGPURacks(),
+		pods:    kube.CoreV1(),
+		racks:   racks.GetStore(),
+		nodes:   discovery.nodeWatch.GetStore(),
+		views:   views,
+	}
+	return model{
+		events:    kube.CoreV1().Events(metav1.NamespaceAll),
+		allocator: allocator,
+		fetcher:   newRackFetcher(c, views),
+		racks:     racks,
+		pods:      pods,
+		podClient: client,
+		podWatch:  podWatch,
+		discovery: discovery,
+	}
 }
 
 func (m model) run(ctx context.Context, c config) error {
@@ -83,6 +104,12 @@ func (m model) run(ctx context.Context, c config) error {
 		}
 		return health.OK()
 	})
+	b := record.NewBroadcaster(record.WithContext(ctx))
+	defer b.Shutdown()
+	b.StartRecordingToSink(&coreclient.EventSinkImpl{Interface: m.events})
+	recorder := b.NewRecorder(scheme.Scheme, corev1.EventSource{Component: fieldManager})
+	m.discovery.recorder = recorder
+	m.allocator.recorder = recorder
 	group.Go(func() error { return m.discovery.run(ctx) })
 	group.Go(func() error { return m.fetcher.run(ctx) })
 	group.Go(func() error { m.racks.RunWithContext(ctx); return nil })
@@ -97,12 +124,14 @@ func (m model) run(ctx context.Context, c config) error {
 	group.Go(func() error {
 		<-ctx.Done()
 		m.pods.backfills.ShutDown()
+		m.pods.allocations.ShutDown()
 		return nil
 	})
 	group.Go(func() error {
-		if cache.WaitForCacheSync(ctx.Done(), m.pods.hasSynced) {
+		if cache.WaitForCacheSync(ctx.Done(), m.pods.hasSynced, m.discovery.nodeWatch.HasSynced) {
 			zap.L().Info("Rack and Pod caches synced", zap.String("shard", c.shard), zap.Int("racks", len(m.racks.GetStore().ListKeys())),
 				zap.Int("boundPods", m.pods.podCount()))
+			m.allocator.run(ctx)
 		}
 		return nil
 	})
