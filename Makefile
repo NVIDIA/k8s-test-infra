@@ -788,7 +788,7 @@ KWOK_E2E_CLUSTER ?= mokka-kwok-e2e
 e2e-kwok-setup: ## Install KWOK and both Mokka services into the KWOK e2e kind cluster
 	./tests/e2e/kwok/setup.sh "$(KWOK_E2E_CLUSTER)"
 
-e2e-kwok: ## Check KWOK rack binding, node daemon placement and hardware discovery labels
+e2e-kwok: ## Check KWOK rack binding, discovery labels, GPU scheduling and node daemon placement
 	E2E_CLUSTER_NAME="$(KWOK_E2E_CLUSTER)" E2E_KUBE_CONTEXT="kind-$(KWOK_E2E_CLUSTER)" $(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=kwok'
 
 e2e-dra: ## e2e — DRA scenario

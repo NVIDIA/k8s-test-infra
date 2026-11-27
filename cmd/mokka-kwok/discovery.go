@@ -16,11 +16,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 	applycore "k8s.io/client-go/applyconfigurations/core/v1"
+	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
-	metaclient "k8s.io/client-go/metadata"
-	"k8s.io/client-go/metadata/metadatainformer"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -42,7 +41,7 @@ type labelPublisher struct {
 	queue     workqueue.TypedRateLimitingInterface[string]
 }
 
-func newLabelPublisher(kube kubernetes.Interface, nodes metaclient.Interface, racks cache.SharedIndexInformer) *labelPublisher {
+func newLabelPublisher(kube kubernetes.Interface, racks cache.SharedIndexInformer) *labelPublisher {
 	return &labelPublisher{
 		nodes: kube.CoreV1().Nodes(),
 
@@ -50,16 +49,17 @@ func newLabelPublisher(kube kubernetes.Interface, nodes metaclient.Interface, ra
 		racks:  racks,
 
 		queue:     workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
-		nodeWatch: metadatainformer.NewFilteredMetadataInformer(nodes, corev1.SchemeGroupVersion.WithResource("nodes"), metav1.NamespaceAll, 0, cache.Indexers{}, nil).Informer(),
+		nodeWatch: coreinformers.NewNodeInformer(kube, 0, cache.Indexers{}),
 	}
 }
 
 // Nodes can lose their binding or their last discovery label while the process
-// is down. Watch all Nodes, retaining only the metadata needed to detect changes.
+// is down. Keep only discovery metadata and the two GPU status fields in the watch cache.
 type nodeObservation struct {
 	metav1.PartialObjectMetadata
 	assignment string
 	ownership  string
+	gpu        gpuStatus
 	kwok       bool
 	assigned   bool
 }
@@ -70,9 +70,9 @@ func observeNode(obj any) (any, error) {
 	if _, compact := obj.(*nodeObservation); compact {
 		return obj, nil
 	}
-	node, ok := obj.(*metav1.PartialObjectMetadata)
+	node, ok := obj.(*corev1.Node)
 	if !ok {
-		return nil, fmt.Errorf("expected Node metadata, got %T", obj)
+		return nil, fmt.Errorf("expected Node, got %T", obj)
 	}
 	n := &nodeObservation{
 		PartialObjectMetadata: metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Name: node.Name, UID: node.UID, ResourceVersion: node.ResourceVersion}},
@@ -80,6 +80,7 @@ func observeNode(obj any) (any, error) {
 		kwok:                  isKWOK(node.ObjectMeta),
 		assigned:              node.Labels[metadata.AssignedLabel] == "true",
 		ownership:             appliedNodeFields(node.ManagedFields),
+		gpu:                   readGPUStatus(node),
 	}
 	if n.relevant() {
 		n.Labels = make(map[string]string)
@@ -102,7 +103,7 @@ func appliedNodeFields(entries []metav1.ManagedFieldsEntry) string {
 }
 
 func (n *nodeObservation) relevant() bool {
-	return n.ownership != "" || n.kwok && n.assignment != ""
+	return n.ownership != "" || n.gpu.capacity.owned || n.gpu.allocatable.owned || n.kwok && n.assignment != ""
 }
 
 func isKWOK(node metav1.ObjectMeta) bool {
@@ -122,7 +123,7 @@ func (p *labelPublisher) nodeUpdated(old, current any) {
 	if a.UID != b.UID {
 		p.views.forgetNode(a.UID)
 	}
-	if a.UID != b.UID || a.assignment != b.assignment || a.ownership != b.ownership || a.kwok != b.kwok || a.assigned != b.assigned || !maps.Equal(a.Labels, b.Labels) {
+	if a.UID != b.UID || a.assignment != b.assignment || a.gpu != b.gpu || a.ownership != b.ownership || a.kwok != b.kwok || a.assigned != b.assigned || !maps.Equal(a.Labels, b.Labels) {
 		p.enqueue(b)
 	}
 }
@@ -167,7 +168,7 @@ func (p *labelPublisher) processNext(ctx context.Context) bool {
 	}
 	defer p.queue.Done(name)
 	if err := p.reconcile(ctx, name); err != nil {
-		zap.L().Warn("Reconcile KWOK discovery labels", zap.String("node", name), zap.Error(err))
+		zap.L().Warn("Reconcile KWOK node GPU resources", zap.String("node", name), zap.Error(err))
 		p.queue.AddRateLimited(name)
 	} else {
 		p.queue.Forget(name)
@@ -185,13 +186,21 @@ func (p *labelPublisher) reconcile(ctx context.Context, name string) error {
 	}
 	raw := node.Annotations[metadata.AssignmentAnnotation]
 	if !isKWOK(node.ObjectMeta) || raw == "" || node.Labels[metadata.AssignedLabel] != "true" {
-		return p.publish(ctx, node, nil)
+		return p.publishResources(ctx, node, nil)
 	}
 	desired, err := p.desiredLabels(node)
 	if err != nil || desired == nil {
 		return err
 	}
-	return p.publish(ctx, node, desired)
+	return p.publishResources(ctx, node, desired)
+}
+
+func (p *labelPublisher) publishResources(ctx context.Context, node *corev1.Node, desired map[string]string) error {
+	updated, err := p.publishCapacity(ctx, node, desired[metadata.GPUCountLabel])
+	if err != nil {
+		return err
+	}
+	return p.publish(ctx, updated, desired)
 }
 
 // Only publish an accepted response for the exact live Node assignment.

@@ -17,7 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
-	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
@@ -37,7 +36,7 @@ type model struct {
 	fetcher   *rackFetcher
 }
 
-func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, nodes metadata.Interface, c config) model {
+func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, c config) model {
 	racks := mokkainformers.NewFilteredSGPURackInformer(mokka, 0, cache.Indexers{
 		rackUIDIndex: func(obj any) ([]string, error) {
 			rack, err := meta.Accessor(obj)
@@ -61,7 +60,7 @@ func newModel(mokka mokkaclient.Interface, kube kubernetes.Interface, nodes meta
 	}
 	pods := newShardPods()
 	podWatch := cache.NewReflectorWithOptions(cache.ToListWatcherWithWatchListSemantics(lw, kube), &corev1.Pod{}, pods, cache.ReflectorOptions{Name: "bound Pods"})
-	discovery := newLabelPublisher(kube, nodes, racks)
+	discovery := newLabelPublisher(kube, racks)
 	views := newRackViews(pods, discovery.queue.Add)
 	discovery.views = views
 	return model{fetcher: newRackFetcher(c, views), racks: racks, pods: pods, podClient: client, podWatch: podWatch, discovery: discovery}

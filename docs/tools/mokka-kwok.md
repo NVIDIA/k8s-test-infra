@@ -38,6 +38,18 @@ generation, then fetches the newer generation. A rack that leaves the shard lose
 its previous ownership is discarded. For each Node UID, the assignment revision
 takes precedence. Within one revision, the rack delivery generation orders updates.
 
+## GPU capacity
+
+A bound KWOK node advertises the number of GPUs in its rack slot as
+`nvidia.com/gpu` in both `status.capacity` and `status.allocatable`. A Pod
+can request this resource through its container limits. Both totals stay
+fixed as Pods bind and leave. The scheduler tracks the requests against that total.
+
+The data plane patches only the GPU entries. If a node source supplies a
+different GPU total, Mokka keeps the source values and emits a
+`GPUCapacityConflict` Warning Event. On unbinding, it removes GPU entries
+that it alone owns. Per-container GPU selection is a later step.
+
 ## Hardware discovery labels
 
 The data plane sets these labels on each bound KWOK node. The values come from
