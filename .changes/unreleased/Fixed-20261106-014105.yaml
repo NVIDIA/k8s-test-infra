@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: omitted GPU operation mode, retired pages, DRAM encryption, sparse mode and target temperature now report unsupported; explicitly configured features remain supported.
+time: 2026-11-06T01:41:05Z
+custom:
+  Issue: "1172"

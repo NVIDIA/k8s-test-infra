@@ -27,6 +27,7 @@ func TestGetFieldValue_DeviceScope(t *testing.T) {
 		Thermal:      &ThermalConfig{TemperatureGPU_C: 34, TemperatureMemory_C: 42},
 		Power:        &PowerConfig{CurrentDrawMW: 95000, TotalEnergyConsumptionMJ: 123456},
 		RemappedRows: &RemappedRowsConfig{Correctable: 3, Uncorrectable: 1, Pending: true},
+		RetiredPages: &RetiredPagesConfig{},
 	})
 
 	tests := []struct {

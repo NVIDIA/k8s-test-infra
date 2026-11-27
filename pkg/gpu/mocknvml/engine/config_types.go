@@ -179,6 +179,10 @@ type DeviceConfig struct {
 	// GPU Operation Mode
 	GPUOperationMode *GPUOperationModeConfig `json:"gpu_operation_mode,omitempty"`
 
+	// SparseOperationMode is optional: false declares support with the mode
+	// disabled, while nil means the profile does not support the query.
+	SparseOperationMode *bool `json:"sparse_operation_mode,omitempty"`
+
 	// Driver Model
 	DriverModel *DriverModelConfig `json:"driver_model,omitempty"`
 
@@ -479,7 +483,8 @@ type ThermalConfig struct {
 	ShutdownThreshold_C int `json:"shutdown_threshold_c,omitzero"`
 	SlowdownThreshold_C int `json:"slowdown_threshold_c,omitzero"`
 	MaxOperating_C      int `json:"max_operating_c,omitzero"`
-	TargetTemperature_C int `json:"target_temperature_c,omitzero"`
+	// Nil means unsupported; zero is an explicitly configured target.
+	TargetTemperature_C *int `json:"target_temperature_c,omitempty"`
 
 	// TLimit is the T.Limit view an Ada-or-later board reports through
 	// GetMarginTemperature and the NVML_FI_DEV_TEMPERATURE_*_TLIMIT fields.

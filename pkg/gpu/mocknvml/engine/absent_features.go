@@ -55,7 +55,7 @@ func declaresThreshold(thermal *ThermalConfig, threshold nvml.TemperatureThresho
 	case nvml.TEMPERATURE_THRESHOLD_MEM_MAX:
 		return thermal.TemperatureMemory_C != 0
 	case nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_MIN, nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_CURR, nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_MAX:
-		return thermal.TargetTemperature_C != 0
+		return thermal.TargetTemperature_C != nil
 	default:
 		return false
 	}

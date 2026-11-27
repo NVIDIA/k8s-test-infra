@@ -278,6 +278,9 @@ as on real hardware. Ada and later expose them as signed T.Limit offsets
 field IDs), which `nvidia-smi -q` renders as the "T.Limit" rows. Pre-Ada
 architectures report `NVML_ERROR_NOT_SUPPORTED` for both, so `nvidia-smi -q`
 falls back to the absolute `GPU Shutdown / Slowdown / Max Operating Temp` rows.
+The target follows the [optional feature support](#features-a-profile-leaves-out)
+rules. Threshold kinds without a modeled value return `NVML_ERROR_NOT_SUPPORTED`
+rather than the max-operating temperature.
 
 By default the T.Limit view is derived from the absolute thresholds, measured
 from the slowdown threshold. A real driver reports the two views separately and
@@ -752,7 +755,17 @@ captured tray reported. A `devices[]` entry can turn it on for one GPU.
 | `ecc.dram_encryption` | `nvmlDeviceGetDramEncryptionMode`, `nvmlDeviceSetDramEncryptionMode` |
 | `thermal.temperature_memory_c` | `nvmlDeviceGetTemperatureThreshold` for the memory maximum |
 | `thermal.target_temperature_c` | `nvmlDeviceGetTemperatureThreshold` for the acoustic thresholds (the target temperature and its range) |
+| `sparse_operation_mode` | Sparse operation mode through the internal export table |
 | none | `nvmlDeviceGetTemperatureThreshold` for the GPS threshold |
+
+An explicit `target_temperature_c: 0` declares the acoustic target, just as a
+nonzero value does. The current acoustic threshold returns the configured
+target. An omitted target retains the legacy response only in legacy mode.
+`sparse_operation_mode: false` declares a supported, disabled mode; `true`
+enables it. A missing sparse mode returns `NOT_SUPPORTED` in strict profiles
+and the previous disabled response in legacy profiles. Per-device values
+override defaults, including explicit zero and false; a per-device thermal
+block replaces the default thermal block in full.
 
 With `accounting` disabled, `nvmlDeviceGetAccountingPids` lists no processes
 and `nvmlDeviceGetAccountingStats` answers `NOT_FOUND`, instead of
