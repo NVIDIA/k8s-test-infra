@@ -8,7 +8,7 @@ on:
         type: boolean
         default: false
   pull_request:
-    branches: [main]
+    branches: [main, 'stack/kwok-m2/**']
     paths:
       - ".github/workflows/kwok-e2e.yaml"
       - ".github/workflows/nvml-mock-e2e-go.yaml"
@@ -22,18 +22,30 @@ on:
       - "deployments/mokka-crds/**"
       - "deployments/nvml-mock/helm/**"
       - "tests/e2e/kwok/**"
-      - "tests/e2e/go/scenario_kwok_test.go"
+      - "tests/e2e/go/scenario_kwok*.go"
+      - "tests/e2e/go/scenario_dra_test.go"
+      - "tests/e2e/go/scenario_compute_domain_test.go"
+      - "tests/e2e/VERSION-MATRIX.md"
+      - "local/dra/dra-driver.values.yaml"
+      - "local/compute-domain/dra-driver.values.yaml"
 permissions:
   contents: read
 
 jobs:
   e2e-kwok:
-    name: KWOK rack binding
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {mode: binding, name: KWOK rack binding, config: tests/e2e/kwok/kind.yaml, target: e2e-kwok}
+          - {mode: dra, name: KWOK DRA and ComputeDomain, config: tests/e2e/kind-dra-config.yaml, target: e2e-kwok-dra}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       KIND_CLUSTER_NAME: mokka-kwok-e2e
-      KIND_CLUSTER_CONFIG: tests/e2e/kwok/kind.yaml
+      KIND_CLUSTER_CONFIG: ${{ matrix.config }}
+      KWOK_E2E_MODE: ${{ matrix.mode }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - name: Read the repository Go version
@@ -42,26 +54,27 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
         with:
           go-version: ${{ steps.toolchain.outputs.version }}
-      - if: inputs.use_image_artifact
+      - if: inputs.use_image_artifact && matrix.mode == 'binding'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}
       - name: Load the shared node-daemon image
-        if: inputs.use_image_artifact
+        if: inputs.use_image_artifact && matrix.mode == 'binding'
         run: make image-load TARBALL="${RUNNER_TEMP}/nvml-mock.tar" IMAGE=nvml-mock:e2e
       - name: Build the node-daemon image for the PR
-        if: ${{ !inputs.use_image_artifact }}
+        if: ${{ !inputs.use_image_artifact && matrix.mode == 'binding' }}
         run: make mokka-image
       - name: Create kind cluster
         run: ./hack/e2e-ci-cluster.sh
       - name: Install KWOK and Mokka
         run: make e2e-kwok-setup
-      - name: Test rack binding, discovery labels and GPU scheduling
-        run: make e2e-kwok
+      - name: Run KWOK scenarios
+        run: make ${{ matrix.target }}
       - name: Show cluster state on failure
         if: failure()
         run: |
           kubectl get nodes,pods -A -o wide
+          kubectl get resourceclaims,resourceslices,computedomains,computedomaincliques -A || true
           kubectl get sgpuracks -o yaml
           kubectl get events -A --sort-by=.lastTimestamp | tail -80

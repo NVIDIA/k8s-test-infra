@@ -20,7 +20,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 )
 
-var _ = Describe("KWOK rack binding", Label("kwok"), func() {
+var _ = Describe("KWOK rack binding", Label("kwok", "kwok-binding"), func() {
 	It("binds each node to its rack type and advertises the virtual GPUs to the scheduler", func(ctx SpecContext) {
 		h := setupCluster(ctx, "kwok")
 		realName := config.ClusterName() + "-worker"

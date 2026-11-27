@@ -783,13 +783,17 @@ E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 e2e: ## Run the Ginkgo e2e suite against E2E_CLUSTER_NAME/E2E_KUBE_CONTEXT (default mokka/kind-mokka); scope with E2E_PROFILES / E2E_GINKGO_FLAGS
 	set -o pipefail; $(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) --fail-on-empty $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
 
-.PHONY: e2e-kwok-setup e2e-kwok
+.PHONY: e2e-kwok-setup e2e-kwok e2e-kwok-dra
 KWOK_E2E_CLUSTER ?= mokka-kwok-e2e
+KWOK_E2E_MODE ?= binding
 e2e-kwok-setup: ## Install KWOK and both Mokka services into the KWOK e2e kind cluster
-	./tests/e2e/kwok/setup.sh "$(KWOK_E2E_CLUSTER)"
+	./tests/e2e/kwok/setup.sh "$(KWOK_E2E_CLUSTER)" "$(KWOK_E2E_MODE)"
 
 e2e-kwok: ## Check KWOK rack binding, discovery labels, GPU scheduling and node daemon placement
-	E2E_CLUSTER_NAME="$(KWOK_E2E_CLUSTER)" E2E_KUBE_CONTEXT="kind-$(KWOK_E2E_CLUSTER)" $(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=kwok'
+	E2E_CLUSTER_NAME="$(KWOK_E2E_CLUSTER)" E2E_KUBE_CONTEXT="kind-$(KWOK_E2E_CLUSTER)" $(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=kwok-binding'
+
+e2e-kwok-dra: ## Check GPU claims and four-Node ComputeDomain readiness on KWOK
+	E2E_CLUSTER_NAME="$(KWOK_E2E_CLUSTER)" E2E_KUBE_CONTEXT="kind-$(KWOK_E2E_CLUSTER)" $(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=kwok-dra'
 
 e2e-dra: ## e2e — DRA scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra'
