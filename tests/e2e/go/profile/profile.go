@@ -587,10 +587,10 @@ func (p Profile) FabricMgr() bool { return p.hasSwitches || p.fabricAuto }
 // HasFabric reports whether the profile declares a device_defaults.fabric block
 // (cluster_uuid / clique_id). Only these profiles (h100, gb200, gb300, vrnvl72) expose
 // ComputeDomain fabric identity via nvmlDeviceGetGpuFabricInfo, so the mock's
-// check-fabric consumer succeeds and the topology overlay has something to
-// rewrite. This is DISTINCT from FabricMgr: an NVSwitch profile like a100 runs
-// the fabricmanager daemon (FabricMgr true) yet reports fabric NOT SUPPORTED
-// (HasFabric false).
+// check-fabric consumer succeeds. Only MultiNodeNVLink profiles join a
+// multi-node clique; h100 reports the zero cluster UUID. This is DISTINCT from
+// FabricMgr: an NVSwitch profile like a100 runs the fabricmanager daemon
+// (FabricMgr true) yet reports fabric NOT SUPPORTED (HasFabric false).
 func (p Profile) HasFabric() bool { return p.hasFabric }
 
 // C2CEnabled reports whether the profile declares an NVLink-C2C link to the
@@ -601,8 +601,9 @@ func (p Profile) HasFabric() bool { return p.hasFabric }
 func (p Profile) C2CEnabled() bool { return p.c2cEnabled }
 
 // MultiNodeNVLink reports whether the board's NVLink domain spans nodes
-// (nvlink.multi_node), which is what makes the node agent stage the IMEX
-// surface. gb200 and gb300 set it today. HasFabric is also true on h100, whose
+// (nvlink.multi_node), which is what makes the node agent stage channel0 and the
+// IMEX node software, and what makes a cross-node topology overlay meaningful.
+// gb200, gb300 and vrnvl72 set it today. HasFabric is also true on h100, whose
 // NVLink stays on one baseboard, so it cannot stand in for this.
 func (p Profile) MultiNodeNVLink() bool { return p.multiNode }
 
