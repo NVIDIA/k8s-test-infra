@@ -315,15 +315,15 @@ func EncoderFBCProblems(out string, encoder, fbc EncoderFBCStats, accountingBuff
 
 // PCIeIdentityProblems checks the per-GPU PCIe identity elements (#638, #692):
 //
-//   - max_link_gen and max_device_link_gen equal the configured device maximum.
-//     max_host_link_gen equals the independent configured host maximum, or N/A
-//     when absent. Real GB300 reports device Max 6 and Host Max 4.
+//   - max_link_gen and current_link_gen match the configured link, while
+//     max_device_link_gen matches the independent GPU capability.
+//     max_host_link_gen matches the configured host maximum, or N/A when absent.
 //   - board_id is non-zero and unique across the node. Every GPU reported 0x0,
 //     leaving the GPUs of a multi-GPU node indistinguishable by board ID.
 //
 // wantGPUs guards against a truncated document silently passing every per-GPU
 // check.
-func PCIeIdentityProblems(out string, wantGPUs, wantDeviceMaxLinkGen, wantHostMaxLinkGen int) []string {
+func PCIeIdentityProblems(out string, wantGPUs, wantMaxLinkGen, wantCurrentLinkGen, wantDeviceMaxLinkGen, wantHostMaxLinkGen int) []string {
 	snap, err := ParseSnapshot(out)
 	if err != nil {
 		return []string{err.Error()}
@@ -339,7 +339,11 @@ func PCIeIdentityProblems(out string, wantGPUs, wantDeviceMaxLinkGen, wantHostMa
 		name := gpu.label(i)
 		gen := gpu.PCI.GPULinkInfo.PCIeGen
 		problems = append(problems,
-			intReadingProblems(name+" max_link_gen", gen.Max, wantDeviceMaxLinkGen, "")...)
+			intReadingProblems(name+" max_link_gen", gen.Max, wantMaxLinkGen, "")...)
+		problems = append(problems,
+			intReadingProblems(name+" current_link_gen", gen.Current, wantCurrentLinkGen, "")...)
+		problems = append(problems,
+			intReadingProblems(name+" device_current_link_gen", gen.DeviceCurrent, wantCurrentLinkGen, "")...)
 		problems = append(problems,
 			intReadingProblems(name+" max_device_link_gen", gen.DeviceMax, wantDeviceMaxLinkGen, "")...)
 		if wantHostMaxLinkGen == 0 {
