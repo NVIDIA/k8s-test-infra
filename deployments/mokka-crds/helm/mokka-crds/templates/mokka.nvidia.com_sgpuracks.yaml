@@ -121,6 +121,16 @@ spec:
                 x-kubernetes-validations:
                 - message: uid must not be empty
                   rule: size(self.uid) > 0
+              nodeType:
+                default: CPU
+                description: NodeType is inherited from the inventory rack group.
+                enum:
+                - CPU
+                - KWOK
+                type: string
+                x-kubernetes-validations:
+                - message: node type is immutable
+                  rule: self == oldSelf
               nodes:
                 description: |-
                   Nodes retain stable device identities while Kubernetes Node assignments

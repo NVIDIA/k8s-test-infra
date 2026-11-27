@@ -51,7 +51,8 @@ var errProjectionCleanupRevisionChanged = errors.New("allocation revision change
 
 // Options controls worker concurrency and aggregate-status coalescing.
 type Options struct {
-	Workers int
+	KWOKShardName string
+	Workers       int
 	// StatusDebounce is the quiet period before a final status update.
 	StatusDebounce time.Duration
 	// StatusProgressInterval bounds status staleness while changes continue.
@@ -63,7 +64,7 @@ type Options struct {
 // DefaultOptions returns the production controller defaults.
 func DefaultOptions() Options {
 	return Options{
-		Workers: 2, StatusDebounce: defaultStatusDebounce,
+		KWOKShardName: sgpuinventory.DefaultKWOKShardName, Workers: 2, StatusDebounce: defaultStatusDebounce,
 		StatusProgressInterval: defaultStatusProgressInterval,
 		LiveNodeGetTimeout:     defaultLiveNodeGetTimeout,
 	}
@@ -289,7 +290,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		mokkaClient.MokkaV1alpha1().SGPUInventories(),
 		mokkaClient.MokkaV1alpha1().SGPURacks(),
 		projection,
-		allocation,
+		allocation, options.KWOKShardName,
 	)
 	statusReconciler := sgpustatus.NewReconciler(
 		mokkaClient.MokkaV1alpha1().SGPUInventories(),
@@ -935,6 +936,9 @@ func compactNodeObject(object any) (any, error) {
 	annotations := make(map[string]string, 1)
 	if assignment := node.Annotations[sgpumetadata.AssignmentAnnotation]; assignment != "" {
 		annotations[sgpumetadata.AssignmentAnnotation] = assignment
+	}
+	if value, ok := node.Annotations[allocate.KWOKNodeAnnotation]; ok {
+		annotations[allocate.KWOKNodeAnnotation] = value
 	}
 	managedFields := sgpuprojection.CompactManagedFields(node.ManagedFields)
 	return &corev1.Node{

@@ -62,6 +62,14 @@
          },
          "x-kubernetes-list-type": "atomic"
         },
+        "node": {
+         "type": "object",
+         "properties": {
+          "type": {
+           "type": "string"
+          }
+         }
+        },
         "placement": {
          "type": "object",
          "properties": {

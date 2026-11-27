@@ -275,7 +275,7 @@ func TestControllerRejectsProjectedLabelPlacementWithoutOscillation(t *testing.T
 	mokka.Fake.ClearActions()
 	invalid, err := mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
 	require.NoError(t, err)
-	invalid.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+	invalid.Spec.RackGroups[0].Placement.NodeSelector = &mokkav1alpha1.RackNodeSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
 		Key: sgpumetadata.AssignedLabel, Operator: metav1.LabelSelectorOpDoesNotExist,
 	}}}
 	invalid.Generation++
@@ -1011,6 +1011,66 @@ func setAcceptanceRackManagedFields(rack *mokkav1alpha1.SGPURack) {
 	}}
 }
 
+func TestMixedRackGroupNodeTypes(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	nodes := newAcceptanceNodeClient()
+	mokka := mokkafake.NewSimpleClientset()
+	installAcceptanceAPIReactors(t, mokka)
+	opts := DefaultOptions()
+	opts.KWOKShardName = "test-shard-0"
+	controller, err := newForNodes(nodes, mokka, opts)
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() { done <- runControllerForTest(ctx, controller) }()
+	t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
+	require.Eventually(t, controller.LeaderReady, 5*time.Second, 10*time.Millisecond)
+
+	inventory := acceptanceInventory()
+	virtual := inventory.Spec.RackGroups[0]
+	virtual.ID = "virtual"
+	virtual.Node.Type = mokkav1alpha1.NodeTypeKWOK
+	inventory.Spec.RackGroups = append(inventory.Spec.RackGroups, virtual)
+	api := mokka.MokkaV1alpha1()
+	_, err = api.SGPURackProfiles().Create(ctx, acceptanceProfile(1), metav1.CreateOptions{})
+	require.NoError(t, err)
+	_, err = api.SGPUInventories().Create(ctx, inventory, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	annotated := acceptanceNode("virtual-a", "virtual-a", 1)
+	annotated.Annotations = map[string]string{allocate.KWOKNodeAnnotation: "fake"}
+	nodes.create(annotated)
+	rackName := rackrender.RackName(inventory.Name, inventory.UID, virtual.ID, 0)
+	require.Eventually(t, func() bool {
+		rack, err := api.SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
+		return err == nil && rack.Labels[sgpuinventory.KWOKShardLabel] == opts.KWOKShardName &&
+			rack.Spec.Nodes[0].BoundTo(annotated.Name, annotated.UID)
+	}, 5*time.Second, 10*time.Millisecond)
+
+	labeled := acceptanceNode("virtual-b", "virtual-b", 2)
+	labeled.Labels[allocate.NodeTypeLabel] = "KWOK"
+	nodes.create(labeled)
+	cpu := acceptanceNode("cpu", "cpu", 3)
+	nodes.create(cpu)
+	cpuRackName := rackrender.RackName(inventory.Name, inventory.UID, "compute", 0)
+	require.Eventually(t, func() bool {
+		rack, err := api.SGPURacks().Get(ctx, cpuRackName, metav1.GetOptions{})
+		if err != nil || !rack.Spec.Nodes[0].BoundTo(cpu.Name, cpu.UID) || rack.Labels[sgpuinventory.KWOKShardLabel] != "" {
+			return false
+		}
+		current, err := api.SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
+		if err != nil {
+			return false
+		}
+		for _, group := range current.Status.RackGroups {
+			if group.ID == virtual.ID {
+				return group.Usage == (mokkav1alpha1.InventoryUsage{RequestedNodes: 2, AllocatedNodes: 1, PendingNodes: 1})
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
 func acceptanceProfile(nodesPerRack int32) *mokkav1alpha1.SGPURackProfile {
 	return &mokkav1alpha1.SGPURackProfile{
 		TypeMeta: metav1.TypeMeta{APIVersion: mokkav1alpha1.SchemeGroupVersion.String(), Kind: "SGPURackProfile"},
@@ -1043,7 +1103,7 @@ func acceptanceInventory() *mokkav1alpha1.SGPUInventory {
 		Spec: mokkav1alpha1.SGPUInventorySpec{RackGroups: []mokkav1alpha1.RackGroup{{
 			ID: "compute", Count: 1,
 			ProfileRef: mokkav1alpha1.ProfileReference{Name: "acceptance-profile"},
-			Placement: &mokkav1alpha1.RackPlacement{NodeSelector: &metav1.LabelSelector{
+			Placement: &mokkav1alpha1.RackPlacement{NodeSelector: &mokkav1alpha1.RackNodeSelector{
 				MatchLabels: map[string]string{"pool": "acceptance"},
 			}},
 		}}},

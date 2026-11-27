@@ -143,7 +143,7 @@ func TestAllocationCacheReleasesExistsBindingWhenEmptyValuedLabelIsRemoved(t *te
 	t.Parallel()
 	profile := testProfile("profile", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 1)
-	inventory.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{
+	inventory.Spec.RackGroups[0].Placement.NodeSelector = &mokkav1alpha1.RackNodeSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{{Key: "pool", Operator: metav1.LabelSelectorOpExists}},
 	}
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": ""})
@@ -505,7 +505,7 @@ func allocationScaleSource(
 		inventory.Spec.RackGroups[index] = mokkav1alpha1.RackGroup{
 			ID: group, Count: int32(rackCount),
 			ProfileRef: mokkav1alpha1.ProfileReference{Name: profile.Name},
-			Placement: &mokkav1alpha1.RackPlacement{NodeSelector: &metav1.LabelSelector{
+			Placement: &mokkav1alpha1.RackPlacement{NodeSelector: &mokkav1alpha1.RackNodeSelector{
 				MatchLabels: map[string]string{"pool": group},
 			}},
 		}

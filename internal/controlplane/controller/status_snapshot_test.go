@@ -220,7 +220,7 @@ func scaleStatusInventory(index, rackCount int) *mokkav1alpha1.SGPUInventory {
 		},
 		Spec: mokkav1alpha1.SGPUInventorySpec{RackGroups: []mokkav1alpha1.RackGroup{{
 			ID: "group", Count: int32(rackCount), ProfileRef: mokkav1alpha1.ProfileReference{Name: "profile"},
-			Placement: &mokkav1alpha1.RackPlacement{NodeSelector: &metav1.LabelSelector{
+			Placement: &mokkav1alpha1.RackPlacement{NodeSelector: &mokkav1alpha1.RackNodeSelector{
 				MatchLabels: map[string]string{"inventory": fmt.Sprintf("inventory-%d", index)},
 			}},
 		}}},

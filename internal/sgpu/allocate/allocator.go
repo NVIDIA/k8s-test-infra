@@ -15,6 +15,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+
+	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 )
 
 // RackGroupKey identifies one rack group in an exact inventory instance.
@@ -41,6 +43,7 @@ func (key RackGroupKey) Compare(other RackGroupKey) int {
 
 // RackGroup is a resolved placement and capacity declaration.
 type RackGroup struct {
+	NodeType     mokkav1alpha1.NodeType
 	Key          RackGroupKey
 	Selector     *metav1.LabelSelector
 	Racks        int32

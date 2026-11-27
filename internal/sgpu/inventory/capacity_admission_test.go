@@ -512,7 +512,7 @@ func TestReconcileRejectsAggregateCrossInventoryCapacityBeforeAllocationOrWrites
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
 		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return false }),
-		allocation,
+		allocation, DefaultKWOKShardName,
 	)
 	h.mokka.Fake.ClearActions()
 
@@ -555,7 +555,7 @@ func TestReconcileStopsStaleMaterializationAfterAdmissionChanges(t *testing.T) {
 		h.mokka.MokkaV1alpha1().SGPUInventories(),
 		h.mokka.MokkaV1alpha1().SGPURacks(),
 		sgpurelease.GateFunc(func(sgpurelease.Cleanup) bool { return false }),
-		allocation,
+		allocation, DefaultKWOKShardName,
 	)
 	created := 0
 	h.mokka.Fake.PrependReactor("create", "sgpuracks", func(clienttesting.Action) (bool, runtime.Object, error) {

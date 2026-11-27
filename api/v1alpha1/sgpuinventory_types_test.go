@@ -16,7 +16,7 @@ func TestRackGroupNodeSelector(t *testing.T) {
 	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"pool": "training"}}
 	unconstrained := RackGroup{}
 	placementWithoutSelector := RackGroup{Placement: &RackPlacement{}}
-	constrained := RackGroup{Placement: &RackPlacement{NodeSelector: selector}}
+	constrained := RackGroup{Placement: &RackPlacement{NodeSelector: (*RackNodeSelector)(selector)}}
 
 	require.Nil(t, unconstrained.NodeSelector())
 	require.Nil(t, placementWithoutSelector.NodeSelector())
