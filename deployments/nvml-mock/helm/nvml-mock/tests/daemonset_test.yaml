@@ -936,6 +936,33 @@ tests:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
 
+  # ── Per-node GPU identities ─────────────────────────────────────────
+  - it: should leave identities as the profile has them by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: MOKKA_IDENTITY_DERIVE
+            value: node
+
+  - it: should ask the node agent to derive identities per node
+    set:
+      identity:
+        derive: node
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: MOKKA_IDENTITY_DERIVE
+            value: node
+
+  - it: should reject an unknown identity mode
+    set:
+      identity:
+        derive: random
+    asserts:
+      - failedTemplate: {}
+
   # ── ComputeDomain topology ──────────────────────────────────────────
   - it: should mount the topology ConfigMap when enabled
     set:

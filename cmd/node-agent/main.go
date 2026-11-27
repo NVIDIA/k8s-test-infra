@@ -38,6 +38,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mockctl"
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
 func main() {
@@ -90,6 +91,12 @@ func startCommand() *cli.Command {
 				Name:    "topology",
 				Usage:   "path to the cluster ComputeDomain topology document; unset where the cluster declares no topology",
 				Sources: cli.EnvVars("MOKKA_AGENT_TOPOLOGY"),
+			},
+			&cli.StringFlag{
+				Name:    "identity-derive",
+				Usage:   "make GPU UUIDs, serials and rack position unique per node: '' keeps the profile's, 'node' derives them from the NODE_NAME environment variable",
+				Sources: cli.EnvVars(engine.EnvIdentityDerive),
+				Action:  validateIdentityDerive,
 			},
 			&cli.StringFlag{
 				Name:    "host-root",
@@ -244,6 +251,8 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	shutdownTimeout := cmd.Duration("shutdown-timeout")
 	resyncInterval := cmd.Duration("resync-interval")
 
+	fileSource := newFileSource(cmd, configPath, resyncInterval, log)
+
 	healthSrv := health.NewServer(cmd.String("health-addr"), shutdownTimeout)
 
 	h := host.New(cmd.String("host-root"))
@@ -326,7 +335,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 			}),
 		},
 		Enrichers:       enrichers,
-		Source:          source.NewFileSource(configPath, cmd.String("topology"), resyncInterval, log),
+		Source:          fileSource,
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,
 		StagingLockPath: cmd.String("staging-lock-path"),
@@ -427,4 +436,31 @@ func resetRuntimeOverrides(h *host.Host, log *zap.Logger) error {
 	}
 	log.Info("reset runtime overrides from previous pod lifetime", zap.Strings("paths", paths))
 	return nil
+}
+
+// newFileSource watches the profile and, when --identity-derive is node, makes
+// the identities it stages unique to this node. The flag's Action has already
+// rejected an unknown mode and a missing NODE_NAME.
+func newFileSource(cmd *cli.Command, configPath string, resyncInterval time.Duration, log *zap.Logger) *source.FileSource {
+	fileSource := source.NewFileSource(configPath, cmd.String("topology"), resyncInterval, log)
+	if cmd.String("identity-derive") == engine.IdentityDeriveNode {
+		fileSource.WithNodeIdentity(os.Getenv("NODE_NAME"))
+	}
+	return fileSource
+}
+
+// validateIdentityDerive rejects a mode the agent does not know, and the one
+// mode that cannot work without the node's name.
+func validateIdentityDerive(_ context.Context, _ *cli.Command, mode string) error {
+	switch mode {
+	case "":
+		return nil
+	case engine.IdentityDeriveNode:
+		if os.Getenv("NODE_NAME") == "" {
+			return errors.New("--identity-derive=node needs NODE_NAME, which the chart sets from spec.nodeName")
+		}
+		return nil
+	default:
+		return fmt.Errorf("--identity-derive %q: want '' or %q", mode, engine.IdentityDeriveNode)
+	}
 }

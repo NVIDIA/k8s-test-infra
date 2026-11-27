@@ -72,6 +72,7 @@ Kubernetes: `>= 1.28.0-0`
 | gpu.mig.gpuInstances | list | `[]` | GPU instance layout to create on each simulated device. |
 | gpu.profile | string | `"gb300"` | GPU profile and per-device simulation settings. |
 | hic | list | `[]` | Host interface cards `nvidia-smi -q -u` reports, as `{id, firmwareVersion}` entries. |
+| identity.derive | string | `""` | How GPU identities are made unique. Empty keeps the profile's values on every node. `node` derives UUIDs and serials from the Kubernetes node name, and, for a node placed in a `topology.domains` entry, the chassis serial, tray and slot from the node's position in that domain. |
 | image.digest | string | `""` | Immutable image digest; when set, it takes precedence over the tag. |
 | image.pullPolicy | string | `"IfNotPresent"` | Kubernetes image pull policy. |
 | image.repository | string | `"ghcr.io/nvidia/nvml-mock"` | Container image repository for the node agent. |

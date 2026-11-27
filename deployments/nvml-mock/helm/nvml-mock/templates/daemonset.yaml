@@ -288,6 +288,13 @@ spec:
             # writable, when nodeAgent.kernelLog is enabled.
             - name: MOCK_NVML_KMSG
               value: {{ ternary "/dev/kmsg" "" .Values.nodeAgent.kernelLog.enabled | quote }}
+            {{- if .Values.identity.derive }}
+            # One switch for both readers of the profile: the node agent derives
+            # the config it stages for workloads, and the mock library derives
+            # the same identities for nvidia-smi run in this pod.
+            - name: MOKKA_IDENTITY_DERIVE
+              value: {{ .Values.identity.derive | quote }}
+            {{- end }}
             {{- if .Values.topology.enabled }}
             - name: MOCK_TOPOLOGY_CONFIG
               value: /etc/nvml-mock/topology/topology.yaml

@@ -233,16 +233,51 @@ taken from a PDI. The check covers every value known when the config loads; a
 GPU with no `uuid` and no `pdi` gets its PDI only at startup, so it is left out.
 
 !!! note "Distinct within a node, not across nodes"
-    Every node that loads the same profile reports the same GPU UUIDs, and so
-    the same PDIs and fabric GUIDs. That is fine for software that reads one
-    node at a time. A consumer that compares fabric GUIDs across a rack, such
-    as an NVLink partition manager, sees GPUs on different nodes collide. To
-    simulate that rack, give each node a config with its own `uuid`, `pdi` or
-    `gpu_fabric_guid` values.
+    By default every node that loads the same profile reports the same GPU
+    UUIDs, and so the same PDIs and fabric GUIDs. That is fine for software that
+    reads one node at a time. A consumer that compares GPUs across nodes, such as
+    an NVLink partition manager or an inventory keyed on `gpu_uuid`, sees them
+    collide. Set [`identity.derive: node`](#per-node-identities) to give each
+    node its own, from one release.
 
 Declaring the block also requires a driver new enough to have the API:
 `nvmlDeviceGetPlatformInfo` arrived in 560, so a profile on an older
 `system.driver_version` reports `N/A` regardless.
+
+### Per-node identities
+
+A profile hard-codes its GPU `uuid`, board `serial` and
+[platform identity](#platform-identity-rack-location), so every node running it
+reports the same values. Set the chart's `identity.derive` to `node` to derive
+them per node, from one Helm release:
+
+```yaml
+identity:
+  derive: node
+```
+
+| Field | Derived from |
+|-------|--------------|
+| `devices[].uuid` | node name and the profile's UUID. MIG UUIDs, PDIs and `gpu_fabric_guid: "pdi"` follow |
+| `serial`, `devices[].serial` | node name and the profile's serial. GPUs sharing a board serial still share one |
+| `platform.chassis_serial_number` | the node's [topology](helm-chart-values.md) domain, one per rack |
+| `platform.tray_index`, `platform.slot_number` | the node's position in its domain. The slot keeps the profile's slot-minus-tray offset, so the node at the profile's own tray reports the profile's own slot |
+
+The result depends only on the node name, the profile and the topology, so it is
+the same after a restart. A node no `topology.domains` entry lists keeps the
+profile's chassis, tray and slot, as does any node past the 18th of a domain.
+GPUs a profile does not list under `devices` keep the base mock's UUID. Slots are
+unique but approximate: a real rack numbers the switch trays between compute trays,
+and a tray on the other side of them is off by that gap.
+
+The node agent derives the config it stages for workloads, and the NVML library
+derives the same values for `nvidia-smi` run in the node pod. The default, empty,
+leaves the profile's values untouched.
+
+Both write the node's name to `system.identity_node` in the config they produce,
+and a config that carries it is not derived again. Do not set it in a profile:
+the key only marks a config as already derived, and a config that names one node
+is refused on another.
 
 ### Power
 
@@ -1705,7 +1740,8 @@ supported on any profile.
 **Identity and topology.** Device `name`, `architecture`, `brand`,
 `compute_capability`, `uuid`, PCI `bus_id`, and the BAR1 aperture
 (`bar1_memory`) are baked onto the device at construction and need a pod restart
-to change.
+to change. [`identity.derive: node`](#per-node-identities) fixes them per node
+at startup and does not make them vary over time.
 
 ### Allocation-aware — opt in
 
