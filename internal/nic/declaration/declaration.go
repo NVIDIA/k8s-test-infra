@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
 
 // Package declaration checks NIC declarations (MEP-0016): SNICProfiles, the
-// NIC slots that place them on a Node and the rack-group overrides of those
-// slots. File mode and the control plane share it, so a declaration means the
+// NIC slots that place them on a Node and the configuration a rack group
+// selects for those slots. File mode and the control plane share it, so a declaration means the
 // same in both.
 //
 // The CRDs check field shapes when an object reaches the API server. File mode

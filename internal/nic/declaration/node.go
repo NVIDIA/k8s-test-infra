@@ -4,7 +4,6 @@
 package declaration
 
 import (
-	"errors"
 	"fmt"
 	"maps"
 	"regexp"
@@ -14,67 +13,71 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/api/v1alpha1"
 )
 
-// Select returns the slots as a rack group runs them: each override, in order,
-// replaces the fields it sets in the slots it names. An override that replaces
-// the profile also drops the slot's configuration, firmware version, VPD and a
-// systemImageGUID that names an RDMA device, since those belong to the old
-// model; the new profile's own apply unless the override sets them. A
-// distinct systemImageGUID names no device, so it carries over. The slots
-// passed in are left unchanged.
-func Select(slots []v1alpha1.NICSlot, overrides []v1alpha1.NICOverride) ([]v1alpha1.NICSlot, error) {
-	out := make([]v1alpha1.NICSlot, len(slots))
-	index := make(map[string]int, len(slots))
+// Select returns the configuration each slot runs, by slot name: the one a
+// configuration choice names, else its profile's default. A slot whose profile
+// is unknown, or whose configuration its profile lacks, maps to nil, and the
+// error says why. Each choice names existing slots, and a slot appears in one
+// choice at most.
+func Select(slots []v1alpha1.NICSlot, choices []v1alpha1.NICConfigurationChoice,
+	profiles Profiles) (map[string]*v1alpha1.NICConfiguration, error) {
+	var pr problems
+	chosen, choice := chooseSlots(&pr, slots, choices)
+	out := make(map[string]*v1alpha1.NICConfiguration, len(slots))
 	for i := range slots {
-		slots[i].DeepCopyInto(&out[i])
-		index[slots[i].Slot] = i
-	}
-
-	var errs []error
-	for n, o := range overrides {
-		if len(o.Slots) == 0 {
-			errs = append(errs, fmt.Errorf("NIC override %d names no slots", n))
+		s := &slots[i]
+		p, ok := profiles[s.Profile]
+		if !ok {
+			out[s.Slot] = nil // ValidateNode reports the unknown profile
+			continue
 		}
-		for _, name := range o.Slots {
-			i, ok := index[name]
-			if !ok {
-				errs = append(errs, fmt.Errorf("NIC override %d: unknown slot %q", n, name))
+		name, isChosen := chosen[s.Slot]
+		c, ok := p.Spec.Configuration(name)
+		switch {
+		case !ok && isChosen:
+			pr.check(false, "NIC configuration choice %d: profile %s of slot %s has no configuration %q",
+				choice[s.Slot], s.Profile, s.Slot, name)
+		case !ok:
+			pr.check(false, "slot %s: profile %s has no configuration %q, its default", s.Slot, s.Profile,
+				p.Spec.DefaultConfiguration)
+		}
+		out[s.Slot] = c
+	}
+	return out, pr.err()
+}
+
+// chooseSlots checks the configuration choices and returns the configuration
+// each slot they name runs and the choice that names it.
+func chooseSlots(pr *problems, slots []v1alpha1.NICSlot,
+	choices []v1alpha1.NICConfigurationChoice) (chosen map[string]string, choice map[string]int) {
+	known := make(map[string]bool, len(slots))
+	for i := range slots {
+		known[slots[i].Slot] = true
+	}
+	chosen, choice = map[string]string{}, map[string]int{}
+	for n, c := range choices {
+		where := fmt.Sprintf("NIC configuration choice %d", n)
+		pr.check(len(c.Slots) > 0, "%s names no slots", where)
+		pr.check(c.Configuration != "", "%s names no configuration", where)
+		for _, name := range c.Slots {
+			if !known[name] {
+				pr.check(false, "%s: unknown slot %q", where, name)
 				continue
 			}
-			applyOverride(&out[i], &o)
+			if prev, twice := choice[name]; twice {
+				pr.check(false, "%s: slot %s is already in choice %d", where, name, prev)
+				continue
+			}
+			choice[name], chosen[name] = n, c.Configuration
 		}
 	}
-	return out, errors.Join(errs...)
+	return chosen, choice
 }
 
-func applyOverride(s *v1alpha1.NICSlot, o *v1alpha1.NICOverride) {
-	if o.Profile != "" && o.Profile != s.Profile {
-		s.Profile, s.Configuration, s.FirmwareVersion, s.VPD = o.Profile, "", "", nil
-		if s.SystemImageGUID != v1alpha1.SystemImageGUIDDistinct {
-			s.SystemImageGUID = ""
-		}
-	}
-	if o.SystemImageGUID != "" {
-		s.SystemImageGUID = o.SystemImageGUID
-	}
-	if o.Configuration != "" {
-		s.Configuration = o.Configuration
-	}
-	if o.FirmwareVersion != "" {
-		s.FirmwareVersion = o.FirmwareVersion
-	}
-	if len(o.VPD) > 0 {
-		if s.VPD == nil {
-			s.VPD = map[string]string{}
-		}
-		maps.Copy(s.VPD, o.VPD)
-	}
-}
-
-// ValidateNode checks a Node's NIC slots, as the overrides leave them, against
-// its GPU slots and the profiles the slots name. The profiles themselves are
-// checked by ValidateProfile.
-func ValidateNode(topology *v1alpha1.SGPUTopology, overrides []v1alpha1.NICOverride, profiles Profiles) error {
-	slots, err := Select(topology.NICs, overrides)
+// ValidateNode checks a Node's NIC slots, each running the configuration the
+// choices select, against its GPU slots and the profiles the slots name. The
+// profiles themselves are checked by ValidateProfile.
+func ValidateNode(topology *v1alpha1.SGPUTopology, choices []v1alpha1.NICConfigurationChoice, profiles Profiles) error {
+	configs, err := Select(topology.NICs, choices, profiles)
 	var pr problems
 	pr.add(err)
 	place := newNodePlacement(&pr)
@@ -83,22 +86,22 @@ func ValidateNode(topology *v1alpha1.SGPUTopology, overrides []v1alpha1.NICOverr
 
 	names := map[string]bool{}
 	boards := map[int32]string{} // board -> profile
-	overridden := overriddenSlots(overrides)
-	for i := range slots {
-		s := &slots[i]
+	for i := range topology.NICs {
+		s := &topology.NICs[i]
 		where := "slot " + s.Slot
-		if overridden[s.Slot] {
-			where += " (with NIC overrides)"
-		}
 		pr.check(s.Slot != "" && !names[s.Slot], "slot name %q is empty or used twice", s.Slot)
 		names[s.Slot] = true
 		validateBoard(&pr, where, s, boards)
 		for _, g := range s.GPUs {
 			pr.check(gpus[g], "%s: GPU %d has no GPU slot", where, g)
 		}
-		p, c := selected(&pr, where, s, profiles)
+		p, ok := profiles[s.Profile]
+		pr.check(ok, "%s: unknown profile %q", where, s.Profile)
+		if !ok {
+			p = nil
+		}
 		validateSlotPlacement(&pr, where, s, p, place)
-		if c != nil {
+		if c := configs[s.Slot]; c != nil {
 			validateSlot(&pr, where, s, p, c, place)
 		}
 	}
@@ -124,6 +127,9 @@ func validateGPUSlots(pr *problems, slots []v1alpha1.GPUSlot, place *nodePlaceme
 		pr.check(inDomain(bdf, g.PCIAddress, domainOf(g.RootComplex)),
 			"GPU slot %d: pciAddress %q is not a PCI address in %s", g.Index, g.PCIAddress, g.RootComplex)
 		place.claim(g.PCIAddress, fmt.Sprintf("GPU %d", g.Index))
+		if i := strings.LastIndex(g.PCIAddress, "."); i > 0 {
+			place.claimDevice(g.PCIAddress[:i], fmt.Sprintf("GPU %d", g.Index))
+		}
 		if g.Parent != "" {
 			place.addParent(fmt.Sprintf("GPU slot %d", g.Index), g.Parent, g.RootComplex, g.PCIAddress)
 		}
@@ -143,19 +149,6 @@ func validateBoard(pr *problems, where string, s *v1alpha1.NICSlot, boards map[i
 	boards[*s.Board] = s.Profile
 }
 
-// selected returns the slot's profile and configuration, or a nil
-// configuration when either is unknown.
-func selected(pr *problems, where string, s *v1alpha1.NICSlot, profiles Profiles) (*v1alpha1.SNICProfile, *v1alpha1.NICConfiguration) {
-	p, ok := profiles[s.Profile]
-	if !ok {
-		pr.check(false, "%s: unknown profile %q", where, s.Profile)
-		return nil, nil
-	}
-	c, ok := p.Spec.Configuration(s.Configuration)
-	pr.check(ok, "%s: profile %s has no configuration %q", where, s.Profile, s.Configuration)
-	return p, c
-}
-
 func validateSlot(pr *problems, where string, s *v1alpha1.NICSlot, p *v1alpha1.SNICProfile, c *v1alpha1.NICConfiguration,
 	place *nodePlacement) {
 	validateSlotVPD(pr, where, s, p.Spec.VPD)
@@ -165,7 +158,7 @@ func validateSlot(pr *problems, where string, s *v1alpha1.NICSlot, p *v1alpha1.S
 		where, g, v1alpha1.SystemImageGUIDDistinct, c.Name)
 
 	for _, f := range c.Functions {
-		d, ok := s.Devices[f.PCIDevice]
+		d, ok := s.Device(f.PCIDevice)
 		pr.check(ok, "%s: configuration %s puts function %s on PCI device %q, which the slot doesn't place",
 			where, c.Name, f.ID, f.PCIDevice)
 		if ok {
@@ -199,9 +192,9 @@ func validateSlotVPD(pr *problems, where string, s *v1alpha1.NICSlot, v *v1alpha
 		if scope != v1alpha1.VPDScopeBoardPosition {
 			continue
 		}
-		for _, name := range slices.Sorted(maps.Keys(s.Devices)) {
-			pr.check(s.Devices[name].VPDPosition != "",
-				"%s: device %s: VPD %s is per board position, but the device has no vpdPosition", where, name, k)
+		for _, d := range s.Devices {
+			pr.check(d.VPDPosition != "",
+				"%s: device %s: VPD %s is per board position, but the device has no vpdPosition", where, d.Name, k)
 		}
 	}
 }
@@ -211,8 +204,12 @@ func validateSlotVPD(pr *problems, where string, s *v1alpha1.NICSlot, v *v1alpha
 // profile, so a slot whose profile or configuration is unknown (p nil) still
 // places its switch ports, and what sits below them reports nothing more.
 func validateSlotPlacement(pr *problems, where string, s *v1alpha1.NICSlot, p *v1alpha1.SNICProfile, place *nodePlacement) {
-	for _, name := range slices.Sorted(maps.Keys(s.Devices)) {
-		validatePlacement(pr, fmt.Sprintf("%s: device %s", where, name), s.Devices[name], p, where, place)
+	pr.check(len(s.Devices) > 0, "%s: places no devices", where)
+	placed := map[string]bool{}
+	for _, d := range s.Devices {
+		pr.check(d.Name != "" && !placed[d.Name], "%s: device name %q is empty or used twice", where, d.Name)
+		placed[d.Name] = true
+		validatePlacement(pr, fmt.Sprintf("%s: device %s", where, d.Name), d, p, where, place)
 	}
 }
 
@@ -233,6 +230,7 @@ func validatePlacement(pr *problems, where string, d v1alpha1.NICDevicePlacement
 		place.addSwitchPort(b, d.RootComplex, where)
 	}
 	pr.check(inDomain(deviceAddr, d.Address, domain), "%s: address %q is not DDDD:BB:DD in %s", where, d.Address, d.RootComplex)
+	place.claimDevice(d.Address, where)
 	if d.Parent != "" {
 		place.addParent(where, d.Parent, d.RootComplex, d.Address)
 	}
@@ -241,16 +239,6 @@ func validatePlacement(pr *problems, where string, d v1alpha1.NICDevicePlacement
 
 func hasRDMADevice(c *v1alpha1.NICConfiguration, id string) bool {
 	return slices.ContainsFunc(c.RDMADevices, func(d v1alpha1.NICRDMADevice) bool { return d.ID == id })
-}
-
-func overriddenSlots(overrides []v1alpha1.NICOverride) map[string]bool {
-	out := map[string]bool{}
-	for _, o := range overrides {
-		for _, s := range o.Slots {
-			out[s] = true
-		}
-	}
-	return out
 }
 
 // inDomain reports whether addr has the form re describes and sits in domain.

@@ -1,0 +1,6 @@
+kind: Changed
+body: |-
+  helm: **Breaking:** NIC declarations change shape (MEP-0016): `SGPUInventory` selects each NIC slot's configuration with `nicConfigurations`, replacing `nicOverrides`; NIC slots drop `configuration` and `firmwareVersion`; `functionTypes` and a slot's `devices` become lists keyed by `name`.
+time: 2026-11-26T20:14:08Z
+custom:
+  Issue: "1266"

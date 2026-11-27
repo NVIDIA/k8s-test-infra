@@ -23,7 +23,7 @@ spec:
       V0: PCIeGen5 x16
     identities: {SN: board, V3: asic, VU: boardPosition}
   functionTypes:
-    network:
+    - name: network
       vendorID: "15b3"
       deviceID: "1021"
       subsystemVendorID: "15b3"

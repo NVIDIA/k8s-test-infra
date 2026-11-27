@@ -15,7 +15,7 @@ spec:
   sources:
     - tests/hardware-captures/vr-nvl72/node-a
   functionTypes:
-    network:
+    - name: network
       vendorID: "15b3"
       deviceID: "a2df"
       subsystemVendorID: "15b3"

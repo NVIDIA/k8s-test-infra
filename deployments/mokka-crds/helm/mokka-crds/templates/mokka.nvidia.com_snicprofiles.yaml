@@ -240,12 +240,15 @@ spec:
                 x-kubernetes-list-type: map
               defaultConfiguration:
                 description: |-
-                  DefaultConfiguration names the configuration used when neither the
-                  cluster nor the slot selects one.
+                  DefaultConfiguration names the configuration a slot runs when the
+                  cluster selects none.
                 minLength: 1
                 type: string
               functionTypes:
-                additionalProperties:
+                description: |-
+                  FunctionTypes are the kinds of PCI function the NIC can expose, each
+                  named for the configurations to refer to.
+                items:
                   description: |-
                     NICFunctionType is the hardware identity and driver binding of one kind of
                     PCI function. The class isn't here: the configuration decides it.
@@ -257,6 +260,11 @@ spec:
                       type: string
                     driver:
                       description: Driver is the bound kernel driver, such as mlx5_core.
+                      minLength: 1
+                      type: string
+                    name:
+                      description: Name is what a function's type and a vfType refer
+                        to, such as network.
                       minLength: 1
                       type: string
                     pcieLink:
@@ -377,13 +385,14 @@ spec:
                   required:
                   - deviceID
                   - driver
+                  - name
                   - vendorID
                   type: object
-                description: |-
-                  FunctionTypes are the kinds of PCI function the NIC can expose, keyed by
-                  the name configurations use.
-                minProperties: 1
-                type: object
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               identity:
                 description: |-
                   Identity is what the NIC reports about itself, the same in every

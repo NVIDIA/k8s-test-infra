@@ -94,13 +94,13 @@ spec:
           board: 0
           gpus: [0]
           devices:
-            hostA:
+            - name: hostA
               rootComplex: pci0000:00
               address: "0000:02:00"
               parent: "0000:00:02.0"
               numaNode: 0
               vpdPosition: "-Prime"
-            hostB:
+            - name: hostB
               rootComplex: pci0000:00
               address: "0000:03:00"
               parent: "0000:00:03.0"
