@@ -65,6 +65,9 @@ const (
 	// what check-fabric reports inside the injected pods.
 	nriDomainName = "node-wide-domain"
 	nriDomainUUID = "00000000-0000-0000-0000-0000000000cd"
+	// nriZeroClusterUUID is what a single-node NVLink board reports: no
+	// multi-node clique.
+	nriZeroClusterUUID = "00000000-0000-0000-0000-000000000000"
 
 	// Mock IMEX channel injection (#437). Like a real node's driver, the node
 	// agent stages channel0 only.
@@ -110,18 +113,11 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 
 	for _, name := range selectedProfiles {
 		Context("profile "+name, Label(name), Ordered, func() {
-			var (
-				p             profile.Profile
-				computeDomain bool
-			)
+			var p profile.Profile
 
 			BeforeAll(func(ctx SpecContext) {
 				p = loadProfile(name)
-				// Only profiles that declare a device_defaults.fabric block
-				// (h100/gb200/gb300) expose ComputeDomain identity; NVSwitch-only
-				// profiles like a100 report "fabric NOT SUPPORTED".
-				computeDomain = p.HasFabric()
-				installNRIChart(ctx, h, p, topoValues, computeDomain)
+				installNRIChart(ctx, h, p, topoValues)
 				assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 				deployNRIAgent(ctx, h)
 			})
@@ -266,10 +262,16 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			})
 
 			It("carries per-node ComputeDomain fabric identity through NRI", Label("compute-domain"), func(ctx SpecContext) {
-				if !computeDomain {
+				switch {
+				case p.MultiNodeNVLink():
+					assertNodeCliqueIdentities(ctx, h, workers)
+				case p.HasFabric():
+					// #1399. A single baseboard reports the fabric but belongs
+					// to no multi-node clique, so it carries the zero UUID.
+					assertNodeNoClique(ctx, h, workers)
+				default:
 					Skip("profile " + name + " declares no device_defaults.fabric block; ComputeDomain identity is unsupported")
 				}
-				assertNodeCliqueIdentities(ctx, h, workers)
 			})
 		})
 	}
@@ -293,7 +295,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			p = loadProfile(selectedProfiles[0])
 			// The allocation watcher (#506) rides in this context because it is
 			// the only one where the device plugin actually allocates GPUs.
-			installNRIChart(ctx, h, p, topoValues, p.HasFabric(), map[string]string{
+			installNRIChart(ctx, h, p, topoValues, map[string]string{
 				"allocationWatcher.enabled": "true",
 				// Poll faster than the 2s default so the e2e is not dominated
 				// by waiting; the engine's own override TTL still applies.
@@ -526,7 +528,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		AfterAll(func(ctx SpecContext) {
 			// Put the release back on the default mechanism so any spec ordered
 			// after this Context sees the shipped configuration.
-			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			installNRIChart(ctx, h, p, topoValues)
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 		})
 
@@ -598,7 +600,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		BeforeAll(func(ctx SpecContext) {
 			Expect(selectedProfiles).NotTo(BeEmpty())
 			p := loadProfile(selectedProfiles[0])
-			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			installNRIChart(ctx, h, p, topoValues)
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 			node = workers[0]
 		})
@@ -639,7 +641,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			if !p.MultiNodeNVLink() {
 				Skip("profile " + p.Name + " is not multi-node NVLink, so its nodes stage no IMEX channels")
 			}
-			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			installNRIChart(ctx, h, p, topoValues)
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 			gpuNode = workers[0].Name
 		})
@@ -704,7 +706,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		It("withholds stale adjustments and resumes after restaging", func(ctx SpecContext) {
 			Expect(selectedProfiles).NotTo(BeEmpty())
 			p := loadProfile(selectedProfiles[0])
-			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			installNRIChart(ctx, h, p, topoValues)
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 
 			victim := workers[0]
@@ -788,7 +790,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		BeforeAll(func(ctx SpecContext) {
 			Expect(selectedProfiles).NotTo(BeEmpty())
 			p := loadProfile(selectedProfiles[0])
-			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			installNRIChart(ctx, h, p, topoValues)
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriDaemonSet, config.ReadyTimeout(), config.PollInterval())
 			deployNRIAgent(ctx, h)
 
@@ -953,11 +955,13 @@ func nriProcessHostPID(ctx context.Context, container, binary string) string {
 }
 
 // installNRIChart (re)installs the nvml-mock release with the NRI plugin
-// enabled. Fabric-attached profiles additionally get the generated
+// enabled. Multi-node NVLink profiles additionally get the generated
 // ComputeDomain overlay via `-f` (a structured merge of topology.domains, never
-// --set-file which would stuff the raw bytes in as a string literal).
+// --set-file which would stuff the raw bytes in as a string literal). A
+// single-node board such as h100 reports a fabric but spans no nodes, so a
+// cross-node clique would contradict its zero cluster UUID (#1399).
 func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile, topoValues string,
-	withComputeDomain bool, extraSet ...map[string]string,
+	extraSet ...map[string]string,
 ) {
 	GinkgoHelper()
 	repo, tag := splitImage(config.Image())
@@ -982,7 +986,7 @@ func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 			rel.Set[k] = v
 		}
 	}
-	if withComputeDomain {
+	if p.MultiNodeNVLink() {
 		rel.ValuesFiles = []string{topoValues}
 	}
 	By("helm upgrade --install nvml-mock with NRI enabled (profile=" + p.Name + ")")
@@ -1087,6 +1091,26 @@ func assertNodeCliqueIdentities(ctx context.Context, h *harness.Harness, workers
 			"%s: expected cliqueId %d from check-fabric\n%s", w.Name, expected, strings.TrimSpace(out))
 		Expect(strings.ToLower(out)).To(ContainSubstring(strings.ToLower("clusterUuid : "+nriDomainUUID)),
 			"%s: expected clusterUuid %s from check-fabric\n%s", w.Name, nriDomainUUID, strings.TrimSpace(out))
+	}
+}
+
+// assertNodeNoClique runs check-fabric on every worker of a single-node NVLink
+// profile and asserts each GPU reports the zero cluster UUID and clique 0, the
+// identity a real HGX H100 reports and the DRA driver's no-clique fallback
+// keys on.
+func assertNodeNoClique(ctx context.Context, h *harness.Harness, workers []cluster.Node) {
+	GinkgoHelper()
+	for _, w := range workers {
+		pod := nriAgentPodOnNode(ctx, h, w.Name)
+		res, err := h.Kube.ExecSh(ctx, pod, "check-fabric 2>&1")
+		Expect(err).NotTo(HaveOccurred(), "check-fabric on %s: %s", w.Name, res.Combined())
+		out := res.Combined()
+		Expect(out).To(ContainSubstring("clusterUuid : "+nriZeroClusterUUID),
+			"%s: expected the zero clusterUuid from check-fabric\n%s", w.Name, strings.TrimSpace(out))
+		Expect(out).NotTo(MatchRegexp(`clusterUuid : [0-9a-f-]*[1-9a-f]`),
+			"%s: a GPU reports a nonzero clusterUuid\n%s", w.Name, strings.TrimSpace(out))
+		Expect(out).NotTo(MatchRegexp(`cliqueId +: [1-9]`),
+			"%s: a GPU reports a nonzero cliqueId\n%s", w.Name, strings.TrimSpace(out))
 	}
 }
 
