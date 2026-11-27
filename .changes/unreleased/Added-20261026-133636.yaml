@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  helm: gpu.confidentialCompute configures Confidential Computing on Hopper or newer and Protected PCIe on Hopper; individual settings overlay the profile without requiring an explicit mode.
+time: 2026-10-26T12:36:36Z
+custom:
+  Issue: "377"

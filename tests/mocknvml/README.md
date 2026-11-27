@@ -43,6 +43,8 @@ It also runs a suite of **bridge edge-case tests** (`bridge_tests.go`): NVML ret
 
 The integration test runs against a profile config fixture, `util-test-config.yaml`, via `MOCK_NVML_CONFIG` (set by the Makefile). It is an A100 profile plus one compute process carrying `sm_util`, so the per-process utilization path is exercised. Device 5 declares `power.smoothing.supported`, so the power smoothing setters are driven on it while every other device refuses them.
 
+A second run, `mocknvml-test coco`, runs the Confidential Compute suite alone against `cc-test-config.yaml`, which the Dockerfile builds from the shipped H100 profile plus the `confidential_compute` block in `cc-test-config.tail.yaml`. CC is one switch per node, so it cannot share the A100 fixture, which leaves CC off. A third run, `mocknvml-test ppcie`, uses `ppcie-test-config.yaml` to check Protected PCIe with CC off, including attestation and readiness. Its configuration comes from the same H100 profile plus `ppcie-test-config.tail.yaml`.
+
 The fixture declares a 580 driver, on which a call only a newer driver exports answers `FUNCTION_NOT_FOUND`. `make test` therefore runs the suite of such a call a second time, alone, on a copy of the fixture that declares a 615 driver: `mocknvml-test fabric_v4` with `MOCK_NVML_CONFIG=/app/util-test-config-615.yaml`.
 
 Without a config file, the mock library falls back to environment variables:

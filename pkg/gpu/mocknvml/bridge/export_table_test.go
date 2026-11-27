@@ -31,8 +31,9 @@ func highWord(w uint64) uint32 { return uint32(w >> 32) }
 
 // A 615 nvidia-smi counts unlisted GPUs before every command that changes GPU
 // state, and trusts the count on SUCCESS: the slot must overwrite it, and leave
-// a block of any other version alone.
+// a block of any other version alone. A node without excluded GPUs has none.
 func TestUnlistedGPUCountSlot_ReportsNone(t *testing.T) {
+	newBridgeEngine(t, profile("615.71.09", 2, ""))
 	const garbage = uint64(0xffff) << 32
 
 	block, ret := internalSlotBlockCallForTest(unlistedGPUCountSlotForTest,
@@ -45,6 +46,42 @@ func TestUnlistedGPUCountSlot_ReportsNone(t *testing.T) {
 	block, ret = internalSlotBlockCallForTest(unlistedGPUCountSlotForTest, []uint64{other}, 0, 0, 0)
 	require.Equal(t, nvml.ERROR_ARGUMENT_VERSION_MISMATCH, ret)
 	require.Equal(t, other, block[0], "a block of another version is not written")
+}
+
+// The mock's excluded GPUs are the ones the driver sees but NVML does not
+// list, so slots 270 and 271 report them as unlisted: `nvidia-smi --gpu-reset`
+// prints one line per entry with its bus id.
+func TestUnlistedGPUSlots_ReportExcludedGPUs(t *testing.T) {
+	b := newBridgeEngine(t, profile("615.71.09", 2, "")+"devices:\n  - index: 1\n    excluded: true\n")
+	excluded, ret := b.ExcludedDevices()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Len(t, excluded, 1)
+
+	block, ret := internalSlotBlockCallForTest(unlistedGPUCountSlotForTest,
+		[]uint64{uint64(unlistedGPUCountV1ForTest)}, 0, 0, 0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, uint32(1), highWord(block[0]))
+
+	busID, ret := unlistedGPUInfoForTest(0, unlistedGPUInfoV1ForTest)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, busIDString(excluded[0].PciInfo.BusId), busID, "the excluded GPU's bus id")
+
+	_, ret = unlistedGPUInfoForTest(1, unlistedGPUInfoV1ForTest)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret, "one past the last unlisted GPU")
+	_, ret = unlistedGPUInfoForTest(0, 0x02000010)
+	require.Equal(t, nvml.ERROR_ARGUMENT_VERSION_MISMATCH, ret)
+}
+
+// busIDString is the NUL-terminated bus id an nvmlPciInfo_t holds.
+func busIDString(id [32]int8) string {
+	b := make([]byte, 0, len(id))
+	for _, c := range id {
+		if c == 0 {
+			break
+		}
+		b = append(b, byte(c))
+	}
+	return string(b)
 }
 
 // `nvidia-smi --gpu-reset` on a 615 binary allocates a group of the GPUs it
@@ -80,7 +117,7 @@ func TestResetGroupSlots_RunTheGroupTheyAllocate(t *testing.T) {
 // rather than report success, because the caller would read the
 // out-parameters nothing wrote.
 func TestExportTable_UnimplementedNewerSlotsDecline(t *testing.T) {
-	for _, slot := range []uint{firstSlotPast580ForTest, 271, 300, uint(len(internalExportTable) - 1)} {
+	for _, slot := range []uint{firstSlotPast580ForTest, 274, 300, uint(len(internalExportTable) - 1)} {
 		_, ret := internalSlotBlockCallForTest(slot, []uint64{0}, 0, 0, 0)
 		require.Equalf(t, nvml.ERROR_NOT_SUPPORTED, ret, "slot %d", slot)
 	}
