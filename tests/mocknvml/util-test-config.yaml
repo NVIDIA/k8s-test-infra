@@ -548,6 +548,17 @@ devices:
     pci:
       bus_id: "0000:BD:00.0"
     minor_number: 7
+    # The fixture's one Rubin board, the only architecture with a bank
+    # remapper: testBankRemapper reads a pending remap and a bank group out of
+    # spares here, and NOT_SUPPORTED from the Ampere boards.
+    architecture: "rubin"
+    bank_remapper:
+      active_remappings: 3
+      inactive_remappings: 1
+      pending: true
+      histogram:
+        max_spare_groups: 250
+        no_spare_groups: 2
 
 # =============================================================================
 # NVLink topology

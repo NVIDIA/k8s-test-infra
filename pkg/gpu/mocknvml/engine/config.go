@@ -1313,6 +1313,9 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.ECC != nil {
 		base.ECC = override.ECC
 	}
+	if override.BankRemapper != nil {
+		base.BankRemapper = override.BankRemapper
+	}
 	if override.DynamicMetrics != nil {
 		base.DynamicMetrics = override.DynamicMetrics
 	}

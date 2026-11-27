@@ -158,6 +158,10 @@ var functionRegistry = map[string]FunctionVersion{
 	// symbol is absent, and fall back to nvmlDeviceGetGpuFabricInfoV.
 	"nvmlDeviceGetGpuFabricInfo_v4": {Added: "615.0"},
 
+	// The bank remapper is Rubin's, and no driver before 615 exports it. The
+	// field ids that read the same state are gated with it.
+	"nvmlDeviceGetBankRemapperStatus_v1": {Added: "615.0"},
+
 	// The per-GPU hostname pair landed mid-branch: absent from
 	// libnvidia-ml.so.580.65.06, present from 580.95.05. The minor component
 	// matters here, which is why this entry is not rounded to 580.0.
@@ -248,13 +252,18 @@ func FunctionAvailable(funcName, driverVersion string) bool {
 // FieldAvailable reports whether the given driver version knows a field id.
 // Power smoothing arrived in 570 as a unit, the field ids that read it with the
 // setters that write it, so a driver without the setters reports none of the
-// fields rather than a feature nothing can control. Other ids default to
+// fields rather than a feature nothing can control. The bank remapper ids
+// arrived with the call that reads the same state. Other ids default to
 // available, as unknown functions do.
 func FieldAvailable(fieldID uint32, driverVersion string) bool {
-	if isPowerSmoothingField(fieldID) {
+	switch {
+	case isPowerSmoothingField(fieldID):
 		return FunctionAvailable("nvmlDevicePowerSmoothingSetState", driverVersion)
+	case isBankRemapperField(fieldID):
+		return FunctionAvailable("nvmlDeviceGetBankRemapperStatus_v1", driverVersion)
+	default:
+		return true
 	}
-	return true
 }
 
 // CompareDriverVersions compares two NVIDIA driver version strings.

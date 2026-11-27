@@ -31,6 +31,16 @@ func TestFieldAvailable_PowerSmoothingNeedsDriver570(t *testing.T) {
 		"a field outside the power smoothing range keeps its availability")
 }
 
+func TestFieldAvailable_BankRemapperNeedsDriver615(t *testing.T) {
+	t.Parallel()
+	for id := uint32(fiActiveBankRemappings); id <= fiPendingBankRemapping; id++ {
+		require.False(t, FieldAvailable(id, "580.95.05"), "field %d on 580", id)
+		require.True(t, FieldAvailable(id, "615.71.09"), "field %d on 615", id)
+	}
+	require.True(t, FieldAvailable(fiActiveBankRemappings-1, "580.95.05"),
+		"a field outside the bank remapper range keeps its availability")
+}
+
 func TestCompareDriverVersions(t *testing.T) {
 	tests := []struct {
 		name string
@@ -122,6 +132,8 @@ func TestFunctionAvailable(t *testing.T) {
 		// on one must fall back to nvmlDeviceGetGpuFabricInfoV.
 		{"fabric info v4 not available on 580", "580.65.06", "nvmlDeviceGetGpuFabricInfo_v4", false},
 		{"fabric info v4 available on 615", "615.71.09", "nvmlDeviceGetGpuFabricInfo_v4", true},
+		{"bank remapper not available on 580", "580.95.05", "nvmlDeviceGetBankRemapperStatus_v1", false},
+		{"bank remapper available on 615", "615.71.09", "nvmlDeviceGetBankRemapperStatus_v1", true},
 	}
 
 	for _, tt := range tests {

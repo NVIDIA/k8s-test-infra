@@ -278,6 +278,14 @@ func (g *generator) deviceDefaultRules(s *section) {
 	histogram.reading("low", getter("GetRowRemapperHistogram", "Low"))
 	histogram.reading("none", getter("GetRowRemapperHistogram", "None"))
 
+	banks := s.sub("bank_remapper")
+	banks.reading("active_remappings", getter("GetBankRemapperStatus_v1", "ActiveRemappings"))
+	banks.reading("inactive_remappings", getter("GetBankRemapperStatus_v1", "InactiveRemappings"))
+	banks.reading("pending", getter("GetBankRemapperStatus_v1", "BPending").as(bit(1)))
+	bankHistogram := banks.sub("histogram")
+	bankHistogram.reading("max_spare_groups", getter("GetBankRemapperStatus_v1", "Histogram", "MaxSpareGroupCount"))
+	bankHistogram.reading("no_spare_groups", getter("GetBankRemapperStatus_v1", "Histogram", "NoSpareGroupCount"))
+
 	display := s.sub("display")
 	display.prop("mode", getter("GetDisplayMode").as(enabledName))
 	display.prop("active", getter("GetDisplayActive").as(enabledName))

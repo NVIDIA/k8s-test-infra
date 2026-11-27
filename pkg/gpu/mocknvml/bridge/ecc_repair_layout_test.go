@@ -36,6 +36,8 @@ func TestEccRepairStructLayouts(t *testing.T) {
 		{"DramEncryptionInfo", unsafe.Sizeof(nvml.DramEncryptionInfo{}), 8},
 		{"EccSramUniqueUncorrectedErrorEntry_v1", unsafe.Sizeof(nvml.EccSramUniqueUncorrectedErrorEntry_v1{}), 28},
 		{"EccSramUniqueUncorrectedErrorCounts", unsafe.Sizeof(nvml.EccSramUniqueUncorrectedErrorCounts{}), 16},
+		{"EccBankRemapperHistogram_v1", unsafe.Sizeof(nvml.EccBankRemapperHistogram_v1{}), 8},
+		{"EccBankRemapperStatus_v1", unsafe.Sizeof(nvml.EccBankRemapperStatus_v1{}), 20},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -56,6 +56,7 @@ test: build
 	@echo "================================================"
 	@echo ""
 	$(DOCKER) run --rm -e MOCK_NVML_CONFIG=/app/util-test-config-615.yaml $(IMAGE_NAME):$(IMAGE_TAG) /app/mocknvml-test fabric_v4
+	$(DOCKER) run --rm -e MOCK_NVML_CONFIG=/app/util-test-config-615.yaml $(IMAGE_NAME):$(IMAGE_TAG) /app/mocknvml-test bank_remapper
 	@echo ""
 	@echo "================================================"
 	@echo "✓ Mock NVML integration test completed successfully!"

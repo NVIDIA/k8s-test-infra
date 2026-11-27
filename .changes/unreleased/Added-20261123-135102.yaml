@@ -1,0 +1,6 @@
+kind: Added
+body: |-
+  nvml-mock: `nvmlDeviceGetBankRemapperStatus_v1` and field IDs 303–307 report Rubin's bank remapper on a `615` or newer driver, from a new `bank_remapper` profile block; see [Bank remapper](docs/configuration.md#bank-remapper).
+time: 2026-11-23T12:51:02Z
+custom:
+  Issue: "1206"

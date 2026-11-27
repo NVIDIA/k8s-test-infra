@@ -1362,6 +1362,25 @@ struct nvmlEccSramUniqueUncorrectedErrorCounts_st
     nvmlEccSramUniqueUncorrectedErrorEntry_v1_t *entries;  //!< caller-supplied buffer, or NULL to probe the size
 };
 
+/*
+ * Rubin's bank remapper. Upstream declares both structs as anonymous typedefs
+ * and gives the status no version field: the _v1 in the entry point carries
+ * it, so there is no tag for the bridge to check.
+ */
+typedef struct nvmlEccBankRemapperHistogram_v1_st
+{
+    unsigned int maxSpareGroupCount;     //!< OUT: bank groups with every spare left
+    unsigned int noSpareGroupCount;      //!< OUT: bank groups with no spare left
+} nvmlEccBankRemapperHistogram_v1_t;
+
+typedef struct nvmlEccBankRemapperStatus_v1_st
+{
+    unsigned int activeRemappings;                //!< OUT: remappings in use
+    unsigned int inactiveRemappings;              //!< OUT: remappings no longer in use
+    unsigned int bPending;                        //!< OUT: a bank remap waits for the next reset
+    nvmlEccBankRemapperHistogram_v1_t histogram;  //!< OUT: spare capacity per bank group
+} nvmlEccBankRemapperStatus_v1_t;
+
 _Static_assert(sizeof(struct nvmlRepairStatus_st) == 12, "nvmlRepairStatus_t must stay 12 bytes");
 _Static_assert(sizeof(struct nvmlUnrepairableMemoryStatus_v1_st) == 4, "nvmlUnrepairableMemoryStatus_v1_t must stay 4 bytes");
 _Static_assert(sizeof(struct nvmlDramEncryptionInfo_st) == 8, "nvmlDramEncryptionInfo_t must stay 8 bytes");
@@ -1369,6 +1388,10 @@ _Static_assert(sizeof(nvmlEccSramUniqueUncorrectedErrorEntry_v1_t) == 28, "the S
 _Static_assert(sizeof(struct nvmlEccSramUniqueUncorrectedErrorCounts_st) == 16 &&
                offsetof(struct nvmlEccSramUniqueUncorrectedErrorCounts_st, entries) == 8,
                "nvmlEccSramUniqueUncorrectedErrorCounts_t must stay 16 bytes with entries at offset 8");
+_Static_assert(sizeof(nvmlEccBankRemapperHistogram_v1_t) == 8, "nvmlEccBankRemapperHistogram_v1_t must stay 8 bytes");
+_Static_assert(sizeof(nvmlEccBankRemapperStatus_v1_t) == 20 &&
+               offsetof(nvmlEccBankRemapperStatus_v1_t, histogram) == 12,
+               "nvmlEccBankRemapperStatus_v1_t must stay 20 bytes with the histogram at offset 12");
 
 /*
  * powerScope is unsigned char upstream, so the trailing powerValueMw sits at
@@ -1530,7 +1553,6 @@ typedef struct
  * from go-nvml's pkg/nvml/nvml.h.
  */
 typedef struct nvmlAdaptiveTgpModeInfo_v1_st                            nvmlAdaptiveTgpModeInfo_v1_t;
-typedef struct nvmlEccBankRemapperStatus_v1_st                          nvmlEccBankRemapperStatus_v1_t;
 typedef struct nvmlEventSetGetContextCount_v1_st                        nvmlEventSetGetContextCount_v1_t;
 typedef struct nvmlEventSetGetContextData_v1_st                         nvmlEventSetGetContextData_v1_t;
 typedef struct nvmlEventSetGetContextInfo_v1_st                         nvmlEventSetGetContextInfo_v1_t;

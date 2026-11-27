@@ -697,6 +697,36 @@ device_defaults:
       none: 0                           # banks with no capacity left
 ```
 
+### Bank remapper
+
+Rubin and later GPUs repair a failing DRAM bank by remapping it to a spare.
+`bank_remapper` is what `nvmlDeviceGetBankRemapperStatus_v1` reports, and what
+`nvidia-smi -q` renders under `Remapped Banks`. The same values are field IDs
+303–307 (`NVML_FI_DEV_ACTIVE_BANK_REMAPPINGS` through
+`NVML_FI_DEV_PENDING_BANK_REMAPPING`).
+
+```yaml
+device_defaults:
+  bank_remapper:
+    active_remappings: 0
+    inactive_remappings: 0
+    pending: false                      # a bank remap waits for the next reset
+    histogram:
+      max_spare_groups: 252             # bank groups with every spare left
+      no_spare_groups: 0                # bank groups with no spare left
+```
+
+- Architectures before Rubin report the bank remapper as unsupported, with or
+  without the block.
+- The call and its field IDs first appear in the `615` driver. On an older
+  profile the call answers `FUNCTION_NOT_FOUND`, and the fields `NOT_SUPPORTED`.
+- Leaving the block out reports nothing remapped, nothing pending and no
+  exhausted group, unless the profile sets
+  [`absent_features: not_supported`](#features-a-profile-leaves-out).
+- An injected `ecc_uncorrectable` failure queues a row remap, which
+  [`remapped_rows`](#remapped-rows) reports. It does not change the bank
+  remapper.
+
 ### Display
 
 ```yaml
@@ -750,6 +780,7 @@ captured tray reported. A `devices[]` entry can turn it on for one GPU.
 | `gpu_operation_mode` | `nvmlDeviceGetGpuOperationMode` |
 | `retired_pages` | `nvmlDeviceGetRetiredPages`, `nvmlDeviceGetRetiredPages_v2`, `nvmlDeviceGetRetiredPagesPendingStatus` |
 | `ecc.dram_encryption` | `nvmlDeviceGetDramEncryptionMode`, `nvmlDeviceSetDramEncryptionMode` |
+| `bank_remapper` | `nvmlDeviceGetBankRemapperStatus_v1` and field IDs 303–307, on Rubin and later |
 | `thermal.temperature_memory_c` | `nvmlDeviceGetTemperatureThreshold` for the memory maximum |
 | `thermal.target_temperature_c` | `nvmlDeviceGetTemperatureThreshold` for the acoustic thresholds (the target temperature and its range) |
 | none | `nvmlDeviceGetTemperatureThreshold` for the GPS threshold |

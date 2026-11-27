@@ -23,7 +23,7 @@ package main
 */
 import "C"
 
-// 109 stub functions for unimplemented NVML functions.
+// 108 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceGetInfo_v1
@@ -49,11 +49,6 @@ func nvmlDeviceGetAdaptiveTgpModeInfo_v1(device C.nvmlDevice_t, info *C.nvmlAdap
 //export nvmlDeviceGetAttributes_v1
 func nvmlDeviceGetAttributes_v1(device C.nvmlDevice_t, attributes *C.nvmlDeviceAttributes_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetAttributes_v1")
-}
-
-//export nvmlDeviceGetBankRemapperStatus_v1
-func nvmlDeviceGetBankRemapperStatus_v1(device C.nvmlDevice_t, pBankRemapperStatus *C.nvmlEccBankRemapperStatus_v1_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetBankRemapperStatus_v1")
 }
 
 //export nvmlDeviceGetComputeRunningProcesses_v1

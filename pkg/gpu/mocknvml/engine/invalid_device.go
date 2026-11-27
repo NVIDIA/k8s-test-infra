@@ -511,6 +511,9 @@ func newInvalidDevice() *invalidDevice {
 	d.GetRemappedRowsFunc = func() (int, int, bool, bool, nvml.Return) {
 		return 0, 0, false, false, nvml.ERROR_INVALID_ARGUMENT
 	}
+	d.GetBankRemapperStatus_v1Func = func() (nvml.EccBankRemapperStatus_v1, nvml.Return) {
+		return nvml.EccBankRemapperStatus_v1{}, nvml.ERROR_INVALID_ARGUMENT
+	}
 	d.GetRepairStatusFunc = func() (nvml.RepairStatus, nvml.Return) {
 		return nvml.RepairStatus{}, nvml.ERROR_INVALID_ARGUMENT
 	}
