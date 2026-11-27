@@ -52,16 +52,15 @@ func crdValidator(t *testing.T, file string) func(obj any) error {
 }
 
 // TestShapesMatchTheCRD keeps the Go rules file mode uses in step with the
-// CRDs: every shipped profile passes both, and a field the CRD rejects is
+// CRDs: every profile passes both, and a field the CRD rejects is
 // rejected in file mode too, so a declaration that works in one mode works in
 // the other.
 func TestShapesMatchTheCRD(t *testing.T) {
 	t.Parallel()
 	crd := crdValidator(t, "mokka.nvidia.com_snicprofiles.yaml")
 
-	shipped := loadChartProfiles(t)
-	for name, p := range shipped {
-		require.NoError(t, crd(p), "shipped profile %s", name)
+	for name, p := range loadProfiles(t) {
+		require.NoError(t, crd(p), "profile %s", name)
 	}
 
 	setType := func(p *v1alpha1.SNICProfile, mutate func(*v1alpha1.NICFunctionType)) {
@@ -84,7 +83,19 @@ func TestShapesMatchTheCRD(t *testing.T) {
 		"subsystem ID too short": func(p *v1alpha1.SNICProfile) {
 			setType(p, func(f *v1alpha1.NICFunctionType) { f.SubsystemDeviceID = "208" })
 		},
-		"driver empty":       func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.Driver = "" }) },
+		"driver empty": func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.Driver = "" }) },
+		"driver with a path": func(p *v1alpha1.SNICProfile) {
+			setType(p, func(f *v1alpha1.NICFunctionType) { f.Driver = "../../etc" })
+		},
+		"driver uppercase": func(p *v1alpha1.SNICProfile) {
+			setType(p, func(f *v1alpha1.NICFunctionType) { f.Driver = "MLX5_core" })
+		},
+		"RDMA name prefix with a slash": func(p *v1alpha1.SNICProfile) {
+			setType(p, func(f *v1alpha1.NICFunctionType) { f.RDMANamePrefix = "mlx5/" })
+		},
+		"RDMA name prefix with a dot": func(p *v1alpha1.SNICProfile) {
+			setType(p, func(f *v1alpha1.NICFunctionType) { f.RDMANamePrefix = ".." })
+		},
 		"revision one digit": func(p *v1alpha1.SNICProfile) { setType(p, func(f *v1alpha1.NICFunctionType) { f.Revision = "0x0" }) },
 		"RDMA attribute unknown": func(p *v1alpha1.SNICProfile) {
 			setType(p, func(f *v1alpha1.NICFunctionType) { f.RDMAOmit = []v1alpha1.RDMAAttribute{"node_guid"} })
@@ -125,7 +136,7 @@ func TestShapesMatchTheCRD(t *testing.T) {
 }
 
 // TestRackExampleDeclaresValidNICs checks the shipped rack profile example's
-// NICs against the CRD and the Go rules, with the chart's NIC profiles.
+// NICs against the CRD and the Go rules, with the NIC profiles.
 func TestRackExampleDeclaresValidNICs(t *testing.T) {
 	t.Parallel()
 	data, err := os.ReadFile(rackExample)
@@ -134,7 +145,7 @@ func TestRackExampleDeclaresValidNICs(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, r.Spec.Node.Topology.NICs)
 	require.NoError(t, crdValidator(t, "mokka.nvidia.com_sgpurackprofiles.yaml")(r))
-	require.NoError(t, ValidateNode(r.Spec.Node.Topology, nil, loadChartProfiles(t)))
+	require.NoError(t, ValidateNode(r.Spec.Node.Topology, nil, loadProfiles(t)))
 	require.NoError(t, ValidateRDMA(r.Spec.Software.RDMA))
 }
 
@@ -143,7 +154,7 @@ func TestRackExampleDeclaresValidNICs(t *testing.T) {
 func TestSlotShapesMatchTheCRD(t *testing.T) {
 	t.Parallel()
 	crd := crdValidator(t, "mokka.nvidia.com_sgpurackprofiles.yaml")
-	profiles := loadChartProfiles(t)
+	profiles := loadProfiles(t)
 
 	base := func() *v1alpha1.SGPURackProfile {
 		data, err := os.ReadFile(rackExample)

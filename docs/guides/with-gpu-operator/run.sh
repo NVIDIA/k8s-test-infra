@@ -89,7 +89,7 @@ kubectl_ctx() { command kubectl --context "${KUBE_CONTEXT}" "$@"; }
 PROFILE_YAML="${CHART_PATH}/profiles/${GPU_PROFILE}.yaml"
 if [[ ! -f "${PROFILE_YAML}" ]]; then
   echo "ERROR: profile YAML not found: ${PROFILE_YAML}" >&2
-  echo "       set GPU_PROFILE to one of: $(ls "${CHART_PATH}/profiles/" | sed 's/\.yaml$//' | tr '\n' ' ')" >&2
+  echo "       set GPU_PROFILE to one of: $(for f in "${CHART_PATH}"/profiles/*.yaml; do basename "${f}" .yaml; done | tr '\n' ' ')" >&2
   exit 1
 fi
 if [[ ! -f "${OPERATOR_VALUES}" ]]; then

@@ -1,3 +1,6 @@
+# A test fixture, not shipped in the chart: it shows the schema covers this
+# NIC, and ships once a collect network capture of the instance passes
+# conformance.
 # ConnectX-8 as an AWS p6e-gb300r instance shows it: two RoCE virtual functions
 # the hypervisor assigns, and a Data Direct function, with no PF visible.
 apiVersion: mokka.nvidia.com/v1alpha1

@@ -581,8 +581,8 @@ _Appears in:_
 | `deviceID` _string_ | DeviceID is four lowercase hex digits, without 0x. |  | Pattern: `^[0-9a-f]\{4\}$` <br /> |
 | `subsystemVendorID` _string_ | SubsystemVendorID is four lowercase hex digits; empty means 0000. |  | Pattern: `^[0-9a-f]\{4\}$` <br />Optional: \{\} <br /> |
 | `subsystemDeviceID` _string_ | SubsystemDeviceID is four lowercase hex digits; empty means 0000. |  | Pattern: `^[0-9a-f]\{4\}$` <br />Optional: \{\} <br /> |
-| `driver` _string_ | Driver is the bound kernel driver, such as mlx5_core. |  | MinLength: 1 <br /> |
-| `rdmaNamePrefix` _string_ | RDMANamePrefix is the kernel's RDMA device name prefix, such as mlx5_. |  | Optional: \{\} <br /> |
+| `driver` _string_ | Driver is the bound kernel driver, such as mlx5_core: lowercase<br />letters, digits, _ and -. It names a path the node agent renders, so it<br />can't hold a slash or a dot. |  | MinLength: 1 <br />Pattern: `^[a-z0-9_-]+$` <br /> |
+| `rdmaNamePrefix` _string_ | RDMANamePrefix is the kernel's RDMA device name prefix, such as mlx5_:<br />lowercase letters, digits and _. RDMA device names, and the paths the<br />node agent renders for them, start with it. |  | Pattern: `^[a-z0-9_]+$` <br />Optional: \{\} <br /> |
 | `rdmaNodeType` _string_ | RDMANodeType is the node_type the driver reports; empty means "1: CA". |  | Optional: \{\} <br /> |
 | `rdmaOmit` _[RDMAAttribute](#rdmaattribute) array_ | RDMAOmit lists RDMA attributes the driver doesn't create: the file is<br />absent. |  | Enum: [fw_ver hca_type board_id hw_rev] <br />Optional: \{\} <br /> |
 | `rdmaEmpty` _[RDMAAttribute](#rdmaattribute) array_ | RDMAEmpty lists RDMA attributes the driver creates with an empty value. |  | Enum: [fw_ver hca_type board_id hw_rev] <br />Optional: \{\} <br /> |

@@ -1,3 +1,6 @@
+# A test fixture, not shipped in the chart: it shows the schema covers this
+# NIC, and ships once a collect network capture of the instance passes
+# conformance.
 # AWS EFA adapter as a c5n.9xlarge instance shows it: one EFA function on the
 # root bus, next to a separate ENA function that has the netdev.
 apiVersion: mokka.nvidia.com/v1alpha1

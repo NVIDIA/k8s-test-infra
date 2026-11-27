@@ -17,7 +17,8 @@ import (
 )
 
 const (
-	chartNICs    = "../../../deployments/nvml-mock/helm/nvml-mock/nics"
+	chartNICs    = "../../../deployments/nvml-mock/helm/nvml-mock/profiles/nics"
+	testNICs     = "../testdata/nicprofiles"
 	rackFixtures = "../testdata/rackprofiles"
 )
 
@@ -93,7 +94,7 @@ func TestProfileValidate(t *testing.T) {
 			ft := p.Spec.FunctionTypes["network"]
 			ft.Driver = ""
 			p.Spec.FunctionTypes["network"] = ft
-		}, "driver is empty"},
+		}, `driver "" is not a kernel driver name`},
 		{"uppercase PCI ID", func(p *v1alpha1.SNICProfile) {
 			ft := p.Spec.FunctionTypes["network"]
 			ft.DeviceID = "A2DC"
@@ -607,29 +608,36 @@ func TestDecodeIsStrict(t *testing.T) {
 	require.ErrorContains(t, err, "want mokka.nvidia.com/v1alpha1 SNICProfile")
 }
 
-// loadChartProfiles decodes every NIC profile the chart ships.
-func loadChartProfiles(t *testing.T) Profiles {
+// loadProfiles decodes every NIC profile the chart ships and the test-only
+// ones, which cover NICs no shipped profile has evidence for yet.
+func loadProfiles(t *testing.T) Profiles {
 	t.Helper()
-	paths, err := filepath.Glob(filepath.Join(chartNICs, "*.yaml"))
-	require.NoError(t, err)
-	require.Len(t, paths, 7)
 	out := Profiles{}
-	for _, path := range paths {
-		data, err := os.ReadFile(path)
+	for _, dir := range []struct {
+		path  string
+		count int
+	}{{chartNICs, 5}, {testNICs, 2}} {
+		paths, err := filepath.Glob(filepath.Join(dir.path, "*.yaml"))
 		require.NoError(t, err)
-		p, err := DecodeProfile(data)
-		require.NoError(t, err, path)
-		require.Equal(t, strings.TrimSuffix(filepath.Base(path), ".yaml"), p.Name, "%s: the file is named after its profile", path)
-		out[p.Name] = p
+		require.Len(t, paths, dir.count, dir.path)
+		for _, path := range paths {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			p, err := DecodeProfile(data)
+			require.NoError(t, err, path)
+			require.Equal(t, strings.TrimSuffix(filepath.Base(path), ".yaml"), p.Name, "%s: the file is named after its profile", path)
+			require.NotContains(t, out, p.Name, "%s: profile names are unique", path)
+			out[p.Name] = p
+		}
 	}
 	return out
 }
 
-// TestShippedProfilesAndRackFixtures decodes every shipped NIC profile and
-// every rack fixture strictly into the API types and validates them.
+// TestShippedProfilesAndRackFixtures decodes every NIC profile, shipped or
+// test-only, and every rack fixture strictly into the API types and validates them.
 func TestShippedProfilesAndRackFixtures(t *testing.T) {
 	t.Parallel()
-	profiles := loadChartProfiles(t)
+	profiles := loadProfiles(t)
 
 	paths, err := filepath.Glob(filepath.Join(rackFixtures, "*.yaml"))
 	require.NoError(t, err)
