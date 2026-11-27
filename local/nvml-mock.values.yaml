@@ -10,11 +10,9 @@
 nodeSelector:
   mokka.nvidia.com/type: sgpu
 
-# Announce injected Xids on the node's kernel log. The chart leaves it off because
-# it makes the node-agent container privileged; a local cluster is where that trade
-# is worth it: `nvml-mock-ctl fail --xid` is meant to be visible to whatever reads
-# the node's kernel messages, and local/kind/*.kind.yaml already has journald
-# ingest them.
+# Announce injected Xids on the node's kernel log. The chart leaves host
+# /dev/kmsg access opt-in; local/kind/*.kind.yaml configures journald to ingest
+# the messages, so the local profile enables it for kernel-log scenarios.
 nodeAgent:
   kernelLog:
     enabled: true
