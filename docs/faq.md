@@ -27,10 +27,20 @@ No, and it is not meant to be. Mokka is a test double for CI and test clusters.
 It reports GPUs that do not exist, which is useful for testing scheduling and
 failure handling and actively harmful anywhere real work is expected to land.
 
+Do not install it on a cluster with real NVIDIA GPUs either. The node daemon
+makes its own `nvidia` runtime handler containerd's default and restarts
+containerd, and the NRI plugin injects the mock driver into containers that
+hold a GPU allocation, so workloads on a real GPU node would see the mock
+instead of the hardware. See
+[Container runtime setup](components/node-daemon.md#container-runtime-setup)
+and [Recognising a GPU allocation](components/nri-plugin.md#recognising-a-gpu-allocation).
+Run Mokka on a separate test cluster.
+
 ## Which GPU models can I simulate?
 
-Seven profiles ship with the chart: `a100`, `b200`, `gb200`, `gb300`, `h100`,
-`l40s` and `t4`. `gb300` is the default. Switch with `--set gpu.profile=<name>`.
+Eight profiles ship with the chart: `a100`, `b200`, `gb200`, `gb300`, `h100`,
+`l40s`, `t4` and `vrnvl72`. `gb300` is the default. Switch with
+`--set gpu.profile=<name>`.
 
 See [Configuration](configuration.md) for what each profile defines.
 
@@ -49,8 +59,10 @@ the vendor one and reports whatever the profile describes.
 
 Because the profile says so, and nothing moves it. Mokka runs no kernels, so no
 workload consumes device memory, and the profile's `memory.used_bytes` — `0` in
-every shipped profile — is what every consumer reads no matter what is
-scheduled.
+every shipped profile — is the used memory `nvidia-smi` and other
+`nvmlDeviceGetMemoryInfo_v2` consumers read no matter what is scheduled.
+`nvmlDeviceGetMemoryInfo` (v1) has no reserved field, so as on a real GPU it
+reports `memory.reserved_bytes` plus `memory.used_bytes` as used.
 
 Set `allocationWatcher.enabled=true` to make used and free memory track
 Kubernetes GPU allocation instead: a sidecar polls the kubelet pod-resources API
@@ -92,11 +104,11 @@ does: a hostPath at `/run/nvidia/driver` plus a matching `LD_LIBRARY_PATH`.
 
 ## Can I use MIG?
 
-Yes, on the MIG-capable profiles — `a100`, `h100`, `b200`, `gb200` and `gb300`.
-`nvidia-smi -mig` and `nvidia-smi mig -cgi/-cci/-dgi/-dci` work against the
-mock as they do against a driver, and a node can boot already partitioned, in
-which case the device plugin advertises one resource per slice under
-`migStrategy=single`.
+Yes, on the MIG-capable profiles — `a100`, `h100`, `b200`, `gb200`, `gb300`
+and `vrnvl72`. `nvidia-smi -mig` and `nvidia-smi mig -cgi/-cci/-dgi/-dci` work
+against the mock as they do against a driver, and a node can boot already
+partitioned, in which case the device plugin advertises one resource per slice
+under `migStrategy=single`.
 
 One boundary: a repartition made at runtime moves the NVML view only. What a
 node can *allocate* is the layout it booted with, because the driver capability

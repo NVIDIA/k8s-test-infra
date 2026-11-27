@@ -1,0 +1,152 @@
+# NIC slots of one VR NVL72 compute tray (tests/hardware-captures/vr-nvl72/node-a).
+# Four ConnectX-9 NICs and a BlueField-4 with two host links.
+# A fragment of an SGPURackProfile: the fields NIC declaration reads.
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SGPURackProfile
+metadata:
+  name: vr-nvl72
+spec:
+  rack: {nodesPerRack: 18}
+  software:
+    rdma: {umad: false, ipoib: false}
+  node:
+    gpus:
+      count: 4
+      pci: {vendorID: "10de", deviceID: "3041"}
+    topology:
+      rootPorts:
+        - {address: "0001:00:00.0", rootComplex: pci0001:00, id: {vendorID: "10de", deviceID: "2f95"}}
+        - {address: "0002:80:00.0", rootComplex: pci0002:80}
+        - {address: "0002:c0:00.0", rootComplex: pci0002:c0}
+        - {address: "0003:00:00.0", rootComplex: pci0003:00, id: {vendorID: "10de", deviceID: "2f95"}}
+        - {address: "0004:00:00.0", rootComplex: pci0004:00, id: {vendorID: "10de", deviceID: "2f95"}}
+        - {address: "0005:40:00.0", rootComplex: pci0005:40, id: {vendorID: "10de", deviceID: "2f96"}}
+        - {address: "0006:00:00.0", rootComplex: pci0006:00, id: {vendorID: "10de", deviceID: "2f95"}}
+        - {address: "0009:00:00.0", rootComplex: pci0009:00, id: {vendorID: "10de", deviceID: "2f95"}}
+        - {address: "000a:80:00.0", rootComplex: pci000a:80}
+        - {address: "000a:e0:00.0", rootComplex: pci000a:e0}
+        - {address: "000b:00:00.0", rootComplex: pci000b:00, id: {vendorID: "10de", deviceID: "2f95"}}
+        - {address: "000c:00:00.0", rootComplex: pci000c:00, id: {vendorID: "10de", deviceID: "2f95"}}
+        - {address: "000d:40:00.0", rootComplex: pci000d:40, id: {vendorID: "10de", deviceID: "2f96"}}
+        - {address: "000e:00:00.0", rootComplex: pci000e:00, id: {vendorID: "10de", deviceID: "2f95"}}
+      gpuSlots:
+        - {index: 0, rootComplex: "pci0002:80", pciAddress: "0002:81:00.0", parent: "0002:80:00.0", numaNode: 0}
+        - {index: 1, rootComplex: "pci0002:c0", pciAddress: "0002:c1:00.0", parent: "0002:c0:00.0", numaNode: 0}
+        - {index: 2, rootComplex: "pci000a:80", pciAddress: "000a:81:00.0", parent: "000a:80:00.0", numaNode: 1}
+        - {index: 3, rootComplex: "pci000a:e0", pciAddress: "000a:e1:00.0", parent: "000a:e0:00.0", numaNode: 1}
+      nics:
+        - slot: nic0
+          profile: cx9-vr
+          gpus: [0, 1]
+          devices:
+            network:
+              rootComplex: pci0001:00
+              # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
+              bridges:
+                - {address: "0001:01:00.0", parent: "0001:00:00.0"}
+                - {address: "0001:02:00.0", parent: "0001:01:00.0"}
+                - {address: "0001:02:01.0", parent: "0001:01:00.0"}
+                - {address: "0001:04:00.0", parent: "0001:02:01.0"}
+                - {address: "0001:05:04.0", parent: "0001:04:00.0"}
+              address: "0001:03:00"
+              parent: "0001:02:00.0"
+              numaNode: 0
+        - slot: nic1
+          profile: cx9-vr
+          gpus: [0, 1]
+          devices:
+            network:
+              rootComplex: pci0003:00
+              address: "0003:01:00"
+              parent: "0003:00:00.0"
+              numaNode: 0
+        - slot: nic2
+          profile: cx9-vr
+          gpus: [0, 1]
+          devices:
+            network:
+              rootComplex: pci0004:00
+              # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
+              bridges:
+                - {address: "0004:01:00.0", parent: "0004:00:00.0"}
+                - {address: "0004:02:00.0", parent: "0004:01:00.0"}
+                - {address: "0004:02:01.0", parent: "0004:01:00.0"}
+                - {address: "0004:04:00.0", parent: "0004:02:01.0"}
+                - {address: "0004:05:04.0", parent: "0004:04:00.0"}
+              address: "0004:03:00"
+              parent: "0004:02:00.0"
+              numaNode: 0
+        - slot: nic3
+          profile: cx9-vr
+          gpus: [0, 1]
+          devices:
+            network:
+              rootComplex: pci0006:00
+              address: "0006:01:00"
+              parent: "0006:00:00.0"
+              numaNode: 0
+        - slot: nic4
+          profile: cx9-vr
+          gpus: [2, 3]
+          devices:
+            network:
+              rootComplex: pci0009:00
+              # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
+              bridges:
+                - {address: "0009:01:00.0", parent: "0009:00:00.0"}
+                - {address: "0009:02:00.0", parent: "0009:01:00.0"}
+                - {address: "0009:02:01.0", parent: "0009:01:00.0"}
+                - {address: "0009:04:00.0", parent: "0009:02:01.0"}
+                - {address: "0009:05:04.0", parent: "0009:04:00.0"}
+              address: "0009:03:00"
+              parent: "0009:02:00.0"
+              numaNode: 1
+        - slot: nic5
+          profile: cx9-vr
+          gpus: [2, 3]
+          devices:
+            network:
+              rootComplex: pci000b:00
+              address: "000b:01:00"
+              parent: "000b:00:00.0"
+              numaNode: 1
+        - slot: nic6
+          profile: cx9-vr
+          gpus: [2, 3]
+          devices:
+            network:
+              rootComplex: pci000c:00
+              # The NIC's own PCIe switch; an NVMe drive sits behind 05:04.0.
+              bridges:
+                - {address: "000c:01:00.0", parent: "000c:00:00.0"}
+                - {address: "000c:02:00.0", parent: "000c:01:00.0"}
+                - {address: "000c:02:01.0", parent: "000c:01:00.0"}
+                - {address: "000c:04:00.0", parent: "000c:02:01.0"}
+                - {address: "000c:05:04.0", parent: "000c:04:00.0"}
+              address: "000c:03:00"
+              parent: "000c:02:00.0"
+              numaNode: 1
+        - slot: nic7
+          profile: cx9-vr
+          gpus: [2, 3]
+          devices:
+            network:
+              rootComplex: pci000e:00
+              address: "000e:01:00"
+              parent: "000e:00:00.0"
+              numaNode: 1
+        - slot: frontend0
+          profile: bf4-vr
+          # One ASIC; its system image GUID is the node GUID of host link B's p0 PF.
+          systemImageGUID: rdma-b0
+          devices:
+            hostA:
+              rootComplex: pci0005:40
+              address: "0005:41:00"
+              parent: "0005:40:00.0"
+              numaNode: 0
+            hostB:
+              rootComplex: pci000d:40
+              address: "000d:41:00"
+              parent: "000d:40:00.0"
+              numaNode: 1

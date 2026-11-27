@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -337,22 +338,22 @@ func validateYAMLConfig(config *YAMLConfig) error {
 		seen[dev.Index] = true
 	}
 
-	if err := ValidateMinorNumbers(config); err != nil {
-		return err
+	for _, validate := range []func(*YAMLConfig) error{
+		ValidateMinorNumbers,
+		ValidateUniqueBDFs,
+		validateDeviceUUIDs,
+		validateDeviceIdentifiers,
+		validateMIGConfigs,
+		validateGPUOperationModes,
+		validateBoardIDs,
+		validateFabricCliques,
+		validateVGPUConfig,
+	} {
+		if err := validate(config); err != nil {
+			return err
+		}
 	}
-
-	if err := ValidateUniqueBDFs(config); err != nil {
-		return err
-	}
-
-	if err := validateDeviceUUIDs(config); err != nil {
-		return err
-	}
-
-	if err := validateMIGConfigs(config); err != nil {
-		return err
-	}
-	return validateVGPUConfig(config)
+	return nil
 }
 
 // validateMIGConfigs checks the board-wide MIG block and every per-device one.
@@ -778,6 +779,116 @@ func validateMIGInstances(instances []MIGGPUInstanceRecord) error {
 	return nil
 }
 
+// validateBoardIDs rejects a board_id nvmlDeviceGetBoardId cannot carry: NVML
+// reports the board as a 32-bit value, so a wider one would be truncated into
+// a board some other GPU may already be on. See also validateBoardIDCollisions.
+func validateBoardIDs(config *YAMLConfig) error {
+	check := func(where string, id *HexID) error {
+		if id != nil && uint64(*id) > math.MaxUint32 {
+			return fmt.Errorf("%s.board_id %s does not fit in 32 bits", where, formatHexID(uint64(*id)))
+		}
+		return nil
+	}
+	if err := check("device_defaults", config.DeviceDefaults.BoardID); err != nil {
+		return err
+	}
+	for _, dev := range config.Devices {
+		if err := check(fmt.Sprintf("devices[index=%d]", dev.Index), dev.BoardID); err != nil {
+			return err
+		}
+	}
+	return validateBoardIDCollisions(config)
+}
+
+// validateBoardIDCollisions rejects a board_id equal to the board ID another
+// GPU derives from its PCI address. That GPU's profile never asked to share a
+// board, yet it would report one; a shared board is declared by giving every
+// GPU on it the same board_id.
+func validateBoardIDCollisions(config *YAMLConfig) error {
+	declaredBy := make(map[uint32]int) // board ID -> first device declaring it
+	var derive []int
+	for _, i := range deviceIndices(config) {
+		if id := configuredBoardID(config, i); id != nil {
+			if _, seen := declaredBy[uint32(*id)]; !seen { // width checked by validateBoardIDs
+				declaredBy[uint32(*id)] = i
+			}
+			continue
+		}
+		derive = append(derive, i)
+	}
+	if len(declaredBy) == 0 {
+		return nil
+	}
+	for _, i := range derive {
+		id, ok := derivedBoardID(config, i)
+		if owner, clash := declaredBy[id]; ok && clash {
+			return fmt.Errorf("devices[index=%d].board_id %#x is the board ID device %d derives from its PCI address, "+
+				"which would put device %d on a board its profile does not declare; give both the same board_id or pick another",
+				owner, id, i, i)
+		}
+	}
+	return nil
+}
+
+// configuredBoardID is the board_id device index ends up with: its own, or
+// else the defaults'.
+func configuredBoardID(config *YAMLConfig, index int) *HexID {
+	for _, dev := range config.Devices {
+		if dev.Index == index && dev.BoardID != nil {
+			return dev.BoardID
+		}
+	}
+	return config.DeviceDefaults.BoardID
+}
+
+// derivedBoardID is the board ID a device without board_id reports, derived
+// from its PCI address as initPciInfo does: the profile's pci.bus_id, or else
+// the base mock's. false when the device has no address, as past the base
+// mock's last GPU.
+func derivedBoardID(config *YAMLConfig, index int) (uint32, bool) {
+	busID := (&Config{YAMLConfig: config}).GetDevicePCIBusID(index)
+	if busID == "" {
+		busID = BaseDevicePCIBusID(index)
+	}
+	if busID == "" {
+		return 0, false
+	}
+	domain, bus, device, function, err := ParsePCIBusID(busID)
+	if err != nil {
+		return deriveBoardID(0, 0, 0, 0), true // initPciInfo's fallback
+	}
+	return deriveBoardID(domain, bus, device, function), true
+}
+
+// validateGPUOperationModes rejects a gpu_operation_mode the getter would
+// otherwise silently read as all_on.
+func validateGPUOperationModes(config *YAMLConfig) error {
+	check := func(where string, gom *GPUOperationModeConfig) error {
+		if gom == nil {
+			return nil
+		}
+		// A slice, not a map: with both fields wrong, the error names current
+		// every time rather than whichever field map iteration reached first.
+		for _, f := range []struct{ field, mode string }{{"current", gom.Current}, {"pending", gom.Pending}} {
+			switch f.mode {
+			case "", "all_on", "compute", "low_dp":
+			default:
+				return fmt.Errorf("%s.gpu_operation_mode.%s must be \"all_on\", \"compute\" or \"low_dp\", got %q", where, f.field, f.mode)
+			}
+		}
+		return nil
+	}
+	if err := check("device_defaults", config.DeviceDefaults.GPUOperationMode); err != nil {
+		return err
+	}
+	for _, dev := range config.Devices {
+		if err := check(fmt.Sprintf("devices[index=%d]", dev.Index), dev.GPUOperationMode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func validateMIGMode(field, value string) error {
 	switch value {
 	case "", "enabled", "disabled":
@@ -1011,6 +1122,71 @@ func validateDeviceUUIDs(config *YAMLConfig) error {
 	return nil
 }
 
+// validateDeviceIdentifiers rejects a PDI or fabric GUID that two devices would
+// report. Consumers key on both: an NVLink fabric manager tells GPUs apart by
+// fabric GUID, and inventory tools by PDI. The easy way to get there is a value
+// set in device_defaults, which every device inherits; the subtle one is a
+// fixed GUID on one GPU that equals the PDI another reports through "pdi".
+//
+// Values are compared as the devices will report them, wherever that is known
+// at load: a fixed PDI, or one derived from a declared UUID, and the GUID that
+// resolves from either. A device that declares no UUID takes the base mock's,
+// chosen at startup, so its derived PDI cannot take part.
+func validateDeviceIdentifiers(config *YAMLConfig) error {
+	if config == nil {
+		return nil
+	}
+	merged := &Config{YAMLConfig: config}
+	pdiOwner := map[uint64]int{}
+	guidOwner := map[uint64]int{}
+	claim := func(owners map[uint64]int, field string, value uint64, index int) error {
+		if other, dup := owners[value]; dup {
+			return fmt.Errorf("duplicate %s %s (devices %d and %d)", field, formatHexID(value), other, index)
+		}
+		owners[value] = index
+		return nil
+	}
+	for _, index := range deviceIndices(config) {
+		dev := merged.GetDeviceConfig(index)
+		pdi, pdiKnown := knownPDI(dev, merged.GetDeviceUUID(index))
+		if pdiKnown {
+			if err := claim(pdiOwner, "pdi", pdi, index); err != nil {
+				return err
+			}
+		}
+		if guid, ok := knownFabricGUID(dev, pdi, pdiKnown); ok {
+			if err := claim(guidOwner, "platform.gpu_fabric_guid", guid, index); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// knownFabricGUID is the fabric GUID a device sets, when its value is known at
+// load: always for a fixed one, and for "pdi" only when the PDI is.
+func knownFabricGUID(dev *DeviceConfig, pdi uint64, pdiKnown bool) (uint64, bool) {
+	if dev.Platform == nil || dev.Platform.GPUFabricGUID == nil {
+		return 0, false
+	}
+	guid := dev.Platform.GPUFabricGUID
+	if guid.FromPDI && !pdiKnown {
+		return 0, false
+	}
+	return guid.resolve(pdi), true
+}
+
+// knownPDI is the PDI a device will report, when that is known at load.
+func knownPDI(dev *DeviceConfig, uuid string) (uint64, bool) {
+	switch {
+	case dev.PDI != nil:
+		return uint64(*dev.PDI), true
+	case uuid != "":
+		return pdiFromUUID(uuid), true
+	}
+	return 0, false
+}
+
 // deviceIndices lists every device the config brings into being: those the
 // count covers, plus any the overrides declare beyond it.
 func deviceIndices(config *YAMLConfig) []int {
@@ -1073,6 +1249,9 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.VBIOSVersion != "" {
 		base.VBIOSVersion = override.VBIOSVersion
 	}
+	if override.PDI != nil {
+		base.PDI = override.PDI
+	}
 	if override.Hostname != "" {
 		base.Hostname = override.Hostname
 	}
@@ -1084,6 +1263,11 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	}
 	if override.AddressingMode != "" {
 		base.AddressingMode = override.AddressingMode
+	}
+	// A bool override can only turn EGM on: false is indistinguishable from
+	// an omitted key, so a device inherits the default unless it sets true.
+	if override.EGM {
+		base.EGM = true
 	}
 	if override.PCI != nil {
 		if base.PCI == nil {
@@ -1155,6 +1339,18 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	}
 	if override.Accounting != nil {
 		base.Accounting = override.Accounting
+	}
+	if override.EncoderStats != nil {
+		base.EncoderStats = override.EncoderStats
+	}
+	if override.FBCStats != nil {
+		base.FBCStats = override.FBCStats
+	}
+	if override.GPUOperationMode != nil {
+		base.GPUOperationMode = override.GPUOperationMode
+	}
+	if override.BoardID != nil {
+		base.BoardID = override.BoardID
 	}
 	if override.MIG != nil {
 		mergeMIGOverride(base, override.MIG)
@@ -1241,6 +1437,9 @@ func mergePlatformOverride(base *DeviceConfig, override *PlatformConfig) {
 	if override.ModuleID != 0 {
 		base.Platform.ModuleID = override.ModuleID
 	}
+	if override.GPUFabricGUID != nil {
+		base.Platform.GPUFabricGUID = override.GPUFabricGUID
+	}
 }
 
 // applyTopologyOverlay rewrites yamlConfig.DeviceDefaults.Fabric (and any
@@ -1307,9 +1506,14 @@ func applyTopologyOverlay(yamlConfig *YAMLConfig, configPath string) {
 // non-nil — see applyTopologyOverlay). Per-device overrides that carry
 // their own Fabric block get the same treatment so the entire node
 // reports a consistent fabric identity.
+//
+// The profile's per-type cliques are dropped: the topology places the node in
+// one clique, and ids describing a node outside any topology would otherwise
+// put nodes of different cliques into the same logical-endpoint clique.
 func overrideFabric(yamlConfig *YAMLConfig, clusterUUID string, cliqueID uint32) {
 	yamlConfig.DeviceDefaults.Fabric.ClusterUUID = clusterUUID
 	yamlConfig.DeviceDefaults.Fabric.CliqueID = cliqueID
+	yamlConfig.DeviceDefaults.Fabric.Cliques = nil
 	if yamlConfig.DeviceDefaults.Fabric.State == "" {
 		yamlConfig.DeviceDefaults.Fabric.State = "completed"
 	}
@@ -1322,6 +1526,7 @@ func overrideFabric(yamlConfig *YAMLConfig, clusterUUID string, cliqueID uint32)
 		}
 		yamlConfig.Devices[i].Fabric.ClusterUUID = clusterUUID
 		yamlConfig.Devices[i].Fabric.CliqueID = cliqueID
+		yamlConfig.Devices[i].Fabric.Cliques = nil
 		if yamlConfig.Devices[i].Fabric.State == "" {
 			yamlConfig.Devices[i].Fabric.State = "completed"
 		}

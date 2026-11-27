@@ -48,3 +48,29 @@ jobs:
     uses: ./.github/workflows/nvml-mock-e2e-go.yaml
     with:
       golang_version: ${{ needs.basic.outputs.golang_version }}
+
+  # Branch protection can require a check only by name, and this pipeline
+  # reports dozens of matrix jobs whose names change as GPU profiles are added.
+  # This job is the one stable name to mark Required for the whole pipeline.
+  # always(), never !cancelled(): without always() this job is skipped when a
+  # needed job fails (the default success()) or when the run is cancelled
+  # (!cancelled()), and GitHub counts a skipped required check as passing, so
+  # a red or cancelled pipeline could still merge.
+  ci-pipeline-gate:
+    name: ci-pipeline-gate
+    needs: [basic, nvml-mock-e2e]
+    if: always()
+    permissions: {}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require basic and nvml-mock-e2e to succeed
+        env:
+          BASIC: ${{ needs.basic.result }}
+          E2E: ${{ needs.nvml-mock-e2e.result }}
+        run: |
+          echo "basic: ${BASIC}"
+          echo "nvml-mock-e2e: ${E2E}"
+          if [ "$BASIC" != success ] || [ "$E2E" != success ]; then
+            echo "::error::CI Pipeline is not green: basic=${BASIC} nvml-mock-e2e=${E2E}"
+            exit 1
+          fi

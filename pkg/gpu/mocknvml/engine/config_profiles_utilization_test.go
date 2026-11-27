@@ -38,13 +38,13 @@ const (
 // shippedProfiles is the full set of chart profiles. Kept as a literal so a
 // newly added profile that forgets the utilization block fails here loudly
 // rather than being silently skipped by a directory glob.
-var shippedProfiles = []string{"a100", "h100", "b200", "gb200", "gb300", "l40s", "t4"}
+var shippedProfiles = []string{"a100", "h100", "b200", "gb200", "gb300", "l40s", "t4", "vrnvl72"}
 
 // TestProfiles_ReportNonZeroUtilization is the regression guard for #506 item 3.
 //
 // The bug it catches: every shipped profile set `utilization.gpu: 0` and no
 // profile carried a live `dynamic_metrics` block, so GetUtilizationRates
-// returned a constant 0 on a default install. DCGM_FI_DEV_GPU_UTIL read 0, and
+// returned a constant 0 on a default install. DCGM_FI_DEV_GPU_UTIL_RATIO read 0, and
 // because the mock derives every DCGM_FI_PROF_* activity metric as a fixed
 // fraction of utilization.gpu, the whole profiling surface collapsed to 0 with
 // it. Nothing caught this, because the e2e harness always installs the chart
@@ -63,7 +63,7 @@ func TestProfiles_ReportNonZeroUtilization(t *testing.T) {
 			dm := cfg.DeviceDefaults.DynamicMetrics
 			require.NotNil(t, dm,
 				"%s ships no live dynamic_metrics block, so utilization is the static "+
-					"profile value and DCGM_FI_DEV_GPU_UTIL reads 0 on a default install (#506)",
+					"profile value and DCGM_FI_DEV_GPU_UTIL_RATIO reads 0 on a default install (#506)",
 				name)
 			require.NotNil(t, dm.Utilization, "%s dynamic_metrics carries no utilization sub-block", name)
 

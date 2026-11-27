@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 496" width="1000" height="496" role="img" aria-labelledby="title desc">
+  <title id="title">The workload tracker's target shape</title>
+  <desc id="desc">In the target shape, the workload tracker reads claims from the kubelet's PodResources API every 2 seconds and telemetry annotations from this Node's Pods in the Kubernetes API, and writes a workload telemetry file that only it writes. nvml-mock-ctl set and NVML set calls write overrides.yaml, kept until reset, and the node daemon writes config.yaml. The NVML engine, in every NVML process, reads them as layers 2, 3 and 4 and serves values to dcgm-exporter, nvidia-smi and the device plugin on every call. dcgm-exporter takes pod labels from the same PodResources API. Teal marks what's new or changed.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .t { font-size: 13px; font-weight: 600; }
+    .code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; font-weight: 600; }
+    .c { font-size: 12.5px; }
+    .b { font-size: 12px; fill: #59636e; }
+    .label { font-size: 12px; fill: #59636e; }
+    .box { fill: #ffffff; stroke: #1f2328; stroke-width: 1.5; }
+    .eng { fill: #f6f8fa; stroke: #1f2328; stroke-width: 1.5; }
+    .cell { fill: #ffffff; stroke: #59636e; stroke-width: 1; }
+    .wire { fill: none; stroke: #59636e; stroke-width: 1.5; }
+    .dash { fill: none; stroke: #59636e; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #59636e; }
+    .new { fill: #ddf0f2; stroke: #0a7782; stroke-width: 2; }
+    .newwire { fill: none; stroke: #0a7782; stroke-width: 2; }
+    .newhead { fill: #0a7782; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .b, .label { fill: #9198a1; }
+      .box { fill: #0d1117; stroke: #f0f6fc; }
+      .eng { fill: #151b23; stroke: #f0f6fc; }
+      .cell { fill: #0d1117; stroke: #9198a1; }
+      .wire, .dash { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+      .new { fill: #0d2b2e; stroke: #39c5cf; }
+      .newwire { stroke: #39c5cf; }
+      .newhead { fill: #39c5cf; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-new" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path class="newhead" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="495" rx="12"/>
+
+  <!-- dcgm-exporter reads pod labels from the same PodResources API -->
+  <path class="dash" d="M86,246 V30 H917 V175" marker-end="url(#arrow)"/>
+  <text class="label" x="330" y="22">pod labels, from the same PodResources API</text>
+
+  <!-- Inputs -->
+  <rect class="box" x="24" y="246" width="124" height="48" rx="8"/>
+  <text class="t" x="36" y="266">kubelet</text>
+  <text class="b" x="36" y="283">PodResources API</text>
+  <path class="wire" d="M148,270 H219" marker-end="url(#arrow)"/>
+  <text class="label" x="156" y="250">claims,</text>
+  <text class="label" x="156" y="263">every 2 s</text>
+
+  <rect class="new" x="24" y="306" width="124" height="48" rx="8"/>
+  <text class="t" x="36" y="326">Kubernetes API</text>
+  <text class="b" x="36" y="343">this Node's Pods</text>
+  <path class="newwire" d="M148,330 H219" marker-end="url(#arrow-new)"/>
+  <text class="label" x="156" y="310">telemetry</text>
+  <text class="label" x="156" y="323">annotations</text>
+
+  <!-- Writers -->
+  <rect class="box" x="220" y="184" width="156" height="48" rx="8"/>
+  <text class="code" x="232" y="204">nvml-mock-ctl set</text>
+  <text class="b" x="232" y="221">NVML set calls</text>
+  <path class="wire" d="M376,208 H431" marker-end="url(#arrow)"/>
+  <text class="label" x="386" y="201">sets</text>
+
+  <rect class="box" x="220" y="252" width="156" height="88" rx="8"/>
+  <text class="t" x="232" y="274">workload tracker</text>
+  <text class="b" x="232" y="291">sidecar, unprivileged</text>
+  <text class="b" x="232" y="307">binding + annotations</text>
+  <text class="b" x="232" y="323">→ workload telemetry</text>
+  <path class="newwire" d="M376,296 H431" marker-end="url(#arrow-new)"/>
+  <text class="label" x="384" y="289">writes</text>
+
+  <rect class="box" x="220" y="354" width="156" height="60" rx="8"/>
+  <text class="t" x="232" y="375">node daemon</text>
+  <text class="b" x="232" y="392">applies the</text>
+  <text class="b" x="232" y="407">runtime view</text>
+  <path class="wire" d="M376,384 H431" marker-end="url(#arrow)"/>
+  <text class="label" x="384" y="377">writes</text>
+
+  <!-- Files -->
+  <rect class="box" x="432" y="184" width="160" height="48" rx="8"/>
+  <text class="code" x="444" y="204">overrides.yaml</text>
+  <text class="b" x="444" y="221">kept until reset</text>
+
+  <rect class="new" x="432" y="266" width="160" height="60" rx="8"/>
+  <text class="t" x="444" y="287">workload telemetry</text>
+  <text class="b" x="444" y="304">a file only the</text>
+  <text class="b" x="444" y="319">tracker writes</text>
+
+  <rect class="box" x="432" y="360" width="160" height="48" rx="8"/>
+  <text class="code" x="444" y="380">config.yaml</text>
+  <text class="b" x="444" y="397">defaults + policies</text>
+
+  <!-- NVML engine -->
+  <rect class="eng" x="632" y="48" width="170" height="404" rx="8"/>
+  <text class="t" x="648" y="72">NVML engine</text>
+  <text class="b" x="648" y="88">in every NVML process</text>
+  <rect class="cell" x="642" y="102" width="150" height="36" rx="6"/>
+  <text class="c" x="654" y="124">1 · fault state</text>
+  <rect class="cell" x="642" y="190" width="150" height="36" rx="6"/>
+  <text class="c" x="654" y="212">2 · overrides</text>
+  <rect class="new" x="642" y="278" width="150" height="36" rx="6"/>
+  <text class="c" x="654" y="300">3 · workload telemetry</text>
+  <rect class="cell" x="642" y="366" width="150" height="36" rx="6"/>
+  <text class="c" x="654" y="388">4 · runtime view</text>
+  <text class="b" x="648" y="428">top layer with</text>
+  <text class="b" x="648" y="442">a value wins</text>
+
+  <!-- Files into their layers, drawn over the engine so the arrowheads show -->
+  <path class="wire" d="M592,208 H641" marker-end="url(#arrow)"/>
+  <path class="newwire" d="M592,296 H641" marker-end="url(#arrow-new)"/>
+  <path class="wire" d="M592,384 H641" marker-end="url(#arrow)"/>
+
+  <!-- Readers -->
+  <path class="wire" d="M802,208 H857" marker-end="url(#arrow)"/>
+  <path class="wire" d="M802,296 H857" marker-end="url(#arrow)"/>
+  <path class="wire" d="M802,384 H857" marker-end="url(#arrow)"/>
+  <text class="label" x="808" y="187">values,</text>
+  <text class="label" x="808" y="200">per call</text>
+
+  <rect class="box" x="858" y="176" width="118" height="64" rx="8"/>
+  <text class="t" x="870" y="197">dcgm-exporter</text>
+  <text class="b" x="870" y="214">:9400</text>
+  <text class="b" x="870" y="230">adds pod labels</text>
+  <rect class="box" x="858" y="276" width="118" height="40" rx="8"/>
+  <text class="code" x="870" y="301">nvidia-smi</text>
+  <rect class="box" x="858" y="364" width="118" height="40" rx="8"/>
+  <text class="t" x="870" y="389">device plugin</text>
+
+  <!-- Legend -->
+  <rect class="new" x="24" y="468" width="16" height="12" rx="3"/>
+  <text class="label" x="48" y="478">new or changed in the target shape</text>
+</svg>

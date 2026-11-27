@@ -50,7 +50,7 @@ Everything else is a flag.
 
 | Flag | Effect |
 |---|---|
-| `--gpu-profile <name>` | Which GPU profile the release uses, instead of the chart's default. One of `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4` |
+| `--gpu-profile <name>` | Which GPU profile the release uses, instead of the chart's default. One of `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4`, `vrnvl72` |
 | `--multi-gpu-profile` | One release per worker instead of one for the fleet: `a100` on `worker-0`, `t4` on `worker-1`. Ignores `--gpu-profile` |
 | `--compute-domain` | GB200 profile with an NVLink topology overlay. Needs the `compute-domain` cluster |
 | `--nvmlmock-image <ref>` | Skip the image build and pin the release to an image you already built, as CI does |
@@ -66,6 +66,7 @@ Everything else is a flag.
 | `--observability` | kube-prometheus-stack and a Grafana dashboard for the mock fleet |
 | `--dynamo` | The NVIDIA Dynamo operator and a `qwen3` inference graph whose mocker worker runs on a mock GPU |
 | `--slinky` | cert-manager, the Slinky slurm-operator and a Slurm cluster with one GPU `slurmd` per mock-GPU worker |
+| `--hami` | [HAMi](https://project-hami.io/docs)'s scheduler, admission webhook and device plugin, plus a manual `hami-smoke` trigger that packs two pods onto one mock GPU |
 | `--control-plane` | The Mokka control-plane image and the `mokka-crds` chart |
 
 ### What composes and what does not
@@ -78,6 +79,7 @@ Most flags stack. These do not:
 | `--fgo` with `--compute-domain` | Different fleet shapes |
 | `--compute-domain` with `--multi-gpu-profile` or `--gpu-profile` | The compute-domain scenario fixes both |
 | `--slinky` with `--dynamo` | `slurmd` claims every mock GPU, so the Dynamo worker could never schedule |
+| `--hami` with `--gpu-operator` (or a flag that implies it) or `--fgo` | Each brings a device plugin that registers `nvidia.com/gpu` |
 
 Four flags imply others: `--topograph` implies `--compute-domain`, because
 cliques only exist there; `--observability` implies `--gpu-operator`, because
@@ -91,6 +93,7 @@ tilt up -- --gpu-operator --dra
 tilt up -- --observability
 tilt up -- --dynamo
 tilt up -- --slinky
+tilt up -- --hami
 
 make cluster-create PROFILE=compute-domain
 tilt up -- --compute-domain --dra
@@ -107,7 +110,7 @@ the topology and re-asserts.
 **`observability-tests`** — `inject-thermal` pins one GPU's temperature and
 asserts Prometheus serves exactly that value while its siblings keep varying;
 `inject-xid` trips an uncorrectable ECC fault and asserts the Xid reaches
-`DCGM_FI_DEV_XID_ERRORS`. Both inject with `nvml-mock-ctl` rather than
+`DCGM_FI_DEV_XID_ERROR`. Both inject with `nvml-mock-ctl` rather than
 `helm upgrade`, which would recycle the exporter and tear a hole in the series,
 and both **fail if the fault does not reach Prometheus** — the scrape path is
 asserted, not eyeballed.

@@ -1,0 +1,42 @@
+# BlueField-4 in a VR NVL72 tray: one ASIC with two Ethernet ports and two
+# PCIe host links, each link showing a PF for each port.
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SNICProfile
+metadata:
+  name: bf4-vr
+spec:
+  identity:
+    model: BlueField-4
+    hcaType: MT41695
+    boardID: MT_0000001875
+    firmwareVersion: "82.48.4238"
+    partNumber: 900-9D4A4-00CB-TS6EC
+    vendorOUI: "0x02c9"
+  sources:
+    - tests/hardware-captures/vr-nvl72/node-a
+  functionTypes:
+    network:
+      vendorID: "15b3"
+      deviceID: "a2df"
+      subsystemVendorID: "15b3"
+      subsystemDeviceID: "2000"
+      driver: mlx5_core
+      rdmaNamePrefix: mlx5_
+      totalVFs: 46
+      vpd: true
+  defaultConfiguration: eth-2x400-2host
+  configurations:
+    - name: eth-2x400-2host
+      ports:
+        - {id: p0, technology: roce, width: 4, laneSpeed: NDR, planes: 0}
+        - {id: p1, technology: roce, width: 4, laneSpeed: NDR, planes: 0}
+      functions:
+        - {id: a0, type: network, pciDevice: hostA, function: 0, class: "0x020000", ports: [p0]}
+        - {id: a1, type: network, pciDevice: hostA, function: 1, class: "0x020000", ports: [p1]}
+        - {id: b0, type: network, pciDevice: hostB, function: 0, class: "0x020000", ports: [p0]}
+        - {id: b1, type: network, pciDevice: hostB, function: 1, class: "0x020000", ports: [p1]}
+      rdmaDevices:
+        - {id: rdma-a0, function: a0, ports: [p0]}
+        - {id: rdma-a1, function: a1, ports: [p1]}
+        - {id: rdma-b0, function: b0, ports: [p0]}
+        - {id: rdma-b1, function: b1, ports: [p1]}

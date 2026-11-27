@@ -20,7 +20,7 @@ while its siblings keep their own readings. In the *GPU temperature* panel, one 
 steps up and goes flat.
 
 **`inject-xid`** raises an uncorrectable-ECC Xid on GPU 0 and asserts the code
-reaches `DCGM_FI_DEV_XID_ERRORS`. *Last Xid code reported* shows the latched Xid
+reaches `DCGM_FI_DEV_XID_ERROR`. *Last Xid code reported* shows the latched Xid
 **code**, not a count.
 
 The *Component health* panel shows `nvml-mock` and `dcgm-exporter` DaemonSet ready vs
@@ -28,7 +28,7 @@ desired plus per-pod restarts, so it names the component that broke.
 
 ## Things that look like bugs and are not
 
-**The Xid panel is empty until a fault fires.** `DCGM_FI_DEV_XID_ERRORS` has no
+**The Xid panel is empty until a fault fires.** `DCGM_FI_DEV_XID_ERROR` has no
 series on a healthy cluster: the mock delivers Xids through the NVML event set, and
 `dcgm-exporter` omits the field while it holds no value for it.
 

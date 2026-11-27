@@ -26,12 +26,16 @@ import (
 // Agent is the reconciler and supervisor for all simulators.
 type Agent struct {
 	simulators      []Simulator
+	enrichers       []Enricher
 	source          StateSource
 	log             *zap.Logger
 	shutdownTimeout time.Duration
 	stagingLockPath string
-	live            atomic.Pointer[health.Probe] // last Stage wave outcome, served on /healthz
-	staged          atomic.Bool                  // latest Stage wave completed; false while restaging and during teardown
+	// enrichRetryFirst is the first delay before a failed enrichment is retried.
+	enrichRetryFirst time.Duration
+	live             atomic.Pointer[health.Probe] // last Stage wave outcome, served on /healthz
+	staged           atomic.Bool                  // latest Stage wave completed; false while restaging and during teardown
+	applied          atomic.Bool                  // an Apply wave has returned, successfully or not
 
 	// Daemons launch into this group from reconcile but bind to supervisorCtx,
 	// so they outlive the reconcile that started them.
@@ -43,7 +47,9 @@ type Agent struct {
 
 // Config carries Agent constructor arguments.
 type Config struct {
-	Simulators      []Simulator
+	Simulators []Simulator
+	// Enrichers run in this order on each new State, before Stage.
+	Enrichers       []Enricher
 	Source          StateSource
 	Log             *zap.Logger
 	ShutdownTimeout time.Duration
@@ -56,12 +62,14 @@ func New(cfg Config) *Agent {
 		cfg.ShutdownTimeout = 30 * time.Second
 	}
 	a := &Agent{
-		simulators:      cfg.Simulators,
-		source:          cfg.Source,
-		log:             cfg.Log,
-		shutdownTimeout: cfg.ShutdownTimeout,
-		stagingLockPath: cfg.StagingLockPath,
-		started:         make(map[string]bool),
+		simulators:       cfg.Simulators,
+		enrichers:        cfg.Enrichers,
+		source:           cfg.Source,
+		log:              cfg.Log,
+		shutdownTimeout:  cfg.ShutdownTimeout,
+		stagingLockPath:  cfg.StagingLockPath,
+		enrichRetryFirst: enrichRetryFirst,
+		started:          make(map[string]bool),
 	}
 	a.setLive(health.OK())
 	return a
@@ -82,6 +90,18 @@ func (a *Agent) Staged() health.Probe {
 		return health.OK()
 	}
 	return health.Unhealthy("driver tree not staged")
+}
+
+// Started passes once the first Apply wave has returned, successfully or not,
+// and the tree is staged. It gates NRI's startup: the cri simulator restarts the
+// container runtime during Apply, and the kubelet cannot create the NRI
+// container while the runtime is down. Later Apply waves do not close it, so
+// it is a startup gate only; NRI's per-container check reads Staged.
+func (a *Agent) Started() health.Probe {
+	if !a.applied.Load() {
+		return health.Unhealthy("first apply wave not finished")
+	}
+	return a.Staged()
 }
 
 // Readiness aggregates every simulator's readiness and attributes the result
@@ -146,7 +166,8 @@ func (a *Agent) Run(ctx context.Context) error {
 func (a *Agent) reconcileLoop(ctx context.Context) error {
 	updates := a.source.Watch(ctx)
 	requeues := a.requeues(ctx)
-	var latest *State
+	var latest *State // the last fully enriched State
+	var pending pendingState
 	for {
 		select {
 		case <-ctx.Done():
@@ -157,6 +178,8 @@ func (a *Agent) reconcileLoop(ctx context.Context) error {
 			if latest != nil {
 				a.reconcileLogged(ctx, latest)
 			}
+		case <-pending.retry:
+			latest = a.enrichOrRetry(ctx, &pending, latest)
 		case u, ok := <-updates:
 			if !ok {
 				return nil // source closed
@@ -165,8 +188,11 @@ func (a *Agent) reconcileLoop(ctx context.Context) error {
 				a.log.Warn("state source error; keeping cached state", zap.Error(u.Err))
 				continue
 			}
-			latest = u.State
-			a.reconcileLogged(ctx, u.State)
+			// Enrich once per new State: a requeue reuses the result, so a
+			// node change alone never produces a different layout. A new
+			// State replaces one that is still waiting to be enriched.
+			pending = pendingState{state: u.State}
+			latest = a.enrichOrRetry(ctx, &pending, latest)
 		}
 	}
 }
@@ -205,13 +231,15 @@ func (a *Agent) requeues(ctx context.Context) <-chan struct{} {
 	return merged
 }
 
-// reconcile runs Stage on all simulators in parallel, waits for the barrier,
+// reconcile prepares host transitions, runs Stage in parallel, waits for the barrier,
 // starts (or reloads) the daemons, then runs Apply on all appliers in parallel.
 //
-// Only the Stage wave holds the staging lock: it rewrites the tree NRI injects,
+// Stage holds the staging lock while replacing the tree NRI injects,
 // while the daemons and Apply publish nothing NRI reads when it decides.
 func (a *Agent) reconcile(ctx context.Context, state *State) error {
-	if err := a.withStagingLock(ctx, func() error { return a.stage(ctx, state) }); err != nil {
+	if err := a.withStagingLock(ctx, func() error {
+		return a.stage(ctx, state)
+	}); err != nil {
 		return err
 	}
 	// Open the gate only after the lock is released, so NRI can always take its
@@ -225,23 +253,30 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 	// has written, and before Apply publishes them off-node.
 	a.supervise(ctx, state)
 
-	// Apply wave: fail-fast — appliers share cross-component dependencies
-	// (CDI spec references chardevs that gpudriver must have staged first).
+	// Apply wave: appliers run after the Stage barrier, which orders their
+	// cross-component dependencies (a CDI spec references chardevs Stage wrote).
+	// A failing applier does not cancel the others: the cri simulator may be
+	// restarting the container runtime, which systemd finishes regardless, and
+	// cutting that wait short would return, and open /startedz, while the
+	// runtime is still down. Shutdown still cancels ctx, so teardown keeps its
+	// place in the pod's grace period. The wave returns the first error.
 	// Only simulators that also implement Applier participate.
-	applyG, applyCtx := errgroup.WithContext(ctx)
+	var applyG errgroup.Group
 	for _, sim := range a.simulators {
 		app, ok := sim.(Applier)
 		if !ok {
 			continue
 		}
 		applyG.Go(func() error {
-			if err := app.Apply(applyCtx, state); err != nil {
+			if err := app.Apply(ctx, state); err != nil {
 				return fmt.Errorf("apply %s: %w", applierName(app), err)
 			}
 			return nil
 		})
 	}
-	return applyG.Wait()
+	err := applyG.Wait()
+	a.applied.Store(true)
+	return err
 }
 
 // errStagingLockUnavailable marks a failure to take the staging lock, as
@@ -266,6 +301,16 @@ func (a *Agent) withStagingLock(ctx context.Context, fn func() error) (err error
 // fails liveness, so kubelet restarts the agent into a fresh reconcile.
 func (a *Agent) stage(ctx context.Context, state *State) error {
 	a.staged.Store(false)
+	for _, sim := range a.simulators {
+		prep, ok := sim.(StagePreparer)
+		if !ok {
+			continue
+		}
+		if err := prep.PrepareStage(ctx, state); err != nil {
+			a.setLive(health.Unhealthy("prepare stage failed: %s", sim.Name()))
+			return fmt.Errorf("prepare stage %s: %w", sim.Name(), err)
+		}
+	}
 	// Stage wave: all simulators run concurrently and are fully isolated from
 	// each other — a failure never cancels sibling goroutines. All errors are
 	// collected; if any Stage failed the Apply wave is skipped entirely, because

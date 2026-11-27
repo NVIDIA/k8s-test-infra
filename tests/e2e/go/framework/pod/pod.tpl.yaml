@@ -62,10 +62,27 @@ spec:
           value: {{ $value | quote }}
         {{- end }}
       {{- end }}
-      {{- if .GPUs }}
+      {{- if or .GPUs .CPU .Memory }}
       resources:
+        {{- if or .CPU .Memory }}
+        requests:
+          {{- with .CPU }}
+          cpu: {{ . | quote }}
+          {{- end }}
+          {{- with .Memory }}
+          memory: {{ . | quote }}
+          {{- end }}
+        {{- end }}
         limits:
+          {{- if .GPUs }}
           {{ .GPUResourceName | quote }}: {{ .GPUs }}
+          {{- end }}
+          {{- with .CPU }}
+          cpu: {{ . | quote }}
+          {{- end }}
+          {{- with .Memory }}
+          memory: {{ . | quote }}
+          {{- end }}
       {{- end }}
       {{- if .Privileged }}
       securityContext:

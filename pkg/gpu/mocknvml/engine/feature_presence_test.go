@@ -22,7 +22,7 @@ func presenceEngine(t *testing.T, defaults, override string) *Engine {
 	indent := func(s string, spaces int) string {
 		return strings.ReplaceAll(strings.TrimSpace(s), "\n", "\n"+strings.Repeat(" ", spaces))
 	}
-	doc := "version: '1.0'\nsystem:\n  driver_version: '580.65.06'\n  num_devices: 2\ndevice_defaults:\n  architecture: blackwell\n"
+	doc := "version: '1.0'\nsystem:\n  driver_version: '580.65.06'\n  absent_features: not_supported\n  num_devices: 2\ndevice_defaults:\n  architecture: blackwell\n"
 	if defaults != "" {
 		doc += "  " + indent(defaults, 2) + "\n"
 	}
@@ -214,8 +214,8 @@ func TestTemperatureThresholds_OnlyModeledKinds(t *testing.T) {
 		{nvml.TEMPERATURE_THRESHOLD_GPU_MAX, 85, nvml.SUCCESS},
 		{nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_CURR, 73, nvml.SUCCESS},
 		{nvml.TEMPERATURE_THRESHOLD_MEM_MAX, 0, nvml.ERROR_NOT_SUPPORTED},
-		{nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_MIN, 0, nvml.ERROR_NOT_SUPPORTED},
-		{nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_MAX, 0, nvml.ERROR_NOT_SUPPORTED},
+		{nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_MIN, 85, nvml.SUCCESS},
+		{nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_MAX, 85, nvml.SUCCESS},
 		{nvml.TEMPERATURE_THRESHOLD_GPS_CURR, 0, nvml.ERROR_NOT_SUPPORTED},
 		{nvml.TemperatureThresholds(999), 0, nvml.ERROR_NOT_SUPPORTED},
 	} {
@@ -242,7 +242,11 @@ func TestProfileSparseModeMatchesHardwareCapture(t *testing.T) {
 				require.NotEmpty(t, capture.GPUs)
 				cfg, err := LoadYAMLConfig(path)
 				require.NoError(t, err)
-				mode, ret := newTestDeviceWithConfig(t, &cfg.DeviceDefaults).GetSparseOperationMode()
+				cfg.System.AbsentFeatures = AbsentFeaturesNotSupported
+				e := NewEngine(&Config{NumDevices: len(cfg.Devices), YAMLConfig: cfg})
+				require.Equal(t, nvml.SUCCESS, e.Init())
+				t.Cleanup(func() { _ = e.Shutdown() })
+				mode, ret := presenceDevice(t, e, 0).GetSparseOperationMode()
 				if capture.GPUs[0].SparseMode == "N/A" {
 					require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
 					return

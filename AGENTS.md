@@ -66,6 +66,12 @@ body: |-
     <alternatives considered>. <what the tests cover>.
 ```
 
+## Agent skill
+
+`skills/mokka/SKILL.md` covers how to use Mokka: installing it, running consumers on it, injecting failures and troubleshooting. Read it directly when a task involves running Mokka on a cluster. It is plain Markdown and needs no particular tool. Claude Code loads it through the `.claude/skills/mokka` link. The skill is written for users and installs published artifacts; when changing Mokka itself, use the Tilt environment in `docs/contributing/local-development.md` instead.
+
+When a change alters a fact the skill states directly, update the skill in the same PR. `skills/mokka/README.md` lists those facts.
+
 ## CI/CD
 
 - Github Actions must be used for CI/CD

@@ -21,16 +21,25 @@ func testHost(t *testing.T) *host.Host {
 	return host.New(t.TempDir())
 }
 
+// testState is a multi-node NVLink board's IMEX state when enabled, the full
+// surface, and a node with no IMEX surface at all otherwise.
 func testState(enabled bool) *agent.State {
 	state := &agent.State{}
 	if enabled {
 		state.IMEX = agent.IMEXState{
 			Enabled:   true,
+			MultiNode: true,
 			IMEXMajor: 235,
 			CapsMajor: 236,
 		}
 	}
 	return state
+}
+
+// singleNodeState is the IMEX state of a board whose NVLink stays on one
+// baseboard, such as HGX H100.
+func singleNodeState() *agent.State {
+	return &agent.State{IMEX: agent.IMEXState{Enabled: true, IMEXMajor: 235, CapsMajor: 236}}
 }
 
 func skipUnlessRootLinux(t *testing.T) {
@@ -188,6 +197,31 @@ func TestStage_DisabledRemovesTheSurface(t *testing.T) {
 
 	require.True(t, sim.Ready())
 	requireNoSurface(t, h)
+}
+
+// A real single-node board's driver registers the IMEX device numbers and the
+// fabric-imex-mgmt capability but creates no channel and has no IMEX package,
+// and the DRA compute-domain plugin needs only the former to start. A node that
+// stops being multi-node NVLink loses the channel and the node software at the
+// next Stage.
+func TestStage_SingleNodeBoardGetsTheKernelSurfaceOnly(t *testing.T) {
+	h := testHost(t)
+	seedSurface(t, h)
+	realDaemon := h.RootPath("driver/usr/bin/nvidia-imex.real")
+	require.NoError(t, fsutil.Write(realDaemon, nil, 0o755))
+	sim := New(h)
+	sim.procDevicesPath = writeProcDevicesFixture(t)
+
+	require.NoError(t, sim.Stage(t.Context(), singleNodeState()))
+
+	require.True(t, sim.Ready())
+	content, err := os.ReadFile(h.RootPath("imex/proc-devices"))
+	require.NoError(t, err)
+	require.Contains(t, string(content), "235 nvidia-caps-imex-channels\n")
+	require.Contains(t, string(content), "236 nvidia-caps\n")
+	require.FileExists(t, h.RootPath("driver/proc/driver/nvidia/capabilities/fabric-imex-mgmt"))
+	require.NoDirExists(t, h.RootPath("driver/dev/nvidia-caps-imex-channels"))
+	require.NoFileExists(t, realDaemon)
 }
 
 // A node whose surface cannot be staged becomes a node without IMEX: Stage

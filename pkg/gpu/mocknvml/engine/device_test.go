@@ -1067,6 +1067,33 @@ func TestConfigurableDevice_GetMemoryInfo_v2_VersionEncoding(t *testing.T) {
 		expectedVersion, unsafe.Sizeof(nvml.Memory_v2{}))
 }
 
+// TestConfigurableDevice_GetMemoryInfo_CountsReservedAsUsed pins the v1 memory
+// struct to what NVML reports: nvmlMemory_t has no reserved field, so its used
+// is reserved plus allocated and free + used is the total. The values are the
+// vrnvl72 profile's, which the captured tray reports through both calls
+// (tests/hardware-captures/vr-nvl72/node-a/nvml-dump.json.gz): v1 used
+// 1338638336, v2 reserved 1338638336 and used 0.
+func TestConfigurableDevice_GetMemoryInfo_CountsReservedAsUsed(t *testing.T) {
+	const (
+		total    uint64 = 300442189824
+		reserved uint64 = 1338638336
+		free     uint64 = 299103551488
+	)
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Memory: &MemoryConfig{TotalBytes: total, ReservedBytes: reserved, FreeBytes: free},
+	})
+
+	v1, ret := dev.GetMemoryInfo()
+	require.Equal(t, nvml.SUCCESS, ret, "GetMemoryInfo failed")
+	require.Equal(t, nvml.Memory{Total: total, Free: free, Used: reserved}, v1)
+	require.Equal(t, v1.Total, v1.Free+v1.Used, "v1 free + used must add up to total")
+
+	v2, ret := dev.GetMemoryInfo_v2()
+	require.Equal(t, nvml.SUCCESS, ret, "GetMemoryInfo_v2 failed")
+	require.Equal(t, reserved, v2.Reserved, "v2 reports reserved apart")
+	require.Equal(t, uint64(0), v2.Used, "v2 used leaves reserved out")
+}
+
 // =============================================================================
 // Audit Fix Tests: Zero-Value Sentinel Bug (T4)
 // =============================================================================
@@ -1267,12 +1294,18 @@ func TestConfigurableDevice_GetClock_RejectsEnumSentinels(t *testing.T) {
 // 1 direct GPU link to device 1, plus a single-NUMA pcie_topology block.
 func newFabricEngine(t *testing.T) *Engine {
 	t.Helper()
+	return newFabricEngineOnDriver(t, "560.0")
+}
+
+// newFabricEngineOnDriver is newFabricEngine reporting driver.
+func newFabricEngineOnDriver(t *testing.T, driver string) *Engine {
+	t.Helper()
 	cfg := &Config{
 		NumDevices:    2,
-		DriverVersion: "560.0",
+		DriverVersion: driver,
 		YAMLConfig: &YAMLConfig{
 			Version: "1.0",
-			System:  SystemConfig{DriverVersion: "560.0", NVMLVersion: "12.560.0", NumDevices: 2},
+			System:  SystemConfig{DriverVersion: driver, NumDevices: 2},
 			DeviceDefaults: DeviceConfig{
 				Name: "NVIDIA A100-SXM4-80GB",
 			},
@@ -1313,6 +1346,35 @@ func fabricDevice(t *testing.T, e *Engine, index int) *ConfigurableDevice {
 	cd, ok := e.LookupDevice(handle).(*ConfigurableDevice)
 	require.True(t, ok, "device %d is not a ConfigurableDevice", index)
 	return cd
+}
+
+// An index past the board's links is an invalid argument only where the
+// driver's NVML cannot address it. From 615 NVML addresses 36 links on every
+// board, and a 615 nvidia-smi walks all of them: answering an index the board
+// lacks as an invalid argument is what made its topology matrix fail.
+func TestConfigurableDevice_NvLinkIndexRangeFollowsTheDriver(t *testing.T) {
+	for _, tc := range []struct {
+		driver string
+		bound  int
+	}{
+		{"560.0", 18},
+		{"580.65.06", 18},
+		{"614.99", 18},
+		{"615.71.09", 36},
+		{"620.10", 36},
+	} {
+		t.Run(tc.driver, func(t *testing.T) {
+			d0 := fabricDevice(t, newFabricEngineOnDriver(t, tc.driver), 0)
+
+			st, ret := d0.GetNvLinkState(tc.bound - 1)
+			require.Equal(t, nvml.SUCCESS, ret, "last index the driver addresses")
+			require.Equal(t, nvml.FEATURE_DISABLED, st, "the board has no link there")
+			_, ret = d0.GetNvLinkState(tc.bound)
+			require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret, "first index past the driver's bound")
+			_, ret = d0.GetNvLinkRemoteDeviceType(tc.bound)
+			require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret)
+		})
+	}
 }
 
 func TestConfigurableDevice_NvLinkGetters_PerDevice(t *testing.T) {

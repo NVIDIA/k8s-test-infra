@@ -28,12 +28,35 @@ var powerMizerModeNames = map[string]uint32{
 	"prefer_consistent_performance": nvml.POWER_MIZER_MODE_PREFER_CONSISTENT_PERFORMANCE,
 }
 
-// supportedPowerMizerModes is every mode NVML defines. Nothing in the hardware
-// captures narrows it, so the mock accepts all four.
-const supportedPowerMizerModes = 1<<nvml.POWER_MIZER_MODE_ADAPTIVE |
+// allPowerMizerModes is every mode NVML defines, one bit per
+// NVML_POWER_MIZER_MODE_* value: what a board accepts unless its profile
+// lists fewer.
+const allPowerMizerModes = 1<<nvml.POWER_MIZER_MODE_ADAPTIVE |
 	1<<nvml.POWER_MIZER_MODE_PREFER_MAXIMUM_PERFORMANCE |
 	1<<nvml.POWER_MIZER_MODE_AUTO |
 	1<<nvml.POWER_MIZER_MODE_PREFER_CONSISTENT_PERFORMANCE
+
+// supportedPowerMizerModes is the mask of modes the device accepts:
+// power.supported_power_mizer_modes, or every NVML mode when that names none.
+func (d *ConfigurableDevice) supportedPowerMizerModes() uint32 {
+	c := d.cfg()
+	if c.Power == nil {
+		return allPowerMizerModes
+	}
+	var mask uint32
+	for _, name := range c.Power.SupportedPowerMizerModes {
+		mode, ok := powerMizerModeNames[name]
+		if !ok {
+			warnLog("[CONFIG] unrecognized power.supported_power_mizer_modes entry %q; ignoring it\n", name)
+			continue
+		}
+		mask |= 1 << mode
+	}
+	if mask == 0 {
+		return allPowerMizerModes
+	}
+	return mask
+}
 
 // powerMizerSupported applies NVML's "Maxwell or newer" gate.
 func (d *ConfigurableDevice) powerMizerSupported() bool {
@@ -54,7 +77,7 @@ func (d *ConfigurableDevice) GetPowerMizerMode_v1() (nvml.DevicePowerMizerModes_
 	debugLog("[NVML] nvmlDeviceGetPowerMizerMode_v1 -> %d\n", mode)
 	return nvml.DevicePowerMizerModes_v1{
 		CurrentMode:              mode,
-		SupportedPowerMizerModes: supportedPowerMizerModes,
+		SupportedPowerMizerModes: d.supportedPowerMizerModes(),
 	}, nvml.SUCCESS
 }
 
@@ -75,6 +98,12 @@ func (d *ConfigurableDevice) SetPowerMizerMode_v1(modes *nvml.DevicePowerMizerMo
 	name, ok := powerMizerModeName(modes.Mode)
 	if !ok {
 		debugLog("[NVML] nvmlDeviceSetPowerMizerMode_v1(%d) -> INVALID_ARGUMENT\n", modes.Mode)
+		return nvml.ERROR_INVALID_ARGUMENT
+	}
+	// A defined mode outside the device's supported mask is refused the same
+	// way as an undefined one: the request is invalid for this device.
+	if d.supportedPowerMizerModes()&(1<<modes.Mode) == 0 {
+		debugLog("[NVML] nvmlDeviceSetPowerMizerMode_v1(%s) -> INVALID_ARGUMENT (not supported by this device)\n", name)
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
 	w := overrideWriter()

@@ -52,6 +52,11 @@ test: build
 	@echo ""
 	$(DOCKER) run --rm -e MOCK_NVML_CONFIG=/app/util-test-config.yaml $(IMAGE_NAME):$(IMAGE_TAG)
 	@echo ""
+	@echo "Running the suites of calls a 615 driver adds..."
+	@echo "================================================"
+	@echo ""
+	$(DOCKER) run --rm -e MOCK_NVML_CONFIG=/app/util-test-config-615.yaml $(IMAGE_NAME):$(IMAGE_TAG) /app/mocknvml-test fabric_v4
+	@echo ""
 	@echo "================================================"
 	@echo "✓ Mock NVML integration test completed successfully!"
 

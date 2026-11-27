@@ -63,6 +63,10 @@ type NodeFabric struct {
 	nvleEnabled    bool
 	nvlinkFirmware []NvlinkFirmwareVersion
 
+	// linkBound is the exclusive upper bound of a valid link index, the
+	// configured driver's NVML_NVLINK_MAX_LINKS.
+	linkBound int
+
 	// nvlinkDeclaredLinks mirrors nvlink.links_per_gpu. Kept separately from
 	// the resolved links because a node with one GPU resolves none — it has
 	// no peer to reach — yet the board still has the NVLink hardware that
@@ -126,17 +130,29 @@ const (
 	// positive value makes counters visibly grow between samples.
 	DefaultNVLinkDutyCycle = 0.05
 
-	// nvLinkMaxLinks bounds the per-device link index. Indices outside
-	// [0, nvLinkMaxLinks) are rejected as invalid arguments.
+	// nvLinkLegacyMaxLinks bounds the per-device link index on drivers before
+	// nvLinkWideMinDriver: NVML_NVLINK_MAX_LINKS was 18 there, so indices
+	// outside [0, 18) are invalid arguments.
 	//
-	// FIDELITY (#255): this is a single global cap, not per-profile. On a
-	// profile with fewer links than the max (e.g. a100 = 12), indices in
-	// [links_per_gpu, nvLinkMaxLinks) resolve as valid-but-DISABLED, whereas
-	// real NVML returns ERROR_INVALID_ARGUMENT for link >= links_per_gpu.
-	// Harmless for current consumers (nvidia-smi enumerates via LINK_COUNT and
-	// stops at the active links); revisit if a consumer probes beyond the
-	// profile's link count.
-	nvLinkMaxLinks = 18
+	// FIDELITY (#255): the bound is the driver's, not the profile's link count.
+	// On a profile with fewer links than the bound (e.g. a100 = 12), indices in
+	// [links_per_gpu, bound) resolve as valid-but-DISABLED, whereas real NVML
+	// returns ERROR_INVALID_ARGUMENT for link >= links_per_gpu. Harmless for
+	// current consumers (nvidia-smi enumerates via LINK_COUNT and stops at the
+	// active links); revisit if a consumer probes beyond the profile's link
+	// count.
+	nvLinkLegacyMaxLinks = 18
+
+	// nvLinkMaxLinks is NVML_NVLINK_MAX_LINKS from nvLinkWideMinDriver on, and
+	// the size of per-link arrays.
+	nvLinkMaxLinks = nvml.NVLINK_MAX_LINKS
+
+	// nvLinkWideMinDriver is the first driver known to address
+	// nvLinkMaxLinks links on every board. A 615 nvidia-smi walks all of them
+	// and gives up on the topology matrix if an index past the board's links
+	// is an invalid argument; the 580.65 one walks 18. 615 is the earliest
+	// branch confirmed on real hardware, so drivers before it keep 18.
+	nvLinkWideMinDriver = "615"
 )
 
 // defaultNVLinkCaps is the capability bitmap reported for active GPU/switch
@@ -182,6 +198,16 @@ func resolveNvlinkLinksPerGPU(cfg *Config) int {
 	return cfg.YAMLConfig.NVLink.LinksPerGPU
 }
 
+// resolveNVLinkLinkBound returns the configured driver's
+// NVML_NVLINK_MAX_LINKS: nvLinkMaxLinks from nvLinkWideMinDriver on,
+// nvLinkLegacyMaxLinks before it or when no driver is configured.
+func resolveNVLinkLinkBound(cfg *Config) int {
+	if driver := configuredDriver(cfg); driver != "" && CompareDriverVersions(driver, nvLinkWideMinDriver) >= 0 {
+		return nvLinkMaxLinks
+	}
+	return nvLinkLegacyMaxLinks
+}
+
 // nvlinkBwModeSpec is a resolved nvlink.bw_mode block. An empty scope means
 // no bandwidth-mode call answers. supported and mode are "unset" markers
 // rather than zero values: the getters need to tell an explicitly configured
@@ -214,7 +240,9 @@ func resolveNvlinkBwMode(cfg *Config) (nvlinkBwModeSpec, []string) {
 }
 
 // checkNvlinkBwModes warns about the modes of a bw_mode block that nvidia-smi
-// cannot render.
+// cannot render. Only the node-wide family reaches nvidia-smi, so a per-device
+// list may hold any index the driver advertises (a Vera Rubin tray lists 0, 4,
+// ... 36) without a warning.
 //
 // A mode the effective supported list does not contain is dropped rather than
 // reported. The setters answer INVALID_ARGUMENT for exactly that value, so
@@ -225,7 +253,7 @@ func resolveNvlinkBwMode(cfg *Config) (nvlinkBwModeSpec, []string) {
 func checkNvlinkBwModes(spec nvlinkBwModeSpec) (nvlinkBwModeSpec, []string) {
 	var warnings []string
 	for _, m := range spec.supported {
-		if m > maxNameableNvlinkBwMode {
+		if spec.scope == NVLinkBwModeScopeSystem && m > maxNameableNvlinkBwMode {
 			warnings = append(warnings, fmt.Sprintf(
 				"nvlink.bw_mode.supported contains %d, past the last mode nvidia-smi can name (%d); it will render as an unnamed mode",
 				m, maxNameableNvlinkBwMode))
@@ -357,6 +385,7 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 		nvleEnabled: resolveNvleEnabled(cfg),
 
 		nvlinkDeclaredLinks: resolveNvlinkLinksPerGPU(cfg),
+		linkBound:           resolveNVLinkLinkBound(cfg),
 	}
 	var bwWarnings []string
 	f.nvlinkBw, bwWarnings = resolveNvlinkBwMode(cfg)
@@ -513,10 +542,7 @@ func (f *NodeFabric) resolveLinks(yc *YAMLConfig, n int, bdfOfDev []string, bdfT
 	// so this yields NV{links_per_gpu} between every pair (GB200 -> NV18).
 	switchOrder := orderedSwitchBDFs(nv.Switches)
 	if len(switchOrder) > 0 && nv.LinksPerGPU > 0 {
-		want := nv.LinksPerGPU
-		if want > nvLinkMaxLinks {
-			want = nvLinkMaxLinks
-		}
+		want := min(nv.LinksPerGPU, f.LinkBound())
 		for i := range n {
 			if deviceLinkCfgs[i] != nil {
 				continue
@@ -738,6 +764,15 @@ func (f *NodeFabric) HasPCIeTopology() bool { return f.hasPCIe }
 
 // Switches returns the NVSwitch endpoint list.
 func (f *NodeFabric) Switches() []NVSwitch { return f.switches }
+
+// LinkBound is the exclusive upper bound of a valid link index: the
+// configured driver's NVML_NVLINK_MAX_LINKS.
+func (f *NodeFabric) LinkBound() int {
+	if f == nil || f.linkBound == 0 {
+		return nvLinkLegacyMaxLinks
+	}
+	return f.linkBound
+}
 
 // Link returns the resolved link for (dev, link) and whether it exists.
 func (f *NodeFabric) Link(dev, link int) (ResolvedLink, bool) {
@@ -992,4 +1027,19 @@ func parseCPURange(s string) []int {
 		}
 	}
 	return out
+}
+
+// configuredDriver is the driver the mock reports: the chart's driverVersion,
+// else the profile's system.driver_version.
+func configuredDriver(cfg *Config) string {
+	if cfg == nil {
+		return ""
+	}
+	if cfg.DriverVersion != "" {
+		return cfg.DriverVersion
+	}
+	if cfg.YAMLConfig != nil {
+		return cfg.YAMLConfig.System.DriverVersion
+	}
+	return ""
 }

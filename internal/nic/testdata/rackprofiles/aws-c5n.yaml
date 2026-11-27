@@ -1,0 +1,16 @@
+# NIC slots of one AWS c5n.9xlarge instance: one EFA adapter on the root bus.
+# A fragment of an SGPURackProfile: the fields NIC declaration reads.
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SGPURackProfile
+metadata:
+  name: aws-c5n
+spec:
+  software:
+    rdma: {umad: false, ipoib: false}
+  node:
+    topology:
+      nics:
+        - slot: efa0
+          profile: efa-c5n
+          devices:
+            efa: {rootComplex: pci0000:00, address: "0000:00:1f", numaNode: -1}

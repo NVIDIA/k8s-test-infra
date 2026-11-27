@@ -1,0 +1,17 @@
+{
+  "operator": {
+    "allocatable": 4,
+    "product": "NVIDIA-GB300-NVL",
+    "temperature_metric": "DCGM_FI_DEV_GPU_TEMP",
+    "gpu_temperature_c": 38,
+    "validator_ready": true
+  },
+  "dra": {
+    "published_devices": 4,
+    "device_class": "gpu.nvidia.com",
+    "pod": "gpu-test-pod",
+    "pod_phase": "Running",
+    "allocated_uuid": "GPU-b300b300-0000-0000-0000-000000000000",
+    "nvidia_smi": "GPU 0: NVIDIA GB300 NVL (UUID: GPU-b300b300-0000-0000-0000-000000000000)"
+  }
+}

@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 588" width="1000" height="588" role="img" aria-labelledby="title desc">
+  <title id="title">KWOK integration</title>
+  <desc id="desc">The parts of KWOK integration and what each writes. Node sources create KWOK Nodes: external ones, such as kwokctl, a CI harness or an autoscaler's KWOK provider, or the new, optional KWOK provisioner for rack groups with node.source: Mokka. Users and tests write SGPUInventories with KWOK rack groups, runtime policies and GPU Pods. The KWOK controller fakes Node and Pod status and runs Mokka's Pod stages. The Mokka control plane binds KWOK Nodes to rack slots, labels each rack with the data plane shard that serves it, and serves the racks' state in batches to the new KWOK data plane. The data plane, a StatefulSet with one shard per replica, watches its racks and their Pods, stands in for each Node's daemons, and writes the GPUs, labels, allocations, NodeResourceTopologies, ComputeDomain cliques and its shard Leases. Unchanged, kube-scheduler and KAI bind Pods, and NVIDIA's ComputeDomain controller marks ComputeDomains Ready. Prometheus scrapes every replica's DCGM metrics through an optional ServiceMonitor, and the Run:ai cluster operator health-checks them through the mokka-kwok-dcgm-exporter Service, which reaches one replica.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .title { font-size: 14px; font-weight: 600; }
+    .body { font-size: 12.5px; fill: #59636e; }
+    .label { font-size: 12px; fill: #59636e; }
+    .box { fill: #ffffff; stroke-width: 1.5; }
+    .dashed { stroke-dasharray: 5 4; }
+    .wire { fill: none; stroke-width: 1.5; }
+    .pill { fill: #ffffff; stroke-width: 1; }
+    .ptext { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
+    .b-src, .w-src, .p-src { stroke: #0969da; }
+    .b-cp, .w-cp { stroke: #8250df; }
+    .b-dp, .w-dp, .p-dp { stroke: #1a7f37; }
+    .b-ext, .w-ext, .p-ext { stroke: #59636e; }
+    .h-src, .pt-src { fill: #0969da; }
+    .h-cp { fill: #8250df; }
+    .h-dp, .pt-dp { fill: #1a7f37; }
+    .h-ext, .pt-ext { fill: #59636e; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .body, .label { fill: #9198a1; }
+      .box, .pill { fill: #0d1117; }
+      .b-src, .w-src, .p-src { stroke: #4493f8; }
+      .b-cp, .w-cp { stroke: #ab7df8; }
+      .b-dp, .w-dp, .p-dp { stroke: #3fb950; }
+      .b-ext, .w-ext, .p-ext { stroke: #9198a1; }
+      .h-src, .pt-src { fill: #4493f8; }
+      .h-cp { fill: #ab7df8; }
+      .h-dp, .pt-dp { fill: #3fb950; }
+      .h-ext, .pt-ext { fill: #9198a1; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow-src" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-src" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-cp" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-cp" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-dp" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-dp" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-ext" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="h-ext" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="587" rx="12"/>
+
+  <!-- Above the API: who creates Nodes, who writes the intent, who fakes status -->
+  <rect class="box b-src dashed" x="24" y="24" width="220" height="88" rx="8"/>
+  <text class="title" x="40" y="50">External Node sources</text>
+  <text class="body" x="40" y="72">kwokctl, a CI harness or an</text>
+  <text class="body" x="40" y="90">autoscaler's KWOK provider</text>
+
+  <rect class="box b-src" x="268" y="24" width="220" height="88" rx="8"/>
+  <text class="title" x="284" y="50">KWOK provisioner</text>
+  <rect class="pill p-src" x="436" y="39" width="36" height="14" rx="7"/><text class="ptext pt-src" x="454" y="49.5" text-anchor="middle">NEW</text>
+  <text class="body" x="284" y="72">optional: creates the Nodes</text>
+  <text class="body" x="284" y="90">of node.source: Mokka groups</text>
+
+  <rect class="box b-ext dashed" x="512" y="24" width="220" height="88" rx="8"/>
+  <text class="title" x="528" y="50">Users and tests</text>
+  <text class="body" x="528" y="72">SGPUInventories with KWOK</text>
+  <text class="body" x="528" y="90">rack groups, and GPU Pods</text>
+
+  <rect class="box b-ext dashed" x="756" y="24" width="220" height="88" rx="8"/>
+  <text class="title" x="772" y="50">KWOK controller</text>
+  <text class="body" x="772" y="72">fakes Node and Pod status,</text>
+  <text class="body" x="772" y="90">runs Mokka's Pod stages</text>
+
+  <!-- Kubernetes API -->
+  <rect class="box b-ext dashed" x="24" y="160" width="952" height="64" rx="8"/>
+  <text class="title" x="40" y="197">Kubernetes API</text>
+  <text class="body" x="176" y="187">SGPUInventories, SGPURackProfiles, SGPURuntimePolicies, SGPURacks, SGPURackAllocations, shard Leases,</text>
+  <text class="body" x="176" y="206">Nodes, Pods, ResourceSlices, NodeResourceTopologies, ComputeDomainCliques</text>
+
+  <!-- Below the API: Mokka's control plane and data plane, and the consumers that stay unchanged -->
+  <rect class="box b-cp" x="24" y="272" width="220" height="112" rx="8"/>
+  <text class="title" x="40" y="294">Mokka control plane</text>
+  <text class="body" x="40" y="316">Deployment, one leader</text>
+  <text class="body" x="40" y="334">binds KWOK Nodes to slots</text>
+  <text class="body" x="40" y="352">assigns racks to shards</text>
+  <text class="body" x="40" y="370">serves rack state</text>
+
+  <rect class="box b-dp" x="360" y="288" width="260" height="112" rx="8"/>
+  <rect class="box b-dp" x="352" y="280" width="260" height="112" rx="8"/>
+  <rect class="box b-dp" x="344" y="272" width="260" height="112" rx="8"/>
+  <text class="title" x="360" y="294">KWOK data plane</text>
+  <rect class="pill p-dp" x="552" y="283" width="36" height="14" rx="7"/><text class="ptext pt-dp" x="570" y="293.5" text-anchor="middle">NEW</text>
+  <text class="body" x="360" y="316">StatefulSet, one shard per replica</text>
+  <text class="body" x="360" y="334">watches its racks and their Pods</text>
+  <text class="body" x="360" y="352">stands in for each Node's daemons</text>
+  <text class="body" x="360" y="370">serves DCGM metrics on :9400</text>
+
+  <rect class="box b-ext dashed" x="700" y="272" width="276" height="112" rx="8"/>
+  <text class="title" x="716" y="294">Schedulers and controllers</text>
+  <text class="body" x="716" y="316">kube-scheduler and KAI bind Pods;</text>
+  <text class="body" x="716" y="334">NVIDIA's ComputeDomain controller</text>
+  <text class="body" x="716" y="352">marks ComputeDomains Ready</text>
+
+  <!-- DCGM metrics: Prometheus scrapes every replica, and the Run:ai cluster operator health-checks one through the Service -->
+  <rect class="box b-ext dashed" x="268" y="456" width="200" height="64" rx="8"/>
+  <text class="title" x="284" y="482">Prometheus</text>
+  <text class="body" x="284" y="502">optional ServiceMonitor</text>
+
+  <rect class="box b-ext dashed" x="492" y="456" width="264" height="64" rx="8"/>
+  <text class="title" x="508" y="482">Run:ai cluster operator</text>
+  <text class="body" x="508" y="502">mokka-kwok-dcgm-exporter Service</text>
+
+  <!-- Arrows point from who acts to what it acts on, drawn last so no box covers their heads -->
+  <path class="wire w-src" d="M134,112 V128 H378 V112"/>
+  <circle class="h-src" cx="256" cy="128" r="3"/>
+  <path class="wire w-src" d="M256,128 V159" marker-end="url(#arrow-src)"/>
+  <text class="label" x="264" y="149">Nodes</text>
+
+  <path class="wire w-ext" d="M622,112 V159" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="630" y="134">inventories,</text>
+  <text class="label" x="630" y="149">policies, Pods</text>
+
+  <path class="wire w-ext" d="M866,112 V159" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="874" y="134">Node and Pod</text>
+  <text class="label" x="874" y="149">status</text>
+
+  <path class="wire w-cp" d="M134,272 V225" marker-end="url(#arrow-cp)"/>
+  <text class="label" x="142" y="244">racks, bindings,</text>
+  <text class="label" x="142" y="259">shard labels</text>
+
+  <path class="wire w-dp" d="M474,272 V225" marker-end="url(#arrow-dp)"/>
+  <text class="label" x="482" y="244">GPUs, labels, allocations,</text>
+  <text class="label" x="482" y="259">NRTs, cliques, Leases</text>
+
+  <path class="wire w-ext" d="M838,272 V225" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="846" y="244">Pod bindings,</text>
+  <text class="label" x="846" y="259">domain status</text>
+
+  <path class="wire w-cp" d="M244,328 H343" marker-end="url(#arrow-cp)"/>
+  <text class="label" x="294" y="305" text-anchor="middle">rack state,</text>
+  <text class="label" x="294" y="320" text-anchor="middle">in batches</text>
+
+  <path class="wire w-ext" d="M400,456 V401" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="408" y="434">scrapes every replica</text>
+
+  <path class="wire w-ext" d="M560,456 V401" marker-end="url(#arrow-ext)"/>
+  <text class="label" x="568" y="434">health-checks one replica</text>
+
+  <!-- Legend -->
+  <rect class="box b-ext" x="24" y="550" width="28" height="16" rx="4"/>
+  <text class="label" x="60" y="562">part of Mokka</text>
+  <rect class="box b-ext dashed" x="168" y="550" width="28" height="16" rx="4"/>
+  <text class="label" x="204" y="562">not part of Mokka</text>
+  <rect class="pill p-ext" x="336" y="551" width="36" height="14" rx="7"/><text class="ptext pt-ext" x="354" y="561.5" text-anchor="middle">NEW</text>
+  <text class="label" x="380" y="562">added by this MEP</text>
+</svg>

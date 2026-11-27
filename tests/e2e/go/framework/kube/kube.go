@@ -487,16 +487,19 @@ func (c *Client) DeletePodsByLabel(ctx context.Context, ns, selector string) err
 	return err
 }
 
-// ResourceSliceDeviceCounts returns len(Devices) for every ResourceSlice
-// currently published, pinned to the served resource.k8s.io/v1beta1. The DRA
-// driver publishes one ResourceSlice per node with the mock's advertised GPU
-// count, so per-slice counts are the load-bearing invariant — summing them
-// blends node cardinality with per-node accuracy and hides regressions
-// (e.g. one worker's mock silently short by a device).
-func (c *Client) ResourceSliceDeviceCounts(ctx context.Context) ([]int, error) {
+// ResourceSliceDeviceCounts returns len(Devices) for every ResourceSlice the
+// named DRA driver currently publishes, pinned to the served
+// resource.k8s.io/v1beta1. The DRA driver publishes one ResourceSlice per node
+// with the mock's advertised GPU count, so per-slice counts are the
+// load-bearing invariant — summing them blends node cardinality with per-node
+// accuracy and hides regressions (e.g. one worker's mock silently short by a
+// device). The driver's ComputeDomain plugin publishes its own slices, hence
+// the filter.
+func (c *Client) ResourceSliceDeviceCounts(ctx context.Context, driver string) ([]int, error) {
 	var list struct {
 		Items []struct {
 			Spec struct {
+				Driver  string            `json:"driver"`
 				Devices []json.RawMessage `json:"devices"`
 			} `json:"spec"`
 		} `json:"items"`
@@ -504,9 +507,11 @@ func (c *Client) ResourceSliceDeviceCounts(ctx context.Context) ([]int, error) {
 	if err := c.getJSON(ctx, &list, "resourceslices.v1beta1.resource.k8s.io"); err != nil {
 		return nil, err
 	}
-	counts := make([]int, len(list.Items))
-	for i, it := range list.Items {
-		counts[i] = len(it.Spec.Devices)
+	var counts []int
+	for _, it := range list.Items {
+		if it.Spec.Driver == driver {
+			counts = append(counts, len(it.Spec.Devices))
+		}
 	}
 	return counts, nil
 }
@@ -530,6 +535,17 @@ func (c *Client) DRAAllocatedGPUUUIDs(ctx context.Context, ref PodRef) ([]string
 		return nil, err
 	}
 	return published.uuidsOf(refs)
+}
+
+// ResourceSliceDevicesByNode returns the names of the devices driver publishes
+// on each node. It reads the API server's preferred resource.k8s.io version,
+// as DRAAllocatedGPUUUIDs does.
+func (c *Client) ResourceSliceDevicesByNode(ctx context.Context, driver string) (map[string][]string, error) {
+	var published draSliceList
+	if err := c.getJSON(ctx, &published, "resourceslices.resource.k8s.io"); err != nil {
+		return nil, err
+	}
+	return published.devicesByNode(driver), nil
 }
 
 // draDeviceRef names one device the way a ResourceClaim allocation does.
@@ -645,8 +661,9 @@ func (cl draClaimObj) allocatedDevices(request string) ([]draDeviceRef, bool) {
 type draSliceList struct {
 	Items []struct {
 		Spec struct {
-			Driver string `json:"driver"`
-			Pool   struct {
+			Driver   string `json:"driver"`
+			NodeName string `json:"nodeName"`
+			Pool     struct {
 				Name string `json:"name"`
 			} `json:"pool"`
 			Devices []struct {
@@ -660,6 +677,27 @@ type draSliceList struct {
 			} `json:"devices"`
 		} `json:"spec"`
 	} `json:"items"`
+}
+
+// devicesByNode returns the sorted names of the devices driver publishes on
+// each node, merged across the node's slices. A node whose slices list no
+// device maps to nil.
+func (l draSliceList) devicesByNode(driver string) map[string][]string {
+	byNode := map[string][]string{}
+	for _, it := range l.Items {
+		if it.Spec.Driver != driver {
+			continue
+		}
+		names := byNode[it.Spec.NodeName]
+		for _, d := range it.Spec.Devices {
+			names = append(names, d.Name)
+		}
+		byNode[it.Spec.NodeName] = names
+	}
+	for _, names := range byNode {
+		slices.Sort(names)
+	}
+	return byNode
 }
 
 // uuidsOf resolves each device to the uuid attribute its slice publishes.

@@ -1,0 +1,276 @@
+# MIG profile table: VR NVL72 (Rubin)
+#
+# The board's MIG partition geometry, held apart from its profile so the
+# profile stays readable. Resolved at load time via MOCK_MIG_PROFILES_CONFIG
+# or as a sibling of the config path, and attached to
+# device_defaults.mig.supported_profiles.
+
+version: 1
+
+# Every GPU instance row is read off a real tray with MIG capable and
+# disabled: names, ids and placements from `nvidia-smi mig -lgip`/`-lgipp`,
+# memory, SM and engine counts from nvmlDeviceGetGpuInstanceProfileInfo. All
+# four GPUs report the same table.
+#
+# Assumption: with MIG disabled the tray lists no compute instance profiles,
+# so each GPU instance declares a single compute instance spanning it, the
+# layout nvidia-mig-parted creates by default.
+#
+# Placements are in memory units: the board has eight, so the full-board row
+# is one {start: 0, size: 8}. NO_ME rows have no media engines, ALL_ME rows
+# take every media engine of the board. See docs/mig.md for the schema.
+supported_profiles:
+  - name: "1g.35gb"
+    nvml_profile: "1_SLICE"
+    slices: 1
+    profile_id: 19
+    instances: 7
+    memory_mb: 34304
+    multiprocessors: 20
+    copy_engines: 2
+    decoders: 1
+    jpeg: 1
+    placements:
+      - {start: 0, size: 1}
+      - {start: 1, size: 1}
+      - {start: 2, size: 1}
+      - {start: 3, size: 1}
+      - {start: 4, size: 1}
+      - {start: 5, size: 1}
+      - {start: 6, size: 1}
+    compute_instances:
+      - nvml_profile: "1_SLICE"
+        slices: 1
+        instances: 1
+        multiprocessors: 20
+        shared_copy_engines: 2
+        decoders: 1
+        jpeg: 1
+  - name: "1g.35gb+me"
+    nvml_profile: "1_SLICE_REV1"
+    slices: 1
+    profile_id: 20
+    instances: 1
+    memory_mb: 34304
+    multiprocessors: 20
+    copy_engines: 2
+    decoders: 1
+    jpeg: 1
+    ofa: 1
+    placements:
+      - {start: 0, size: 1}
+      - {start: 1, size: 1}
+      - {start: 2, size: 1}
+      - {start: 3, size: 1}
+      - {start: 4, size: 1}
+      - {start: 5, size: 1}
+      - {start: 6, size: 1}
+    compute_instances:
+      - nvml_profile: "1_SLICE"
+        slices: 1
+        instances: 1
+        multiprocessors: 20
+        shared_copy_engines: 2
+        decoders: 1
+        jpeg: 1
+        ofa: 1
+  - name: "1g.35gb+me.all"
+    nvml_profile: "1_SLICE_ALL_ME"
+    slices: 1
+    profile_id: 68
+    instances: 1
+    memory_mb: 34304
+    multiprocessors: 20
+    copy_engines: 2
+    decoders: 7
+    jpeg: 7
+    ofa: 1
+    placements:
+      - {start: 0, size: 1}
+      - {start: 1, size: 1}
+      - {start: 2, size: 1}
+      - {start: 3, size: 1}
+      - {start: 4, size: 1}
+      - {start: 5, size: 1}
+      - {start: 6, size: 1}
+    compute_instances:
+      - nvml_profile: "1_SLICE"
+        slices: 1
+        instances: 1
+        multiprocessors: 20
+        shared_copy_engines: 2
+        decoders: 7
+        jpeg: 7
+        ofa: 1
+  - name: "1g.35gb-me"
+    nvml_profile: "1_SLICE_NO_ME"
+    slices: 1
+    profile_id: 69
+    instances: 7
+    memory_mb: 34304
+    multiprocessors: 20
+    copy_engines: 2
+    placements:
+      - {start: 0, size: 1}
+      - {start: 1, size: 1}
+      - {start: 2, size: 1}
+      - {start: 3, size: 1}
+      - {start: 4, size: 1}
+      - {start: 5, size: 1}
+      - {start: 6, size: 1}
+    compute_instances:
+      - nvml_profile: "1_SLICE"
+        slices: 1
+        instances: 1
+        multiprocessors: 20
+        shared_copy_engines: 2
+  - name: "1g.70gb"
+    nvml_profile: "1_SLICE_REV2"
+    slices: 1
+    profile_id: 15
+    instances: 4
+    memory_mb: 70656
+    multiprocessors: 46
+    copy_engines: 2
+    decoders: 1
+    jpeg: 1
+    placements:
+      - {start: 0, size: 2}
+      - {start: 2, size: 2}
+      - {start: 4, size: 2}
+      - {start: 6, size: 2}
+    compute_instances:
+      - nvml_profile: "1_SLICE"
+        slices: 1
+        instances: 1
+        multiprocessors: 46
+        shared_copy_engines: 2
+        decoders: 1
+        jpeg: 1
+  - name: "2g.70gb"
+    nvml_profile: "2_SLICE"
+    slices: 2
+    profile_id: 14
+    instances: 3
+    memory_mb: 70656
+    multiprocessors: 50
+    copy_engines: 4
+    decoders: 2
+    jpeg: 2
+    placements:
+      - {start: 0, size: 2}
+      - {start: 2, size: 2}
+      - {start: 4, size: 2}
+    compute_instances:
+      - nvml_profile: "2_SLICE"
+        slices: 2
+        instances: 1
+        multiprocessors: 50
+        shared_copy_engines: 4
+        decoders: 2
+        jpeg: 2
+  - name: "2g.70gb+me.all"
+    nvml_profile: "2_SLICE_ALL_ME"
+    slices: 2
+    profile_id: 65
+    instances: 1
+    memory_mb: 70656
+    multiprocessors: 50
+    copy_engines: 4
+    decoders: 7
+    jpeg: 7
+    ofa: 1
+    placements:
+      - {start: 0, size: 2}
+      - {start: 2, size: 2}
+      - {start: 4, size: 2}
+    compute_instances:
+      - nvml_profile: "2_SLICE"
+        slices: 2
+        instances: 1
+        multiprocessors: 50
+        shared_copy_engines: 4
+        decoders: 7
+        jpeg: 7
+        ofa: 1
+  - name: "2g.70gb-me"
+    nvml_profile: "2_SLICE_NO_ME"
+    slices: 2
+    profile_id: 67
+    instances: 3
+    memory_mb: 70656
+    multiprocessors: 50
+    copy_engines: 4
+    placements:
+      - {start: 0, size: 2}
+      - {start: 2, size: 2}
+      - {start: 4, size: 2}
+    compute_instances:
+      - nvml_profile: "2_SLICE"
+        slices: 2
+        instances: 1
+        multiprocessors: 50
+        shared_copy_engines: 4
+  - name: "3g.140gb"
+    nvml_profile: "3_SLICE"
+    slices: 3
+    profile_id: 9
+    instances: 2
+    memory_mb: 142336
+    multiprocessors: 100
+    copy_engines: 6
+    decoders: 3
+    jpeg: 3
+    placements:
+      - {start: 0, size: 4}
+      - {start: 4, size: 4}
+    compute_instances:
+      - nvml_profile: "3_SLICE"
+        slices: 3
+        instances: 1
+        multiprocessors: 100
+        shared_copy_engines: 6
+        decoders: 3
+        jpeg: 3
+  - name: "4g.140gb"
+    nvml_profile: "4_SLICE"
+    slices: 4
+    profile_id: 5
+    instances: 1
+    memory_mb: 142336
+    multiprocessors: 104
+    copy_engines: 8
+    decoders: 4
+    jpeg: 4
+    placements:
+      - {start: 0, size: 4}
+    compute_instances:
+      - nvml_profile: "4_SLICE"
+        slices: 4
+        instances: 1
+        multiprocessors: 104
+        shared_copy_engines: 8
+        decoders: 4
+        jpeg: 4
+  - name: "7g.280gb"
+    nvml_profile: "7_SLICE"
+    slices: 7
+    profile_id: 0
+    instances: 1
+    memory_mb: 285696
+    multiprocessors: 212
+    copy_engines: 16
+    decoders: 7
+    jpeg: 7
+    ofa: 1
+    placements:
+      - {start: 0, size: 8}
+    compute_instances:
+      - nvml_profile: "7_SLICE"
+        slices: 7
+        instances: 1
+        multiprocessors: 212
+        shared_copy_engines: 16
+        decoders: 7
+        jpeg: 7
+        ofa: 1

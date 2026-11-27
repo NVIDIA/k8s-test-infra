@@ -300,6 +300,30 @@
       "additionalProperties": true,
       "description": "Mokka node agent.",
       "properties": {
+        "numa": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "topologyManagerPolicy": {
+              "description": "Selects how kubelet aligns resources across NUMA zones. Used when NUMA simulation is enabled. For example, single-numa-node requires resources for each container to align within one zone.",
+              "type": "string",
+              "enum": [
+                "none",
+                "best-effort",
+                "restricted",
+                "single-numa-node"
+              ]
+            },
+            "memoryManagerPolicy": { "type": "string", "enum": ["none", "static"] },
+            "systemReservedCPU": { "type": "string" },
+            "systemReservedMemory": { "type": "string", "minLength": 1 },
+            "cpuManagerPolicy": { "type": "string", "enum": ["none", "static"] },
+            "reservedCPUs": { "type": "string", "pattern": "^$|^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$" }
+          }
+        },
         "livenessProbe": { "type": ["object", "null"] },
         "readinessProbe": { "type": ["object", "null"] },
         "logging": {
@@ -325,7 +349,7 @@
         "nriStartupTimeoutSeconds": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum seconds the node-agent /stagedz startup probe may fail while its first Stage wave completes before Kubernetes restarts it, when NRI uses native sidecars."
+          "description": "Maximum seconds the node-agent /startedz startup probe may fail while its first Stage and Apply waves complete before Kubernetes restarts it, when NRI uses native sidecars."
         },
         "kernelLog": {
           "type": "object",

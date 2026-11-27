@@ -11,7 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG GOLANG_VERSION=1.27.3
+ARG GOLANG_VERSION=1.27.4
 # Named by both the build and the runtime stage.
 ARG LIB_VERSION=550.54.15
 ARG GOPROXY=https://proxy.golang.org,direct
@@ -97,6 +97,13 @@ COPY tests/mocknvml/util-test-config.yaml /app/util-test-config.yaml
 # would let the two drift until the bridge tests passed against numbers no
 # board reports.
 COPY pkg/gpu/mocknvml/configs/mock-nvml-config-a100.mig.yaml /app/util-test-config.mig.yaml
+
+# The same fixture on a 615 driver, for the suites the Makefile runs again
+# there: a call only a newer driver exports answers FUNCTION_NOT_FOUND on the
+# fixture's own. grep fails the build if the fixture's driver line moves and
+# sed stops matching, which would otherwise quietly rerun the suite on 580.
+RUN sed 's/driver_version: "580\.65\.06"/driver_version: "615.71.09"/' /app/util-test-config.yaml > /app/util-test-config-615.yaml \
+    && grep -q 'driver_version: "615.71.09"' /app/util-test-config-615.yaml
 
 # The real file only: a wildcard also drags in the cgo header (ldconfig rejects
 # it) and flattens the sonames into three 12 MiB copies.

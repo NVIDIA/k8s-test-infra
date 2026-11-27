@@ -1,0 +1,227 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+
+// Package profile writes a mock NVML profile from a committed capture of a
+// real node, so a profile is regenerated from evidence instead of typed. Every
+// value it writes names its source in a comment; rules.go is the mapping.
+package profile
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"text/tabwriter"
+
+	"github.com/urfave/cli/v3"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/capture/cmdline"
+)
+
+type options struct {
+	out, base string
+	explain   bool
+}
+
+// Command is `mokka-capture profile`.
+func Command() *cli.Command {
+	var opts options
+	return &cli.Command{
+		Name:  "profile",
+		Usage: "write a mock NVML profile from a scrubbed capture",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        "o",
+				Usage:       "write the profile to this file, and the MIG table beside it as <name>.mig.yaml",
+				DefaultText: "the profile to stdout",
+				Destination: &opts.out,
+			},
+			&cli.StringFlag{
+				Name:        "base",
+				Usage:       "profile of the same GPU to take identifiers and mock-only blocks from",
+				Destination: &opts.base,
+			},
+			&cli.BoolFlag{
+				Name:        "explain",
+				Usage:       "print every key with its source and each GPU's answer instead of the profile",
+				Destination: &opts.explain,
+			},
+		},
+		Arguments: []cli.Argument{
+			&cli.StringArg{Name: "directory", UsageText: "<capture node directory>", Required: true},
+		},
+		Action: func(_ context.Context, cmd *cli.Command) error {
+			if err := cmdline.RejectExtraArgs(cmd); err != nil {
+				return err
+			}
+			return cmdline.Exit(run(opts, cmd.StringArg("directory"), cmd.Root().Writer, cmd.Root().ErrWriter))
+		},
+	}
+}
+
+func run(opts options, dir string, stdout, stderr io.Writer) int {
+	g, err := load(dir, opts.base)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
+	}
+
+	if opts.explain {
+		if err := writeExplain(stdout, g); err != nil {
+			_, _ = fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	}
+	profile, mig := g.documents(filepath.Base(opts.out))
+	if err := write(opts.out, profile, mig, stdout, stderr); err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+// write puts the profile on stdout, or in out with the MIG table beside it.
+func write(out, profile, mig string, stdout, stderr io.Writer) error {
+	if out == "" {
+		if mig != "" {
+			_, _ = fmt.Fprintln(stderr, "the capture lists MIG profiles; pass -o to write the table beside the profile")
+		}
+		_, err := io.WriteString(stdout, profile)
+		return err
+	}
+	if err := os.WriteFile(out, []byte(profile), 0o644); err != nil {
+		return err
+	}
+	if mig != "" {
+		return os.WriteFile(migSibling(out), []byte(mig), 0o644)
+	}
+	// The mock loads a table beside the profile, so one left by an earlier
+	// run would give this board another board's partitions.
+	err := os.Remove(migSibling(out))
+	switch {
+	case err == nil:
+		_, _ = fmt.Fprintf(stderr, "removed %s: the capture lists no MIG profiles\n", migSibling(out))
+	case !errors.Is(err, fs.ErrNotExist):
+		return err
+	}
+	return nil
+}
+
+// load generates the profile of a capture directory, with an optional base.
+func load(dir, basePath string) (*generator, error) {
+	c, err := loadCapture(dir)
+	if err != nil {
+		return nil, err
+	}
+	var base *baseProfile
+	if basePath != "" {
+		if base, err = loadBase(basePath); err != nil {
+			return nil, err
+		}
+	}
+	return generate(c, base)
+}
+
+// migSibling is where the mock looks for a profile's MIG table:
+// config.yaml -> config.mig.yaml.
+func migSibling(path string) string {
+	return strings.TrimSuffix(path, filepath.Ext(path)) + ".mig.yaml"
+}
+
+func generate(c *capture, base *baseProfile) (*generator, error) {
+	g := &generator{c: c, base: base, doc: &mapping{}}
+	if err := g.checkBase(); err != nil {
+		return nil, err
+	}
+	for i := 0; i < c.gpuCount(); i++ {
+		d := &mapping{}
+		d.set("index", integer(i), "")
+		g.devices = append(g.devices, d)
+	}
+
+	g.doc.set("version", quote("1.0"), "")
+	g.systemRules(&section{g: g, m: g.doc.child("system"), key: "system"})
+	// The chart's copy of a profile carries Helm-only defaults the engine
+	// ignores; they describe the mock, so only -base can supply them.
+	(&section{g: g, m: g.doc}).fromBase("dynamic_metrics_defaults", "Helm-only defaults for the mock's varying readings")
+	defaults := g.doc.child("device_defaults")
+	g.deviceRules()
+	g.deviceDefaultRules(&section{g: g, m: defaults, key: "device_defaults", device: true})
+	g.completeDeviceBlocks(defaults)
+	devices := &sequence{}
+	for _, d := range g.devices {
+		devices.items = append(devices.items, d)
+	}
+	g.doc.set("devices", devices, "")
+	g.nvlinkRules(&section{g: g, m: g.doc.child("nvlink"), key: "nvlink"})
+	g.infinibandRules(&section{g: g, m: g.doc.child("infiniband"), key: "infiniband"})
+	g.pcieTopologyRules(&section{g: g, m: g.doc.child("pcie_topology"), key: "pcie_topology"})
+	g.migTable()
+	prune(g.doc)
+	for _, d := range g.devices {
+		prune(d)
+	}
+	return g, errors.Join(g.errs...)
+}
+
+// documents renders the profile and, when the board has one, its MIG table.
+// name is the profile's file name, which the regenerate line quotes.
+func (g *generator) documents(name string) (profile, mig string) {
+	if name == "" || name == "." {
+		name = "<profile>.yaml"
+	}
+	header := []string{
+		"Mock NVML profile generated by `mokka-capture profile` from the capture",
+		g.c.name + ". Regenerate it rather than editing it:",
+		"",
+		"  mokka-capture profile -o " + name + " tests/hardware-captures/" + g.c.name,
+		"",
+		"Each comment names the value's source: an NVML getter in nvml-dump.json.gz",
+		"(GetClockInfo(1) is the call with argument 1, .Field a field of its answer,",
+		"[n] an element), an element of " + smiXMLFile + ", or a host file. \"idle",
+		"reading\" marks a value that moves with load, \"placeholder\" an identifier",
+		"the capture scrubbed. A key the capture cannot give is noted where it would",
+		"go. `mokka-capture profile -explain` lists each GPU's answer for every key.",
+	}
+	if g.base != nil {
+		header = append(header, "", "-base: "+filepath.Base(g.base.name))
+	}
+	profile = render(header, g.doc)
+	if g.mig != nil {
+		mig = render([]string{
+			"MIG profile table generated by `mokka-capture profile` from the capture",
+			g.c.name + ", beside the profile it belongs to.",
+			"",
+			"Each row is GetGpuInstanceProfileInfo(index) on every GPU: slices",
+			"SliceCount, profile_id Id, instances InstanceCount, memory_mb",
+			"MemorySizeMB, multiprocessors MultiprocessorCount, copy_engines",
+			"CopyEngineCount and the engine counts. Names come from " + migProfiles + ",",
+			"placements (start and size in memory slices) from " + migPlacements + ".",
+			"MIG was disabled, so the capture lists no compute instance profiles; each",
+			"row assumes one compute instance spanning it.",
+		}, g.mig)
+	}
+	return profile, mig
+}
+
+func writeExplain(w io.Writer, g *generator) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "KEY\tVALUE\tRULE\tSOURCE\tPER GPU")
+	for _, t := range g.traces {
+		per := "-"
+		if len(t.perGPU) > 0 {
+			per = strings.Join(t.perGPU, " | ")
+		}
+		value := t.value
+		if value == "" {
+			value = "-"
+		}
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", t.key, value, t.rule, t.from, per)
+	}
+	return tw.Flush()
+}

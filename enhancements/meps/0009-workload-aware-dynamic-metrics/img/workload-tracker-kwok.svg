@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 380" width="1000" height="380" role="img" aria-labelledby="title desc">
+  <title id="title">Workload telemetry on KWOK Nodes</title>
+  <desc id="desc">The KWOK data plane replica does every step in memory. Its in-process workload tracker reads the allocation record and telemetry annotations of Pods on the replica's racks from the Kubernetes API and turns them into workload telemetry, layer 3 of the DCGM metrics. The runtime view's telemetry settings, fetched from the control plane API on a delivery generation bump, are layer 4. The DCGM metrics are computed on each scrape, the top layer with a value wins, and Prometheus scrapes each replica on port 9400 for values with pod labels. Teal marks what workload awareness adds.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .t { font-size: 13px; font-weight: 600; }
+    .c { font-size: 12.5px; }
+    .b { font-size: 12px; fill: #59636e; }
+    .label { font-size: 12px; fill: #59636e; }
+    .group { fill: none; stroke: #8c959f; stroke-width: 1.5; }
+    .box { fill: #ffffff; stroke: #1f2328; stroke-width: 1.5; }
+    .eng { fill: #f6f8fa; stroke: #1f2328; stroke-width: 1.5; }
+    .cell { fill: #ffffff; stroke: #59636e; stroke-width: 1; }
+    .wire { fill: none; stroke: #59636e; stroke-width: 1.5; }
+    .head { fill: #59636e; }
+    .new { fill: #ddf0f2; stroke: #0a7782; stroke-width: 2; }
+    .newwire { fill: none; stroke: #0a7782; stroke-width: 2; }
+    .newhead { fill: #0a7782; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .b, .label { fill: #9198a1; }
+      .group { stroke: #6e7681; }
+      .box { fill: #0d1117; stroke: #f0f6fc; }
+      .eng { fill: #151b23; stroke: #f0f6fc; }
+      .cell { fill: #0d1117; stroke: #9198a1; }
+      .wire { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+      .new { fill: #0d2b2e; stroke: #39c5cf; }
+      .newwire { stroke: #39c5cf; }
+      .newhead { fill: #39c5cf; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-new" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path class="newhead" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="379" rx="12"/>
+
+  <!-- Inputs -->
+  <rect class="box" x="24" y="140" width="150" height="60" rx="8"/>
+  <text class="t" x="36" y="161">Kubernetes API</text>
+  <text class="b" x="36" y="178">Pods on the replica's</text>
+  <text class="b" x="36" y="193">racks</text>
+
+  <rect class="box" x="24" y="226" width="150" height="48" rx="8"/>
+  <text class="t" x="36" y="246">control plane API</text>
+  <text class="b" x="36" y="263">runtime view per rack</text>
+
+  <!-- KWOK data plane replica -->
+  <rect class="group" x="324" y="40" width="436" height="296" rx="10"/>
+  <text class="t" x="340" y="62">KWOK data plane replica</text>
+  <text class="b" x="340" y="78">in memory</text>
+
+  <rect class="new" x="340" y="128" width="170" height="84" rx="8"/>
+  <text class="t" x="352" y="150">workload tracker</text>
+  <text class="b" x="352" y="167">in process</text>
+  <text class="b" x="352" y="183">binding + annotations</text>
+  <text class="b" x="352" y="199">→ workload telemetry</text>
+
+  <rect class="box" x="340" y="226" width="170" height="48" rx="8"/>
+  <text class="t" x="352" y="246">runtime view</text>
+  <text class="b" x="352" y="263">telemetry settings</text>
+
+  <rect class="eng" x="560" y="96" width="184" height="224" rx="8"/>
+  <text class="t" x="576" y="118">DCGM metrics</text>
+  <text class="b" x="576" y="134">on each scrape</text>
+  <rect class="new" x="570" y="152" width="164" height="36" rx="6"/>
+  <text class="c" x="582" y="174">3 · workload telemetry</text>
+  <rect class="cell" x="570" y="232" width="164" height="36" rx="6"/>
+  <text class="c" x="582" y="254">4 · runtime view</text>
+  <text class="b" x="576" y="290">top layer with</text>
+  <text class="b" x="576" y="304">a value wins</text>
+
+  <!-- Reader -->
+  <rect class="box" x="846" y="176" width="130" height="64" rx="8"/>
+  <text class="t" x="858" y="197">Prometheus</text>
+  <text class="b" x="858" y="214">scrapes each</text>
+  <text class="b" x="858" y="229">replica on :9400</text>
+
+  <!-- Arrows, drawn last so no box covers their heads -->
+  <path class="newwire" d="M174,170 H339" marker-end="url(#arrow-new)"/>
+  <text class="label" x="184" y="150">allocation record,</text>
+  <text class="label" x="184" y="163">telemetry annotations</text>
+  <path class="wire" d="M174,250 H339" marker-end="url(#arrow)"/>
+  <text class="label" x="184" y="230">fetched on a delivery</text>
+  <text class="label" x="184" y="243">generation bump</text>
+  <path class="newwire" d="M510,170 H569" marker-end="url(#arrow-new)"/>
+  <path class="wire" d="M510,250 H569" marker-end="url(#arrow)"/>
+  <path class="wire" d="M744,208 H845" marker-end="url(#arrow)"/>
+  <text class="label" x="768" y="190">values, with</text>
+  <text class="label" x="768" y="203">pod labels</text>
+
+  <!-- Legend -->
+  <rect class="new" x="24" y="352" width="16" height="12" rx="3"/>
+  <text class="label" x="48" y="362">added for workload awareness</text>
+</svg>

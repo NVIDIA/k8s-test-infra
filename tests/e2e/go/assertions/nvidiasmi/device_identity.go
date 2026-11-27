@@ -13,9 +13,13 @@ import (
 // the driver does not export, as opposed to N/A for one the device declines.
 const functionNotFound = "Function Not Found"
 
-// egmDisabled is the capabilities/egm body of every captured board: EGM has to
-// be turned on in the kernel module, Grace hosts included.
-const egmDisabled = "disabled"
+// egmDisabled and egmEnabled are the capabilities/egm bodies. EGM has to be
+// turned on in the kernel module: the captured Grace boards have it off, the
+// captured Vera Rubin tray on.
+const (
+	egmDisabled = "disabled"
+	egmEnabled  = "enabled"
+)
 
 // pdiBody is how nvidia-smi renders a Per Device Identifier: 0x and all 64 bits.
 var pdiBody = regexp.MustCompile(`^0x[0-9a-fA-F]{16}$`)

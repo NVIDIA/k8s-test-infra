@@ -108,3 +108,34 @@ func TestTemperatureProblems_ChecksEveryGPU(t *testing.T) {
 	require.NotEmpty(t, problems)
 	assert.Contains(t, strings.Join(problems, "; "), "0000:0B:00.0", "the second GPU must be reported too")
 }
+
+// The real tray's nvidia-smi output passes the check with the distances the
+// vrnvl72 profile states.
+func TestTLimitValueProblems_VRCapture(t *testing.T) {
+	require.Empty(t, TLimitValueProblems(loadHardwareCapture(t, "qx-vrnvl72.xml"), -5, -2, 0))
+}
+
+func TestTLimitValueProblems_MarginNotANumber(t *testing.T) {
+	out := temperatureXML(`
+<gpu_temp>32 C</gpu_temp>
+<gpu_temp_tlimit>N/A</gpu_temp_tlimit>
+<gpu_temp_max_tlimit_threshold>-5 C</gpu_temp_max_tlimit_threshold>
+<gpu_temp_slow_tlimit_threshold>-2 C</gpu_temp_slow_tlimit_threshold>
+<gpu_temp_max_gpu_tlimit_threshold>0 C</gpu_temp_max_gpu_tlimit_threshold>`)
+	problems := TLimitValueProblems(out, -5, -2, 0)
+	require.Len(t, problems, 1, "%v", problems)
+	require.Contains(t, problems[0], "gpu_temp_tlimit")
+}
+
+func TestTLimitValueProblems_DerivedFromSlowdown(t *testing.T) {
+	// What the mock printed before thermal.tlimit: distances measured from
+	// slowdown, so slowdown reads 0 and max operating -2.
+	out := temperatureXML(`
+<gpu_temp>32 C</gpu_temp>
+<gpu_temp_tlimit>56 C</gpu_temp_tlimit>
+<gpu_temp_max_tlimit_threshold>-5 C</gpu_temp_max_tlimit_threshold>
+<gpu_temp_slow_tlimit_threshold>0 C</gpu_temp_slow_tlimit_threshold>
+<gpu_temp_max_gpu_tlimit_threshold>-2 C</gpu_temp_max_gpu_tlimit_threshold>`)
+	problems := TLimitValueProblems(out, -5, -2, 0)
+	require.Len(t, problems, 2, "%v", problems)
+}

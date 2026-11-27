@@ -4,6 +4,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -23,7 +24,7 @@ func TestFeaturePresence_CExports(t *testing.T) {
 			want = nvml.SUCCESS
 		}
 		t.Run(name, func(t *testing.T) {
-			b := newBridgeEngine(t, profile(driverWithCPER, 1, defaults))
+			b := newBridgeEngine(t, strings.Replace(profile(driverWithCPER, 1, defaults), "system:\n", "system:\n  absent_features: not_supported\n", 1))
 			handle := b.handle(t, 0)
 			for _, query := range []string{"gom", "retired_v1", "retired_v2", "retired_pending", "target", "dram"} {
 				t.Run(query, func(t *testing.T) {
@@ -65,7 +66,7 @@ func TestSparseMode_InternalSlot(t *testing.T) {
 		{"override_false", "  sparse_operation_mode: true\n", "    sparse_operation_mode: false\n", [2]uint32{1, 0}, [2]nvml.Return{nvml.SUCCESS, nvml.SUCCESS}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			b := newBridgeEngine(t, profile(driverWithCPER, 2, "  architecture: hopper\n"+tc.defaults)+
+			b := newBridgeEngine(t, strings.Replace(profile(driverWithCPER, 2, "  architecture: hopper\n"+tc.defaults), "system:\n", "system:\n  absent_features: not_supported\n", 1)+
 				"devices:\n  - index: 0\n  - index: 1\n"+tc.override)
 			for _, index := range []int{1, 0} {
 				handle := b.handle(t, index)

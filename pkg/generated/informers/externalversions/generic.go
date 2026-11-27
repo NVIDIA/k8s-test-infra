@@ -48,6 +48,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Mokka().V1alpha1().SGPURackProfiles().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("sgpuruntimepolicies"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Mokka().V1alpha1().SGPURuntimePolicies().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("snicprofiles"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Mokka().V1alpha1().SNICProfiles().Informer()}, nil
 
 	}
 

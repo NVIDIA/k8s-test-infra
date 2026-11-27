@@ -1,3 +1,6 @@
+should match config checksum snapshot with vrnvl72 profile:
+  1: |
+    2f2e941d3dcb1f4b783de086cfe9ff8bbed1898dc2c4ae73d52f4c093243285c
 should match snapshot with all overrides:
   1: |
     apiVersion: apps/v1
@@ -19,7 +22,7 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: 360f945e3705f1bbbda5fff8888818decef619cd9329171843afaa60ac1cef83
+            checksum/config: bb263503846044694b3aca27d946134629a27fc49d4d28561110f58cd1947b86
             checksum/mig-profiles: 7f5c00954886487b5209e5d1724a12cb1c9555a6c1fbf79d10f385fed9923237
             kubectl.kubernetes.io/default-container: node-agent
           labels:
@@ -189,7 +192,7 @@ should match snapshot with all overrides:
               startupProbe:
                 failureThreshold: 120
                 httpGet:
-                  path: /stagedz
+                  path: /startedz
                   port: health
                 periodSeconds: 1
                 timeoutSeconds: 1
@@ -216,8 +219,15 @@ should match snapshot with all overrides:
                 - mountPath: /host/var/lib/nvml-mock/fabric-state
                   name: fabric-state
                 - mountPath: /host/sys
+                  mountPropagation: Bidirectional
                   name: node-sysfs
-                  readOnly: true
+                - mountPath: /host/var/lib/kubelet
+                  mountPropagation: Bidirectional
+                  name: numa-kubelet
+                - mountPath: /host/etc/systemd/system
+                  name: numa-systemd
+                - mountPath: /host/run/mokka
+                  name: numa-state
                 - mountPath: /host
                   mountPropagation: HostToContainer
                   name: host-fs
@@ -270,6 +280,18 @@ should match snapshot with all overrides:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /var/lib/kubelet
+                type: DirectoryOrCreate
+              name: numa-kubelet
+            - hostPath:
+                path: /etc/systemd/system
+                type: DirectoryOrCreate
+              name: numa-systemd
+            - hostPath:
+                path: /run/mokka
+                type: DirectoryOrCreate
+              name: numa-state
             - hostPath:
                 path: /
                 type: Directory
@@ -490,7 +512,7 @@ should match snapshot with b200 profile:
               startupProbe:
                 failureThreshold: 120
                 httpGet:
-                  path: /stagedz
+                  path: /startedz
                   port: health
                 periodSeconds: 1
                 timeoutSeconds: 1
@@ -515,8 +537,15 @@ should match snapshot with b200 profile:
                   name: mig-profiles
                   readOnly: true
                 - mountPath: /host/sys
+                  mountPropagation: Bidirectional
                   name: node-sysfs
-                  readOnly: true
+                - mountPath: /host/var/lib/kubelet
+                  mountPropagation: Bidirectional
+                  name: numa-kubelet
+                - mountPath: /host/etc/systemd/system
+                  name: numa-systemd
+                - mountPath: /host/run/mokka
+                  name: numa-state
                 - mountPath: /host
                   mountPropagation: HostToContainer
                   name: host-fs
@@ -566,6 +595,18 @@ should match snapshot with b200 profile:
                 type: Directory
               name: node-sysfs
             - hostPath:
+                path: /var/lib/kubelet
+                type: DirectoryOrCreate
+              name: numa-kubelet
+            - hostPath:
+                path: /etc/systemd/system
+                type: DirectoryOrCreate
+              name: numa-systemd
+            - hostPath:
+                path: /run/mokka
+                type: DirectoryOrCreate
+              name: numa-state
+            - hostPath:
                 path: /
                 type: Directory
               name: host-fs
@@ -613,7 +654,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: 1d50ed420646840e3c0818dae1a9fdbaf8a81b6c16c48f7493d7c41483b5dee0
+            checksum/config: 3ccbc8e8d6d44fed056017089035a73a4cfa73330fb469873d1d4dd69ad0fb38
             checksum/mig-profiles: fb2ebf8b158ede295783bcc2f137d194ef2e4f7648855ea626d419f41e62cf2d
             kubectl.kubernetes.io/default-container: node-agent
           labels:
@@ -783,7 +824,7 @@ should match snapshot with default values:
               startupProbe:
                 failureThreshold: 120
                 httpGet:
-                  path: /stagedz
+                  path: /startedz
                   port: health
                 periodSeconds: 1
                 timeoutSeconds: 1
@@ -810,8 +851,15 @@ should match snapshot with default values:
                 - mountPath: /host/var/lib/nvml-mock/fabric-state
                   name: fabric-state
                 - mountPath: /host/sys
+                  mountPropagation: Bidirectional
                   name: node-sysfs
-                  readOnly: true
+                - mountPath: /host/var/lib/kubelet
+                  mountPropagation: Bidirectional
+                  name: numa-kubelet
+                - mountPath: /host/etc/systemd/system
+                  name: numa-systemd
+                - mountPath: /host/run/mokka
+                  name: numa-state
                 - mountPath: /host
                   mountPropagation: HostToContainer
                   name: host-fs
@@ -860,6 +908,18 @@ should match snapshot with default values:
                 path: /sys
                 type: Directory
               name: node-sysfs
+            - hostPath:
+                path: /var/lib/kubelet
+                type: DirectoryOrCreate
+              name: numa-kubelet
+            - hostPath:
+                path: /etc/systemd/system
+                type: DirectoryOrCreate
+              name: numa-systemd
+            - hostPath:
+                path: /run/mokka
+                type: DirectoryOrCreate
+              name: numa-state
             - hostPath:
                 path: /
                 type: Directory

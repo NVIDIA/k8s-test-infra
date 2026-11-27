@@ -1,0 +1,95 @@
+# One ConnectX-8 ASIC of the dual-ASIC C8280Z mezzanine board in GB300 trays.
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SNICProfile
+metadata:
+  name: cx8-c8280z
+spec:
+  identity:
+    model: ConnectX-8
+    hcaType: MT4131
+    boardID: MT_0000001513
+    firmwareVersion: "40.47.3576"
+    partNumber: 900-9X86E-00CX-ST0
+    vendorOUI: "0x02c9"
+  sources:
+    - tests/hardware-captures/gb300-ib/node-a
+    - tests/hardware-captures/gb300-roce/node-a
+  switchPort: {vendorID: "15b3", deviceID: "197c"}
+  vpd:
+    keywords:
+      name: NVIDIA Dual ConnectX-8 SuperNIC C8280Z Mezzanine Board for GB300 systems, Crypto Enabled, Secure Boot Enabled, Partner cooled.
+      EC: A3
+      V2: 900-9X86E-00CX-ST0
+      VA: MLX:MN=MLNX:CSKU=V2:UUID=V3:PCI=V0:MODL=C8280Z
+      V0: PCIeGen6 x48
+    # Serial number per board, V3 UUID per ASIC (it pairs a network function
+    # with its Data Direct function), VU per board position.
+    identities: {SN: board, V3: asic, VU: boardPosition}
+  functionTypes:
+    network:
+      vendorID: "15b3"
+      deviceID: "1023"
+      subsystemVendorID: "15b3"
+      subsystemDeviceID: "0208"
+      revision: "0x00"
+      pcieLink: {speed: 64.0 GT/s PCIe, width: 16}
+      driver: mlx5_core
+      rdmaNamePrefix: mlx5_
+      totalVFs: 16
+      vfType: vf
+      vpd: true
+      vpdSuffixes: {VU: "MLNXS0D0F{function}"}
+    dataDirect:
+      vendorID: "15b3"
+      deviceID: "2100"
+      subsystemVendorID: "15b3"
+      subsystemDeviceID: "0208"
+      revision: "0x00"
+      pcieLink: {speed: 64.0 GT/s PCIe, width: 16}
+      driver: mlx5_ib
+      vpd: true
+      vpdSuffixes: {VU: MLNXDDIS0D0F0}
+    # A VF that cluster software enables on a network function, as the
+    # Ethernet capture shows on PF0. It reports its current link as Unknown and
+    # its maximum as 64.0 GT/s x16, which pcieLink can't express, so no link is
+    # declared.
+    vf:
+      vendorID: "15b3"
+      deviceID: "101e"
+      subsystemVendorID: "15b3"
+      subsystemDeviceID: "0208"
+      revision: "0x00"
+      driver: mlx5_core
+      rdmaNamePrefix: mlx5_
+  defaultConfiguration: ib-xdr-4plane
+  configurations:
+    # NUM_OF_PF=1, LINK_TYPE_P1=IB(1), NUM_OF_PLANES_P1=4, MODULE_SPLIT_M0[0..3]=1.
+    - name: ib-xdr-4plane
+      ports:
+        - {id: p0, technology: ib, width: 4, laneSpeed: XDR, planes: 4, capMask: "0xa751ec48"}
+      functions:
+        - {id: pf0, type: network, pciDevice: network, function: 0, class: "0x020700", ports: [p0]}
+        - {id: dd0, type: dataDirect, pciDevice: dataDirect, function: 0, class: "0x080100"}
+      rdmaDevices:
+        - {id: rdma0, function: pf0, ports: [p0]}
+    # Ethernet multi-plane: four PFs (NUM_OF_PF=4), one 200G port each. As
+    # captured on a cloud provider's nodes, read without mlxconfig. Each PF has
+    # its own RDMA device until cluster software switches the eswitch to
+    # switchdev with a multiport eswitch, which shares PF0's device.
+    - name: eth-multiplane
+      ports:
+        - {id: p0, technology: roce, width: 2, laneSpeed: NDR, planes: 0}
+        - {id: p1, technology: roce, width: 2, laneSpeed: NDR, planes: 0}
+        - {id: p2, technology: roce, width: 2, laneSpeed: NDR, planes: 0}
+        - {id: p3, technology: roce, width: 2, laneSpeed: NDR, planes: 0}
+      functions:
+        - {id: pf0, type: network, pciDevice: network, function: 0, class: "0x020000", ports: [p0]}
+        - {id: pf1, type: network, pciDevice: network, function: 1, class: "0x020000", ports: [p1]}
+        - {id: pf2, type: network, pciDevice: network, function: 2, class: "0x020000", ports: [p2]}
+        - {id: pf3, type: network, pciDevice: network, function: 3, class: "0x020000", ports: [p3]}
+        - {id: dd0, type: dataDirect, pciDevice: dataDirect, function: 0, class: "0x080100"}
+      rdmaDevices:
+        - {id: rdma0, function: pf0, ports: [p0]}
+        - {id: rdma1, function: pf1, ports: [p1]}
+        - {id: rdma2, function: pf2, ports: [p2]}
+        - {id: rdma3, function: pf3, ports: [p3]}

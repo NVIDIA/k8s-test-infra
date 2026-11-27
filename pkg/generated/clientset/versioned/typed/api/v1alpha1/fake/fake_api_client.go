@@ -31,6 +31,10 @@ func (c *FakeMokkaV1alpha1) SGPURuntimePolicies() v1alpha1.SGPURuntimePolicyInte
 	return newFakeSGPURuntimePolicies(c)
 }
 
+func (c *FakeMokkaV1alpha1) SNICProfiles() v1alpha1.SNICProfileInterface {
+	return newFakeSNICProfiles(c)
+}
+
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
 func (c *FakeMokkaV1alpha1) RESTClient() rest.Interface {

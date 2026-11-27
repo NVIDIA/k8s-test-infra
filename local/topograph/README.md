@@ -65,7 +65,7 @@ The node observer regenerates the topology whenever a
 
 | File                    | Purpose                                                                 |
 |-------------------------|-------------------------------------------------------------------------|
-| `topograph.tiltfile`    | Applies the `nvidia-smi` DaemonSet, then installs the pinned topograph chart from the dsx-ai-factory Helm repo |
+| `topograph.tiltfile`    | Applies the `nvidia-smi` DaemonSet, then installs the pinned topograph chart from its NGC Helm repo |
 | `topograph.values.yaml` | `infiniband-k8s` provider with the `nvidia-smi` accelerator source, `k8s` engine, worker-only node selection |
 | `nvidia-smi.k8s.yaml`   | The `topograph` namespace and the annotated `nvidia-smi` DaemonSet       |
 

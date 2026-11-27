@@ -67,6 +67,46 @@ type RackGroup struct {
 	// +optional
 	// Placement optionally restricts the Nodes eligible for this rack group.
 	Placement *RackPlacement `json:"placement,omitempty"`
+
+	// +optional
+	// +listType=atomic
+	// NICOverrides replace the profile, configuration, firmware or VPD of NIC
+	// slots for this group's racks, so groups sharing a rack profile can run
+	// other NICs or modes. Overrides apply in order; a later one wins for a
+	// field both set.
+	NICOverrides []NICOverride `json:"nicOverrides,omitempty"`
+}
+
+// NICOverride changes NIC slots of a rack profile for one rack group.
+type NICOverride struct {
+	// +kubebuilder:validation:MinItems=1
+	// +listType=set
+	// Slots are the names of the slots the override applies to.
+	Slots []string `json:"slots"`
+
+	// +optional
+	// Profile replaces the slot's profile. The slot's configuration, firmware
+	// version, VPD and a systemImageGUID that names an RDMA device belong to
+	// the old model, so they no longer apply; the new profile's own do, unless
+	// this override sets them. A distinct systemImageGUID carries over.
+	Profile string `json:"profile,omitempty"`
+
+	// +optional
+	// Configuration replaces the slot's configuration.
+	Configuration string `json:"configuration,omitempty"`
+
+	// +optional
+	// FirmwareVersion replaces the slot's firmware version.
+	FirmwareVersion string `json:"firmwareVersion,omitempty"`
+
+	// +optional
+	// VPD overrides model VPD keywords, on top of the slot's own overrides.
+	VPD map[string]string `json:"vpd,omitempty"`
+
+	// +optional
+	// SystemImageGUID replaces the slot's systemImageGUID: "distinct", or an
+	// RDMA device of the selected configuration.
+	SystemImageGUID string `json:"systemImageGUID,omitempty"`
 }
 
 // NodeSelector returns the group's placement Node selector, or nil when none

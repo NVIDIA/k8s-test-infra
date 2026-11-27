@@ -389,6 +389,25 @@ func TestDRASliceUUIDsResolveTheDeviceInItsPool(t *testing.T) {
 	require.ErrorContains(t, err, "no uuid attribute", "device in an unpublished pool")
 }
 
+// A driver can split a node's devices across slices, and other drivers publish
+// on the same node, so devices are grouped by node for one driver only.
+func TestDRASliceDevicesByNodeGroupsOneDriver(t *testing.T) {
+	t.Parallel()
+	var slices draSliceList
+	require.NoError(t, json.Unmarshal([]byte(`{"items":[
+	  {"spec":{"driver":"compute-domain.nvidia.com","nodeName":"worker-0","devices":[{"name":"daemon-0"}]}},
+	  {"spec":{"driver":"compute-domain.nvidia.com","nodeName":"worker-0","devices":[{"name":"channel-0"}]}},
+	  {"spec":{"driver":"compute-domain.nvidia.com","nodeName":"worker-1","devices":[]}},
+	  {"spec":{"driver":"gpu.nvidia.com","nodeName":"worker-0","devices":[{"name":"gpu-0"}]}},
+	  {"spec":{"driver":"gpu.nvidia.com","nodeName":"worker-2","devices":[{"name":"gpu-0"}]}}]}`), &slices),
+		"unmarshal slices")
+
+	require.Equal(t, map[string][]string{
+		"worker-0": {"channel-0", "daemon-0"},
+		"worker-1": nil,
+	}, slices.devicesByNode("compute-domain.nvidia.com"))
+}
+
 // The v1 API moved device attributes out of basic and onto the device.
 func TestDRASliceUUIDsReadTheV1DeviceShape(t *testing.T) {
 	t.Parallel()

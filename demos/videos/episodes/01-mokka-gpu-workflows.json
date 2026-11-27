@@ -1,0 +1,101 @@
+{
+  "title": "Test Kubernetes GPU workflows on CPU-only nodes",
+  "repository": "github.com/NVIDIA/k8s-test-infra",
+  "guides": "nvidia.github.io/k8s-test-infra/guides/",
+  "ci_guide": "nvidia.github.io/k8s-test-infra/guides/ci-cd/",
+  "opening": {
+    "headline": ["Simulate your GPU", "infrastructure on", "CPU nodes:"],
+    "library": ["a real ", "libnvidia-ml.so", " plus the driver footprint,"],
+    "details": [
+      "so nvidia-smi, DCGM, the device plugin, DRA",
+      "and the GPU Operator run unmodified."
+    ]
+  },
+  "features": {
+    "heading": "More ways to test with Mokka",
+    "topics": [
+      {
+        "title": "MIG partitioning",
+        "lines": ["Define GPU slices at install time", "and schedule pods onto them."]
+      },
+      {
+        "title": "NRI injection",
+        "lines": ["Give GPU-allocated or opted-in pods", "the mock driver."]
+      },
+      {
+        "title": "Failure injection",
+        "lines": ["Simulate GPU loss and uncorrectable ECC", "errors to test how your stack responds."]
+      },
+      {
+        "title": "Integration scenarios",
+        "lines": ["Slinky (Slurm) · Dynamo deployment", "Topograph labeling · NVSentinel remediation"]
+      }
+    ]
+  },
+  "capture": "captures/nvidia-smi-L.txt",
+  "integrations": "captures/integration-captures.json",
+  "query": "kubectl exec -n mokka ds/nvml-mock -- nvidia-smi -L",
+  "install": [
+    "kind create cluster --name mokka-video",
+    "helm install nvml-mock \\",
+    "  oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \\",
+    "  --version 0.7.0 --namespace mokka --create-namespace",
+    "kubectl rollout status -n mokka ds/nvml-mock --timeout=180s"
+  ],
+  "scenes": [
+    {
+      "start": 0,
+      "voice": [
+        "Simulate GPU infrastructure on CPU nodes.",
+        "Your tools see the driver footprint they expect and run unmodified."
+      ]
+    },
+    {
+      "start": 8.5,
+      "voice": [
+        "To get started, install Mokka with Helm on Kind."
+      ]
+    },
+    {
+      "start": 12.5,
+      "voice": [
+        "GB300 is Mokka's default profile.",
+        "nvidia-smi reports four simulated GPUs."
+      ]
+    },
+    {
+      "start": 20,
+      "voice": [
+        "The GPU Operator advertises four GPUs.",
+        "GPU Feature Discovery labels the node, and DCGM reports temperature."
+      ]
+    },
+    {
+      "start": 29.5,
+      "voice": [
+        "The DRA driver publishes four GPUs. A pod claims one.",
+        "Inside, nvidia-smi sees only that GPU."
+      ]
+    },
+    {
+      "start": 38.4,
+      "voice": [
+        "For CI, start Kind, install a pinned Mokka chart, and wait for the DaemonSet.",
+        "Then run your tests."
+      ]
+    },
+    {
+      "start": 45.6,
+      "voice": [
+        "Mokka supports MIG partitioning, NRI injection, and GPU fault injection.",
+        "Try integrations with Slinky, Dynamo, Topograph, and NVSentinel."
+      ]
+    },
+    {
+      "start": 56,
+      "voice": [
+        "Find Mokka on GitHub and explore the guides."
+      ]
+    }
+  ]
+}

@@ -119,12 +119,6 @@ func ValidateProfile(spec mokkav1alpha1.SGPURackProfileSpec) error {
 			)
 		}
 	}
-	if network := spec.Node.Topology.Network; network != nil {
-		if network.Type == "" || network.AdapterModel == "" || network.FirmwareVersion == "" ||
-			network.LinkSpeedGbps <= 0 || network.AdaptersPerGPU <= 0 {
-			return errors.New("network must define positive adapter topology")
-		}
-	}
 	return nil
 }
 
@@ -134,9 +128,21 @@ func CanonicalProfileJSON(spec mokkav1alpha1.SGPURackProfileSpec) ([]byte, error
 	if canonical.Node.Topology == nil {
 		return nil, errors.New("node.topology must be set")
 	}
-	slices.SortFunc(canonical.Node.Topology.GPUSlots, func(a, b mokkav1alpha1.GPUSlot) int {
+	topology := canonical.Node.Topology
+	slices.SortFunc(topology.GPUSlots, func(a, b mokkav1alpha1.GPUSlot) int {
 		return cmp.Compare(a.Index, b.Index)
 	})
+	// Root ports and NIC slots are map lists and a slot's GPUs a set, so their
+	// order means nothing; bridges are ordered parents first, so they keep it.
+	slices.SortFunc(topology.RootPorts, func(a, b mokkav1alpha1.RootPort) int {
+		return cmp.Compare(a.Address, b.Address)
+	})
+	slices.SortFunc(topology.NICs, func(a, b mokkav1alpha1.NICSlot) int {
+		return cmp.Compare(a.Slot, b.Slot)
+	})
+	for i := range topology.NICs {
+		slices.Sort(topology.NICs[i].GPUs)
+	}
 	if canonical.Node.GPUs.Clocks != nil {
 		for i := range canonical.Node.GPUs.Clocks.Supported {
 			slices.Sort(canonical.Node.GPUs.Clocks.Supported[i].GraphicsMHz)

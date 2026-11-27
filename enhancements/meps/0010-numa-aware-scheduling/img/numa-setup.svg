@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 460" width="1000" height="460" role="img" aria-labelledby="title desc">
+  <title id="title">NUMA-aware scheduling on a CPU Node</title>
+  <desc id="desc">kube-scheduler's NodeResourceTopologyMatch filter reads each Node's NodeResourceTopology, filters Nodes by zone and binds the pod. At admission, per container, the kubelet's CPU Manager, which gives hints only under its static policy, Memory Manager, which gives hints only under its Static policy, and Device Manager, which takes each device's NUMA node from the device plugin, send hints to the Topology Manager. Under single-numa-node, it admits or rejects the pod. nfd-topology-updater reads PodResources from the kubelet, the NUMA tree and the kubelet's config file, and publishes the NodeResourceTopology: one zone per NUMA node, each with capacity and free cpu, memory and GPUs. Purple marks where NUMA zones decide placement.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .t { font-size: 13px; font-weight: 600; }
+    .code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; font-weight: 600; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+    .c { font-size: 12.5px; }
+    .b { font-size: 12px; fill: #59636e; }
+    .label { font-size: 12px; fill: #59636e; }
+    .group { fill: none; stroke: #8c959f; stroke-width: 1.5; }
+    .box { fill: #ffffff; stroke: #1f2328; stroke-width: 1.5; }
+    .pill { fill: #f6f8fa; stroke: #59636e; stroke-width: 1; }
+    .focus { fill: #fbefff; stroke: #8250df; stroke-width: 2; }
+    .wire { fill: none; stroke: #59636e; stroke-width: 1.5; }
+    .head { fill: #59636e; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .b, .label { fill: #9198a1; }
+      .group { stroke: #6e7681; }
+      .box { fill: #0d1117; stroke: #f0f6fc; }
+      .pill { fill: #151b23; stroke: #9198a1; }
+      .focus { fill: #251f3a; stroke: #ab7df8; }
+      .wire { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="459" rx="12"/>
+
+  <!-- kube-scheduler -->
+  <rect class="group" x="24" y="112" width="260" height="112" rx="10"/>
+  <text class="t" x="40" y="136">kube-scheduler</text>
+  <rect class="box" x="40" y="148" width="228" height="52" rx="8"/>
+  <text class="code" x="52" y="170">NodeResourceTopologyMatch</text>
+  <text class="b" x="52" y="188">filters Nodes by zone</text>
+
+  <!-- kubelet admission -->
+  <rect class="group" x="356" y="24" width="620" height="248" rx="10"/>
+  <text class="t" x="372" y="48">kubelet</text>
+  <text class="b" x="372" y="64">admission, per container</text>
+
+  <rect class="box" x="376" y="84" width="200" height="48" rx="8"/>
+  <text class="t" x="388" y="104">CPU Manager</text>
+  <text class="b" x="388" y="121">hints only when <tspan class="mono">static</tspan></text>
+  <rect class="box" x="376" y="144" width="200" height="48" rx="8"/>
+  <text class="t" x="388" y="164">Memory Manager</text>
+  <text class="b" x="388" y="181">hints only when <tspan class="mono">Static</tspan></text>
+  <rect class="box" x="376" y="204" width="200" height="48" rx="8"/>
+  <text class="t" x="388" y="224">Device Manager</text>
+  <text class="b" x="388" y="241">NUMA node from device plugin</text>
+
+  <rect class="focus" x="656" y="138" width="170" height="60" rx="8"/>
+  <text class="t" x="672" y="162">Topology Manager</text>
+  <text class="mono" x="672" y="182">single-numa-node</text>
+
+  <rect class="pill" x="866" y="128" width="84" height="30" rx="15"/>
+  <text class="c" x="908" y="147" text-anchor="middle">admit</text>
+  <rect class="pill" x="866" y="178" width="84" height="30" rx="15"/>
+  <text class="c" x="908" y="197" text-anchor="middle">reject</text>
+
+  <!-- NFD and the NRT it publishes -->
+  <rect class="focus" x="24" y="336" width="356" height="72" rx="8"/>
+  <text class="t" x="40" y="358">NodeResourceTopology</text>
+  <text class="b" x="40" y="376">one zone per NUMA node, each with</text>
+  <text class="b" x="40" y="392">capacity and free cpu, memory, GPUs</text>
+
+  <rect class="box" x="620" y="336" width="356" height="72" rx="8"/>
+  <text class="code" x="636" y="358">nfd-topology-updater</text>
+  <text class="b" x="636" y="376">reads PodResources, the NUMA tree</text>
+  <text class="b" x="636" y="392">and the kubelet's config file</text>
+
+  <!-- Arrows, drawn last so no box covers their heads -->
+  <path class="wire" d="M576,108 H606 M576,168 H606 M576,228 H606 M606,108 V228"/>
+  <path class="wire" d="M606,168 H655" marker-end="url(#arrow)"/>
+  <text class="label" x="630" y="161" text-anchor="middle">hints</text>
+  <path class="wire" d="M826,160 H846 V143 H865" marker-end="url(#arrow)"/>
+  <path class="wire" d="M826,176 H846 V193 H865" marker-end="url(#arrow)"/>
+
+  <path class="wire" d="M284,168 H355" marker-end="url(#arrow)"/>
+  <text class="label" x="320" y="160" text-anchor="middle">binds pod</text>
+  <path class="wire" d="M798,272 V335" marker-end="url(#arrow)"/>
+  <text class="label" x="808" y="308">PodResources API</text>
+  <path class="wire" d="M620,372 H381" marker-end="url(#arrow)"/>
+  <text class="label" x="500" y="364" text-anchor="middle">publishes</text>
+  <path class="wire" d="M154,336 V225" marker-end="url(#arrow)"/>
+  <text class="label" x="164" y="284">read by the filter</text>
+
+  <!-- Legend -->
+  <rect class="focus" x="24" y="430" width="16" height="12" rx="3"/>
+  <text class="label" x="48" y="440">where NUMA zones decide placement</text>
+</svg>

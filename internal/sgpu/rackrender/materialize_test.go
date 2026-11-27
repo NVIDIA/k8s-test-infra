@@ -147,7 +147,7 @@ func TestProfileRevisionCanonicalVector(t *testing.T) {
 
 	revision, err := ProfileRevision(profile.Spec)
 	require.NoError(t, err)
-	require.Equal(t, "70b035e15002657884cebea9c76251dc1dc9dd31faa3917c9a7e92c7c34fe6ad", revision)
+	require.Equal(t, "a10ff33e762ae17682b31e6eed5f95f073f1146ed90544a029f1a115b3fd1854", revision)
 
 	reordered := profile.Spec
 	reordered.Node.Topology.GPUSlots[0], reordered.Node.Topology.GPUSlots[1] =
@@ -163,6 +163,41 @@ func TestProfileRevisionCanonicalVector(t *testing.T) {
 	changedRevision, err := ProfileRevision(reordered)
 	require.NoError(t, err)
 	require.NotEqual(t, revision, changedRevision)
+}
+
+// TestProfileRevisionIgnoresNICOrder keeps a rack profile's revision when the
+// lists whose order means nothing are reordered: root ports, NIC slots and a
+// slot's GPUs. A changed parent is a changed topology, so it changes it.
+func TestProfileRevisionIgnoresNICOrder(t *testing.T) {
+	profile := validProfile()
+	topology := profile.Spec.Node.Topology
+	topology.RootPorts = []mokkav1alpha1.RootPort{
+		{Address: "0000:00:01.0", RootComplex: "pci0000:00"}, {Address: "0000:00:02.0", RootComplex: "pci0000:00"},
+	}
+	device := func(addr, parent string) map[string]mokkav1alpha1.NICDevicePlacement {
+		return map[string]mokkav1alpha1.NICDevicePlacement{"network": {RootComplex: "pci0000:00", Address: addr, Parent: parent}}
+	}
+	topology.NICs = []mokkav1alpha1.NICSlot{
+		{Slot: "nic0", Profile: "p", GPUs: []int32{1, 0}, Devices: device("0000:03:00", "0000:00:01.0")},
+		{Slot: "nic1", Profile: "p", GPUs: []int32{0}, Devices: device("0000:04:00", "0000:00:02.0")},
+	}
+	revision, err := ProfileRevision(profile.Spec)
+	require.NoError(t, err)
+
+	reordered := *profile.Spec.DeepCopy()
+	rt := reordered.Node.Topology
+	rt.RootPorts[0], rt.RootPorts[1] = rt.RootPorts[1], rt.RootPorts[0]
+	rt.NICs[0], rt.NICs[1] = rt.NICs[1], rt.NICs[0]
+	rt.NICs[1].GPUs = []int32{0, 1}
+	reorderedRevision, err := ProfileRevision(reordered)
+	require.NoError(t, err)
+	require.Equal(t, revision, reorderedRevision)
+
+	moved := *profile.Spec.DeepCopy()
+	moved.Node.Topology.NICs[0].Devices = device("0000:03:00", "0000:00:02.0")
+	movedRevision, err := ProfileRevision(moved)
+	require.NoError(t, err)
+	require.NotEqual(t, revision, movedRevision)
 }
 
 func TestRenderRack(t *testing.T) {
@@ -188,7 +223,7 @@ func TestRenderRack(t *testing.T) {
 		Name:       "profile-a",
 		UID:        types.UID("profile-uid-a"),
 		Generation: 7,
-		Revision:   "227fe4d76d124cd5f9ddf14866fca0d466d904ab1716f7320bc5c83add9a8de8",
+		Revision:   "f8f6f79a95447043d87031b8d514b4a55a154a466be53144d90a5ea5b5c57889",
 	}, rendered.Spec.ProfileRef)
 	require.Equal(t, mokkav1alpha1.SGPURackIdentity{
 		RackGroup:  "compute",
@@ -313,7 +348,6 @@ func TestRenderRackRejectsInvalidCoordinates(t *testing.T) {
 func TestRenderRackWithoutOptionalTopology(t *testing.T) {
 	profile := validProfile()
 	profile.Spec.Node.Topology.GPUFabric = nil
-	profile.Spec.Node.Topology.Network = nil
 
 	rendered, err := RenderRack(RackInput{
 		InventoryName: "inventory-a",
@@ -472,13 +506,6 @@ func validProfile() *mokkav1alpha1.SGPURackProfile {
 							Scope:    "Rack",
 							GPUCount: 4,
 						},
-					},
-					Network: &mokkav1alpha1.NetworkTopology{
-						Type:            "InfiniBand",
-						AdapterModel:    "ConnectX",
-						FirmwareVersion: "1.0",
-						LinkSpeedGbps:   400,
-						AdaptersPerGPU:  1,
 					},
 				},
 			},

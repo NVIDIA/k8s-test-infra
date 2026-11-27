@@ -1,0 +1,61 @@
+# NIC slots of one AWS p6e-gb300r.36xlarge instance. The guest sees
+# two ConnectX-8 VFs and a Data Direct function per GPU, no PFs. Which VFs a
+# Data Direct function serves isn't visible from inside the instance, so the
+# slots group them by NUMA node and PCIe adjacency. The bridges above each
+# function aren't ConnectX bridges and their IDs aren't recorded.
+# A fragment of an SGPURackProfile: the fields NIC declaration reads.
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SGPURackProfile
+metadata:
+  name: aws-gb300
+spec:
+  software:
+    rdma: {umad: true, ipoib: true}
+  node:
+    gpus:
+      count: 4
+      pci: {vendorID: "10de", deviceID: "31c2"}
+    topology:
+      rootPorts:
+        - {address: "0000:98:00.0", rootComplex: pci0000:98}
+        - {address: "0000:9e:00.0", rootComplex: pci0000:9e}
+        - {address: "0000:a3:00.0", rootComplex: pci0000:a3}
+        - {address: "0000:a9:00.0", rootComplex: pci0000:a9}
+        - {address: "0000:b5:00.0", rootComplex: pci0000:b5}
+        - {address: "0000:bb:00.0", rootComplex: pci0000:bb}
+        - {address: "0000:c0:00.0", rootComplex: pci0000:c0}
+        - {address: "0000:c6:00.0", rootComplex: pci0000:c6}
+      gpuSlots:
+        - {index: 0, rootComplex: "pci0000:98", pciAddress: "0000:9d:00.0", numaNode: 0}
+        - {index: 1, rootComplex: "pci0000:a3", pciAddress: "0000:a8:00.0", numaNode: 0}
+        - {index: 2, rootComplex: "pci0000:b5", pciAddress: "0000:ba:00.0", numaNode: 1}
+        - {index: 3, rootComplex: "pci0000:c0", pciAddress: "0000:c5:00.0", numaNode: 1}
+      nics:
+        - slot: aws0
+          profile: cx8-aws-vf
+          gpus: [0]
+          devices:
+            vfA: {rootComplex: pci0000:9e, address: "0000:a1:00", parent: "0000:9e:00.0", numaNode: 0}
+            vfB: {rootComplex: pci0000:9e, address: "0000:a2:00", parent: "0000:9e:00.0", numaNode: 0}
+            dataDirect: {rootComplex: pci0000:98, address: "0000:9c:00", parent: "0000:98:00.0", numaNode: 0}
+        - slot: aws1
+          profile: cx8-aws-vf
+          gpus: [1]
+          devices:
+            vfA: {rootComplex: pci0000:a9, address: "0000:ac:00", parent: "0000:a9:00.0", numaNode: 0}
+            vfB: {rootComplex: pci0000:a9, address: "0000:ad:00", parent: "0000:a9:00.0", numaNode: 0}
+            dataDirect: {rootComplex: pci0000:a3, address: "0000:a7:00", parent: "0000:a3:00.0", numaNode: 0}
+        - slot: aws2
+          profile: cx8-aws-vf
+          gpus: [2]
+          devices:
+            vfA: {rootComplex: pci0000:bb, address: "0000:be:00", parent: "0000:bb:00.0", numaNode: 1}
+            vfB: {rootComplex: pci0000:bb, address: "0000:bf:00", parent: "0000:bb:00.0", numaNode: 1}
+            dataDirect: {rootComplex: pci0000:b5, address: "0000:b9:00", parent: "0000:b5:00.0", numaNode: 1}
+        - slot: aws3
+          profile: cx8-aws-vf
+          gpus: [3]
+          devices:
+            vfA: {rootComplex: pci0000:c6, address: "0000:c9:00", parent: "0000:c6:00.0", numaNode: 1}
+            vfB: {rootComplex: pci0000:c6, address: "0000:ca:00", parent: "0000:c6:00.0", numaNode: 1}
+            dataDirect: {rootComplex: pci0000:c0, address: "0000:c4:00", parent: "0000:c0:00.0", numaNode: 1}

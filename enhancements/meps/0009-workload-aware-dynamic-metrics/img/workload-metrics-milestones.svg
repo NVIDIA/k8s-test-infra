@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 279" width="1000" height="279" role="img" aria-labelledby="title desc">
+  <title id="title">Workload-aware dynamic metrics milestones</title>
+  <desc id="desc">One milestone. M1, workload telemetry on CPU Nodes, first moves the metrics generator into a package of its own without cgo, with the CRD's Steady, Bursty and Wave patterns and time from a shared epoch, and switches the NVML engine to it. Then it adds the workload tracker. MEP0008's M3 needs M1: its KWOK data plane runs M1's generator and tracker and applies workload telemetry to its DCGM metrics.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d1d9e0; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .title { font-size: 14px; font-weight: 600; }
+    .item { font-size: 12.5px; }
+    .body { font-size: 12px; fill: #59636e; }
+    .done { font-size: 12px; fill: #59636e; }
+    .strong { font-weight: 600; fill: #1f2328; }
+    .label { font-size: 12px; fill: #59636e; }
+    .ms { fill: #ffffff; stroke: #1f2328; stroke-width: 1.5; }
+    .ext { fill: #ffffff; stroke: #59636e; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .rule { stroke: #d1d9e0; stroke-width: 1; }
+    .wire { fill: none; stroke: #59636e; stroke-width: 1.5; }
+    .head { fill: #59636e; }
+    .gen { fill: #bc4c00; } .trk { fill: #0a7782; } .doc { fill: #59636e; }
+    @media (prefers-color-scheme: dark) {
+      .panel { fill: #0d1117; stroke: #3d444d; }
+      text { fill: #f0f6fc; }
+      .body, .done, .label { fill: #9198a1; }
+      .strong { fill: #f0f6fc; }
+      .ms { fill: #0d1117; stroke: #f0f6fc; }
+      .ext { fill: #0d1117; stroke: #9198a1; }
+      .rule { stroke: #3d444d; }
+      .wire { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+      .gen { fill: #db6d28; } .trk { fill: #39c5cf; } .doc { fill: #9198a1; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="278" rx="12"/>
+
+  <!-- M1 -->
+  <rect class="ms" x="24" y="20" width="626" height="212" rx="8"/>
+  <text class="title" x="40" y="46">M1 · Workload telemetry on CPU Nodes</text>
+
+  <text class="body" x="40" y="70">First, the shared generator</text>
+  <circle class="gen" cx="46" cy="90" r="4"/><text class="item" x="58" y="94">generator package without cgo</text>
+  <circle class="gen" cx="46" cy="109" r="4"/><text class="item" x="58" y="113">Steady, Bursty and Wave patterns</text>
+  <circle class="gen" cx="46" cy="128" r="4"/><text class="item" x="58" y="132">time from a shared epoch</text>
+  <circle class="gen" cx="46" cy="147" r="4"/><text class="item" x="58" y="151">NVML engine on the new package</text>
+
+  <text class="body" x="345" y="70">Then, the workload tracker</text>
+  <circle class="trk" cx="351" cy="90" r="4"/><text class="item" x="363" y="94">workload tracker CLI</text>
+  <circle class="trk" cx="351" cy="109" r="4"/><text class="item" x="363" y="113">telemetry annotations from Pods</text>
+  <circle class="trk" cx="351" cy="128" r="4"/><text class="item" x="363" y="132">device-plugin and DRA binding</text>
+  <circle class="gen" cx="351" cy="147" r="4"/><text class="item" x="363" y="151">layer 3 in the NVML engine</text>
+  <circle class="doc" cx="351" cy="166" r="4"/><text class="item" x="363" y="170">new Helm values, deprecated aliases</text>
+
+  <line class="rule" x1="40" y1="186" x2="634" y2="186"/>
+  <text class="done" x="40" y="204"><tspan class="strong">Done when</tspan> a runtime policy's Bursty or Wave pattern shapes utilization on CPU Nodes,</text>
+  <text class="done" x="40" y="221">and user stories 1 and 2 pass with the device plugin and with NVIDIA's DRA driver</text>
+
+  <!-- MEP0008's M3: needs M1 -->
+  <path class="wire" d="M650,126 H675" marker-end="url(#arrow)"/>
+  <rect class="ext" x="676" y="95" width="300" height="62" rx="8"/>
+  <text class="item strong" x="692" y="113">MEP0008 · M3</text>
+  <text class="body" x="692" y="130">workload telemetry on KWOK Nodes,</text>
+  <text class="body" x="692" y="147">in the data plane's DCGM metrics</text>
+
+  <!-- Legend -->
+  <circle class="gen" cx="30" cy="258" r="4"/><text class="label" x="40" y="262">metrics generator and NVML engine</text>
+  <circle class="trk" cx="272" cy="258" r="4"/><text class="label" x="282" y="262">workload tracker</text>
+  <circle class="doc" cx="405" cy="258" r="4"/><text class="label" x="415" y="262">chart, docs and tests</text>
+  <rect class="ext" x="558" y="250" width="28" height="16" rx="4"/><text class="label" x="594" y="262">another MEP</text>
+  <path class="wire" d="M690,258 H724" marker-end="url(#arrow)"/><text class="label" x="732" y="262">comes first</text>
+</svg>

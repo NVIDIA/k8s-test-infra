@@ -517,7 +517,10 @@ test("GitHub boundary paginates and normalizes every metadata list", async () =>
     { path: "a.go", additions: 1, deletions: 2, status: "modified" },
     { path: "b.go", additions: 3, deletions: 4, status: "added" },
   ]);
-  assert.equal((await github.listPullRequestCommits(42)).length, 2);
+  assert.deepEqual((await github.listPullRequestCommits(42)).map(({ sha, parents }) => ({ sha, parents })), [
+    { sha: "live-head-oid-6f9d", parents: [{ sha: "parent" }] },
+    { sha: "second", parents: [{ sha: "parent" }] },
+  ]);
   assert.deepEqual(await github.listPullRequestReviews(42), [
     {
       id: 7,

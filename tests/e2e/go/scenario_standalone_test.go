@@ -74,6 +74,14 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.Inventory(ctx, h.Kube, pod, p)
 			})
 
+			It("runs the nvidia-smi of the profile's driver branch", Label("nvidia-smi"), func(ctx SpecContext) {
+				// The node agent picks it from the image by the profile's
+				// driver, and points the pod's own nvidia-smi at what it
+				// stages. A profile on a branch the image has no binary for
+				// fails here rather than with misread field values elsewhere.
+				nvidiasmi.Branch(ctx, h.Kube, pod, p)
+			})
+
 			It("reports architecture-correct temperature thresholds via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Issue #635: pre-Ada profiles must show absolute threshold
 				// rows; Ada+ keep T.Limit. Focus profiles called out there are
@@ -350,7 +358,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				})
 
 				It("pins temperature via the nvml-mock-ctl temp command", Label("runtime-control"), func(ctx SpecContext) {
-					assertRuntimeTempCommand(ctx, h, pod)
+					assertRuntimeTempCommand(ctx, h, pod, p)
 				})
 
 				It("resets a GPU via nvidia-smi -r, clearing its overrides", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {

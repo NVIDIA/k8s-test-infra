@@ -43,6 +43,8 @@ It also runs a suite of **bridge edge-case tests** (`bridge_tests.go`): NVML ret
 
 The integration test runs against a profile config fixture, `util-test-config.yaml`, via `MOCK_NVML_CONFIG` (set by the Makefile). It is an A100 profile plus one compute process carrying `sm_util`, so the per-process utilization path is exercised. Device 5 declares `power.smoothing.supported`, so the power smoothing setters are driven on it while every other device refuses them.
 
+The fixture declares a 580 driver, on which a call only a newer driver exports answers `FUNCTION_NOT_FOUND`. `make test` therefore runs the suite of such a call a second time, alone, on a copy of the fixture that declares a 615 driver: `mocknvml-test fabric_v4` with `MOCK_NVML_CONFIG=/app/util-test-config-615.yaml`.
+
 Without a config file, the mock library falls back to environment variables:
 
 - `MOCK_NVML_NUM_DEVICES` - Number of mock devices (default: 8)

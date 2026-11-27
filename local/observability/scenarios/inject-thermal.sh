@@ -69,9 +69,9 @@ fi
 # pod": a node has scraped GPUs only once its dcgm-exporter is up and discovered.
 target_node=""
 target_pod=""
-for host in $(promq "query?query=DCGM_FI_DEV_GPU_TEMP" \
+for host in $(promq "query?query=DCGM_FI_DEV_GPU_TEMP_CELSIUS" \
     | jq -r --arg gpu "${TARGET_GPU}" \
-        '[.data.result[] | select(.metric.gpu == $gpu) | .metric.Hostname] | unique | .[]'); do
+        '[.data.result[] | select(.metric.gpu == $gpu) | .metric.hostname] | unique | .[]'); do
   pod=$(kubectl -n "${MOKKA_NAMESPACE}" get pods -l app.kubernetes.io/name=nvml-mock \
     --field-selector "spec.nodeName=${host},status.phase=Running" \
     -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
@@ -82,7 +82,7 @@ for host in $(promq "query?query=DCGM_FI_DEV_GPU_TEMP" \
   fi
 done
 [[ -n "${target_node}" ]] \
-  || fail "no node has both a running nvml-mock pod and a scraped DCGM_FI_DEV_GPU_TEMP series for gpu ${TARGET_GPU}; check that dcgm-exporter is up and that its ServiceMonitor carries release=kube-prometheus-stack"
+  || fail "no node has both a running nvml-mock pod and a scraped DCGM_FI_DEV_GPU_TEMP_CELSIUS series for gpu ${TARGET_GPU}; check that dcgm-exporter is up and that its ServiceMonitor carries release=kube-prometheus-stack"
 printf '    target: gpu %s on %s (mock pod %s)\n' "${TARGET_GPU}" "${target_node}" "${target_pod}"
 
 mock_ctl() { kubectl -n "${MOKKA_NAMESPACE}" exec "${target_pod}" -- nvml-mock-ctl "$@"; }
@@ -91,9 +91,9 @@ mock_ctl() { kubectl -n "${MOKKA_NAMESPACE}" exec "${target_pod}" -- nvml-mock-c
 # absent series yields the literal "none" so a missing metric can never be mistaken
 # for a reading.
 gpu_temp() {
-  promq "query?query=DCGM_FI_DEV_GPU_TEMP" \
+  promq "query?query=DCGM_FI_DEV_GPU_TEMP_CELSIUS" \
     | jq -r --arg gpu "${TARGET_GPU}" --arg node "${target_node}" \
-        '[.data.result[] | select(.metric.gpu == $gpu and .metric.Hostname == $node) | .value[1]]
+        '[.data.result[] | select(.metric.gpu == $gpu and .metric.hostname == $node) | .value[1]]
          | if length == 1 then .[0] else "none" end'
 }
 
@@ -123,7 +123,7 @@ await_temp() {
     && awk -v v="${cur}" -v w="${want}" 'BEGIN { exit !(v < w) }'; then
     hint=" — the reading settled BELOW the injected value, which is what the mock's clamp to the profile's thermal shutdown_threshold_c looks like; lower HOT_TEMP_C"
   fi
-  fail "DCGM_FI_DEV_GPU_TEMP{gpu=\"${TARGET_GPU}\",Hostname=\"${target_node}\"} never became ${op} ${want} within ~$((POLL_ATTEMPTS * POLL_INTERVAL_S))s (last read: ${cur})${hint}"
+  fail "DCGM_FI_DEV_GPU_TEMP_CELSIUS{gpu=\"${TARGET_GPU}\",hostname=\"${target_node}\"} never became ${op} ${want} within ~$((POLL_ATTEMPTS * POLL_INTERVAL_S))s (last read: ${cur})${hint}"
 }
 
 # Clear anything left by an earlier run or a by-hand session. Without this a
@@ -139,7 +139,7 @@ mock_ctl reset --gpu all
 printf '==> waiting for gpu %s to report a simulator-driven temperature again\n' "${TARGET_GPU}"
 await_temp '!=' "${HOT_TEMP_C}"
 baseline="${OBSERVED}"
-printf '    baseline DCGM_FI_DEV_GPU_TEMP = %sC\n' "${baseline}"
+printf '    baseline DCGM_FI_DEV_GPU_TEMP_CELSIUS = %sC\n' "${baseline}"
 
 printf '==> heating gpu %s to %sC\n' "${TARGET_GPU}" "${HOT_TEMP_C}"
 mock_ctl temp --gpu "${TARGET_GPU}" "${HOT_TEMP_C}"
@@ -149,16 +149,16 @@ mock_ctl temp --gpu "${TARGET_GPU}" "${HOT_TEMP_C}"
 # merely happens to run hot.
 printf '==> waiting for the heat to reach Prometheus\n'
 await_temp '==' "${HOT_TEMP_C}"
-printf 'OK: DCGM_FI_DEV_GPU_TEMP for gpu %s stepped %sC -> %sC in Prometheus\n' \
+printf 'OK: DCGM_FI_DEV_GPU_TEMP_CELSIUS for gpu %s stepped %sC -> %sC in Prometheus\n' \
   "${TARGET_GPU}" "${baseline}" "${OBSERVED}"
 
 # A pin that moved every GPU on the node is indistinguishable from a
 # `temp --gpu all` mistake and would make the dashboard's per-GPU story a lie.
 # Prove the siblings kept their own readings — and that there WERE siblings, so
 # an empty result cannot pass as a clean scope.
-siblings=$(promq "query?query=DCGM_FI_DEV_GPU_TEMP" \
+siblings=$(promq "query?query=DCGM_FI_DEV_GPU_TEMP_CELSIUS" \
   | jq --arg node "${target_node}" --arg gpu "${TARGET_GPU}" \
-      '[.data.result[] | select(.metric.Hostname == $node and .metric.gpu != $gpu)]')
+      '[.data.result[] | select(.metric.hostname == $node and .metric.gpu != $gpu)]')
 sibling_count=$(jq 'length' <<<"${siblings}")
 [[ "${sibling_count}" -gt 0 ]] \
   || fail "no sibling GPU series on ${target_node} to compare against, so the scope check would be vacuous"
