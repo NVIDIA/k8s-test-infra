@@ -1151,6 +1151,27 @@ by every other process on the node and outlives the writer. A node-wide write
 also clears the per-device records, which would otherwise outrank it. Inspect
 either with [`nvml-mock-ctl status`](nvml-mock-ctl.md#status--inspect-active-overrides).
 
+On `architecture: rubin`, a `scope: device` profile that also sets `fabric`
+answers `nvmlDeviceSetNvlinkBwModeAsync_v1` as well. It accepts the same modes
+as `nvmlDeviceSetNvlinkBwMode` and records the new mode at once. For the next
+two seconds, `nvmlDeviceGetGpuFabricInfo` and `nvmlDeviceGetGpuFabricInfoV`
+report `NVML_GPU_FABRIC_STATE_IN_PROGRESS` instead of `COMPLETED`, so a caller
+that polls for completion sees the transition. The call reports an
+`asyncPollTimeoutMs` of 5000. Earlier architectures answer
+`NVML_ERROR_NOT_SUPPORTED`.
+
+Rubin boards with NVLink also answer `nvmlDeviceGetNvLinkTelemetrySamples_v1`.
+Each requested link returns up to 32 raw TX or RX throughput samples, oldest
+first and 100 ms apart, ending at the moment of the call. The newest sample
+therefore equals the `NVML_FI_DEV_NVLINK_THROUGHPUT_RAW_TX` or `_RX` field
+value read at the same time. A `sampleCount` of
+0 asks for the supported depth (32). A link that is not up returns
+`NVML_ERROR_NOT_SUPPORTED` in its own slot. Earlier architectures answer
+`NVML_ERROR_NOT_SUPPORTED`.
+
+Both calls need a configured driver of `600` or newer. Of the shipped profiles,
+`vrnvl72` answers both.
+
 `firmware` fills the `Firmware Version:` rows that `nvlink --info` prints under
 `NVLE:`. Each value is `major:minor:subMinor` — the form `nvidia-smi` prints —
 so a line read off real hardware transfers to a profile unchanged:

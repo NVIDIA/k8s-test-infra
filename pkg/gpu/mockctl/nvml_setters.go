@@ -27,6 +27,7 @@ package mockctl
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
@@ -227,6 +228,27 @@ func SetNvlinkBwMode(path string, index int, mode uint8, allDevices bool) error 
 	})
 }
 
+// SetNvlinkBwModeAsync persists a per-device bandwidth mode set by
+// nvmlDeviceSetNvlinkBwModeAsync_v1, together with when it completes, and
+// returns that time. Both go in one write so a reader in another process
+// never sees the new mode without the in-flight fabric state that announces
+// it.
+//
+// settleAt is called once the document lock is held rather than before: a
+// deadline taken before a long wait on the lock could already have passed by
+// the time it is written, and no reader would ever see the set in flight.
+func SetNvlinkBwModeAsync(path string, index int, mode uint8, settleAt func() time.Time) (time.Time, error) {
+	var at time.Time
+	err := mutateDevice(path, func(d *Doc) error {
+		at = settleAt()
+		patch := NvlinkBwModePatch(mode)
+		patch[nvlinkBwModeSettleAtKey] = at.UnixMilli()
+		d.SetFields(Target{Index: index}, patch)
+		return nil
+	})
+	return at, err
+}
+
 // UpdateFanControl persists new per-fan control state for one device, computed
 // by apply from the state already on disk.
 //
@@ -390,6 +412,10 @@ const nvlinkLowPowerThresholdKey = "nvlink_low_power_threshold"
 // named once because a node-wide write deletes from the per-device buckets the
 // same key a per-device write records.
 const nvlinkBwModeKey = "nvlink_bw_mode"
+
+// nvlinkBwModeSettleAtKey records when an asynchronous bandwidth-mode set
+// completes, in Unix milliseconds.
+const nvlinkBwModeSettleAtKey = "nvlink_bw_mode_settle_at_ms"
 
 // NvlinkBwModePatch builds an override patch recording the bandwidth mode
 // nvmlDeviceSetNvlinkBwMode or nvmlSystemSetNvlinkBwMode applied.

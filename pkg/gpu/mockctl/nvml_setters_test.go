@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -95,6 +96,52 @@ func TestSetNvlinkBwMode_SurvivesReload(t *testing.T) {
 	require.EqualValues(t, 3, doc.Devices["1"]["nvlink_bw_mode"])
 	require.NotContains(t, doc.All, "nvlink_bw_mode",
 		"a per-device set must not land in the bucket the node-wide getter reads")
+}
+
+// TestSetNvlinkBwModeAsync_RecordsModeAndSettleTime pins that the async set
+// lands the mode and its completion time in the same device bucket, which is
+// what lets a reader in another process derive the in-flight fabric state.
+func TestSetNvlinkBwModeAsync_RecordsModeAndSettleTime(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+	settleAt := time.UnixMilli(1_800_000_002_000)
+
+	got, err := SetNvlinkBwModeAsync(path, 1, 3, func() time.Time { return settleAt })
+	require.NoError(t, err)
+	require.Equal(t, settleAt, got, "the recorded time is returned")
+
+	doc, err := Load(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, doc.Devices["1"]["nvlink_bw_mode"])
+	require.EqualValues(t, settleAt.UnixMilli(), doc.Devices["1"]["nvlink_bw_mode_settle_at_ms"])
+}
+
+// TestSetNvlinkBwModeAsync_DeadlineTakenUnderLock pins that the settle time is
+// computed only once the lock is held. Taken before a long wait on the lock,
+// it could already have passed when written, and no reader would ever see
+// the set in flight.
+func TestSetNvlinkBwModeAsync_DeadlineTakenUnderLock(t *testing.T) {
+	t.Parallel()
+	path := overridePath(t)
+
+	unlock, err := LockOverride(path)
+	require.NoError(t, err)
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		close(released)
+		unlock()
+	}()
+
+	_, err = SetNvlinkBwModeAsync(path, 0, 3, func() time.Time {
+		select {
+		case <-released:
+		default:
+			t.Error("settle time computed before the lock was acquired")
+		}
+		return time.UnixMilli(1)
+	})
+	require.NoError(t, err)
 }
 
 // TestSetNvlinkBwMode_NodeWideTargetsAllBucket pins where the node-wide NVML

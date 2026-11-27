@@ -1002,6 +1002,59 @@ _Static_assert(offsetof(nvmlNvlinkSetBwMode_v1_t, bSetBest) == 4 && offsetof(nvm
                "nvmlNvlinkSetBwMode_v1_t field order must stay version/bSetBest/bwMode: swapping the last two keeps sizeof at 12");
 
 /**
+ * Asynchronous NVLink Reduced Bandwidth Mode request (Rubin or newer). Unlike
+ * the synchronous struct it carries no version field, and bwMode is a full
+ * unsigned int. asyncPollTimeoutMs is an output: how long the caller should
+ * poll nvmlDeviceGetGpuFabricInfoV for NVML_GPU_FABRIC_STATE_COMPLETED.
+ */
+typedef struct nvmlNvlinkSetBwModeAsync_v1_st
+{
+    unsigned int bSetBest;
+    unsigned int bwMode;
+    unsigned int asyncPollTimeoutMs;
+} nvmlNvlinkSetBwModeAsync_v1_t;
+_Static_assert(sizeof(nvmlNvlinkSetBwModeAsync_v1_t) == 12,
+               "nvmlNvlinkSetBwModeAsync_v1_t must stay 12 bytes: bSetBest(4) + bwMode(4) + asyncPollTimeoutMs(4)");
+_Static_assert(offsetof(nvmlNvlinkSetBwModeAsync_v1_t, bwMode) == 4 &&
+                   offsetof(nvmlNvlinkSetBwModeAsync_v1_t, asyncPollTimeoutMs) == 8,
+               "nvmlNvlinkSetBwModeAsync_v1_t field order must stay bSetBest/bwMode/asyncPollTimeoutMs");
+
+typedef enum
+{
+    NVML_NVLINK_TELEMETRY_SAMPLE_TYPE_THROUGHPUT_RAW_TX = 0,
+    NVML_NVLINK_TELEMETRY_SAMPLE_TYPE_THROUGHPUT_RAW_RX = 1,
+    NVML_NVLINK_TELEMETRY_SAMPLE_TYPE_COUNT             = 2
+} nvmlNvlinkTelemetrySampleType_t;
+
+/**
+ * One (link, metric) slot of a batched NVLink telemetry request (Rubin or
+ * newer). sampleCount is in/out: 0 asks for the supported count without
+ * touching samples. nvmlReturn is the per-slot status.
+ */
+typedef struct
+{
+    unsigned int        linkId;
+    unsigned int        sampleType;
+    unsigned int        sampleCount;
+    unsigned long long *samples;
+    nvmlReturn_t        nvmlReturn;
+} nvmlNvlinkTelemetrySample_v1_t;
+_Static_assert(sizeof(nvmlNvlinkTelemetrySample_v1_t) == 32,
+               "nvmlNvlinkTelemetrySample_v1_t must stay 32 bytes: 3x uint(12) + 4 pad + samples(8) + nvmlReturn(4) + 4 tail pad");
+_Static_assert(offsetof(nvmlNvlinkTelemetrySample_v1_t, samples) == 16 &&
+                   offsetof(nvmlNvlinkTelemetrySample_v1_t, nvmlReturn) == 24,
+               "nvmlNvlinkTelemetrySample_v1_t samples/nvmlReturn must stay at offsets 16/24");
+
+typedef struct nvmlNvlinkTelemetrySamples_v1_st
+{
+    unsigned int                    telemetryCount;
+    nvmlNvlinkTelemetrySample_v1_t *telemetrySamples;
+} nvmlNvlinkTelemetrySamples_v1_t;
+_Static_assert(sizeof(nvmlNvlinkTelemetrySamples_v1_t) == 16 &&
+                   offsetof(nvmlNvlinkTelemetrySamples_v1_t, telemetrySamples) == 8,
+               "nvmlNvlinkTelemetrySamples_v1_t must stay telemetryCount(4) + 4 pad + telemetrySamples(8)");
+
+/**
  * Per-device NVLink information. isNvleEnabled is NVLink encryption, which
  * `nvidia-smi nvlink --info` renders as its " NVLE:" row.
  *
@@ -1538,8 +1591,6 @@ typedef struct nvmlEventSetGetGpuOperationalEventContextLegacyXid_v1_st nvmlEven
 typedef struct nvmlEventSetWait_v3_st                                   nvmlEventSetWait_v3_t;
 typedef struct nvmlGetMemoryLimits_v1_st                                nvmlGetMemoryLimits_v1_t;
 typedef struct nvmlGpuOperationalEventConfig_v1_st                      nvmlGpuOperationalEventConfig_v1_t;
-typedef struct nvmlNvlinkSetBwModeAsync_v1_st                           nvmlNvlinkSetBwModeAsync_v1_t;
-typedef struct nvmlNvlinkTelemetrySamples_v1_st                         nvmlNvlinkTelemetrySamples_v1_t;
 typedef struct nvmlPerfMetricsSamples_v1_st                             nvmlPerfMetricsSamples_v1_t;
 typedef struct nvmlSetMemoryLimits_v1_st                                nvmlSetMemoryLimits_v1_t;
 

@@ -53,6 +53,14 @@ import (
 //	NvlinkFirmwareVersion: ucodeType(1) + 3 pad + major/minor/subMinor(12) = 16
 //	NvlinkFirmwareInfo:    firmwareVersion[100](1600) + numValidEntries(4) = 1604
 //	NvLinkInfo_v2:         version(4) + isNvleEnabled(4) + firmwareInfo(1604) = 1612
+//
+// The Rubin async setter and telemetry batch carry no version field, so their
+// layout is the only thing that ties a caller's buffer to what the bridge
+// writes:
+//
+//	SetBwModeAsync_v1:     bSetBest(4) + bwMode(4) + asyncPollTimeoutMs(4) = 12
+//	TelemetrySample_v1:    linkId/sampleType/sampleCount(12) + 4 pad + samples(8) + nvmlReturn(4) + 4 pad = 32
+//	TelemetrySamples_v1:   telemetryCount(4) + 4 pad + telemetrySamples(8) = 16
 const (
 	expectedNvlinkSupportedBwModesSize uintptr = 28
 	expectedNvlinkGetBwModeSize        uintptr = 12
@@ -62,6 +70,9 @@ const (
 	expectedNvlinkFirmwareVersionSize  uintptr = 16
 	expectedNvlinkFirmwareInfoSize     uintptr = 1604
 	expectedNvLinkPowerThresSize       uintptr = 4
+	expectedNvlinkSetBwModeAsyncSize   uintptr = 12
+	expectedNvlinkTelemetrySampleSize  uintptr = 32
+	expectedNvlinkTelemetrySamplesSize uintptr = 16
 )
 
 func TestNvlinkBwModeStructLayouts(t *testing.T) {
@@ -80,6 +91,9 @@ func TestNvlinkBwModeStructLayouts(t *testing.T) {
 		{"NvlinkFirmwareVersion", unsafe.Sizeof(nvml.NvlinkFirmwareVersion{}), expectedNvlinkFirmwareVersionSize},
 		{"NvlinkFirmwareInfo", unsafe.Sizeof(nvml.NvlinkFirmwareInfo{}), expectedNvlinkFirmwareInfoSize},
 		{"NvLinkPowerThres", unsafe.Sizeof(nvml.NvLinkPowerThres{}), expectedNvLinkPowerThresSize},
+		{"NvlinkSetBwModeAsync_v1", unsafe.Sizeof(nvml.NvlinkSetBwModeAsync_v1{}), expectedNvlinkSetBwModeAsyncSize},
+		{"NvlinkTelemetrySample_v1", unsafe.Sizeof(nvml.NvlinkTelemetrySample_v1{}), expectedNvlinkTelemetrySampleSize},
+		{"NvlinkTelemetrySamples_v1", unsafe.Sizeof(nvml.NvlinkTelemetrySamples_v1{}), expectedNvlinkTelemetrySamplesSize},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -99,4 +113,15 @@ func TestNvlinkSupportedBwModesArrayBound(t *testing.T) {
 
 	var modes nvml.NvlinkSupportedBwModes
 	require.Len(t, modes.BwModes, 23, "NVML_NVLINK_TOTAL_SUPPORTED_BW_MODES")
+}
+
+// TestNvlinkTelemetrySampleOffsets pins the two fields the bridge writes
+// through a pointer the caller owns; a shift past the padding would leave the
+// size unchanged and land the per-slot status inside the samples pointer.
+func TestNvlinkTelemetrySampleOffsets(t *testing.T) {
+	t.Parallel()
+
+	var s nvml.NvlinkTelemetrySample_v1
+	require.Equal(t, uintptr(16), unsafe.Offsetof(s.Samples), "samples offset")
+	require.Equal(t, uintptr(24), unsafe.Offsetof(s.NvmlReturn), "nvmlReturn offset")
 }

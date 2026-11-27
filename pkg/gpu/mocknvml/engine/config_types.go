@@ -237,6 +237,13 @@ type DeviceConfig struct {
 	// which falls back to the profile's nvlink.bw_mode.
 	NVLinkBwMode *uint8 `json:"nvlink_bw_mode,omitempty"`
 
+	// NVLinkBwModeSettleAtMs records when the last
+	// nvmlDeviceSetNvlinkBwModeAsync_v1 completes, in Unix milliseconds. Until
+	// then the device's fabric state reads IN_PROGRESS, which is how a caller
+	// of the asynchronous setter polls for completion. Zero means no
+	// asynchronous set is in flight.
+	NVLinkBwModeSettleAtMs int64 `json:"nvlink_bw_mode_settle_at_ms,omitzero"`
+
 	// NVLinkLowPowerThreshold records the threshold
 	// nvmlDeviceSetNvLinkDeviceLowPowerThreshold applied, in the 50us units
 	// the low-power field values report. Nil is the driver default, which is

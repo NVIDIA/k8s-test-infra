@@ -69,6 +69,7 @@ func (d *ConfigurableDevice) GetMockFabricInfo() (FabricInfo, nvml.Return) {
 		return FabricInfo{}, nvml.ERROR_NOT_SUPPORTED
 	}
 	info := buildFabricInfo(cfg.Fabric)
+	d.applyNvlinkBwModeSettling(cfg, &info)
 	debugLog("[NVML] nvmlDeviceGetGpuFabricInfo -> clique=%d state=%d\n", info.CliqueID, info.State)
 	return info, nvml.SUCCESS
 }
@@ -89,6 +90,7 @@ func (d *ConfigurableDevice) GetMockFabricInfoV() (FabricInfo, nvml.Return) {
 		return FabricInfo{}, nvml.ERROR_NOT_SUPPORTED
 	}
 	info := buildFabricInfo(cfg.Fabric)
+	d.applyNvlinkBwModeSettling(cfg, &info)
 	debugLog("[NVML] nvmlDeviceGetGpuFabricInfoV -> clique=%d state=%d healthMask=0x%x healthSummary=%d\n",
 		info.CliqueID, info.State, info.HealthMask, info.HealthSummary)
 	return info, nvml.SUCCESS
@@ -110,9 +112,21 @@ func (d *ConfigurableDevice) GetMockFabricInfoV4() (FabricInfo, nvml.Return) {
 	}
 	info := buildFabricInfo(cfg.Fabric)
 	info.Cliques = fabricCliques(cfg.Fabric, gpuarch.Arch(d.Config.Architecture))
+	d.applyNvlinkBwModeSettling(cfg, &info)
 	debugLog("[NVML] nvmlDeviceGetGpuFabricInfo_v4 -> cliques=%v state=%d healthMask=0x%x healthSummary=%d\n",
 		info.Cliques, info.State, info.HealthMask, info.HealthSummary)
 	return info, nvml.SUCCESS
+}
+
+// applyNvlinkBwModeSettling holds a registered GPU at IN_PROGRESS while an
+// asynchronous bandwidth-mode set settles, which is the transition
+// nvmlDeviceSetNvlinkBwModeAsync_v1 tells its caller to poll for, in every
+// fabric-info version. A GPU that has not finished registering is left alone:
+// it was never COMPLETED, so there is nothing for the set to interrupt.
+func (d *ConfigurableDevice) applyNvlinkBwModeSettling(cfg *DeviceConfig, info *FabricInfo) {
+	if info.State == FabricStateCompleted && d.nvlinkBwModeSettling(cfg) {
+		info.State = FabricStateInProgress
+	}
 }
 
 func buildFabricInfo(cfg *FabricConfig) FabricInfo {

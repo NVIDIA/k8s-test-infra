@@ -18,6 +18,7 @@ package engine
 
 import (
 	"sync/atomic"
+	"time"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
@@ -50,6 +51,13 @@ type OverrideWriter interface {
 	// selects the `all:` bucket, which is how the node-wide NVML pair writes
 	// a value that is not about one device; otherwise it applies to index.
 	SetNvlinkBwMode(index int, mode uint8, allDevices bool) error
+
+	// SetNvlinkBwModeAsync records a per-device bandwidth mode together with
+	// the time the asynchronous set completes, in one write so a reader never
+	// sees the new mode without its in-flight state. settleAt is called with
+	// the document locked, so waiting on the lock does not eat into the
+	// settle period; the recorded time is returned.
+	SetNvlinkBwModeAsync(index int, mode uint8, settleAt func() time.Time) (time.Time, error)
 
 	// SetNvlinkLowPowerThreshold records an NVLink low-power threshold for one
 	// device. A nil threshold clears the recorded value, which is what the

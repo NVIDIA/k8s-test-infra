@@ -12,6 +12,8 @@
 package main
 
 import (
+	"time"
+
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mockctl"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
@@ -55,6 +57,12 @@ func (overrideWriter) UpdateWorkloadProfiles(
 // nvmlSystemSetNvlinkBwMode applied.
 func (overrideWriter) SetNvlinkBwMode(index int, mode uint8, allDevices bool) error {
 	return mockctl.SetNvlinkBwMode(engine.ConfigOverridePath(), index, mode, allDevices)
+}
+
+// SetNvlinkBwModeAsync records the mode nvmlDeviceSetNvlinkBwModeAsync_v1
+// applied and when the set completes.
+func (overrideWriter) SetNvlinkBwModeAsync(index int, mode uint8, settleAt func() time.Time) (time.Time, error) {
+	return mockctl.SetNvlinkBwModeAsync(engine.ConfigOverridePath(), index, mode, settleAt)
 }
 
 // SetNvlinkLowPowerThreshold records the threshold

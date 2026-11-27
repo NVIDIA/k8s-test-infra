@@ -14,10 +14,13 @@
 package engine
 
 import (
+	"fmt"
 	"math"
 	"slices"
+	"time"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"github.com/NVIDIA/k8s-test-infra/internal/gpuarch"
 )
 
 // defaultNvlinkBwModes is the supported NVLink Reduced Bandwidth Mode list a
@@ -180,13 +183,9 @@ func (d *ConfigurableDevice) SetMockNvlinkBwMode(mode uint8, setBest bool) nvml.
 	if !d.supportsNvlinkBwMode() {
 		return nvml.ERROR_NOT_SUPPORTED
 	}
-	supported := d.nvlinkSupportedBwModes()
-
-	if setBest {
-		mode = bestNvlinkBwMode(supported)
-	} else if !slices.Contains(supported, mode) {
-		debugLog("[NVML] nvmlDeviceSetNvlinkBwMode(%d) rejected; supported=%v\n", mode, supported)
-		return nvml.ERROR_INVALID_ARGUMENT
+	mode, ret := d.resolveNvlinkBwModeRequest("nvmlDeviceSetNvlinkBwMode", uint32(mode), setBest)
+	if ret != nvml.SUCCESS {
+		return ret
 	}
 
 	w := overrideWriter()
@@ -201,6 +200,102 @@ func (d *ConfigurableDevice) SetMockNvlinkBwMode(mode uint8, setBest bool) nvml.
 	configOverrides.invalidateAfterLocalWrite()
 	debugLog("[NVML] nvmlDeviceSetNvlinkBwMode -> mode=%d\n", mode)
 	return nvml.SUCCESS
+}
+
+// resolveNvlinkBwModeRequest turns a setter's (mode, setBest) pair into the
+// mode to record, which both per-device setters share so they accept exactly
+// the same values. setBest selects the best mode and makes mode irrelevant.
+func (d *ConfigurableDevice) resolveNvlinkBwModeRequest(api string, mode uint32, setBest bool) (uint8, nvml.Return) {
+	supported := d.nvlinkSupportedBwModes()
+	if setBest {
+		return bestNvlinkBwMode(supported), nvml.SUCCESS
+	}
+	if mode > math.MaxUint8 || !slices.Contains(supported, uint8(mode)) {
+		debugLog("[NVML] %s(%d) rejected; supported=%v\n", api, mode, supported)
+		return 0, nvml.ERROR_INVALID_ARGUMENT
+	}
+	return uint8(mode), nvml.SUCCESS
+}
+
+const (
+	// nvlinkBwModeAsyncSettle is how long the fabric reports IN_PROGRESS
+	// after an asynchronous bandwidth-mode set. The header gives no figure;
+	// it is long enough that a poller in another process, whose override
+	// cache may lag by defaultConfigOverrideTTL, still observes the
+	// transition rather than only its end.
+	nvlinkBwModeAsyncSettle = 2 * time.Second
+
+	// nvlinkBwModeAsyncPollTimeoutMs is what the async setter reports in
+	// asyncPollTimeoutMs: comfortably past the settle time, so a caller that
+	// honours it never gives up on a transition that is about to complete.
+	nvlinkBwModeAsyncPollTimeoutMs = 5000
+)
+
+// supportsNvlinkBwModeAsync gates nvmlDeviceSetNvlinkBwModeAsync_v1 on the
+// generation the header names ("Rubin or newer"), on the per-device family it
+// is the asynchronous form of, and on the device reporting fabric info at
+// all: completion is only observable through nvmlDeviceGetGpuFabricInfoV, so
+// a board that answers that with NOT_SUPPORTED cannot honour the contract.
+func (d *ConfigurableDevice) supportsNvlinkBwModeAsync() bool {
+	return gpuarch.Arch(d.Config.Architecture).AtLeast(gpuarch.Rubin) &&
+		d.supportsNvlinkBwMode() &&
+		d.cfg().Fabric != nil
+}
+
+// SetMockNvlinkBwModeAsync backs nvmlDeviceSetNvlinkBwModeAsync_v1. It
+// accepts what nvmlDeviceSetNvlinkBwMode accepts and records the mode the same
+// way, then holds the device's fabric state at IN_PROGRESS for
+// nvlinkBwModeAsyncSettle so a poller of nvmlDeviceGetGpuFabricInfoV sees it
+// move to COMPLETED. The new mode is readable at once; only the fabric state
+// models the delay. It returns the asyncPollTimeoutMs to report.
+func (d *ConfigurableDevice) SetMockNvlinkBwModeAsync(mode uint32, setBest bool) (uint32, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	if !d.supportsNvlinkBwModeAsync() {
+		debugLog("[NVML] nvmlDeviceSetNvlinkBwModeAsync_v1 unsupported (arch=%s scope=%q)\n",
+			gpuarch.Arch(d.Config.Architecture), d.fabric.NvlinkBwModeScope())
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+	resolved, ret := d.resolveNvlinkBwModeRequest("nvmlDeviceSetNvlinkBwModeAsync_v1", mode, setBest)
+	if ret != nvml.SUCCESS {
+		return 0, ret
+	}
+
+	var settledAt time.Time
+	ret = recordSetterWrite(
+		fmt.Sprintf("nvmlDeviceSetNvlinkBwModeAsync_v1 -> mode=%d", resolved),
+		func(w OverrideWriter) error {
+			var err error
+			settledAt, err = w.SetNvlinkBwModeAsync(d.PhysicalIndex(), resolved,
+				func() time.Time { return d.now().Add(nvlinkBwModeAsyncSettle) })
+			return err
+		},
+	)
+	if ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	debugLog("[NVML] nvmlDeviceSetNvlinkBwModeAsync_v1 settles at %s\n", settledAt.Format(time.RFC3339Nano))
+	return nvlinkBwModeAsyncPollTimeoutMs, nvml.SUCCESS
+}
+
+// nvlinkBwModeSettling reports whether an asynchronous bandwidth-mode set is
+// still in flight, which is what turns a COMPLETED fabric state back into
+// IN_PROGRESS.
+func (d *ConfigurableDevice) nvlinkBwModeSettling(cfg *DeviceConfig) bool {
+	if cfg.NVLinkBwModeSettleAtMs == 0 {
+		return false
+	}
+	return d.now().Before(time.UnixMilli(cfg.NVLinkBwModeSettleAtMs))
+}
+
+// now is the device's clock: the fabric's injectable one when there is a
+// fabric, so tests can step through time-dependent state, else the wall clock.
+func (d *ConfigurableDevice) now() time.Time {
+	if d.fabric != nil && d.fabric.now != nil {
+		return d.fabric.now()
+	}
+	return time.Now()
 }
 
 // SetMockNvLinkLowPowerThreshold backs
